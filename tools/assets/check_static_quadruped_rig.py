@@ -4,7 +4,7 @@ import numpy as np
 from avengine.assets.roster_motion.pose import pose,accessor
 from avengine.assets.roster_motion.episode import triangle_mesh
 def main():
- p=argparse.ArgumentParser();p.add_argument("--inventory",type=pathlib.Path,required=True);p.add_argument("--asset",required=True);p.add_argument("--output",type=pathlib.Path,required=True);p.add_argument("--speed",type=float,default=.05);p.add_argument("--period",type=float,default=2.4);p.add_argument("--seconds",type=float,default=4.8);p.add_argument("--authored-rigging",type=pathlib.Path);p.add_argument("--registration-request",type=pathlib.Path);p.add_argument("--reference-code-root",type=pathlib.Path);p.add_argument("--blender",type=pathlib.Path);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument("--inventory",type=pathlib.Path,required=True);p.add_argument("--asset",required=True);p.add_argument("--output",type=pathlib.Path,required=True);p.add_argument("--speed",type=float,default=.05);p.add_argument("--period",type=float,default=2.4);p.add_argument("--seconds",type=float,default=4.8);p.add_argument("--actual-skin-stream",action="store_true");p.add_argument("--authored-rigging",type=pathlib.Path);p.add_argument("--registration-request",type=pathlib.Path);p.add_argument("--reference-code-root",type=pathlib.Path);p.add_argument("--blender",type=pathlib.Path);a=p.parse_args()
  reference=None
  if a.reference_code_root:
   import avengine.assets
@@ -45,29 +45,40 @@ def main():
   if result["maximum_edge_growth"]>1.5+1e-6:
    result["status"]="cpu_motion_fail";result["deformation_failure"]="owner_edge_growth_limit_1_5"
   if a.blender and result["status"]=="cpu_motion_pass_native_pending":
-   from avengine.assets.animal_motion.export import export_walk
-   export=export_walk(rig,walk,np.arange(round(a.seconds*30)+1)/30,a.output/"Walking_Repaired.glb")
-   (a.output/"repaired_export.json").write_text(json.dumps(export,indent=2))
-   surfacepath=a.output/"surface.json"
-   cmd=[str(a.blender),"-b","--factory-startup","--disable-autoexec","-t","1","--python-exit-code","2","--python",str(pathlib.Path(__file__).with_name("blender_check_quadruped_surface.py")),"--","--glb",str(a.output/"Walking_Repaired.glb"),"--output",str(surfacepath),"--frames",str(len(frames))]
-   registration_request=a.registration_request or rig.path.parent/"request.json"
-   if registration_request.exists():cmd+=["--registration-request",str(registration_request)]
-   code=subprocess.call(cmd)
-   result["surface_checks"]=json.loads(surfacepath.read_text())
-   if code or result["surface_checks"]["status"]!="pass":result["status"]="cpu_motion_fail";result["surface_failure"]="visible_regional_penetration_or_edge_growth_or_uv_tear"
-   if result["surface_checks"]["worst_shard_share_area"]>.025 or any(x["nonfinite_vertices"] for x in result["surface_checks"]["frames"]):
-    result["status"]="cpu_motion_fail";result["deformation_failure"]="original_calibrated_2_5_percent_shard_gate_or_nonfinite_vertices"
-   result["self_intersection_status"]=result["surface_checks"]["status"]
-   deformation=a.output/"deformation.json";gatepath=a.output/"deformation_gate.json"
-   cmd=[str(a.blender),"-b","--factory-startup","--disable-autoexec","-t","1","--python",str(pathlib.Path(__file__).with_name("measure_walk_deformation.py")),"--",str(a.output/"Walking_Repaired.glb"),str(deformation),"Walking_Repaired",str(len(frames))]
-   subprocess.run(cmd,check=True)
-   gatecmd=[__import__("sys").executable,str(pathlib.Path(__file__).with_name("gate_rigged_asset.py")),str(deformation)]
-   gated=subprocess.run(gatecmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True);gatecode=gated.returncode
-   print(gated.stdout,flush=True)
-   lines=[line.split(" ",1)[1] for line in gated.stdout.splitlines() if line.startswith("RIGGED_GATE_")]
-   verdict=json.loads(lines[-1]) if lines else {"status":"execution_failed","returncode":gatecode}
-   gatepath.write_text(json.dumps(verdict,indent=2));result["deformation_gate"]=verdict
-   if gatecode:result["status"]="cpu_motion_fail"
+   if a.actual_skin_stream:
+    from run_actual_quadruped_surface import run
+    registration=a.registration_request or rig.path.parent/"request.json"
+    code,surface=run(rig,walk,np.arange(round(a.seconds*30)+1)/30,a.output,a.blender,registration)
+    result["surface_checks"]=surface;result["self_intersection_status"]=surface["status"]
+    if code or surface["status"]!="pass":
+     result["status"]="cpu_motion_fail";result["surface_failure"]="visible_regional_penetration_or_edge_growth_or_uv_tear"
+    if surface["worst_shard_share_area"]>.025 or any(x["nonfinite_vertices"] for x in surface["frames"]):
+     result["status"]="cpu_motion_fail";result["deformation_failure"]="original_calibrated_2_5_percent_shard_gate_or_nonfinite_vertices"
+    result["deformation_gate"]={"status":"pass" if result["status"]=="cpu_motion_pass_native_pending" else "fail","source":"every actual float32 surface frame","maximum_edge_growth":surface["maximum_edge_growth"],"worst_shard_share_area":surface["worst_shard_share_area"],"thresholds_changed":False}
+   else:
+    from avengine.assets.animal_motion.export import export_walk
+    export=export_walk(rig,walk,np.arange(round(a.seconds*30)+1)/30,a.output/"Walking_Repaired.glb")
+    (a.output/"repaired_export.json").write_text(json.dumps(export,indent=2))
+    surfacepath=a.output/"surface.json"
+    cmd=[str(a.blender),"-b","--factory-startup","--disable-autoexec","-t","1","--python-exit-code","2","--python",str(pathlib.Path(__file__).with_name("blender_check_quadruped_surface.py")),"--","--glb",str(a.output/"Walking_Repaired.glb"),"--output",str(surfacepath),"--frames",str(len(frames))]
+    registration_request=a.registration_request or rig.path.parent/"request.json"
+    if registration_request.exists():cmd+=["--registration-request",str(registration_request)]
+    code=subprocess.call(cmd)
+    result["surface_checks"]=json.loads(surfacepath.read_text())
+    if code or result["surface_checks"]["status"]!="pass":result["status"]="cpu_motion_fail";result["surface_failure"]="visible_regional_penetration_or_edge_growth_or_uv_tear"
+    if result["surface_checks"]["worst_shard_share_area"]>.025 or any(x["nonfinite_vertices"] for x in result["surface_checks"]["frames"]):
+     result["status"]="cpu_motion_fail";result["deformation_failure"]="original_calibrated_2_5_percent_shard_gate_or_nonfinite_vertices"
+    result["self_intersection_status"]=result["surface_checks"]["status"]
+    deformation=a.output/"deformation.json";gatepath=a.output/"deformation_gate.json"
+    cmd=[str(a.blender),"-b","--factory-startup","--disable-autoexec","-t","1","--python",str(pathlib.Path(__file__).with_name("measure_walk_deformation.py")),"--",str(a.output/"Walking_Repaired.glb"),str(deformation),"Walking_Repaired",str(len(frames))]
+    subprocess.run(cmd,check=True)
+    gatecmd=[__import__("sys").executable,str(pathlib.Path(__file__).with_name("gate_rigged_asset.py")),str(deformation)]
+    gated=subprocess.run(gatecmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True);gatecode=gated.returncode
+    print(gated.stdout,flush=True)
+    lines=[line.split(" ",1)[1] for line in gated.stdout.splitlines() if line.startswith("RIGGED_GATE_")]
+    verdict=json.loads(lines[-1]) if lines else {"status":"execution_failed","returncode":gatecode}
+    gatepath.write_text(json.dumps(verdict,indent=2));result["deformation_gate"]=verdict
+    if gatecode:result["status"]="cpu_motion_fail"
  except Exception as e:
   import traceback
   result.update(status="failed",error=repr(e),traceback=traceback.format_exc(),frames=frames)

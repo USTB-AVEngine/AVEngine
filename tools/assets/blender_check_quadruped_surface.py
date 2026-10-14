@@ -68,11 +68,84 @@ def regional_measurements(p,area,depth,labels,areas,static_areas,basecodes,basea
    "absolute_maximum_depth_m_diagnostic":float(depth[selected].max()),
    "crossing_pair_count_diagnostic":int(selected.sum())})
  return rows
+
+def run_actual_stream(a,start):
+ meta=json.loads(a.skin_stream_meta.read_text());rest=np.load(meta["rest_npz"],allow_pickle=False)
+ v0=rest["positions"].astype(float);f=rest["faces"].astype(np.int64);binding=rest["region_matrices"]
+ reg=meta["registration"];marks=reg["landmarks_local_m"]
+ feet=np.array([marks["foot_"+str(i)] for i in range(4)])
+ order=np.argsort(feet[:,2]);order=np.r_[order[:2][np.argsort(feet[order[:2],0])],order[2:][np.argsort(feet[order[2:],0])]];feet=feet[order]
+ vl=semantic_vertex_regions(v0,feet,marks["head_bbox_min"],marks["head_bbox_max"],binding[2,:3,3],float(v0[:,1].min()),float(np.ptp(v0[:,1])))
+ labels=np.stack([(vl[f]==i).sum(1) for i in range(len(REGIONS))],axis=1).argmax(1)
+ _,weld=np.unique(np.round(v0,7),axis=0,return_inverse=True)
+ ws=np.argsort(weld,kind="stable");ss=np.r_[0,np.flatnonzero(np.diff(weld[ws]))+1]
+ rest_seams=np.linalg.norm(np.maximum.reduceat(v0[ws],ss)-np.minimum.reduceat(v0[ws],ss),axis=1)
+ tree=BVHTree.FromPolygons(v0.tolist(),f.tolist(),all_triangles=True,epsilon=0.)
+ baseline,coplanar0=intersection_candidates(v0,f,weld,tree);bp,ba,bd=footprints(v0,f,baseline|coplanar0)
+ basecodes=bp[:,0]*len(f)+bp[:,1];baseareas=ba.copy();basedepths=bd.copy()
+ area0=face_areas(v0,f);tri0=v0[f];e0=np.max(np.linalg.norm(tri0-np.roll(tri0,1,axis=1),axis=2),axis=1)
+ rows=[];failures=[];newpairs=set();readable=sys.stdin.buffer
+ def exact(n):
+  parts=[];remaining=n
+  while remaining:
+   data=readable.read(remaining)
+   if not data:raise ValueError("actual_pose_stream_truncated")
+   parts.append(data);remaining-=len(data)
+  return b"".join(parts)
+ for index in range(a.frames):
+  timestamp=float(np.frombuffer(exact(8),dtype="<f8")[0])
+  current=np.frombuffer(exact(7*16*8),dtype="<f8").reshape(7,4,4)
+  v=np.frombuffer(exact(len(v0)*3*4),dtype="<f4").reshape(-1,3).astype(float)
+  if abs(timestamp-index/30)>1e-9:raise ValueError("actual_pose_stream_time_mismatch")
+  tri=v[f];edge=np.max(np.linalg.norm(tri-np.roll(tri,1,axis=1),axis=2),axis=1)
+  area=face_areas(v,f);rat=edge/np.maximum(e0,1e-12);tree=BVHTree.FromPolygons(v.tolist(),f.tolist(),all_triangles=True,epsilon=0.)
+  hits,coplanar=intersection_candidates(v,f,weld,tree);new=hits-baseline;newpairs|=new;p,pa,pd=footprints(v,f,hits|coplanar)
+  codes=p[:,0]*len(f)+p[:,1];known=np.isin(codes,basecodes);missing=p[~known]
+  if len(missing):
+   ma,md=pair_footprints(v0,f,missing);basecodes=np.r_[basecodes,codes[~known]];baseareas=np.r_[baseareas,ma];basedepths=np.r_[basedepths,md]
+   order=np.argsort(basecodes);basecodes=basecodes[order];baseareas=baseareas[order];basedepths=basedepths[order]
+  rotations=(current@np.linalg.inv(binding))[:,:3,:3]
+  depth=pen.pair_new_depth(v,v0,f,p,labels,rotations)
+  regions=regional_measurements(p,pa,pd,labels,area,area0,basecodes,baseareas,basedepths,depth)
+  macro=visible_penetration_gate(regions)
+  seam=np.linalg.norm(np.maximum.reduceat(v[ws],ss)-np.minimum.reduceat(v[ws],ss),axis=1)
+  new_seam=float(np.maximum(seam-rest_seams,0).max())
+  if macro:failures.append({"frame":index,"reason":"new_visible_regional_penetration","regions":macro})
+  if float(rat.max())>1.5+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_1_5","maximum":float(rat.max())})
+  if new_seam>1e-5:failures.append({"frame":index,"reason":"new_uv_seam_tear","maximum_gap_increase_m":new_seam})
+  if not np.isfinite(v).all():failures.append({"frame":index,"reason":"nonfinite_vertices"})
+  row={"frame":index,"time_s":timestamp,"self_intersections":len(hits),"excess_over_static_count_diagnostic":max(0,len(hits)-len(baseline)),
+       "new_pair_id_count_diagnostic":len(new),"regional_penetration_measurements":regions,
+       "cross_region_new_area_total_m2":float(sum(x["new_area_m2"] for x in regions if x["region_pair"][0]!=x["region_pair"][1])),
+       "macroscopic_penetration_failures":macro,"coplanar_candidates_diagnostic":len(coplanar),
+       "shard_share_area":float(area[rat>3.].sum()/max(area.sum(),1e-20)),"max_edge_growth":float(rat.max()),
+       "new_maximum_uv_seam_gap_m":new_seam,"nonfinite_vertices":int((~np.isfinite(v)).any(1).sum())}
+  rows.append(row)
+  if index%30==0:print("ACTUAL_SURFACE_FRAME",index,"pairs",len(hits),"baseline",len(baseline),"visible_failures",len(macro),"stretch",row["max_edge_growth"],flush=True)
+  if failures:print("ACTUAL_SURFACE_REJECTION",failures,flush=True);break
+ result={"schema":"blender_actual_native_skin_regional_surface_v1","status":"pass" if not failures else "fail","input":str(a.glb),
+  "geometry_source":"exact float32 vertices emitted by the target-owned evaluator to native rigid GLB, not Blender glTF reimport",
+  "stream_metadata":str(a.skin_stream_meta),"depth_metric":"relative_inward_material_depth_v1","gate_revision":"owner_20261014_023x",
+  "frames":rows,"frame_count":len(rows),"requested_frame_count":a.frames,"full_sequence_evaluated":len(rows)==a.frames,
+  "source_baseline_true_intersections":len(baseline),"source_baseline_coplanar_candidates":len(coplanar0),
+  "new_true_triangle_pair_count_diagnostic":len(newpairs),"intersection_counts_are_admission_criteria":False,
+  "relative_failures":failures,"maximum_edge_growth":max(x["max_edge_growth"] for x in rows),
+  "worst_shard_share_area":max(x["shard_share_area"] for x in rows),"shard_edge_growth":3.,
+  "static_region_areas_m2":dict(zip(REGIONS,np.bincount(labels,weights=area0,minlength=7).tolist())),
+  "semantic_region_method":"registered_head_bbox_geometric_tail_and_four_own_limb_columns",
+  "thresholds":{"cross_region_new_area_maximum_m2":25e-6,"cross_region_area_scope":"sum_of_all_different_region_pairs_per_frame",
+    "new_penetration_depth_maximum_m":.002,"maximum_edge_growth":1.5,"maximum_uv_seam_gap_increase_m":1e-5},
+  "cpu_s":time.process_time()-start,"source_baseline_bounds_m":[v0.min(0).tolist(),v0.max(0).tolist()]}
+ a.output.write_text(json.dumps(result,indent=2));print("ACTUAL_SURFACE_RESULT",result["status"],len(rows),flush=True)
+ if result["status"]!="pass":raise SystemExit(2)
+
 def main():
  args=sys.argv[sys.argv.index("--")+1:];ap=argparse.ArgumentParser()
  ap.add_argument("--glb",type=pathlib.Path,required=True);ap.add_argument("--output",type=pathlib.Path,required=True)
- ap.add_argument("--registration-request",type=pathlib.Path);ap.add_argument("--action",default="Walking_Repaired");ap.add_argument("--frames",type=int,default=145);a=ap.parse_args(args)
- start=time.process_time();bpy.ops.wm.read_factory_settings(use_empty=True);scene=bpy.context.scene
+ ap.add_argument("--skin-stream-meta",type=pathlib.Path);ap.add_argument("--registration-request",type=pathlib.Path);ap.add_argument("--action",default="Walking_Repaired");ap.add_argument("--frames",type=int,default=145);a=ap.parse_args(args)
+ start=time.process_time()
+ if a.skin_stream_meta:return run_actual_stream(a,start)
+ bpy.ops.wm.read_factory_settings(use_empty=True);scene=bpy.context.scene
  scene.render.fps=30;scene.render.threads_mode="FIXED";scene.render.threads=1
  bpy.ops.import_scene.gltf(filepath=str(a.glb),merge_vertices=False)
  rigs=[o for o in scene.objects if o.type=="ARMATURE"];meshes=[o for o in scene.objects if o.type=="MESH"]

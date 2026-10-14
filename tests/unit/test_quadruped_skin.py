@@ -60,3 +60,16 @@ def test_paw_envelope_keeps_contacts_and_continuous_body_transition():
     assert np.max(np.abs(np.diff(w,axis=0)))<.001
     assert np.all(w[:,names.index("Knee_FL")]==0)
     np.testing.assert_allclose(w.sum(1),1,atol=1e-12)
+
+def test_flat_slope_extinction_is_c1_bounded_and_reduces_peak_gradient():
+    from avengine.assets.quadruped_skin import flat_slope_extinction
+    u=np.linspace(0,1,100001);v=flat_slope_extinction(u);derivative=np.diff(v)/np.diff(u)
+    assert v[0]==0 and v[-1]==1 and np.all(derivative>=0)
+    assert derivative.max()<=1/.9+1e-9
+    assert derivative[0]<.001 and derivative[-1]<.001
+    assert max(abs(derivative[9999]-derivative[10000]),abs(derivative[89999]-derivative[90000]))<.001
+    names,heads,feet=fixture()
+    points=np.vstack([feet,[[0,.82,-.55]]])
+    w=capsule_skin_weights(points,names,heads,feet,1.,[0,.55,0],paw_only=True,boundary_profile="flat_slope")
+    assert np.allclose(w.sum(1),1)
+    for i,side in enumerate(("FL","FR","HL","HR")):assert w[i,names.index("Ankle_"+side)]==pytest.approx(1)

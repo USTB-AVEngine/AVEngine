@@ -56,3 +56,16 @@ registered source scale and are recorded explicitly. Both CPU and native
 runners retain every existing frame, contact, stretch, visibility, floor,
 clearance, emitter, 180/90 and acoustic gate. A full native pass is still
 required; no source mesh, texture or registration is repaired.
+
+Actual-skin stream mode passes the exact CPU float32 vertices that native
+rigid_glb displays to the same Blender BVH and inward regional gates. It
+avoids glTF reimport differences in multiple skin sets. Bind and all gait
+frames retain original topology, edges, seam and shard checks; stopping at
+the first violating frame cannot produce a passing receipt.
+
+The optional flat_slope capsule boundary keeps a C1 partition with zero
+endpoint slope and limits its peak derivative to 1/0.9, compared with 1.5
+for cubic smoothstep. It changes target weight fitting, not the source
+action or any admission threshold. Default smoothstep behavior is unchanged.
+Actual paw minima are recorded from each source around its registered
+paw landmark and used only in owned derivative requests.

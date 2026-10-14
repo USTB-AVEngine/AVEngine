@@ -16,6 +16,7 @@ def main():
  ap.add_argument("--output",type=pathlib.Path,required=True)
  ap.add_argument("--weights",choices=("heat","envelope","blender_envelope"),default="heat")
  ap.add_argument("--geometry-derivative",type=pathlib.Path)
+ ap.add_argument("--boundary-profile",choices=["smoothstep","flat_slope"],default="smoothstep")
  ap.add_argument("--motion-amplitude",type=float,default=.10)
  a=ap.parse_args()
  target=next(x for x in json.loads(a.targets.read_text())["assets"] if x["asset_id"]==a.asset)
@@ -28,7 +29,7 @@ def main():
  rigid_glb(d,b,parts,a.output/"rest.glb")
  vertices=np.concatenate([p["positions"] for p in parts])
  np.savez_compressed(a.output/"source_vertices.npz",positions=vertices)
- req={"asset_id":a.asset,"source":str(source),"geometry_source":str(geometry_source),"rest_glb":str(a.output/"rest.glb"),"template":str(a.template),"output":str(a.output),"registration":row,"method":a.weights,"motion_amplitude":a.motion_amplitude}
+ req={"asset_id":a.asset,"source":str(source),"geometry_source":str(geometry_source),"rest_glb":str(a.output/"rest.glb"),"template":str(a.template),"output":str(a.output),"registration":row,"method":a.weights,"motion_amplitude":a.motion_amplitude,"boundary_profile":a.boundary_profile}
  request=a.output/"request.json";request.write_text(json.dumps(req,ensure_ascii=False,indent=2))
  cmd=[str(a.blender),"-b","--factory-startup","--disable-autoexec","-t","1","--python-exit-code","2","--python",str(pathlib.Path(__file__).with_name("blender_rig_static_quadruped.py")),"--","--request",str(request)]
  print("BLENDER",cmd,flush=True)

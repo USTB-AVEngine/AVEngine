@@ -6,11 +6,14 @@ SIDES=("FL","FR","HL","HR")
 def smoothstep(x):
     u=np.clip(x,0,1)
     return u*u*(3-2*u)
+def flat_slope_extinction(x):
+    u=np.clip(x,0,1);r=.1
+    return np.where(u<r,u*u/(2*r*(1-r)),np.where(u>1-r,1-(1-u)**2/(2*r*(1-r)),(u-r/2)/(1-r)))
 def segment_distance(vertices,a,b):
     delta=b-a
     u=np.clip((vertices-a)@delta/max(float(delta@delta),1e-20),0,1)
     return np.linalg.norm(vertices-(a+u[:,None]*delta),axis=1)
-def capsule_skin_weights(vertices,names,heads,feet,height,head_min,*,paw_only=False):
+def capsule_skin_weights(vertices,names,heads,feet,height,head_min,*,paw_only=False,boundary_profile='smoothstep'):
     v=np.asarray(vertices,float);feet=np.asarray(feet,float);heads=np.asarray(heads,float)
     if v.ndim!=2 or v.shape[1]!=3 or not np.isfinite(v).all() or height<=0:
         raise ValueError("finite target metric geometry required")
@@ -40,7 +43,10 @@ def capsule_skin_weights(vertices,names,heads,feet,height,head_min,*,paw_only=Fa
         competitors=np.arange(4)!=pi
         margin=(dist2[ids][:,competitors]**2-dist2[ids,pi,None]**2)/(2*separation[pi,competitors])
         boundary_width=min(height*.15,float(separation[pi].min())*.48)
-        strength*=smoothstep(np.maximum(margin.min(1),0)/boundary_width)
+        boundary=np.maximum(margin.min(1),0)/boundary_width
+        if boundary_profile=='smoothstep':strength*=smoothstep(boundary)
+        elif boundary_profile=='flat_slope':strength*=flat_slope_extinction(boundary)
+        else:raise ValueError('unknown capsule boundary profile')
         ankle=1-smoothstep((y-height*.12)/(height*.18))
         hip=smoothstep((y-height*.32)/(height*.16))
         knee=np.maximum(0,1-ankle-hip)

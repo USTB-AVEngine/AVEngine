@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 547 个工具脚本。
+当前共 548 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -122,6 +122,7 @@
 | `tools/assets/retopologize_for_rigging.py` | Rebuild a generated mesh as a manifold surface, then reduce it for rigging |
 | `tools/assets/rig_static_animal_motion.py` | Bounded target-native envelope rigging trial; original geometry stays intact |
 | `tools/assets/rigger_loopback_bpy_server.py` | Loopback-only launcher for the vendored TokenRig bpy server |
+| `tools/assets/run_actual_quadruped_surface.py` | Send the actual native float32 skin to Blender's unchanged BVH penetration gate |
 | `tools/assets/run_animal_motion_request.py` | Execute Walking first; qualify an explicitly marked standing slide if needed |
 | `tools/assets/run_generated_animal_chain.sh` | Take one generated animal from a raw reconstruction to a reviewable rigged |
 | `tools/assets/run_pixal3d_mesh.py` | Run the local AVEngine Pixal3D image-to-3D stage on an RGBA candidate |
