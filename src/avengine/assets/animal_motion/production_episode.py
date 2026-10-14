@@ -26,6 +26,31 @@ def local_paw(frame, foot):
     return yaw_matrix(source_yaw(frame)).T @ (np.asarray(foot['sole_world_m']) - np.asarray(frame['root_world_m']))
 
 
+
+def replay_paw_support(frame, foot, root, yaw):
+    """Keep the observed support vertex distinct from the region's sole centre.
+
+    New native rig receipts provide an actual vertex and its separate planted
+    target. Older receipts store only the target and use the sole as the actual
+    support point. Neither representation changes the original 3mm gate.
+    """
+    source_inverse = yaw_matrix(source_yaw(frame)).T
+    origin = np.asarray(frame['root_world_m'])
+    if foot.get('support_target_world_m') is not None:
+        observed = np.asarray(foot['support_world_m'])
+        target = np.asarray(foot['support_target_world_m'])
+        representation = 'native_support_vertex'
+    else:
+        observed = np.asarray(foot['sole_world_m'])
+        target = np.asarray(foot['support_world_m'])
+        representation = 'legacy_sole_support'
+    actual = yaw_matrix(yaw) @ (source_inverse @ (observed - origin)) + root
+    target = yaw_matrix(yaw) @ (source_inverse @ (target - origin)) + root
+    return {'support_world_m': actual.tolist(), 'support_target_world_m': target.tolist(),
+            'support_lock_error_m': float(np.linalg.norm((actual - target)[[0, 2]])),
+            'support_representation': representation, 'support_vertex': foot.get('support_vertex')}
+
+
 def compile_admitted_animal(video, entry, scene, house, inputs, directory, request):
     from shapely.geometry import shape, LineString, Point, box
     from avengine.assets.roster_motion.episode import PhysicalFloor, TriangleClearance
@@ -133,9 +158,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                     if mode == 'walk_animation' and planted:
                         if old_foot.get('support_world_m') is None:
                             raise ValueError('animated admission lacks its actual planted-paw target')
-                        local_target = yaw_matrix(source_yaw(old)).T @ (np.asarray(old_foot['support_world_m']) - np.asarray(old['root_world_m']))
-                        target = yaw_matrix(yaw) @ local_target + root
-                        foot.update(support_world_m=target.tolist(), support_lock_error_m=float(np.linalg.norm((sole - target)[[0, 2]])))
+                        foot.update(replay_paw_support(old, old_foot, root, yaw))
                     elif mode == 'slide_no_animation':
                         foot.update(intentional_slide=True, planted_gait_lock_applicable=False)
                     limit = .012 if entry['declaration']['species_id'] == 'cat' else .008
