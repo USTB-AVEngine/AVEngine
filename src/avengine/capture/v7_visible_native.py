@@ -179,7 +179,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         observed=[];seen=set()
         knots=scene['camera_yaw_knots']
         if (self.motion_inputs.get('independent_probe_camera_search')
-                and self.motion_inputs.get('independent_probe_nearest_camera_first')):
+                and self.motion_inputs.get('independent_probe_nearest_camera_first')
+                and all(e.get('object') is not None for e in entries)):
             # Order the existing static-probe views; keep every failed view
             # and the same actually measured 100px requirement below.
             target=np.mean([np.asarray(e['object'].translation,float) for e in entries],axis=0)-scene['listener_m']

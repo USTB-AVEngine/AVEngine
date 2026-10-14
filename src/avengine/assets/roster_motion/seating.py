@@ -200,7 +200,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                 if chair_obj is not None and inputs.get('phase2') and request.get('require_observed_chair_candidate'):
                     # Reject hidden candidates before committing a physical seat.
                     # The final native 100px chair/person and material gates still run.
-                    chair_view={'semantic_id':int(chair_obj.semantic_id),
+                    chair_view={'object':chair_obj,'semantic_id':int(chair_obj.semantic_id),
                         'declaration':{'asset_id':seat['chair']['asset_id']}}
                     visible,chair_views=video._native_observed_pixels(scene,[chair_view])
                     if visible[seat['chair']['asset_id']]<100:
