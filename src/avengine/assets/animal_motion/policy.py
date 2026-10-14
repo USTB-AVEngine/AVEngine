@@ -33,7 +33,8 @@ def select_motion(*,asset_id,requested_speed_m_s,attempt_animation,attempt_slide
     """Try Walking first, then a native-qualified registered standing slide.
 
     Both callbacks receive the actual requested speed. ``qualify`` must check
-    native geometry, heading, emitter and moving RIR evidence. It returns a
+    the selected policy's native geometry, heading, emitter and, when required,
+    moving RIR evidence. It returns a
     status plus explicit reasons. No earlier static receipt admits a route.
     """
     speed=float(requested_speed_m_s)

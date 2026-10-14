@@ -63,7 +63,7 @@ def instantiate(video,path,root,semantic=700001):
     return obj
 
 
-def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=4.8,mode="walk_animation"):
+def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=4.8,mode="walk_animation",physical_controls=False):
     from avengine.capture.continuous_native_video import NativeContinuousVideo
     output=Path(output);output.mkdir(parents=True,exist_ok=True);(output/'frames').mkdir(exist_ok=True)
     start=time.process_time();p0=np.asarray(route['root_m'],float);yaw=float(route['yaw_rad']);rotation=yaw_matrix(yaw)
@@ -128,6 +128,23 @@ def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=
             encoder.stdin.write(rgb.tobytes())
             if i in selected:
                 ip=output/f'frame_{i:04d}.png';overlay(rgb,eye,(cf,cr,cu),row['head_world_m'],row['tail_world_m'],np.asarray(row['root_world_m'])+[0.,.02,0.],rotation@np.array([0.,0.,-speed])).save(ip);images.append(str(ip))
+            if physical_controls and i in (0,n//2,n-1):
+                from avengine.assets.habitat_capture import _apply_root_with_habitat
+                for degrees in (180,90):
+                    wrong=matrix.copy();wrong[:3,:3]=yaw_matrix(yaw+math.radians(degrees))
+                    _apply_root_with_habitat(obj,wrong,qt=video.qt,mn=video.mn)
+                    actual=np.asarray(obj.root_scene_node.absolute_transformation(),float)
+                    control={'time_s':float(t),'root_world_m':actual[:3,3].tolist(),
+                             'head_world_m':np.asarray(head_node.absolute_translation).tolist(),
+                             'tail_world_m':np.asarray(tail_node.absolute_translation).tolist(),
+                             'physically_rotated_native_drawable':True}
+                    if i==n//2:
+                        negative_rgb=np.asarray(video.sim.get_sensor_observations()['rgb'])[...,:3]
+                        negative_image=output/f'direction_negative_{degrees}.png'
+                        overlay(negative_rgb,eye,(cf,cr,cu),control['head_world_m'],control['tail_world_m'],
+                                actual[:3,3]+[0.,.02,0.],rotation@np.array([0.,0.,-speed])).save(negative_image)
+                        control['image']=str(negative_image)
+                    result.setdefault('native_direction_negative_frames',{}).setdefault(str(degrees),[]).append(control)
             result['frames'].append(row);video.sim.get_rigid_object_manager().remove_object_by_id(obj.object_id)
             if i%30==0:print('NATIVE_FRAME',record['asset_id'],i,'skin_floor',row['body_floor_min_m'],'pixels',row['visible_pixels'],flush=True)
         encoder.stdin.close();code=encoder.wait();encoder=None

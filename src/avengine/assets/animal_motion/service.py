@@ -38,7 +38,7 @@ def validate_reused_route(native,route,*,speed,seconds):
         raise ValueError('reused_native_route_or_speed_differs')
 
 
-def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray_multiplier=9,reuse=None,audio_cores=None):
+def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray_multiplier=9,reuse=None,audio_cores=None,validation_policy="strict"):
     """Compile and qualify one requested animal in its actual single-source room.
 
     The explicit per-room native request is required for both modes. No static
@@ -46,6 +46,10 @@ def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray
     ``reuse`` may map mode to this task's native/audio receipts; their complete
     trajectory identity is checked before accepting them.
     """
+    if validation_policy != "strict":
+        from avengine.assets.animal_motion.motion_only_service import execute_motion_only_request
+        return execute_motion_only_request(record,house,inputs,route,output,speed=speed,
+            seconds=seconds,reuse=reuse,policy=validation_policy)
     root=Path(output);root.mkdir(parents=True,exist_ok=False);reuse=reuse or {};attempt_files={}
     def build(mode,actual_speed):
         if mode=='walk_animation' and not record.get('has_walking'):

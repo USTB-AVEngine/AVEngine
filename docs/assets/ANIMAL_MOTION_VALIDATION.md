@@ -1,3 +1,15 @@
+# Current policy: owner_relaxed_20261014 (2026-10-14 09:3x SGT)
+
+This explicitly selected policy supersedes the motion requirements below for the current task. Legacy strict motion/acoustic functions are retained for old receipts. Direction is ≤20°, support paws ≤12 mm with unchanged floor tolerance, per-step material-point drift ≤15 mm, mesh edge growth ≤2, total new cross-region penetration area ≤400 mm² per frame and depth ≤10 mm. Same-region overlap and UV seams do not reject a motion. Per-animal acoustics are deferred to production and old audio results are preserved.
+
+Use `run_animal_motion_request.py --validation-policy owner_relaxed_20261014` to select the new entry. Its `reuse` JSON maps `walk_animation` and/or `slide_no_animation` to `native`, `surface`, and optional `controls` receipt paths. Walking requires a complete same-target surface measurement. The entry attempts Walking, records rejection/unavailability, and then tries the registered standing slide at ≤0.08 m/s. Missing evidence never becomes a pass. Environment errors remain errors. `motion_metadata` includes `admission_scope: motion_only` and `audio_status: deferred_to_production`; this entry never creates an unqualified audio binding.
+
+For fresh native evidence, `validate_animal_motion_habitat.py --physical-controls` records actual 180° and 90° drawable rotations in the same existing Habitat context at the first, middle and last frame. The old command default is unchanged. `measure_native_motion_surface.py --inventory I --motion N --output O` measures each archived actual float32 native skin and the unchanged binding baseline. Never treat an external bounded `pose_slot` buffer as an archived frame; it contains only the final use. Existing full flat surface and native room evidence must retain their separate scopes unless actual full-surface correspondence was verified.
+
+The latest single-page report is `REPORT_MOTION_ONLY.html` under the task output directory, with all 63 classifications in `motion_admissions_owner093x_final.json`. Counts are provisional until the final report is regenerated. The default legacy 30-second multi-source visual scheduler still does not consume `native_frame_source`; the explicit CLI/API does generate measured single-source native movement, and callers must pass motion metadata to questions. No all-room/default-production integration claim is made.
+
+---
+
 # Native quadruped motion repair
 
 The animal_motion package compiles a target's own Walking skeleton into a slow, planted quadruped gait, replays it in Habitat, reads back the mouth and body landmarks, and qualifies the moving RIR against independent native executions. It preserves the target mesh, topology, skin weights and registered identity. The optional static-mesh rigging tool is a research prototype; its output is never admitted merely because export succeeded.
