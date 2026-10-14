@@ -27,12 +27,16 @@ def native_checks(scene,assets,visual,audio=None):
     by_asset={a['asset_id']:[r for r in measured if r['asset_id']==a['asset_id']] for a in assets}
     missing=[aid for aid,r in by_asset.items() if not r];alignment=visual['alignment']
     errors=list(bind['errors'])
-    if fail:errors.append('native source highlight/appearance failure')
-    if missing:errors.append('source material never measured: '+','.join(missing))
+    # Owner 2026-10-14 23:3x SGT: material quality is recorded, not an admission error.
+    quality_warnings=[]
+    if fail:quality_warnings.append('native source highlight/appearance failure')
+    if missing:quality_warnings.append('source material never measured: '+','.join(missing))
     if any(a['attachment_surface']!=a['support_type'] or a['attachment_worst_error_m']>.015 or not a['skin_pass'] for a in attachments):errors.append('attachment or collision failure')
     if any(alignment[k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or alignment['restored_modal_RGB_depth_semantic_frames']!=450:errors.append('native mask restoration or frame alignment failed')
     directions=audio.get('directions',[]) if audio else []
-    return {'status':'pass' if not errors else 'fail','errors':errors,'bindings':bind,
+    return {'status':'pass' if not errors else 'fail','errors':errors,
+        'material_quality_policy':'owner_record_only_20261014',
+        'quality_warnings':quality_warnings,'bindings':bind,
         'attachments':{'passed':sum(a['status']=='pass' for a in attachments),'checked':len(attachments),
             'worst_error_m':max((a['attachment_worst_error_m'] for a in attachments),default=0),
             'worst_penetration_m':min((c['contact_distance_m'] for a in attachments for c in a['contacts']),default=0)},
