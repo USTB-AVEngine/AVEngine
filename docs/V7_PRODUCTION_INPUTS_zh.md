@@ -6,4 +6,6 @@ tools/timeline/sample_v7_production_inputs.py 读取冻结的三类房间清单�
 
 两个原生生成 CLI 可用 --production-contract 或 runtime.production_input_contract 强制执行清单校验。登记与源素材保持原字节，运行路径视图不改登记权威。63 只动物的“动作准入”仅证明原保存动作的 authority，不证明它们在新房间路线或与其他人物组合已通过；每条新路线仍检查原完整皮肤、脚掌、导航、碰撞等门禁。新 motion 原生 readback 明确标记 animated_walk / intentional_slide_no_animation。
 
-phase2 的 28 题私有集成验收与既有 formal alpha/profile 不同；没有在本轮把 expanded mixed v7 升级为正式训练发布。30 万题计划按 owner 的历史 63 题/父场景估算，先用 100 个真正过门禁的父场景复测去重后题量。此分支准备动作不授权 push、导出训练表、拉取 CCI 或启动 CCI/ACP。
+phase2 的 28 题私有集成验收与既有 formal alpha/profile 不同；没有在本轮把 expanded mixed v7 升级为正式训练发布。30 万题量产计划须读取本次隔离试产实际导出的题量、封存交付大小和完整成功调用用时，旧63题/69 MB估计不再沿用。每房及每套房的父场分配见产物PRODUCTION_PLAN_v7_20261014.json；最多6800父场不能满足题量时只报告差额，不扩范围、不改出题配额。tools/timeline/export_v7_trial.py只允许本次30个请求槽位、在pilot_20261014/export写trial_only行，沿用原可读答案转换及判分器，用现有open_delivered_media读回视频与FOA。不并入任何训练集。此分支不授权push、拉取CCI或启动CCI/ACP。
+
+三份房间来源已按最新可用权威冻结（HM3D v2、MP3D final=true v2、酷家乐类别清单）；合并运动准入实数为狗30动画/7滑行、猫16动画/10滑行，总46/17。两条新骨骼分支不改变原17只的选中模式，不能只凭有骨骼把滑行提升为动画。动物初始姿态脚点从原保存native首帧反变换得到，原资产和旧owner093x_final保持只读。台词双角色候选指定原试产0度/31.5度方位目标，仍由原QA-28门禁决定实际是否可出题。v13电话旧名在声音输入与环境实体装配两处规范化，原录音域和物理绑定相等检查保持。
