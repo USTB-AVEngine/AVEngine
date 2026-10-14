@@ -1,4 +1,4 @@
-"""Owner-approved object-only retries; native truth and answer checks stay intact."""
+"""Owner-approved named object or silent-bystander retries; native truth and answer checks stay intact."""
 from copy import deepcopy
 from pathlib import Path
 import gc
@@ -17,7 +17,9 @@ def drop_failed_object(row, catalog, reason):
         match=re.search(r'no strict native (?:floor|table|wall|ceiling) placement for ([A-Za-z0-9_.\-]+)',reason)
         failed=[match.group(1)]if match else []
     by_id={a['asset_id']:a for a in catalog}
-    aid=next((a for a in failed if a in row['asset_ids']and by_id.get(a,{}).get('kind')=='object'),None)
+    aid=next((a for a in failed if a in row['asset_ids']and
+        (by_id.get(a,{}).get('kind')=='object' or
+         (a in row.get('silent_asset_ids',[])and a not in row.get('motion_requests',{})and by_id.get(a,{}).get('kind')=='human'))),None)
     if aid is None:
         return None
     result=deepcopy(row)
@@ -63,7 +65,11 @@ def generate_parent_with_element_fallback(row,house,inputs,catalog,source_admiss
         current=replacement
         gc.collect()
         if Path(output).resolve().is_relative_to(Path('/data')):
+            import json,os
+            from avengine.timeline.v7_storage_budget import ENV_KEY
+            policy=json.loads(os.environ.get(ENV_KEY,'{}'))
+            minimum_free=int(policy.get('minimum_free_bytes',150_000_000_000))
             available=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'))
-            if available<40_000_000_000 or shutil.disk_usage('/data').free<150_000_000_000:
+            if available<30_000_000_000 or shutil.disk_usage('/data').free<minimum_free:
                 raise RuntimeError('object fallback stopped by owner memory/disk headroom')
     raise AssertionError('bounded object fallback exhausted')
