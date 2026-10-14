@@ -50,6 +50,9 @@ def readable_training_answer(question,gold,authority):
         item=authority[gold['authority_question_id']]
         label=gold.get('authority_truth',{}).get('label',gold['canonical_answer'])
         options=[_answer_text(label),_answer_text(gold['canonical_answer'])]
+        if question['form']=='mcq':
+            form=item['forms']['mcq'];index=form['gold']['correct_index'];choice=form['options'][index]
+            options.insert(0,_answer_text(choice.get('label_en',choice.get('label_zh',''))))
         for value in dict.fromkeys(options):
             score=score_unified_item(item,value,form=question['form'])
             if score.get('status')=='scored' and score.get('score')==1.:
