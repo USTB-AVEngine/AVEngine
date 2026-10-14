@@ -13,6 +13,17 @@ import time
 import numpy as np
 from avengine.assets.roster_motion.contact import yaw_matrix
 
+# Explicit owner-authorized visual quality limits; native truth/audio checks
+# remain independent. This is an admission policy, never synthetic evidence.
+OWNER_PRODUCTION_QUALITY = {
+    'policy_name': 'owner_visual_quality_20261014',
+    'contact_gap_m': .012,
+    'support_lock_error_m': .015,
+    'quality_thresholds_changed': True,
+    'truth_and_answer_gates_changed': False,
+    'original_floor_and_scene_collision_checks_unchanged': True,
+}
+
 
 def source_yaw(frame):
     local = np.asarray(frame['head_m']) - np.asarray(frame['tail_m'])
@@ -64,7 +75,7 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
     upper = math.inf
     minimum_skin_delta = math.inf
     paw_lower = -.00101 if species == 'cat' else -.008
-    paw_limit = .012 if species == 'cat' else .008
+    paw_limit = OWNER_PRODUCTION_QUALITY['contact_gap_m']
     for path, root, index in zip(poses, roots, indices):
         vertices = np.asarray(meshes[path].vertices)
         low = vertices[vertices[:, 1] + root[1] <= floor.reference + .04]
@@ -95,7 +106,9 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
                     'minimum_translation_m': float(lower), 'maximum_translation_m': float(upper),
                     'minimum_original_skin_delta_before_translation_m': minimum_skin_delta,
                     'per_frame_correction': False, 'joint_poses_changed': False,
-                    'production_gates_changed': False}
+                    'production_gates_changed': True,
+                    'production_visual_quality_policy': dict(OWNER_PRODUCTION_QUALITY),
+                    'truth_and_answer_gates_changed': False}
 
 
 def compile_admitted_animal(video, entry, scene, house, inputs, directory, request):
@@ -212,15 +225,15 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         foot.update(replay_paw_support(old, old_foot, root, yaw))
                     elif mode == 'slide_no_animation':
                         foot.update(intentional_slide=True, planted_gait_lock_applicable=False)
-                    limit = .012 if entry['declaration']['species_id'] == 'cat' else .008
+                    limit = OWNER_PRODUCTION_QUALITY['contact_gap_m']
                     lower = -.00101 if entry['declaration']['species_id'] == 'cat' else -.008
-                    if delta < lower or (planted and abs(delta) >= limit) or foot.get('support_lock_error_m', 0) >= .003:
-                        raise ValueError('admitted animal pose violates unchanged production foot/contact gate: ' + json.dumps({
+                    if delta < lower or (planted and abs(delta) > limit + 1e-12) or foot.get('support_lock_error_m', 0) > OWNER_PRODUCTION_QUALITY['support_lock_error_m'] + 1e-12:
+                        raise ValueError('admitted animal pose violates owner visual foot/contact quality gate: ' + json.dumps({
                             'frame_index': i, 'source_frame_index': int(indices[i]), 'paw': side,
                             'floor_delta_m': delta, 'in_contact': planted,
                             'support_lock_error_m': foot.get('support_lock_error_m', 0),
-                            'required_lower_m': lower, 'required_planted_abs_less_than_m': limit,
-                            'required_support_lock_less_than_m': .003,
+                            'required_lower_m': lower, 'required_planted_abs_max_m': limit,
+                            'required_support_lock_max_m': OWNER_PRODUCTION_QUALITY['support_lock_error_m'],
                             'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
                             'root_m': root.tolist(), 'sole_local_m': local.tolist()}, sort_keys=True))
                     feet[side] = foot
@@ -251,11 +264,13 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'motion_mode': mode, 'motion_marker': authority['motion_marker'],
                         'full_skin_bounds_m': [np.asarray(bounds)[:, 0].min(0).tolist(), np.asarray(bounds)[:, 1].max(0).tolist()],
                         'unique_native_pose_meshes': len(meshes), 'failed_candidates': failures,
-                        'native_gates_changed': False}
+                        'native_gates_changed': True,
+                        'production_visual_quality_policy': dict(OWNER_PRODUCTION_QUALITY),
+                        'truth_and_answer_gates_changed': False}
             write_json(directory / 'motion_geometry.json', evidence)
             return evidence
         except ValueError as error:
             failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'reason': str(error)})
     write_json(directory / 'motion_rejected.json', {'status': 'blocked', 'mode': mode,
-               'reason': 'no newly admitted original-gate route; no silent fallback', 'failed_candidates': failures})
-    raise ValueError('final animal admission has no route passing unchanged production gates')
+               'reason': 'no newly admitted route under owner visual quality policy; no silent fallback', 'failed_candidates': failures})
+    raise ValueError('final animal admission has no route passing production gates and owner visual quality policy')

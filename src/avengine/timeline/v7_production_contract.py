@@ -108,7 +108,7 @@ def validate_seed_tables(small_train, small_dev, full_train):
             'full_train_unassigned_rows':sum(x['house'] is None for x in full_train)}
 
 
-def validate_question_counts(public_rows, private_rows, *, expected_allocation=None):
+def validate_question_counts(public_rows, private_rows, *, expected_allocation=None, allow_partial_window=False):
     """Count one logical item once; MCQ/open forms share logical_question_id."""
     answers={x['question_id']:x for x in private_rows}
     if len(answers) != len(private_rows):
@@ -134,8 +134,9 @@ def validate_question_counts(public_rows, private_rows, *, expected_allocation=N
     if set(answers) != {x['question_id'] for x in public_rows}:
         raise ValueError('private/public question domains differ')
     n=len(logical)
-    if not 12 <= n <= 15:
-        raise ValueError(f'window has {n} logical questions; required 12..15')
+    minimum = 1 if allow_partial_window else 12
+    if not minimum <= n <= 15:
+        raise ValueError(f'window has {n} logical questions; required {minimum}..15')
     counts=Counter(x[1] for x in logical.values())
     if set(counts)-set(MODALITIES):
         raise ValueError('unknown modality requirement')

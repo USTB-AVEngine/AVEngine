@@ -223,6 +223,24 @@ def reserve_actual_audio_family(chosen,gold,pool,private,family):
     return chosen,gold
 
 
+def acceptance_pool_allocation(public, private, requested):
+    """Count only original deduplicated candidates; never fill missing truth."""
+    from collections import Counter
+    from avengine.qa.v7_families import deduplicate_questions
+    unique,_,_=deduplicate_questions(public,private)
+    logical={q['logical_question_id']:q for q in unique}
+    available=Counter(q['modality'] for q in logical.values())
+    actual={m:min(int(n),available[m]) for m,n in requested.items()
+            if min(int(n),available[m])>0}
+    if not sum(actual.values()):raise ValueError('acceptance crop has no original legal questions')
+    return actual, {'requested_allocation':dict(requested),'actual_allocation':actual,
+                    'available_logical_candidates':dict(available),
+                    'modality_deficits':{m:int(n)-available[m] for m,n in requested.items() if available[m]<n},
+                    'family_candidate_counts':dict(Counter(q['qa_id'] for q in logical.values())),
+                    'owner_authorization':'20261014 acceptance: skip unavailable families; retain original native truth/scorers',
+                    'answers_changed':False,'native_gates_changed':False}
+
+
 def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5,family_counts=None):
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
@@ -233,6 +251,9 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
         raise ValueError('complete native quartet or declared single parent required')
     if any(len(m['windows'])!=row['window_count'] for m in members):
         raise ValueError('parent has an incomplete native member crop')
+    partial=row.get('acceptance_allow_partial_families') is True
+    if partial and (names!={'v0_a0'} or row.get('trial_only') is not True):
+        raise ValueError('partial acceptance questions require explicit trial-only single-member CPU parent')
     selected={name:[] for name in names};audits=[]
     for index in range(row['window_count']):
         public={};private={};allocations={};window_ids={}
@@ -249,21 +270,33 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
                 binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index,family_counts=family_counts)
             audit['observed_nuisance_preselection']=pair_audit
         else:
+            partial_audit=None
+            if partial:
+                allocations['v0_a0'],partial_audit=acceptance_pool_allocation(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'])
             q,a=select_questions(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
             chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0}
+            if partial_audit:audit['acceptance_partial_family_policy']=partial_audit
         focus=row.get('production_scenario',{}).get('category_focus_class')
         if focus:
             from avengine.timeline.v7_environmental_sources import reserve_critical_audio_questions
             for name in names:
-                chosen[name],gold[name]=reserve_critical_audio_questions(chosen[name],gold[name],public[name],private[name],focus)
-            audit['critical_audio_reservation']={'speaker_count':True,'category_focus_class':focus,'modality_quota_changed':False}
+                try:
+                    chosen[name],gold[name]=reserve_critical_audio_questions(chosen[name],gold[name],public[name],private[name],focus)
+                except ValueError as error:
+                    if not partial or not (str(error).startswith('critical actual candidate missing:') or str(error)=='critical audio reservation exceeds unchanged modality quota'):raise
+                    audit.setdefault('skipped_unavailable_family_reservations',[]).append({'member':name,'reason':str(error)})
+            audit['critical_audio_reservation']={'speaker_count_requested':True,'category_focus_class':focus,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected_families':sorted({q['qa_id'] for qs in chosen.values() for q in qs}),'status':'partial_skipped' if audit.get('skipped_unavailable_family_reservations') else 'reserved'}
         if row.get('production_scenario',{}).get('semantic_scenario_id'):
             for name in names:
-                chosen[name],gold[name]=reserve_actual_audio_family(chosen[name],gold[name],ordinary[name],private[name],'QA-28')
-            audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'modality_quota_changed':False}
+                try:
+                    chosen[name],gold[name]=reserve_actual_audio_family(chosen[name],gold[name],ordinary[name],private[name],'QA-28')
+                except ValueError as error:
+                    if not partial or not (str(error).startswith('requested audio family lacks an actual eligible candidate:') or str(error)=='content reservation exceeds unchanged audio allocation'):raise
+                    audit.setdefault('skipped_unavailable_family_reservations',[]).append({'member':name,'family':'QA-28','reason':str(error)})
+            audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected':any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs),'status':'reserved' if any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs) else 'partial_skipped'}
         audits.append(audit)
         for name in names:
-            check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name])
+            check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name],allow_partial_window=partial)
             selected[name].append((chosen[name],gold[name],check))
     # Selection of every actual member succeeds before any selected stage is
     # published. All unselected pools remain available for deficit diagnostics.

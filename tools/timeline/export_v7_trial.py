@@ -68,7 +68,15 @@ def parent_payload(summary, output, owned_root):
         questions=load(seal/'windows'/wid/'questions.json')
         answers=load(seal/'private'/(wid+'_answers.json'));by_id={g['question_id']:g for g in answers}
         quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+int(wid.rsplit('w',1)[1])
-        validate_question_counts(questions,answers,expected_allocation=question_allocation(quota,14))
+        partial=row.get('acceptance_allow_partial_families') is True
+        evidence=load(seal/'private'/(wid+'_evidence.json'))
+        allocation=question_allocation(quota,14)
+        if partial:
+            audit_policy=evidence.get('full_qa_selection',{}).get('audit',{}).get('acceptance_partial_family_policy')
+            if kind!='integration_pilot_admitted' or row.get('trial_only') is not True or not audit_policy:
+                raise ValueError('partial trial export lacks original explicit selection policy')
+            allocation=audit_policy['actual_allocation']
+        validate_question_counts(questions,answers,expected_allocation=allocation,allow_partial_window=partial)
         selected=load(parent/('selected_windows_'+member+'_completed.json'))
         raw=Path(selected['recipe']['pool_directory'])/wid
         audit=load(raw/'candidate_audit.json')

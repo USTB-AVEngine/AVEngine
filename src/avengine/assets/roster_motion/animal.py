@@ -7,6 +7,7 @@ logic must not be applied to it. Pauses remain unsupported, not fabricated.
 import hashlib,json
 from pathlib import Path
 import numpy as np
+from avengine.assets.animal_motion.production_episode import OWNER_PRODUCTION_QUALITY
 from avengine.assets.roster_motion.io import read_glb
 from avengine.assets.roster_motion.pose import accessor
 from avengine.assets.roster_motion.contact import find_bone
@@ -87,7 +88,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     search_start=time.process_time();max_attempts=8;cpu_budget_s=1800.
     def search_progress(**extra):
-        write_json(directory/('motion_search_progress_'+str(time.time_ns())+'.json'),{'status':'searching_not_admitted','cpu_seconds':time.process_time()-search_start,'prefilter':dict(prefilter),'failures':list(failures),'max_native_route_attempts':max_attempts,'search_CPU_budget_s':cpu_budget_s,'thresholds_changed':False,**extra})
+        write_json(directory/('motion_search_progress_'+str(time.time_ns())+'.json'),{'status':'searching_not_admitted','cpu_seconds':time.process_time()-search_start,'prefilter':dict(prefilter),'failures':list(failures),'max_native_route_attempts':max_attempts,'search_CPU_budget_s':cpu_budget_s,'thresholds_changed':True,'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY),'truth_and_answer_gates_changed':False,**extra})
     poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
@@ -114,7 +115,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     routes.sort(key=lambda route:(-route[0],float(np.linalg.norm(route[1][[0,2]]-entry['applied_root_input'][[0,2],3])),route[2]))
     for score,p0,yaw,positions in routes:
         if prefilter['full_gate_attempted']>=max_attempts or time.process_time()-search_start>cpu_budget_s:
-            write_json(directory/'motion_rejected.json',{'status':'blocked','reason':'bounded route search exhausted; no physical admission','failures':failures,'lineage':lineage,'prefilter':prefilter,'thresholds_changed':False})
+            write_json(directory/'motion_rejected.json',{'status':'blocked','reason':'bounded route search exhausted; no physical admission','failures':failures,'lineage':lineage,'prefilter':prefilter,'thresholds_changed':True,'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY),'truth_and_answer_gates_changed':False})
             raise ValueError('dog native route search budget exhausted without admission')
         snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
         if not np.isfinite(nav) or nav>.002:
@@ -139,7 +140,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
                 _,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts);dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
                 feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
                 if not contacts:raise ValueError('dog gait has no planted paw at an actual 30Hz sample')
-                if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>=.008 or x['support_lock_error_m']>=.003 for x in contacts):raise ValueError('motion source foot contact or lock violates unchanged 8mm/3mm admission')
+                if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>OWNER_PRODUCTION_QUALITY['contact_gap_m']+1e-12 or x['support_lock_error_m']>OWNER_PRODUCTION_QUALITY['support_lock_error_m']+1e-12 for x in contacts):raise ValueError('motion source foot contact or lock violates owner visual 12mm/15mm quality policy')
                 if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
                 geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
             accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum,support_repairs);break
@@ -167,5 +168,5 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
         'motion_kind':'dog_continuous_walk' if intervals in (None,[[0.,30.]]) else 'dog_walk_intervals','slow_gait_support_IK_repairs':support_repairs,'pause_policy':'continuous walk' if intervals in (None,[[0.,30.]]) else 'zero translated root and fixed authored phase, four actual original paws planted through existing IK; every frame independently admitted','species_id':'dog',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
-        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'thresholds_changed':False}
+        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'thresholds_changed':True,'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY),'truth_and_answer_gates_changed':False}
     write_json(directory/'motion_geometry.json',evidence);return evidence

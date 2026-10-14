@@ -78,6 +78,22 @@ def exact_phase2_visual_reuse(old_scene,new_scene):
     return all(e in old_events for e in new_events)
 
 
+def acceptance_crop_starts(row,scene):
+    """Deliver actual 10s crops without changing the original 30s native world."""
+    values=row.get('acceptance_window_starts_s')
+    if values is None:return list(scene['window_starts_s'])
+    if row.get('trial_only') is not True or row.get('members')!=['v0_a0']:
+        raise ValueError('extra acceptance crops require explicit trial-only single CPU member')
+    if not isinstance(values,list) or not values:raise ValueError('empty acceptance crop schedule')
+    starts=[float(v) for v in values]
+    if any(not np.isfinite(v) or not 0.<=v<=float(scene['duration_s'])-10.
+           or abs(v*15-round(v*15))>1e-8 for v in starts):
+        raise ValueError('acceptance crop must be a full 10s at original 15fps inside the native world')
+    if starts!=sorted(set(starts)) or row.get('window_count')!=len(starts):
+        raise ValueError('acceptance crop schedule must be unique, ordered and match declared window_count')
+    return starts
+
+
 def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admission,output):
     from avengine.timeline.v7_production_inputs import attach_runtime_contract
     row=attach_runtime_contract(row,inputs)
@@ -169,9 +185,10 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             moving_native_context_revision=CONTEXT_REVISION)
     ad,ar,_=stage(root,'audio_v0_a0',audio_recipe,audio)
     checks=native_checks(scene,assets,visual,ar)
+    delivery_starts=acceptance_crop_starts(row,scene)
     def windows(attempt):
         samples,sr=sf.read(ad/'scene_foa_full_tail.wav',dtype='float64',always_2d=True);required=[];wins=[]
-        for wi,start in enumerate(scene['window_starts_s']):
+        for wi,start in enumerate(delivery_starts):
             check_write(attempt,expected_bytes=32_000_000);wid=f'{row["scene_id"]}__v0_a0__w{wi:02d}';dest=attempt/wid;dest.mkdir();first=round(start*15)
             subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-n','-threads','1','-i',str(vd/'scene_video.mp4'),
                 '-vf',f'select=between(n\\,{first}\\,{first+149}),setpts=N/(15*TB)','-frames:v','150','-an','-c:v','libx264','-threads','1','-preset','veryfast','-crf','18','-pix_fmt','yuv420p',str(dest/'video.mp4')],check=True)
@@ -198,8 +215,10 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
                 'machine_checks':checks,'independent_v6_truth':replay,'formal_dataset_count':0})
             wins.append({'window_id':wid});required.extend(wid+'/'+f for f in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','candidate_audit.json','evidence.json','independent_v6_truth.json'])
         return {'windows':wins},required
-    wd,wr,_=stage(root,'windows_v0_a0',{'scene':scene,'receipt':receipt,'profile':PILOT_PROFILE,'color_evidence_revision':COLOR_EVIDENCE_REVISION},windows)
-    selection_row={**deepcopy(row),'members':['v0_a0'],'window_count':2,'questions_per_window':14,'production_scenario':deepcopy(scene['production_scenario'])}
+    window_recipe={'scene':scene,'receipt':receipt,'profile':PILOT_PROFILE,'color_evidence_revision':COLOR_EVIDENCE_REVISION}
+    if row.get('acceptance_window_starts_s') is not None:window_recipe['acceptance_window_starts_s']=delivery_starts
+    wd,wr,_=stage(root,'windows_v0_a0',window_recipe,windows)
+    selection_row={**deepcopy(row),'members':['v0_a0'],'window_count':len(wr['windows']),'questions_per_window':14,'production_scenario':deepcopy(scene['production_scenario'])}
     members,selection=finalize_parent_question_pools(selection_row,[{'member':'v0_a0','windows_directory':str(wd),'windows':wr['windows'],'audio_directory':str(ad),'visual_directory':str(vd)}],root)
     def seal(attempt):
         required=[];stats=[];source=Path(members[0]['windows_directory']);private=attempt/'private';private.mkdir()
@@ -216,6 +235,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             'asset_counts':dict(Counter([a['asset_id'] for a in assets]+[a['asset_id']for a in visual.get('phase2_chairs',[])])),
             'chair_instances':visual.get('phase2_chairs',[]),'footstep_contact_receipt':str(foot_receipt),'class_event_counts':dict(Counter(e['sound_class'] for e in scene['events'])),
             'pilot_windows':len(stats),'pilot_logical_questions':sum(w['logical_questions'] for w in stats),
+            'delivery_window_starts_s':delivery_starts,'delivery_crops_share_one_independent_30s_parent':True,
+            'acceptance_allow_partial_families':row.get('acceptance_allow_partial_families') is True,
             'alpha_formal_windows':0,'alpha_formal_logical_questions':0,'train_table_exported':False,
             'wall_seconds':time.perf_counter()-wall,'cpu_seconds_including_children':cpu_seconds()-cpu}
         write_json(attempt/'pilot_manifest.json',result);required.append('pilot_manifest.json');return result,required

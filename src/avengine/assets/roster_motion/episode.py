@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy, hashlib, math
 from pathlib import Path
 import numpy as np
+from avengine.assets.animal_motion.production_episode import OWNER_PRODUCTION_QUALITY
 from avengine.assets.roster_motion.io import read_glb, viewbytes
 from avengine.assets.roster_motion.pose import pose, animation_times, accessor, rigid_glb
 from avengine.assets.roster_motion.contact import FootPlant, yaw_matrix, foot_min, foot_masks
@@ -283,7 +284,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                         raise ValueError('walking route proposal has a scan obstacle on its actual foot sound path')
                     dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
                     feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
-                    if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>=.008 or x['support_lock_error_m']>=.003 for x in contacts):raise ValueError('motion source foot contact or lock violates unchanged 8mm/3mm admission')
+                    if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>OWNER_PRODUCTION_QUALITY['contact_gap_m']+1e-12 or x['support_lock_error_m']>OWNER_PRODUCTION_QUALITY['support_lock_error_m']+1e-12 for x in contacts):raise ValueError('motion source foot contact or lock violates owner visual 12mm/15mm quality policy')
                     if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
                     geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
                 accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum);break
@@ -312,5 +313,5 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
-        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'thresholds_changed':False}
+        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'thresholds_changed':True,'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY),'truth_and_answer_gates_changed':False}
     write_json(directory/'motion_geometry.json',evidence);return evidence
