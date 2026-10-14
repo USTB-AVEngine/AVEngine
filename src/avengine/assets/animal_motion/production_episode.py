@@ -141,7 +141,14 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                     limit = .012 if entry['declaration']['species_id'] == 'cat' else .008
                     lower = -.00101 if entry['declaration']['species_id'] == 'cat' else -.008
                     if delta < lower or (planted and abs(delta) >= limit) or foot.get('support_lock_error_m', 0) >= .003:
-                        raise ValueError('admitted animal pose violates unchanged production foot/contact gate')
+                        raise ValueError('admitted animal pose violates unchanged production foot/contact gate: ' + json.dumps({
+                            'frame_index': i, 'source_frame_index': int(indices[i]), 'paw': side,
+                            'floor_delta_m': delta, 'in_contact': planted,
+                            'support_lock_error_m': foot.get('support_lock_error_m', 0),
+                            'required_lower_m': lower, 'required_planted_abs_less_than_m': limit,
+                            'required_support_lock_less_than_m': .003,
+                            'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
+                            'root_m': root.tolist(), 'sole_local_m': local.tolist()}, sort_keys=True))
                     feet[side] = foot
                 if not any(f['in_contact'] for f in feet.values()):
                     raise ValueError('admitted animal pose has no actual support')
