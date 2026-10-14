@@ -25,7 +25,7 @@ def run_worker(manifest,slot):
     inputs=load(manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
-    contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_'+task['device']])
+    contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
     from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,add_scene_demand,record_selected_parent
     state=read_demand_state(root/'inputs/demand_state.json')
     if task['profile']=='phase2':
