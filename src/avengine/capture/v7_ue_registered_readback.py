@@ -34,13 +34,17 @@ def prepare_readback(video,asset,declaration,actor,root,components):
     if np.max(np.abs(GLB_TO_UE_CM@mouth-local))>1e-6:
         raise ValueError('registered GLB/native local mouth bases disagree')
     game=video.game;objects=game.get_unreal_object(uclass='UKismetSystemLibrary')
-    native_class=game.unreal_service.get_class(uobject=actor,as_handle=True)
-    class_path=str(objects.GetPathName(Object=native_class))
-    if class_path!=asset['ue_generated_class']:raise ValueError('actual spawned class differs from registered Blueprint')
-    meshes=[]
+    native_class=int(game.unreal_service.get_class(uobject=actor,as_handle=True))
+    expected_class=int(game.unreal_service.load_class(uclass='AActor',name=asset['ue_generated_class'],as_handle=True))
+    if not native_class or native_class!=expected_class:
+        raise ValueError('actual spawned class handle differs from registered Blueprint: '+str((native_class,expected_class)))
+    class_path=asset['ue_generated_class']
+    expected_meshes={int(game.unreal_service.load_object(uclass='UStaticMesh',name=p,as_handle=True)):p for p in asset['registered_native_ue']['mesh_paths']}
+    meshes=[];mesh_handles=[]
     for c in components:
-        handle=c.get_property_value(property_name='StaticMesh',as_handle=True)
-        meshes.append(str(objects.GetPathName(Object=handle)))
+        handle=int(c.get_property_value(property_name='StaticMesh',as_handle=True))
+        if not handle or handle not in expected_meshes:raise ValueError('actual UE mesh handle is not an original registered part')
+        meshes.append(expected_meshes[handle]);mesh_handles.append(handle)
     if sorted(meshes)!=sorted(asset['registered_native_ue']['mesh_paths']):
         raise ValueError('actual UE mesh components differ from original registration')
     registry=Path(asset['source_registry']);manifest=json.loads(registry.read_text())
@@ -62,11 +66,13 @@ def prepare_readback(video,asset,declaration,actor,root,components):
     receipt={'status':'pass','revision':REVISION,'backend':'ue_spear','asset_id':asset['asset_id'],
         'source_registry':str(registry),'source_registry_sha256':asset['source_registry_sha256'],
         'actual_class_path':class_path,'actual_mesh_paths':meshes,'files':files,
+        'native_class_handle':native_class,'registered_class_handle':expected_class,'actual_mesh_handles':mesh_handles,
+        'native_resource_identity_method':'exact live get_class/StaticMesh handles equal resolved registered class/mesh handles',
         'loaded_artifact_sha256':bp['sha256'],'loaded_artifact_kind':'UE Blueprint uasset',
         'original_glb':str(glb),'original_glb_sha256':glb_sha,
         'glb_to_ue_local_cm':GLB_TO_UE_CM.tolist(),
         'mouth_local_glb_m':mouth.tolist(),'mouth_local_ue_cm':local.tolist()}
-    target=Path(video.ue['output_root'])/'inputs/native_loads'/(asset['asset_id']+'_'+bp['sha256'][:16]+'.json')
+    target=Path(video.ue['output_root'])/'inputs/native_loads'/(asset['asset_id']+'_'+bp['sha256'][:16]+'_pid'+str(video.instance._process.pid)+'.json')
     if target.exists():
         if json.loads(target.read_text())!=receipt:raise ValueError('native original load receipt changed')
     else:target.parent.mkdir(parents=True,exist_ok=True);write_json(target,receipt)

@@ -104,7 +104,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         start=time.perf_counter()
         try:
             self.instance,self.game,launch=launch_native(self.ue,self.house['input']['ue_map_path'])
-            if self.current_native_environment:
+            if self.current_native_environment or 'physical_gpu_index' in self.ue:
                 from avengine.capture.kujiale_pilot_environment import verify_gpu
                 launch['actual_graphics_gpu']=verify_gpu(self.ue,launch)
             with self.instance.begin_frame():
