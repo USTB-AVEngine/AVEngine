@@ -277,3 +277,23 @@ def test_proven_outside_target_points_do_not_launch_near_plane_full_image_rays()
     plugin=Qa21Plugin({'cat':body},{'cat':'inside'},'cat','cat_meow',
         assets={'cat':{'habitat_glb':'not_opened.glb','kind':'animal','species_id':'cat'}})
     assert not plugin.point_visible(None,camera,body,np.array([.6,0.,0.]))
+
+
+def test_native_support_contract_replays_the_solved_mesh_root(tmp_path):
+    import trimesh
+    from avengine.construction.joint import CameraPose,BodySpec,ActorPlan,ScenePlan
+    from avengine.construction.joint.families.qa21 import solved_native_supports
+    from avengine.capture.v7_visible_native import attachment_template
+    from avengine.capture.v7_visible_attachment import support_points
+    from avengine.capture.v7_visible_mesh import indexed_static_mesh
+    mesh=trimesh.creation.box(extents=[.4,.8,.4]);mesh.apply_translation([.1,.4,-.15])
+    path=tmp_path/'speaker.glb';mesh.export(path)
+    asset={'asset_id':'speaker','kind':'object','attachment_surface':'floor','habitat_glb':str(path)}
+    root=np.array([2.,0.,-4.]);actor=ActorPlan('speaker',np.tile(root,(901,1)),BodySpec('slide',.5,.8))
+    plan=ScenePlan(CameraPose((0.,1.25,0.),0.),{'speaker':actor})
+    room={'floor_polygon':{'type':'Polygon','coordinates':[[[-10,-10],[10,-10],[10,10],[-10,10],[-10,-10]]]},'measured_floor_y_m':0.}
+    supports=solved_native_supports(plan,{'speaker':asset},42,room);pin=supports['speaker']
+    original=indexed_static_mesh(str(path));meta={**asset,'_attachment_template':attachment_template(np.asarray(original.vertices),'floor','object',mesh=original)}
+    observed,yaw,_,_=support_points(meta,pin)
+    assert pin['joint_solved_pose'] and np.allclose(observed,root,atol=1.e-8)
+    assert pin['qa21_expected_root_m']==root.tolist()
