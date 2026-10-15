@@ -52,6 +52,13 @@ class ReappearanceDemand:
     def frame_count(self) -> int:
         return round(self.window_duration_s * self.frame_rate_hz)
 
+    def requested_conditions(self) -> list[str]:
+        """Use only registered pipeline condition keys; no is a branch value."""
+        conditions = ["registered_full_occluder", "stable_mask_intervals"]
+        if self.answer == "yes":
+            conditions.append("later_visible_reappearance")
+        return conditions
+
     def relation(self) -> dict[str, Any]:
         """Serialize the request for the native adapter; this is never truth."""
         return {
@@ -754,8 +761,7 @@ def build_qa09_row(room, house, state, catalog, contract, plan, certificate, rol
     row.update(strict_native_bindings(plan, roles))
     _request(row, state, "QA-09")
     row["scene_demand"]["requested_answer"] = demand.answer
-    row["scene_demand"]["requested_conditions"] = ["registered_full_occluder", "stable_mask_intervals",
-        "later_visible_reappearance" if demand.answer == "yes" else "complete_window_without_reappearance"]
+    row["scene_demand"]["requested_conditions"] = demand.requested_conditions()
     validate_recipe(row, catalog, contract)
     return {"profile": "phase2", "row": row}
 
