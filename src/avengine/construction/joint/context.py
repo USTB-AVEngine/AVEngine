@@ -148,7 +148,8 @@ class RoomContext:
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._grids, self._depth = {}, {}
-        self.identity = {"revision": "joint-room-grid-2-interior-cameras", "room": room,
+        self._key_cache = {}
+        self.identity = {"revision": "joint-room-grid-3-memoized-pose-keys", "room": room,
                          "map_metadata": walkable_map.metadata, "grid_stride": stride,
                          "geometry": getattr(raycaster, "evidence", {}),
                          "geometry_source": getattr(raycaster, "source", "missing")}
@@ -166,9 +167,14 @@ class RoomContext:
         self.close()
 
     def _key(self, camera, body=None):
-        # An ordinary memoization key, NOT a truth hash or admission gate.
-        value = {"input": self.identity, "camera": asdict(camera), "body": asdict(body) if body else None}
-        return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
+        # A room context is immutable geometry. Hash its large floor polygon only
+        # once per camera/body query, not once per candidate target position.
+        # This remains a memoization key, not a truth hash or admission gate.
+        pair=(camera,body)
+        if pair not in self._key_cache:
+            value={"input":self.identity,"camera":asdict(camera),"body":asdict(body)if body else None}
+            self._key_cache[pair]=hashlib.sha256(json.dumps(value,sort_keys=True,default=str).encode()).hexdigest()
+        return self._key_cache[pair]
 
     def depth(self, camera):
         if self.raycaster is None:
@@ -218,7 +224,7 @@ class RoomContext:
         frames = np.asarray([framing(camera, p, body)[0] for p in self.points_m], dtype="U8")
         fraction = np.full(len(self.points_m), np.nan)
         shadow = np.zeros(len(self.points_m), bool)
-        blockers = np.full(len(self.points_m), "", dtype="U128")
+        blockers = np.full(len(self.points_m), "", dtype=object)
         if self.raycaster is not None and len(self.points_m):
             radius = body.radius_m + body.margin_m
             angles = np.arange(12) * (2 * math.pi / 12)
@@ -243,7 +249,7 @@ class RoomContext:
         self._grids[key] = grid
         if path is not None:
             self._save_cache(path, dict(distances_m=distance, azimuth_deg=azimuth, frustum_state=frames,
-                                        visible_fraction=fraction, shadow_mask=shadow, blocker_ids=blockers,
+                                        visible_fraction=fraction, shadow_mask=shadow, blocker_ids=blockers.astype(str),
                                         evidence=np.array(json.dumps(evidence))))
         return grid
 
@@ -272,6 +278,7 @@ class RoomContext:
         other.identity = {**self.identity, "geometry": other.raycaster.evidence,
                           "geometry_source": other.raycaster.source}
         other._depth, other._grids = {}, {}
+        other._key_cache = {}
         other.cache_hits = other.cache_misses = 0
         return other
 
