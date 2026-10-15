@@ -20,3 +20,6 @@ __all__ += ["RoomContext", "CandidateGrid", "build_room_context", "candidate_cam
 
 from .mesh_prediction import MeshInstance, raster_mesh_depth, predict_mesh_visibility
 __all__ += ["MeshInstance", "raster_mesh_depth", "predict_mesh_visibility"]
+
+from .scheduling import SoundRequirement, ScheduleResult, schedule_sound_events
+__all__ += ["SoundRequirement", "ScheduleResult", "schedule_sound_events"]
