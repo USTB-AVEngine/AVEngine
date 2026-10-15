@@ -667,3 +667,51 @@ def test_fixed_clock_out_and_back_retains_pause_and_original_clock():
     assert p.headings_rad[-1]-p.headings_rad[0]==pytest.approx(math.pi)
     with pytest.raises(ConstructionError,match="stationary"):
         out_and_back(c,[-1,0,-4],[1,0],d,2.04,turn_interval_s=(2.,2.5))
+
+
+def test_canonical_turnaround_shape_keeps_clock_and_requires_real_room_validation():
+    t=np.arange(901)/30
+    d=1.02*np.clip(t-1,0,2)+1.02*np.clip(t-6,0,2)
+    p,h=out_and_back_shape([0,0,-4],[1,0],d,2.04,turn_sign=-1)
+    np.testing.assert_allclose(np.linalg.norm(np.diff(p,axis=0),axis=1),np.diff(d),atol=1e-12)
+    moving=np.diff(d)>1e-8
+    directions=np.diff(p[:,[0,2]],axis=0)[moving]/np.diff(d)[moving,None]
+    np.testing.assert_allclose(directions,np.column_stack((np.cos(h[:-1][moving]),np.sin(h[:-1][moving]))),atol=1e-12)
+    assert h[-1]-h[0]==pytest.approx(-math.pi)
+    # A canonical pose cache is valid even where a real room has a wall.
+    c=context(holes=[(70,90)])
+    with pytest.raises(ConstructionError,match="walkable_map"):
+        out_and_back(c,[0,0,-4],[1,0],d,2.04,turn_sign=-1)
+    for fps in (0.,-30.,float("nan"),float("inf")):
+        with pytest.raises(ConstructionError,match="invalid_out_and_back"):
+            out_and_back_shape([0,0,-4],[1,0],d,2.04,fps=fps)
+
+
+def test_static_domain_mask_applies_before_ranking_without_changing_the_map():
+    c=context()
+    bodies={"a":BodySpec()}
+    original=c.walkable_map.layers["human"].copy()
+    plain=next(enumerate_static_layouts(c,bodies,{"a":"inside"},max_candidates=1))
+    index=int(np.argmin(np.linalg.norm(c.points_m-np.array([0,0,-6.5]),axis=1)))
+    mask=np.zeros(len(c.points_m),bool);mask[index]=True
+    assert not np.allclose(plain.actors["a"].positions_m[0,[0,2]],c.points_m[index,[0,2]])
+    plans=list(enumerate_static_layouts(c,bodies,{"a":"inside"},point_masks={"a":mask},max_candidates=1))
+    assert len(plans)==1
+    np.testing.assert_array_equal(plans[0].actors["a"].positions_m[0,[0,2]],c.points_m[index,[0,2]])
+    np.testing.assert_array_equal(c.walkable_map.layers["human"],original)
+    mask[:]=False
+    assert not list(enumerate_static_layouts(c,bodies,{"a":"inside"},point_masks={"a":mask}))
+    for bad in (np.ones(len(c.points_m)),np.ones(len(c.points_m)-1,bool)):
+        with pytest.raises(ValueError,match="boolean arrays"):
+            list(enumerate_static_layouts(c,bodies,{"a":"inside"},point_masks={"a":bad}))
+
+
+def test_analytic_occluder_cannot_escape_its_explicit_point_domain(monkeypatch):
+    c=context()
+    c.points_m=np.array([[0.,0.,-6.],[-2.,0.,-4.]])
+    monkeypatch.setattr(c,"predict",lambda *a,**kw:SimpleNamespace(state="visible_occluded",occluded_fraction=.5))
+    bodies={"target":BodySpec(),"front":BodySpec()}
+    kw=dict(roles={"target":"inside","front":"inside"},occlusion_pair=("target","front",.2,.8),max_candidates=1)
+    assert list(enumerate_static_layouts(c,bodies,point_masks={"target":np.array([True,False])},**kw))
+    assert not list(enumerate_static_layouts(c,bodies,point_masks={
+        "target":np.array([True,False]),"front":np.array([False,True])},**kw))

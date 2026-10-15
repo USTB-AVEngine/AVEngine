@@ -42,17 +42,34 @@ def _rank_points(points, camera, preferred=3.8, limit=48):
     return np.array(chosen)
 
 
-def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max_candidates=256, floor_clearance_m=.002):
+def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max_candidates=256, floor_clearance_m=.002,
+                             point_masks=None):
     """Solve requested role geometry, then let the family apply original predicates.
 
     A pair's overlap is an explicit target, solved by depth ratio and lateral
     offset. All remaining roles are placed in disjoint feasible domains.
     Proxies propose occlusion; exact native identity/pixel preflight is separate.
+    point_masks maps optional entity IDs to boolean arrays over context.points_m.
+    Masks restrict domains BEFORE the ranking beam. An analytic foreground seed
+    is allowed only in a v2 cell represented by a true point in its mask.
     """
     if set(bodies) != set(roles) or any(v not in {"inside", "outside", "any"} for v in roles.values()):
         raise ValueError("one valid framing role per body required")
     if not math.isfinite(floor_clearance_m) or not 0<=floor_clearance_m<=.014:
         raise ValueError("planned floor clearance must stay within original 15mm support tolerance")
+    masks={}
+    for key,value in (point_masks or {}).items():
+        if key not in bodies:
+            raise ValueError("point_masks contains an unknown entity")
+        mask=np.asarray(value)
+        if mask.shape!=(len(context.points_m),) or mask.dtype!=np.dtype(bool):
+            raise ValueError("point_masks must be boolean arrays over context.points_m")
+        masks[key]=mask.copy()
+    masked_cells={}
+    for key,mask in masks.items():
+        cells=np.floor((context.points_m[mask][:,[0,2]]-context.walkable_map.origin)/
+                       context.walkable_map.resolution).astype(int)
+        masked_cells[key]={tuple(cell)for cell in cells}
     if not bodies or max_candidates < 1:
         return
     candidate_points=context.points_m.copy()
@@ -74,6 +91,8 @@ def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max
         for key, body in bodies.items():
             grid = context.grid(camera, body)
             allowed = context.walkable_map.contains_many(context.points_m[:, [0, 2]], body.species) & nav
+            if key in masks:
+                allowed &= masks[key]
             from avengine.rooms.walkable_map import SPECIES_RADII_M
             extra = max(0.,body.radius_m-SPECIES_RADII_M[body.species])
             if extra:
@@ -140,6 +159,11 @@ def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max
                                 if 0<=cell[0]<context.walkable_map.shape[1] and 0<=cell[1]<context.walkable_map.shape[0]:
                                     y=context.walkable_map.floor_y[cell[1],cell[0]]
                                     if math.isfinite(y):fp[1]=y+floor_clearance_m
+                            if foreground in masked_cells:
+                                cell=tuple(np.floor((fp[[0,2]]-context.walkable_map.origin)/
+                                                    context.walkable_map.resolution).astype(int))
+                                if cell not in masked_cells[foreground]:
+                                    continue
                             if not context.walkable_map.contains(fp[[0, 2]], fb.species):
                                 continue
                             if np.linalg.norm((fp-np.asarray(camera.position_m))[[0, 2]]) < (1.5 if fb.species == "human" else .5)+.02:
