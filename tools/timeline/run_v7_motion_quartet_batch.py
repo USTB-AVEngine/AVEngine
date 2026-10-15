@@ -107,7 +107,7 @@ def main():
     prior_active=load(out/'ACTIVE_JOBS.json')if(out/'ACTIVE_JOBS.json').exists()else[]
     for entry in prior_active:
         adopted=AdoptedProcess(entry['pid'],entry['create_time'])
-        if adopted.poll()is None:active[entry['slot']]={**{k:v for k,v in entry.items()if k!='slot'},'process':adopted}
+        if adopted.poll()is None:active[entry['slot']]={**{k:v for k,v in entry.items()if k!='slot'},'process':adopted,'adopted':True}
     def report():
         totals=Counter();passed=[];failures=Counter();rows=[];attempted=0;native_attempted=0;typed={}
         for task in manifest['parents']:
@@ -129,10 +129,13 @@ def main():
                 counted=load(type_receipt);row['question_source_type_counts']=counted
                 for kind,family_counts in counted['counts_by_actual_question_target_source_type'].items():typed.setdefault(kind,Counter()).update(family_counts)
             elif receipt['status']=='failed':failures[(receipt.get('reason')or'unknown').split(':')[0]]+=1
+            row['code_commit']=receipt.get('code_commit',task.get('code_commit',manifest['code_commit']))
+            motion_parent=out/'native/parents'/task['row']['scene_id']
+            row['native_route_trials']=[{'source':str(p),**load(p)}for p in motion_parent.glob('**/motion_route_attempt_summary.json')]
             rows.append(row)
         distinct={t['row']['house']for t in passed};families={t['family']for t in passed}
         meets=len(distinct)>=a.minimum_houses and {'hm3d','mp3d'}<=families and all(totals[f]>=a.minimum_per_family for f in FAMILIES)
-        data={'time_utc':now(),'status':'complete'if meets else'running','code_commit':manifest['code_commit'],
+        data={'time_utc':now(),'status':'complete'if meets else'running','code_commit':commit,'execution_commits':sorted({r['code_commit']for r in rows}),
               'independent_motion_family_counts':dict(totals),'distinct_passed_houses':len(distinct),
               'house_families':sorted(families),'construction_attempts_completed':attempted,'native_parent_attempts_completed':native_attempted,
               'counts_by_actual_question_target_source_type':{kind:dict(c)for kind,c in typed.items()},

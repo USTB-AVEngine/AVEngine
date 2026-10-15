@@ -76,13 +76,21 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
                             if owner.create_time()==record['create_time']:
                                 pending+=max(0,record['reserved_incremental_bytes']-max(0,owner.memory_full_info().pss-record['baseline_pss_bytes']))
                         except (ValueError,KeyError,psutil.Error):pass
+                    task_pss=0
+                    if section.get('maximum_task_pss_bytes'):
+                        for process in psutil.process_iter():
+                            try:
+                                marker=json.loads(process.environ().get('AVENGINE_V7_STORAGE_BUDGET','{}'))
+                                if marker.get('root')==str(root):task_pss+=process.memory_full_info().pss
+                            except (ValueError,psutil.Error):pass
+                    task_stop=bool(section.get('maximum_task_pss_bytes')and task_pss+pending+required_increment>int(section['maximum_task_pss_bytes']))
                     system_pss=0
                     if section.get('maximum_system_pss_bytes'):
                         for process in psutil.process_iter():
                             try:system_pss+=process.memory_full_info().pss
                             except psutil.Error:pass
                     pss_stop=(tree_pss+pending+required_increment>int(policy.get('maximum_task_pss_bytes',40_000_000_000)) or bool(section.get('maximum_system_pss_bytes') and system_pss+pending+required_increment>int(section['maximum_system_pss_bytes'])))
-                    if pss_stop or psutil.virtual_memory().available-pending<int(section.get('minimum_available_bytes',30_000_000_000))+required_increment:
+                    if task_stop or pss_stop or psutil.virtual_memory().available-pending<int(section.get('minimum_available_bytes',30_000_000_000))+required_increment:
                         fcntl.flock(stream,fcntl.LOCK_UN);stream.close();continue
                     stream.seek(0);stream.truncate();stream.write(json.dumps({'pid':os.getpid(),'create_time':psutil.Process().create_time(),'reserved_incremental_bytes':required_increment,'baseline_pss_bytes':psutil.Process().memory_full_info().pss}));stream.flush()
                 cpu=int(cpus[index]) if cpus else None

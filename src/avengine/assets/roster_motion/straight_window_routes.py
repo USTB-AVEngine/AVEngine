@@ -13,11 +13,11 @@ def stadium_samples(distance,length,radius):
     four=s>=2*length+math.pi*radius;a=(s[four]-2*length-math.pi*radius)/radius;p[four]=np.column_stack((-length/2-radius*np.sin(a),-radius*np.cos(a)));v[four]=np.column_stack((-np.cos(a),np.sin(a)))
     return p,v,ids
 
-def straight_window_routes(video,entry,scene,distance,local_forward,request):
+def _unsorted_straight_window_routes(video,entry,scene,distance,local_forward,request):
     times=np.arange(len(distance))/30.;windows=request['straight_motion_windows_s'];sound_windows=request.get('sounding_straight_windows_s',[])
     slices=[np.flatnonzero((times>=float(lo))&(times<=float(hi)))for lo,hi in windows]
-    poly=shape(scene['production_scenario']['motion_floor_polygon']);margin=.32 if entry['declaration']['kind']=='human'else .25;free=(poly.convex_hull if request.get('motion_quartet_route') else poly).buffer(-margin)
-    x0,z0,x1,z1=free.bounds;centres=[free.representative_point()]+[Point(x,z)for x in np.linspace(x0,x1,15)for z in np.linspace(z0,z1,15)];centres=[p for p in centres if free.covers(p)]
+    poly=shape(scene['production_scenario']['motion_floor_polygon']);margin=.35;free=(poly.convex_hull if request.get('motion_quartet_route') else poly).buffer(-margin)
+    x0,z0,x1,z1=free.bounds;centres=[free.representative_point()]+[Point(x,z)for x in np.linspace(x0,x1,33)for z in np.linspace(z0,z1,33)];centres=[p for p in centres if free.covers(p)]
     start=np.asarray(entry['applied_root_input'][:3,3]);centres.sort(key=lambda p:(p.x-start[0])**2+(p.y-start[2])**2)
     obstacles=[]
     for actor in video.actors:
@@ -37,10 +37,10 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
           if any(not len(ids)or segments[ids[0]]<0 or np.any(segments[ids]!=segments[ids[0]])for ids in slices):continue
           patterns.append((offset,p,tangent))
         if not patterns:continue
-        headings=[template['heading_rad']+math.radians(d)for d in (0.,-2.5,2.5,-5.,5.)] if template else np.arange(16)*math.pi/8
+        headings=list(dict.fromkeys([template['heading_rad']+math.radians(d)for d in (0.,-2.5,2.5,-5.,5.,-10.,10.,-15.,15.,-22.5,22.5,-30.,30.)]+list(np.arange(16)*math.pi/8))) if template else np.arange(16)*math.pi/8
         for heading in headings:
           rotation=np.array([[math.cos(heading),-math.sin(heading)],[math.sin(heading),math.cos(heading)]])
-          selected_centres=([Point(template['centre_xz_m'][0]+dx,template['centre_xz_m'][1]+dz)for dx,dz in sorted([(i*.2,j*.2)for i in range(-4,5)for j in range(-4,5)],key=lambda v:v[0]**2+v[1]**2)] if template else centres)
+          selected_centres=([Point(template['centre_xz_m'][0]+dx,template['centre_xz_m'][1]+dz)for dx,dz in sorted([(i*.2,j*.2)for i in range(-4,5)for j in range(-4,5)],key=lambda v:v[0]**2+v[1]**2)] +centres if template else centres)
           for centre in selected_centres:
             for offset,p,tangent in patterns:
               xz=p@rotation.T+[centre.x,centre.y];line=LineString(xz)
@@ -85,3 +85,21 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
               if len(links)!=8:continue
               proposal+=1
               yield SimpleNamespace(positions=positions,yaws=yaws,receipt={'revision':'v3-timed-straight-windows-native-stadium-v1','proposal':proposal,'route_kind':'straight critical windows with smooth turns only outside them','straight_windows_s':windows,'straight_length_m':length,'turn_radius_m':radius,'phase_distance_offset_m':float(offset),'centre_xz_m':[centre.x,centre.y],'heading_rad':float(heading),'minimum_native_obstacle_clearance_m':float(minimum_native_clearance),'native_clearance_samples':len(snaps),'proposal_centre_xz_m':None if not template else template['centre_xz_m'],'automatic_native_retry_preserves_camera':bool(template),'root_samples':len(times),'maximum_horizontal_snap_error_m':float(errors.max()),'native_waypoint_connections':links,'heading_follows_route_tangent':True,'native_full_pose_checks_still_required':True})
+
+
+def straight_window_routes(video,entry,scene,distance,local_forward,request):
+    """Rank a real pool, then use native rejection locations to choose next."""
+    import itertools
+    limit=max(24,int(request.get('native_route_candidate_pool',96)))
+    pool=list(itertools.islice(_unsorted_straight_window_routes(video,entry,scene,distance,local_forward,request),limit))
+    failures=[]
+    for route in pool:
+        clearance=min((video.pathfinder.distance_to_closest_obstacle(p,1.)for p in route.positions),default=0.)if hasattr(video.pathfinder,'distance_to_closest_obstacle')else 0.
+        route.receipt.update(native_minimum_obstacle_clearance_m=float(clearance),prequalified_candidate_count=len(pool),minimum_full_trials_before_exhaustion=24)
+    while pool:
+        def priority(route):
+            penalty=sum(max(0.,.5-float(np.min(np.linalg.norm(route.positions[:,[0,2]]-point,axis=1))))for point in failures)
+            return (penalty,-route.receipt['native_minimum_obstacle_clearance_m'],route.receipt['proposal'])
+        pool.sort(key=priority);route=pool.pop(0)
+        route.report_failure=lambda reason,point:failures.append(np.asarray(point)[[0,2]].copy())
+        yield route

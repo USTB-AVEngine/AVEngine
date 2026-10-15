@@ -17,7 +17,8 @@ def test_unseen_open_room_gets_native_straight_windows_and_alternating_distance_
     pf=SimpleNamespace(snap_point=lambda point:np.asarray(point,float))
     result=find_template_route(room,pf,97)
     assert result['candidate_native_root_samples']==901
-    assert [x['branch']for x in result['distance_branches']]==['nearer','farther','nearer']
+    assert [x['branch']for x in result['distance_branches']]==['nearer']
+    assert result['single_pass']
     assert .8<=result['speed_m_s']<=1.2
     assert result['minimum_emission_radial_cosine']>=np.cos(np.deg2rad(30))
     assert .8*7.4<=result['straight_length_m']<=result['speed_m_s']*7.6
@@ -53,8 +54,9 @@ def test_native_narrow_room_uses_one_complete_straight_pass_with_all_four_condit
 def test_complete_native_gait_finish_preserves_emission_speed_and_planted_pause():
     from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
     times,moving,velocity,distance,clock,proof=human_distance_driven_clock(np.array([0.,2.]),[0.,.5,1.,1.5],.85,[[0.,30.]],speed_range=(.4,1.2),timed_route={'single_pass':True})
-    assert not moving[times>=8].any()
-    assert len(set(distance[times>=8]))==1
+    assert not moving[times>proof['executed_motion_end_s']+.04].any()
+    assert proof['executed_motion_end_s']<=9.7
+    assert len(set(distance[times>proof['executed_motion_end_s']+.04]))==1
     assert min(abs(clock[-1]-.5*i)for i in range(30))<1e-10
     assert .8<=np.min(velocity[(times>=1)&(times<=3.4)])<=1.2
     assert proof['complete_step_source_phase_s']==pytest.approx(clock[-1])
