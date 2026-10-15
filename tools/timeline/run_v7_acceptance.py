@@ -26,7 +26,17 @@ def run_worker(manifest,slot):
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
+    if 'ue_physical_gpu'in task:
+        from copy import deepcopy
+        gpu=int(task['ue_physical_gpu']);house=deepcopy(house)
+        house['input']['ue_config'].update(physical_gpu_index=gpu,graphics_adapter=0,unreal_editor=str(root/'scripts'/f'ue_gpu{gpu}'))
+        os.sched_setaffinity(0,{12+slot%4})
     from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,add_scene_demand,record_selected_parent
+    if task.get('automatic_registered_room') and not (root/'inputs/planned'/f'{slot:03d}.json').exists():
+        from avengine.timeline.v7_kujiale_construction import construct_request
+        from avengine.registry.kujiale_ue_measurements import read_registration
+        registration,_=read_registration(inputs.get('kujiale_native_measurement_registration'))
+        row=construct_request(row,house,inputs,catalog,load(inputs['semantic_manifest']),registration)
     state=read_demand_state(root/'inputs/demand_state.json')
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'

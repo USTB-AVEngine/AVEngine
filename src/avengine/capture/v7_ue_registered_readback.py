@@ -30,6 +30,9 @@ def _package(content,object_path):
 def prepare_readback(video,asset,declaration,actor,root,components):
     from avengine.backends.spear_ue.research_runtime import attach_emitter_component
     from avengine.registry.kujiale_ue_measurements import native_asset
+    if not hasattr(video,'native_measurement_registration'):
+        from avengine.registry.kujiale_ue_measurements import read_registration
+        video.native_measurement_registration,video.native_measurement_registration_receipt=read_registration()
     formal,basis=native_asset(asset,video.native_measurement_registration)
     mouth=np.asarray(asset['mouth_local_glb_m'],float)
     local=np.asarray(asset['registered_native_ue_mouth_local_cm'],float)

@@ -1,0 +1,33 @@
+import copy
+import numpy as np
+import pytest
+from avengine.timeline.v7_kujiale_construction import authored_pair,registered_people,select_group,construct_request
+from avengine.timeline.v7_kujiale_scheduler import can_start,assign_gpu,isolated_command
+pytestmark=pytest.mark.fast_unit
+
+def test_whole_authored_pair_is_staggered_from_measured_duration():
+    sounds=[{'scenario_id':'s','sound_asset_id':str(i),'role_id':i,'voice_reference':{'gender':'female','speaker_id':'v'+str(i)},'synthesis_readback':{'duration_s':d}}for i,d in enumerate([1.7,2.2,8.9])]
+    scenario,ids,offsets=authored_pair({'sounds':sounds},'female',0,latest_end_s=5.5)
+    assert ids==['0','1'] and offsets[1]>=offsets[0]+1.7+.299 and offsets[1]+2.2<=5.5
+    with pytest.raises(ValueError,match='no complete'):authored_pair({'sounds':sounds},'male',0)
+
+def test_formally_measured_different_appearances_keep_silent_bystander():
+    pool=[{'asset_id':str(i),'body_identity_id':'f'if i<2 else'm','visual_gender':'female'if i<2 else'male','color':color,'dialogue_voice_binding_eligible':True,'registered_native_ue':{'status':'pass'}}for i,color in enumerate(['blue','green','yellow'])]
+    ids,gender=registered_people(pool,{'assets':[{'asset_id':a['asset_id']}for a in pool]},3)
+    assert len(set(ids))==3 and ids[:2]==['1','0'] and ids[2]=='2' and gender=='female'
+    with pytest.raises(ValueError,match='two same-type'):registered_people(pool,{'assets':[{'asset_id':'0'}]},0)
+
+def test_position_retry_uses_new_geometry_without_removing_people():
+    candidates=[{'position_m':[x,1.3,z],'root_m':[x,0,z],'body_yaw_deg':0}for x in [-2,-1,0,1,2]for z in [-4,-3,-2,-1]]
+    a=select_group(candidates,[0,1.5,0],0);b=select_group(candidates,[0,1.5,0],1)
+    assert len(a)==len(b)==3 and a!=b
+    assert all(min(np.linalg.norm((np.array(p['root_m'])-q['root_m'])[[0,2]])for q in group if q is not p)>=.85 for group in [a,b]for p in group)
+
+def test_resource_pressure_queues_only_new_parents_and_gpu0_is_excluded(tmp_path):
+    snapshot={'MemAvailable_bytes':40e9,'PSS_bytes':20e9,'data_free_bytes':80e9,'minimum_disk_free_bytes':60e9}
+    assert can_start(snapshot,active_parents=7) and not can_start(snapshot,active_parents=8)
+    snapshot['MemAvailable_bytes']=29e9;assert not can_start(snapshot,active_parents=0)
+    assert assign_gpu([1,2,3],{1:2,2:4,3:0})==3
+    with pytest.raises(ValueError,match='GPU0'):assign_gpu([0,2],{})
+    command=isolated_command(tmp_path/'plan.json',5,3,'python',tmp_path/'worktree',tmp_path/'out')
+    assert '/dev/nvidia3'in command and '/dev/nvidia0'not in command

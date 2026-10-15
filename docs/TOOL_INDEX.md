@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 647 个工具脚本。
+当前共 651 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -377,8 +377,10 @@
 | `tools/timeline/relay_v7_full_shards_cci.sh` |  |
 | `tools/timeline/repair_kujiale_asset_pilot.py` | Prepare fresh failed-parent recipes with native view and RIR-qualified supports |
 | `tools/timeline/report_kujiale_asset_pilot.py` | Write the local native Kujiale asset pilot's Chinese, image-embedded report |
+| `tools/timeline/retry_v7_registered_qa.py` | Start a fresh QA qualification while preserving original native checkpoints |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/run_v7_acceptance.py` | Run isolated native acceptance parents under a committed resource policy |
+| `tools/timeline/run_v7_kujiale_rooms.py` | Unattended native Kujiale room construction, bounded retries and full smoke |
 | `tools/timeline/sample_v7_production_inputs.py` | Prepare legal v7 candidate selections; run no native/GPU work or export |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |
@@ -672,6 +674,7 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/registry/publish_static_object_registry.py` | Publish or verify one fail-closed M6 static-object research registration |
+| `tools/registry/register_kujiale_ue_measurements.py` | Promote complete current UE readbacks into the production registration |
 | `tools/registry/register_source_runtime_asset.py` | Register one new source runtime asset into a fresh registry copy |
 | `tools/registry/reseal_examples.py` | Reseal and re-pin example evidence bindings after a legitimate content change |
 
@@ -740,6 +743,7 @@
 | `tools/ue/import_usd_stage_to_level_editor.py` | Import an external USD stage into ordinary Unreal assets and a saved level |
 | `tools/ue/import_v7_kujiale_editor.py` | Materialize one isolated Kujiale map and record native floor/material evidence |
 | `tools/ue/inspect_kujiale_source_materials_editor.py` |  |
+| `tools/ue/launch_kujiale_reserved_gpu.py` | Launch UE on the UUID-authorized card in an isolated device namespace |
 | `tools/ue/measure_animal_motion_surface.py` | Audit skin from actual UE joint matrices against unchanged binding geometry |
 | `tools/ue/native_animal_direction_controls.py` | Reject physically reversed and sideways UE skeletal actors on the same route |
 | `tools/ue/plan_kujiale_admission.py` | Plan admitted native assets on measured floor/table/wall/ceiling surfaces |

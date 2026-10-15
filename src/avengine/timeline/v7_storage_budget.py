@@ -88,10 +88,11 @@ def check_write(path,*,expected_bytes=0):
     if below_floor and not disk_policy['pause_new_jobs_only']:
         raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={disk_policy['minimum_free_bytes']}")
     used=allocated_bytes(root)
-    if used+requested+margin>policy["maximum_task_bytes"]:
+    above_budget=used+requested+margin>policy["maximum_task_bytes"]
+    if above_budget and not disk_policy["pause_new_jobs_only"]:
         raise StorageBudgetExceeded(f"own output budget stop: allocated={used}, expected={requested}, limit={policy['maximum_task_bytes']}")
     return {"free_bytes":free,"own_allocated_bytes":used,"expected_write_bytes":requested,
-            "checked_unix":time.time(),"policy":policy,"effective_disk_policy":disk_policy,"pause_new_jobs":below_floor}
+            "checked_unix":time.time(),"policy":policy,"effective_disk_policy":disk_policy,"pause_new_jobs":below_floor or above_budget}
 
 
 def configure_integration_pilot(output,budget_root,*,parents,workers,minimum_free_bytes=150_000_000_000):

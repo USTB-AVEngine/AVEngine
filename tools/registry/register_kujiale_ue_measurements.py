@@ -16,7 +16,7 @@ def build(manifest):
         job=load(path);task=next((t for t in manifest['parents']if t['slot']==job['slot']),None)
         if task is None:continue
         row=task['row'];key=row['house']+'/'+row['room_id'];entry=rooms[key]
-        if job['status']=='passed':
+        if job['status']=='passed'and entry['smoke_status']!='pass':
             entry.update(smoke_status='pass',independent_questions=job['independent_questions'],scene_id=job['scene_id'],families=job['export']['question_family_counts'],parent_receipt={'path':str(path),'sha256':sha256(path)},reader=job['reader'],english_status='pass',reason='')
         elif entry['smoke_status']!='pass':entry.update(smoke_status=job['status'],reason=job.get('reason','current complete parent pending'),scene_id=job['scene_id'])
         native=Path(task.get('native_output_root')or root/'native')/'parents'/row['scene_id']

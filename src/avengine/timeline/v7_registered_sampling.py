@@ -141,7 +141,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     height=float(np.median([p['position_m'][1] for p in layout['valid'][:3]]))
     candidates=[[float(x),height,float(z)] for x in np.arange(x0+.1,x1,.5) for z in np.arange(z0+.1,z1,.5) if floor_poly.covers(Point(x,z)) and math.hypot(x-layout['listener_m'][0],z-layout['listener_m'][2])>.5]
     candidates.sort(key=lambda p:abs(math.hypot(p[0]-layout['listener_m'][0],p[2]-layout['listener_m'][2])-1.87))
-    scene['native_placement_candidates']=candidates[:192]
+    scene['native_placement_candidates']=deepcopy(layout.get('native_candidates')or candidates[:192])
     from avengine.timeline.v7_camera_evidence import configure_camera_evidence
     configure_camera_evidence(scene,row,camera_evidence_policy)
     if plan.get('motion_requests'):scene['production_scenario']['motion_floor_polygon']=layout['room_floor_polygon']
