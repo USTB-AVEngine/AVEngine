@@ -26,3 +26,12 @@ def test_curved_route_follows_native_navmesh_at_scene_speed_and_has_smooth_tange
  assert np.ptp(route.yaws)>2*np.pi
  assert route.receipt['maximum_horizontal_snap_error_m']==0 and len(route.receipt['native_waypoint_connections'])==8
  assert np.max(np.abs(np.diff(route.yaws)))<.1
+
+
+def test_scene_speed_also_binds_the_existing_condition_solver_budget():
+ row={'scene_seed':71,'motion_execution_revision':REVISION,'motion_requests':{'human':{'action':'walk'}},
+      'motion_during_condition_requests':[{'target_asset_id':'human','speed_m_s':.4}]}
+ out=prepare_scene_motion(row,[{'asset_id':'human','kind':'human','species_id':'human'}])
+ condition=out['motion_during_condition_requests'][0]
+ assert condition['speed_range_m_s']==list(SPEED_RANGES['human'])
+ assert condition['speed_m_s']==out['motion_requests']['human']['speed_m_s']

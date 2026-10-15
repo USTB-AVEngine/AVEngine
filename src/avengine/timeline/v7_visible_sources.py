@@ -221,6 +221,19 @@ def select_proposed_record(pool, asset_id, row, rng):
     return pool[int(rng.integers(len(pool)))]
 
 
+def recorded_event_layout(row,asset,record,human_speech,fallback):
+    """Keep a whole admitted animal recording on an explicit physical clock."""
+    starts=row.get('phase2_whole_animal_recordings',{}).get(asset['asset_id'])
+    if starts is None:return fallback,human_speech
+    if asset['kind']!='animal' or asset['asset_id'] not in row.get('motion_requests',{}):
+        raise ValueError('whole animal recording requires a registered moving animal')
+    if record.get('source_type')=='author_tts':raise ValueError('animal cannot emit authored human speech')
+    starts=[float(t)for t in starts]
+    if not starts or any(not math.isfinite(t) or t<0 or t+float(record['duration_s'])>30 for t in starts):
+        raise ValueError('whole animal recording schedule does not fit the parent')
+    return starts,True
+
+
 def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
     from avengine.timeline.v7_audio_sources import PROGRAM_SCHEMA,filter_admission
     from avengine.timeline.v7_environmental_sources import recording_header,STRICT_CLASS13
@@ -302,8 +315,11 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
             schedule=[float(t)for t in row['phase2_recorded_speech_schedule_s'][a['asset_id']]]
             if not schedule or any(not math.isfinite(t) or t<0 or t>=30 for t in schedule):
                 raise ValueError('explicit whole recorded speech schedule is invalid')
+        if a['asset_id'] in row.get('phase2_whole_animal_recordings',{}) and len(choices)!=1:
+            raise ValueError('explicit whole animal recording needs one admitted sound class')
+        schedule,whole=recorded_event_layout(row,a,next(iter(choices.values())),human_speech,schedule)
         for index,start in enumerate(schedule):
-            cls=classes[index%len(classes)];record=choices[cls];whole=human_speech
+            cls=classes[index%len(classes)];record=choices[cls]
             duration=float(record['duration_s']);ticks=math.ceil(duration*10) if whole else max(1,math.floor(min(2.,duration)*10))
             lo=round(start*10);hi=lo+ticks
             if hi>300:raise ValueError('complete utterance does not fit the continuous world')
