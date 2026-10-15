@@ -21,6 +21,15 @@ def select_ordinary_task(tasks,contract,required_categories,*,started_slots=(),p
     return min((t for t in tasks if t.get('automatic_registered_room')and not t['row'].get('required_sound_classes')),key=rank)
 
 
+def construction_attempts(first,deadline,*,clock=None):
+    """Keep constructing until the explicit task deadline, not an arbitrary try count."""
+    clock=clock or (lambda:datetime.datetime.now(datetime.timezone.utc))
+    attempt=first
+    while clock()<deadline:
+        yield attempt
+        attempt+=1
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--required-sound-class',required=True);p.add_argument('--physical-gpu',type=int,required=True);p.add_argument('--python',default=os.environ.get('GAP_PY',os.sys.executable));p.add_argument('--max-attempts',type=int,default=8);p.add_argument('--resume-slot',type=int);p.add_argument('--resume-pid',type=int);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);runtime=load(m['runtime_ue']);contract=load(runtime['production_input_contract']);inventory=load(runtime['kujiale_ue_asset_admission']);required={'human.standing'}
     from avengine.timeline.v7_production_inputs import asset_category
@@ -49,7 +58,7 @@ def main():
                 except (OSError,ValueError):pass
                 if load(job_path)['status']=='passed':return
     deadline=datetime.datetime.fromisoformat(load(root/'inputs/task_scope.json')['deadline_utc'])
-    for attempt in range(first,a.max_attempts):
+    for attempt in construction_attempts(first,deadline):
         while True:
             if datetime.datetime.now(datetime.timezone.utc)>=deadline:return
             s=resources(root)
@@ -64,5 +73,6 @@ def main():
         job=load(root/'evidence/jobs'/f'{slot:03d}.json')
         with(root/'PROGRESS.md').open('a')as f:f.write(datetime.datetime.now(datetime.timezone.utc).isoformat()+' G 任意未跑房间自动'+a.required_sound_class+'构造，'+current['row']['scene_id']+' '+job['status']+' reason='+str(job.get('reason',''))+' family='+json.dumps(job.get('export',{}).get('question_family_counts',{}),ensure_ascii=False)+'\n')
         if rc==0:return
-    raise SystemExit(2)
+    return
+
 if __name__=='__main__':main()

@@ -27,3 +27,12 @@ def test_required_human_animal_group_uses_room_area_and_avoids_exhausted_room():
     areas={'a::R0':5,'b::R0':30,'c::R0':20}
     assert select_ordinary_task(tasks,contract,required,room_areas=areas)is tasks[1]
     assert select_ordinary_task(tasks,contract,required,room_areas=areas,attempted_rooms={('b','R0')})is tasks[2]
+
+
+def test_required_animal_attempts_continue_beyond_the_old_cap_and_stop_at_the_deadline():
+    import datetime
+    from tools.timeline.probe_kujiale_automatic_request import construction_attempts
+    before=datetime.datetime(2026,10,15,14,59,tzinfo=datetime.timezone.utc)
+    deadline=before+datetime.timedelta(minutes=1)
+    moments=iter([before,before,deadline])
+    assert list(construction_attempts(12,deadline,clock=lambda:next(moments)))==[12,13]
