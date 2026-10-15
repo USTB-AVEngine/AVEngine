@@ -56,6 +56,9 @@ def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100,unconstrain
         role=offscreen_role(scene,aid)
         if role:
             if role.get('static',True) is False:
+                if aid==new_entry_id and not entry.get('motion_episode'):
+                    if count!=0:return False
+                    continue  # Initial real drawable only; final compiled motion still needs >=100 pixels.
                 # Dynamic 'outside' role (QA-07 entry): outside at frame zero, proven on the actual posed mesh in
                 # refresh_actual_offscreen_proofs.  `counts` are whole-clip maxima, so here only the required later
                 # entry is checked (Claude 10-16; qa07 evidence moving_offscreen_view_bug_01.json).

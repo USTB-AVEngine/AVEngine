@@ -47,3 +47,13 @@ def test_floor_cover_tolerates_a_floating_point_seam():
     line = LineString([(0.5, 0.5), (1.5, 0.5)])
     assert not seam.covers(line) and seam.buffer(1e-6).covers(line)
     assert not seam.buffer(1e-6).covers(LineString([(0.5, 0.5), (2.5, 0.5)]))   # a real exit still fails
+
+
+def test_initial_uncompiled_outside_drawable_can_reach_motion_preparation():
+    scene={'native_view_roles':{'a':{'view':'outside','static':False,'required_visible_sometime':True}}}
+    assert layout.native_pixels_ok(scene,[_entry('a')],{'a':0},new_entry_id='a')
+    assert not layout.native_pixels_ok(scene,[_entry('a')],{'a':200},new_entry_id='a')
+    assert not layout.native_pixels_ok(scene,[_entry('a')],{'a':0})
+    compiled={**_entry('a'),'motion_episode':{'real_native_episode':True}}
+    assert not layout.native_pixels_ok(scene,[compiled],{'a':0},new_entry_id='a')
+    assert layout.native_pixels_ok(scene,[compiled],{'a':200},new_entry_id='a')
