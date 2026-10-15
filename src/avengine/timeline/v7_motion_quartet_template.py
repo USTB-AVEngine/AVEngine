@@ -222,7 +222,9 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     if role['record'] is not None:measured.append(role['record'])
     offsets=[offset]
     requests=[]
-    end_local=min(9.8,slot['leg'][1]/30.-offset-.1)
+    motion_end=(route.get('short_window_walk') or {}).get('walk_end_s')
+    if motion_end is None:motion_end=(slot['leg'][1] if slot.get('leg') is not None else slot['window_frames'][1])/30.
+    end_local=min(9.8,float(motion_end)-offset-.1)
     for qa,branch,flag in [('QA-06','moving','qa06'),('QA-15',slot['branch'],'qa15'),('QA-16',None,'qa16'),('QA-17','yes','qa17')]:
         if not slot[flag]:continue
         requests.append({'qa_id':qa,'branch':branch,'target_asset_id':a,
