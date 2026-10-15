@@ -170,6 +170,7 @@ class MotionAnimalPlugin:
         self.rejections={}
         self.geometry_preparations=0
         self.geometry_cache={}
+        self.geometry_failure_cache=set()
 
     def candidates(self, context, request):
         from avengine.construction.joint import CameraPose,ScenePlan
@@ -297,6 +298,7 @@ class MotionAnimalPlugin:
                             key=(mover,repr(camera),hashlib.sha256(
                                 np.asarray(actor.positions_m,dtype='<f8').tobytes()+
                                 np.asarray(actor.headings_rad,dtype='<f8').tobytes()).hexdigest())
+                            if key in self.geometry_failure_cache:continue
                             cached=self.geometry_cache.get(key)
                             if cached is not None:
                                 actor.positions_m=cached[0].copy()
@@ -309,6 +311,7 @@ class MotionAnimalPlugin:
                                 preparer=self.geometry_preparer or prepare_route_geometry
                                 try:preparer(context,self.house,self.runtime,d['animal'],self.contract['animal_motion'][mover],actor,route,directory)
                                 except ValueError as error:
+                                    self.geometry_failure_cache.add(key)
                                     self.rejections[str(error)]=self.rejections.get(str(error),0)+1;continue
                                 self.geometry_cache[key]=(actor.positions_m.copy(),{
                                     name:actor.metadata[name]for name in ('native_yaw_rad','joint_animal_prepared_geometry')})
@@ -409,6 +412,13 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
           'question_quota_base':10,'questions_per_window':14,'window_count':5,'motion_source_type':kind}
     if house.get('split')!='train':raise ValueError('animal production accepts only the authorized training houses')
     catalog=planning_catalog(base,catalog,contract)
+    preferred=runtime.get('motion_animal_preferred_asset_ids')
+    if preferred is not None:
+        if not isinstance(preferred,list) or not preferred or any(not isinstance(key,str)for key in preferred):
+            raise ValueError('animal preferred asset inputs require explicit nonempty registered IDs')
+        if not any(a['kind']=='animal'and a['asset_id']in preferred for a in catalog):
+            raise ValueError('requested original animal body is unavailable in this legal room catalog')
+        catalog=[a for a in catalog if a['kind']!='animal'or a['asset_id']in preferred]
     data=select_sources(catalog,records,semantic,contract,seed,attempt,kind)
     output=runtime.get('joint_planning_output_root')
     if not output:raise ValueError('animal joint construction requires an explicit caller-owned planning output root')
@@ -446,7 +456,10 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
             'certificate':asdict(result.certificate)if result.certificate else None,
             'source_type':kind,'requested_branch':branch,'family':family,
             'formal_native_prepared':result.prepared is not None,
-            'geometry_preparations':plugin.geometry_preparations,'geometry_conflicts':plugin.rejections}
+            'geometry_preparations':plugin.geometry_preparations,'geometry_conflicts':plugin.rejections,
+            'source_asset_id':data['animal']['asset_id'],'sound_asset_id':data['record']['sound_asset_id'],
+            'actual_source_activity_s':data['animal_activity_s'],'actual_source_program_duration_s':data['animal_duration_s'],
+            'preferred_original_asset_ids':preferred}
     (output/'joint_solve_result.json').write_text(__import__('json').dumps(report,indent=2)+'\n')
     if result.status!='certified' or result.prepared is None:
         raise ValueError('animal joint solver did not prepare a certified scene: '+str(result.reasons))
