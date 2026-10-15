@@ -299,10 +299,11 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         from tools.rooms.check_v7_kujiale_native_assets import vector_field
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True);checks=[];bounds=[];attempts=[]
         self.alpha_standing_refs={};self.current_camera_yaw_offset=0.
+        binding_layout=(self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'or(self.scene['production_scenario'].get('camera_policy')=='binding_static'and str(self.scene['production_scenario'].get('recipe_revision','')).startswith('kujiale-fixed-natural-construction-')))
         for a,d in zip(self.assets,self.declarations,strict=True):
             accepted=None;ep=a['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
             candidates=[self.placement_overrides[ep]]if self.shared_native_standing else[original,*self.scene.get('native_placement_candidates',[])]
-            if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
+            if (self.current_native_environment and binding_layout
                     and len(self.assets)>2 and a is self.assets[2]):
                 from avengine.capture.kujiale_pilot_environment import comparison_person_candidates
                 points=[self.alpha_standing_refs[x['endpoint_id']]['position_m'] for x in self.assets[:2]]
@@ -316,19 +317,25 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:self._navigation_foot(p)
                 except ValueError as e:
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)});continue
-                if ((self.construct_registered_dialogue_camera or (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'))
+                if ((self.construct_registered_dialogue_camera or (self.current_native_environment and binding_layout))
                         and a is self.assets[1] and self.assets[0]['endpoint_id'] in self.alpha_standing_refs):
                     from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view
                     first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
                     if not binding_pair_fits_view(self.scene['listener_m'],first,p):
                         attempts.append({'endpoint_id':ep,'candidate':p,'reason':'both active speakers need separated bearings within the production binding view'});continue
+                if binding_layout:
+                    from avengine.timeline.v7_fixed_camera_layout import binding_candidate_in_fixed_view
+                    if not binding_candidate_in_fixed_view(self.scene['listener_m'],p,self.scene['camera_yaw_knots'][0]['yaw_deg']):
+                        attempts.append({'endpoint_id':ep,'candidate':p,'reason':'preserve required body inside the fixed binding view'});continue
+                if np.linalg.norm((np.asarray(p)-np.asarray(self.scene['listener_m']))[[0,2]])<1.5-1e-9:
+                    attempts.append({'endpoint_id':ep,'candidate':p,'reason':'owner human camera construction distance must be at least1.5m'});continue
                 if any(np.linalg.norm((np.asarray(p)-saved['position_m'])[[0,2]])<1.0-1e-9 for saved in self.alpha_standing_refs.values()):
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':'owner human center spacing must be at least1.0m'});continue
                 self.placement_overrides[ep]=p
                 try:
                     with self.instance.begin_frame():actor=next(x for x in self._apply(0) if x['endpoint_id']==ep)
                     with self.instance.end_frame():pass
-                    if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
+                    if (self.current_native_environment and (self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'or(binding_layout and len(self.assets)>2 and a is self.assets[2]))
                             and self.alpha_standing_refs):
                         from avengine.capture.kujiale_pilot_environment import binding_mouth_distance_contrast
                         mouths=[x['emitter_position_m'] for x in self.alpha_standing_refs.values()]
