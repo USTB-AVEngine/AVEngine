@@ -234,3 +234,12 @@ def test_pending_map_fallback_requires_explicit_native_path_and_never_hides_othe
     for failure in (CheckResult("spacing", "fail"), CheckResult("floor", "unknown", "missing_mesh")):
         assert not planning_admissible(Certificate(certificate.checks + (failure,)), native_sweep_pending=True)
     assert not planning_admissible(Certificate(()), native_sweep_pending=True)
+
+
+def test_stationary_turn_preserves_the_promised_registered_hidden_probe_interval():
+    from avengine.construction.joint.families.qa09 import gait_intervals, TURNAROUND_INTERVAL_S
+    relation = ReappearanceDemand("target", "occluder", "yes").relation()
+    start, end = TURNAROUND_INTERVAL_S
+    assert max(relation["query_times_s"]) + 1 / 15 < start
+    assert end < gait_intervals("yes", "out_and_back")[1][0]
+    assert gait_intervals("no", "out_and_back") == [[1.5, 3.3]]

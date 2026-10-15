@@ -362,6 +362,17 @@ def native_qa09_route_proposals(video: Any, entry: Mapping[str, Any], scene: Map
     })
 
 
+TURNAROUND_INTERVAL_S = (5.6, 6.6)
+
+
+def gait_intervals(answer, positive_route_kind="arc"):
+    if answer not in {"yes", "no"} or positive_route_kind not in {"arc", "out_and_back"}:
+        raise ValueError("unknown QA-09 gait branch or route kind")
+    if answer == "no":
+        return [[1.5, 3.3]]
+    return [[1.5, 3.3], [6.8, 8.6] if positive_route_kind == "out_and_back" else [6., 7.8]]
+
+
 def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
                           house: Mapping[str, Any], answer: str) -> dict[str, Any]:
     """Reuse the admitted gait clock and IK on a declared flat planning floor.
@@ -380,12 +391,16 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
 
     if answer not in {"yes", "no"}:
         raise ValueError("unknown QA-09 gait branch")
-    intervals = [[1.5, 3.3]] + ([[6., 7.8]] if answer == "yes" else [])
+    route_kind = str(runtime.get("qa09_positive_route_kind", "arc")) if answer == "yes" else "arc"
+    intervals = gait_intervals(answer, route_kind)
     d, b, action, lineage = admitted_master(
         {"declaration": asset, "prepared_glb": asset["habitat_glb"]}, runtime, house)
     key_data = {"revision": "qa09-arc-gait-2" if answer == "yes" else "qa09-flat-gait-1", "asset_id": asset["asset_id"],
                 "master_sha256": lineage["master_sha256"], "clip": lineage["admitted_clip"],
                 "intervals_s": intervals, "speed_m_s": 1.0}
+    if answer == "yes" and route_kind == "out_and_back":
+        key_data.update(revision="qa09-out-and-back-gait-1", route_kind="out_and_back",
+                        stationary_turn_interval_s=list(TURNAROUND_INTERVAL_S))
     key = hashlib.sha256(json.dumps(key_data, sort_keys=True).encode()).hexdigest()[:24]
     directory = runtime.get("joint_cache_directory")
     path = Path(directory) / ("qa09_gait_" + key + ".npz") if directory else None
@@ -402,9 +417,14 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
     receipt = fitted["certificate"]
     from avengine.assets.roster_motion.straight_route import _shape_xy
     anchor = float(distance[135])
-    corner = (anchor, .8, (float(distance[-1])-anchor)/.8) if answer == "yes" else None
-    xz, headings = _shape_xy(distance, np.array([-anchor, 0.]), 0., corner)
-    positions = np.column_stack((xz[:, 0], np.zeros(901), xz[:, 1]))
+    if answer == "yes" and route_kind == "out_and_back":
+        from avengine.construction.joint import out_and_back_shape
+        positions, headings = out_and_back_shape([-anchor, 0., 0.], [1., 0.], distance, anchor,
+                                                  turn_interval_s=TURNAROUND_INTERVAL_S)
+    else:
+        corner = (anchor, .8, (float(distance[-1])-anchor)/.8) if answer == "yes" else None
+        xz, headings = _shape_xy(distance, np.array([-anchor, 0.]), 0., corner)
+        positions = np.column_stack((xz[:, 0], np.zeros(901), xz[:, 1]))
     yaws = -math.pi/2-headings
 
     class FlatPlanningFloor:
@@ -584,7 +604,7 @@ class QA09Plugin:
     def candidates(self, context, request):
         import time
         import numpy as np
-        from avengine.construction.joint import CameraPose, ActorPlan, ScenePlan, static_actor, certify_plan, framing, bind_distance_clock, straight_then_arc, ConstructionError
+        from avengine.construction.joint import CameraPose, ActorPlan, ScenePlan, static_actor, certify_plan, framing, bind_distance_clock, straight_then_arc, out_and_back, ConstructionError
         from avengine.timeline.v7_family_constructors import stable_seed
         demand = ReappearanceDemand(self.target["asset_id"], self.foreground["asset_id"], request.branch)
         started = time.monotonic()
@@ -622,7 +642,8 @@ class QA09Plugin:
                     # projection than a broadside walk, without changing its mesh.
                     direction = .5 * side * right + math.sqrt(.75) * f
                     body_yaw = -math.pi/2-math.atan2(direction[1], direction[0])
-                    route = {"answer": request.branch, "shadow_root_m": shadow.tolist(),
+                    route_kind = self.gait["metadata"].get("route_kind", "arc" if request.branch == "yes" else "straight")
+                    route = {"answer": request.branch, "route_kind": route_kind, "shadow_root_m": shadow.tolist(),
                              "cross_direction_xz": direction.tolist(), "hidden_interval_s": [4.5, 5.5]}
                     anchor = float(distance[135])
                     origin = shadow.copy(); origin[[0, 2]] -= anchor*direction
@@ -637,7 +658,11 @@ class QA09Plugin:
                     origin[1] = shadow[1] = ray_origin[1] - hit[0]
                     route["shadow_root_m"] = shadow.tolist()
                     try:
-                        if request.branch == "yes":
+                        if request.branch == "yes" and route_kind == "out_and_back":
+                            moving_actor = out_and_back(context, origin, direction, distance, anchor,
+                                turn_interval_s=TURNAROUND_INTERVAL_S, camera=camera, entity_id=tids[0],
+                                body=self.bodies[tids[0]], ramp_s=.3)
+                        elif request.branch == "yes":
                             moving_actor = straight_then_arc(context, shadow, direction, distance, anchor,
                                 turn_radius_m=.8, turn_sign=1, camera=camera, entity_id=tids[0],
                                 body=self.bodies[tids[0]], ramp_s=.3)
