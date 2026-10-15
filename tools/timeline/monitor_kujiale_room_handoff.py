@@ -12,7 +12,7 @@ def main():
             for room in new:
                 subprocess.run(['git','add','--',str(a.registration),str(a.registration)+'.sha256'],cwd=work,check=True)
                 if subprocess.run(['git','diff','--cached','--quiet','--',str(a.registration),str(a.registration)+'.sha256'],cwd=work).returncode:
-                    subprocess.run(['git','commit','-m','registry: qualify native Kujiale '+room['house']+'/'+room['room_id']],cwd=work,check=True)
+                    subprocess.run(['git','commit','--only',str(a.registration),str(a.registration)+'.sha256','-m','registry: qualify native Kujiale '+room['house']+'/'+room['room_id']],cwd=work,check=True)
                 head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=work,text=True).strip();key=room['house']+'/'+room['room_id'];seen[key]={'commit':head,'independent_questions':room['independent_questions'],'scene_id':room['scene_id']}
                 with(root/'PROGRESS.md').open('a')as f:f.write(datetime.datetime.now(datetime.timezone.utc).isoformat()+' READY_TO_MERGE '+head+' G '+key+' 当前UE实测矩阵/原始加载包/正式登记+完整14题/5绑定/五窗去重/英文/reader通过，scene='+room['scene_id']+' independent='+str(room['independent_questions'])+' family='+json.dumps(room['families'],ensure_ascii=False)+'；原始登记不改，见ALL_ROOMS_zh.md及正式登记。\n')
             state.write_text(json.dumps(seen,ensure_ascii=False,indent=2)+'\n');subprocess.run([os.sys.executable,str(root/'scripts/write_fix_status.py')],cwd=work,check=False)

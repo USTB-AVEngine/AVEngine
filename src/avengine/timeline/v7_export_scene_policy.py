@@ -152,7 +152,14 @@ def inspect_parent_policy(pointer_path):
         facts=_load(pool/'candidate_audit.json')['facts'];listener=facts['listener']
         window_speed=measured_actor_metrics(facts['actors'],facts['time']['frame_rate_hz'],requests)
         if any(a['status']!='pass'for a in window_speed):reasons.append(wid+':window_measured_root_speed_out_of_range')
-        metrics.setdefault('windows',{})[wid]={'actors':window_speed}
+        window_listener=np.asarray(listener['positions_m'],float);window_min=float('inf')
+        for actor in facts['actors'].values():
+            if actor.get('species_id')!='human':continue
+            roots=np.asarray(actor['root_positions_m'],float)
+            if len(roots)!=len(window_listener):raise ValueError('window human/camera frame clocks differ')
+            window_min=min(window_min,float(np.linalg.norm((roots-window_listener)[:,[0,2]],axis=1).min()))
+        if window_min<1.2-1e-6:reasons.append(wid+':human_camera_distance_under_1_2m')
+        metrics.setdefault('windows',{})[wid]={'actors':window_speed,'minimum_human_camera_distance_m':window_min if math.isfinite(window_min)else None}
         for i,(position,yaw)in enumerate(zip(listener['positions_m'],listener['yaw_deg'])):
             b=listener.get('basis_m3',[]);members[member].append({'position_m':position,'yaw_deg':yaw,**({'forward_m':b[i]['forward']}if b else{})})
     listener_metrics={member:camera_metrics(values)for member,values in members.items()}

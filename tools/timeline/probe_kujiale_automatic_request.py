@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unattended required-class smoke in the first previously unstarted legal room."""
+"""Unattended required-class smoke using ordinary legal room/category inputs."""
 from __future__ import annotations
 import argparse,copy,datetime,json,os,subprocess,time
 from pathlib import Path
@@ -8,8 +8,26 @@ from tools.timeline.run_v7_kujiale_rooms import AttachedChild
 from avengine.timeline.v7_kujiale_scheduler import resources,isolated_command,assign_gpu
 from tools.timeline.run_v7_kujiale_rooms import load,write
 
+def select_ordinary_task(tasks,contract,required_categories,*,started_slots=(),passed_houses=()):
+    """Prefer current legal witnesses, a new house and an unstarted room.
+
+    Missing categories remain eligible: normal current-native construction will
+    supply their witnesses, without dropping a requested person or animal.
+    """
+    cells={r['key']:r for r in contract['rooms']}
+    def rank(task):
+        row=task['row'];cell=cells[row['house']+'::'+row['room_id']]
+        return (len(set(required_categories)-set(cell['categories'])),row['house']in passed_houses,task['slot']in started_slots,task['slot'])
+    return min((t for t in tasks if t.get('automatic_registered_room')and not t['row'].get('required_sound_classes')),key=rank)
+
+
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--required-sound-class',required=True);p.add_argument('--physical-gpu',type=int,required=True);p.add_argument('--python',default=os.environ.get('GAP_PY',os.sys.executable));p.add_argument('--max-attempts',type=int,default=8);p.add_argument('--resume-slot',type=int);p.add_argument('--resume-pid',type=int);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);task=m['parents'][a.resume_slot]if a.resume_slot is not None else next(t for t in m['parents']if t.get('automatic_registered_room')and not(root/'evidence/jobs'/f'{t["slot"]:03d}.json').exists());request=copy.deepcopy(task['row']);base='v7_gap_auto_class_'+request['house']+'_'+request['room_id']+'_q'+str(len(m['parents']));request['required_sound_classes']=[a.required_sound_class]
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--required-sound-class',required=True);p.add_argument('--physical-gpu',type=int,required=True);p.add_argument('--python',default=os.environ.get('GAP_PY',os.sys.executable));p.add_argument('--max-attempts',type=int,default=8);p.add_argument('--resume-slot',type=int);p.add_argument('--resume-pid',type=int);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);runtime=load(m['runtime_ue']);contract=load(runtime['production_input_contract']);inventory=load(runtime['kujiale_ue_asset_admission']);required={'human.standing'}
+    from avengine.timeline.v7_production_inputs import asset_category
+    for asset in inventory['assets']:
+        if a.required_sound_class in(asset.get('allowed_v7_classes_candidate')or[]):
+            native=copy.deepcopy(asset);native.setdefault('species_id',native.get('category'));native.setdefault('kind','animal'if native.get('category')in {'dog','cat','bird'}else'object');required.add(asset_category(native,{},'kujiale'))
+    jobs=[load(p)for p in(root/'evidence/jobs').glob('*.json')];task=m['parents'][a.resume_slot]if a.resume_slot is not None else select_ordinary_task(m['parents'],contract,required,started_slots={j['slot']for j in jobs},passed_houses={j['house']for j in jobs if j['status']=='passed'});request=copy.deepcopy(task['row']);base=m.get('campaign_id','v7_fresh')+'_required_'+a.required_sound_class+'_'+request['house']+'_'+request['room_id']+'_q'+str(len(m['parents']));request['required_sound_classes']=[a.required_sound_class];request['scene_seed']=int(m.get('scene_seed_base',261015915000))+1000000+len(m['parents'])*1009
     first=0
     if a.resume_slot is not None:
         job_path=root/'evidence/jobs'/f'{a.resume_slot:03d}.json';current=m['parents'][a.resume_slot];request=copy.deepcopy(current['row']);base=request['scene_id'].rsplit('_a',1)[0];first=int(request['construction_attempt'])+1
