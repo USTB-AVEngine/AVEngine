@@ -213,3 +213,11 @@ def test_native_execution_rejects_relocated_start_instead_of_applying_the_plan_e
     request = {"joint_qa09_route": {"planned_distance_m": d.tolist(), "positions_m": np.zeros((901, 3)).tolist()}}
     with pytest.raises(ValueError, match="no execution relocation"):
         next(native_qa09_route_proposals(None, {"applied_root_input": root}, {}, d, [0, 0, -1], request))
+
+
+@pytest.mark.parametrize("answer", ["yes", "no"])
+def test_branch_requests_only_registered_qa09_pipeline_conditions(answer):
+    from avengine.timeline.v7_demand import FAMILY_SCENE_REQUIREMENTS
+    demand = ReappearanceDemand("target", "occluder", answer)
+    assert set(demand.requested_conditions()) <= set(FAMILY_SCENE_REQUIREMENTS["QA-09"]["conditions"])
+    assert ("later_visible_reappearance" in demand.requested_conditions()) == (answer == "yes")
