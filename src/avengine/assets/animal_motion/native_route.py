@@ -12,6 +12,28 @@ FLOOR_OUTLINE_NUMERICAL_MARGIN_M = 1e-6
 
 
 def ordered_native_animal_routes(video, entry, scene, local_forward, request):
+    if request['motion_quartet_route'].get('joint_exact_route'):
+        from types import SimpleNamespace
+        from avengine.rooms.walkable_map import load_room_map
+        from avengine.construction.joint.routes import validate_track
+        from avengine.construction.joint import CameraPose
+        template = request['motion_quartet_route']
+        points = np.asarray(template['positions_xz_m'], float)
+        roots = np.column_stack((points[:, 0], np.full(len(points), entry['applied_root_input'][1,3]), points[:, 1]))
+        walkable = load_room_map(template['walkable_map_room_id'], path=template['walkable_map_path'])
+        context = SimpleNamespace(walkable_map=walkable, pathfinder=video.pathfinder)
+        camera = CameraPose(tuple(scene['listener_m']), float(scene['camera_yaw_knots'][0]['yaw_deg']), width=1280, height=720)
+        _, report = validate_track(context, roots, template['species'], camera=camera, snap=False)
+        if report['max_snap_horizontal_m'] > .002:
+            raise ValueError('solved animal route exceeds the original 2mm native NavMesh tolerance')
+        local_angle = np.arctan2(local_forward[2], local_forward[0])
+        yaws = np.unwrap(local_angle - np.asarray(template['travel_yaws_rad'], float))
+        yield SimpleNamespace(positions=roots, yaws=yaws, receipt={
+            'route_kind':'joint solved original animal route', 'maximum_planned_xz_displacement_m':0.,
+            'joint_execution_search':False, 'root_samples':len(roots), 'species':template['species'],
+            'animal_stationary_turn_intervals_s':template.get('animal_stationary_turn_intervals_s',[]),
+            'native_navigation':report})
+        return
     from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
     proposed_scene = copy(scene)
     proposed_scene['production_scenario'] = dict(scene['production_scenario'])
