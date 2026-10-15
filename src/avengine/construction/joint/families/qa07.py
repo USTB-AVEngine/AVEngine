@@ -761,6 +761,10 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
                       "transitions": report.get("transitions"),
                       "peak_native_pixels": report.get("peak_actual_visible_pixels")})
         if ok:
+            # The owner's no-furniture-intersection rule needs every actual
+            # pose. Stride-10 record-only observations are not that proof.
+            from avengine.construction.joint.physics import native_full_mesh_sweep
+            yield from native_full_mesh_sweep(video, entries)
             yield from native_entry_counterfactual_checks(video, scene)
 
     def oracle(context, requested, plan):
