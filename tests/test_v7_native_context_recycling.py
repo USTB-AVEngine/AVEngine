@@ -27,3 +27,12 @@ def test_recycling_keeps_required_actor_dictionaries_roots_and_motion_clock(monk
     assert entry['motion_episode']['frame_count']==901
     assert video._current_visibility_stream.last=={}
     assert video.receipt['native_context_restarts'][0]['actual_actor_ids_preserved']==identities
+
+
+def test_completed_visual_stage_releases_its_native_capture_reservation():
+    from avengine.capture.continuous_native_video import NativeContinuousVideo
+    video=NativeContinuousVideo.__new__(NativeContinuousVideo);video.receipt={};video.actors=[]
+    sim=Sim();lease=Sim();video.sim=sim;video._task_motion_capture_lease=lease
+    video.close()
+    assert sim.closed and lease.closed
+    assert video.sim is None

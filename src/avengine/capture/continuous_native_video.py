@@ -276,6 +276,8 @@ class NativeContinuousVideo:
         receipt=getattr(self,'receipt',{})
         sim=getattr(self,'sim',None)
         if sim is not None:sim.close()
+        lease=getattr(self,'_task_motion_capture_lease',None)
+        if lease is not None:lease.close()
         for entry in getattr(self,'actors',[]):
             for key in ('object','emitter_node','phase2_foot_surface_mesh_cache'):entry.pop(key,None)
         self.__dict__.clear();self.receipt=receipt;self.sim=None
