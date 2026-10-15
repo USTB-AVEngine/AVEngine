@@ -133,6 +133,7 @@ class NativePhase2Video(NativeVisibleVideo):
             if ep not in admissions:continue
             record=admissions[ep]
             clearance=TriangleClearance(self,self.motion_house,record['physical_ground_y_m'],entry)
+            clearance.record_only=True;clearance.stride=10      # owner 10-15: planned movers, light final recheck
             minimum=float('inf');mesh_cache={}
             for index,path in enumerate(record['pose_glbs']):
                 if path not in mesh_cache:

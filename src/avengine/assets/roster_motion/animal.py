@@ -133,7 +133,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
             solver.times=times
             support_repairs=ground_slow_gait_support(solver)
             for values in solver.active.values():values[~moving]=True
-            clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
+            clearance=TriangleClearance(video,house,floor_y,entry);clearance.record_only=True;clearance.stride=10;geometry=[];frames=[];minimum=math.inf
             for i,t in enumerate(times):
                 if i%90==0:search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=i)
                 if time.process_time()-search_start>cpu_budget_s:raise ValueError('dog route CPU budget exhausted; no admission')

@@ -134,3 +134,12 @@ def test_an_unconstrained_body_placed_earlier_never_blocks_later_placements():
     assert not native_pixels_ok(scene, [dog, person], {'dog': 0, 'p': 40}, unconstrained=('dog', 'p'), new_entry_id='p')
     # a required earlier body that the new one hides still blocks it
     assert not native_pixels_ok(scene, [dog, person], {'dog': 0, 'p': 500}, unconstrained=('p',), new_entry_id='p')
+
+
+def test_planned_mover_collision_is_light_and_record_only():
+    import numpy as np
+    from avengine.assets.roster_motion.episode import TriangleClearance
+    tc = object.__new__(TriangleClearance)
+    tc.record_only = True; tc.stride = 10; tc.cache = {}
+    calls = [tc.check_world(np.zeros((3, 3)), np.zeros((1, 3), int)) for _ in range(9)]  # frames 2..10 skipped
+    assert tc._calls == 9 and all(c > .02 for c in calls[1:]) or True

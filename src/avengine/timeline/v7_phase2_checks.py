@@ -49,7 +49,9 @@ def motion_checks(visual):
         if record['maximum_navmesh_horizontal_error_m']>.002:errors.append(ep+':navigation drift')
         navigation.append(record['maximum_navmesh_horizontal_error_m'])
         clearance=record['minimum_certified_triangle_nonfloor_clearance_m'];clearances.append(clearance)
-        if clearance<=clearance_limit:errors.append(ep+':whole original skin clearance fails declared quality policy')
+        if clearance<=clearance_limit:
+            # owner 10-15: planned movers' full-skin contacts are recorded, not fatal.
+            (warnings if str(record.get('collision_policy','')).startswith('record_only') else errors).append(ep+':whole original skin clearance fails declared quality policy')
         if animal_visual_only and 0.<clearance<=.02:warnings.append(ep+':positive nonfloor clearance below 2cm visual preference')
         for index,(frame,row) in enumerate(zip(source,actual)):
             if row.get('root_max_error',0)>1e-5 or row.get('native_emitter_readback_error_m',1)>.0001:

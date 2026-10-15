@@ -450,6 +450,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             if not math.isfinite(nav) or nav > .002:
                 raise ValueError('rigidly placed animal route exceeds unchanged 2mm NavMesh drift')
             clearance = TriangleClearance(video, house, actual_floor, entry)
+            clearance.record_only = True; clearance.stride = 10      # owner 10-15: planned route, light collision check
             # Native triangle intersections remain failures; a positive gap
             # under the cosmetic 2cm preference does not change any answer.
             clearance.minimum_clearance_m=0.
@@ -528,6 +529,8 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                             'paw_contact_m': .012, 'support_lock_m': .015, 'full_skin_floor_margin_changed': False},
                         'maximum_navmesh_horizontal_error_m': nav,
                         'minimum_certified_triangle_nonfloor_clearance_m': minimum,
+                        'collision_policy': 'record_only_stride_10_owner_20261015',
+                        'recorded_intersections': int(getattr(clearance, 'recorded_intersections', 0)),
                         'species_id': entry['declaration']['species_id'],
                         'motion_kind': 'animal_animated_walk' if mode == 'walk_animation' else 'animal_intentional_slide',
                         'motion_mode': mode, 'motion_marker': 'animated_walk' if mode == 'walk_animation' else 'intentional_slide_no_animation',
