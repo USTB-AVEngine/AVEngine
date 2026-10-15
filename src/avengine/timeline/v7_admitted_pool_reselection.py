@@ -47,7 +47,7 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         raise ValueError('supplement source parent is not admitted')
     recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
     scene=row['scene_id'];root=pointer_path.parent;seal=root/pointer['attempt']
-    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v4_independent_answer_branches.json')
+    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v5_all_legal_families.json')
     if cache.exists():return load(cache)
     prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v1.json')
     prior=None  # Earlier candidates predate the fixed observer and wording policy.
@@ -67,7 +67,7 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         pub=load(qpath);original=load(rpath)
         if original.get('status')!='pass' or original.get('checked_forms')!=len(pub) or original.get('mismatches'):
             raise ValueError('original full-pool replay is incomplete or failed')
-        candidates=[q for q in pub if (q['modality']=='vision'or q['qa_id']in {'QA-06','QA-15','QA-16','QA-17','QA-08','STARSS-FRUSTUM','QA-20','QA-24','QA-04','QA-13','QA-25','QA-28','QA-21','V7-CLASS34'})and q['form']=='open'and q['question_id']not in known_ids]
+        candidates=[q for q in pub if q['form']=='open'and q['question_id']not in known_ids]
         if not candidates:continue
         audit=load(apath);all_gold={g['question_id']:g for g in load(pool/'private_answers.json')}
         evidence=load(pool/'evidence.json')
