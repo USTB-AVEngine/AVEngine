@@ -388,3 +388,53 @@ def test_graceful_stop_always_finalizes_receipts_and_never_dispatches_another_wo
     assert len(dispatched)==(0 if stop_during_admission else 1)
     assert len(result['outcomes'])==len(dispatched)
     assert result['native_passed_parents']==0
+
+
+def test_silent_human_visibility_proposal_uses_actual_body_without_changing_native_gates():
+    import math
+    from avengine.capture.v7_layout_candidates import silent_candidate_local_point
+    vertices=[[-.3,0.,-.2],[.3,1.8,.2]];actor={'kind':'human','silent_decor':True}
+    actual=silent_candidate_local_point({'automatic_construction':{}},actor,vertices)
+    # Empty automatic metadata still denotes an ordinary legacy call.
+    assert actual==[0.,.5,0.]
+    actual=silent_candidate_local_point({'automatic_construction':{'candidate_index':0}},actor,vertices)
+    assert actual==[0.,.9,0.]
+    assert abs(math.degrees(math.atan2(actual[1]-1.5,1.5)))<24
+    assert abs(math.degrees(math.atan2(.5-1.5,1.5)))>24
+    assert silent_candidate_local_point({},actor,vertices)==[0.,.5,0.]
+    assert silent_candidate_local_point({'automatic_construction':{'candidate_index':0}},{'silent_decor':False},vertices)==[0.,.5,0.]
+
+
+def test_registered_quartet_selects_colors_supported_by_its_original_reviewer_without_banning_phase2_neutrals(inputs):
+    from avengine.qa.v7_visual_admission import COLOR_HUE_DEGREES
+    from avengine.timeline.v7_family_constructors import eligible_humans
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    for a in assets:a['body_identity_id']=a['visual_gender']+'_body'
+    catalog=[*assets,*[{**a,'asset_id':a['visual_gender']+'_'+neutral,'color':neutral}
+        for a in assets if a['color']=='blue'for neutral in ('black','white')]]
+    lookup={a['asset_id']:a for a in catalog}
+    assert {'black','white'}<={a['color']for a in eligible_humans(catalog,room,contract)}
+    for seed in range(12):
+        plan=construct_family_scene(room,houses[room['house']],{},catalog,[],semantic,contract,{},
+            scene_id='new',seed=seed,family='V7-CONTENT-BIND')
+        ids=plan['row']['production_scenario']['asset_ids']
+        assert len(ids)==3 and len(plan['row']['members'])==4
+        assert all(lookup[aid]['color']in COLOR_HUE_DEGREES for aid in ids[:2])
+
+
+def test_placement_failure_signature_is_the_same_cause_for_different_registered_individuals():
+    from tools.timeline.generate_v7_demand_scenes import failure_stop
+    history={};first={'status':'failed','error_type':'ValueError',
+        'reason':'no strict native floor placement for v7_female_adult_13_blue_v1'}
+    assert failure_stop(first,history)is None
+    stopped=failure_stop({**first,'reason':'no strict native floor placement for v7_male_adult_20_white_v1'},history)
+    assert stopped['same_cause_occurrences']==2
+
+
+def test_worker_failure_log_keeps_actual_path_declared_root_and_source_traceback(capsys):
+    from tools.timeline.generate_v7_demand_scenes import log_attempt_failure
+    log_attempt_failure({'status':'failed','error_type':'StorageBudgetExceeded',
+        'reason':'write escaped the declared own task output root: path=/actual/cache; root=/declared/run',
+        'traceback':'v7_storage_budget.py:74: check_write'})
+    error=capsys.readouterr().err
+    assert '/actual/cache'in error and '/declared/run'in error and 'v7_storage_budget.py:74'in error

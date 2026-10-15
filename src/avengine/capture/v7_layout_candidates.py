@@ -21,3 +21,19 @@ def facing_yaw(scene,asset,listener,point):
     if not scene.get('automatic_construction'):return base
     offset=(0.,15.,-15.,30.)[candidate_index(scene)%4]
     return base+math.radians(offset)
+
+
+def silent_candidate_local_point(scene,asset,vertices):
+    """Use the real body center for automatic silent-actor proposal filtering.
+
+    The former fixed 0.5m point can sit below the camera even when most of a
+    standing person's actual body is visible. Final native pixel, contact,
+    support and collision admission remains in the existing caller.
+    """
+    if not scene.get('automatic_construction')or not asset.get('silent_decor'):
+        return [0.,.5,0.]
+    import numpy as np
+    points=np.asarray(vertices,dtype=float)
+    if points.ndim!=2 or points.shape[1]!=3 or not len(points):
+        raise ValueError('silent actor candidate needs its actual registered mesh')
+    return ((points.min(0)+points.max(0))/2).tolist()

@@ -314,6 +314,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     depth=float(delta@f)
                     if depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=37. and abs(math.degrees(math.atan2(delta[1],depth)))<=24.:return True
                 return False
+            from avengine.capture.v7_layout_candidates import silent_candidate_local_point
+            silent_probe=np.asarray(silent_candidate_local_point(scene,a,entry['original_mesh'].vertices))
             target=scene.get('phase2_semantic_azimuth_targets_deg',{}).get(a['asset_id']) if scene.get('phase2_profile') else None
             distance_target=float(scene.get('native_attachment_distance_targets_m',{}).get(a['asset_id'],2.5)) if scene.get('phase2_profile') else 2.5
             def candidate_score(p):
@@ -321,7 +323,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if key=='floor':
                     from avengine.capture.v7_layout_candidates import facing_yaw
                     p['yaw_rad']=facing_yaw(scene,a,listener,p['point'])
-                root,yaw,normal,_=support_points(meta,p);rep=root+rotation(yaw)@np.asarray(a['emitter_local_m']) if not a['silent_decor'] else root+[0,.5,0]
+                root,yaw,normal,_=support_points(meta,p);rep=root+rotation(yaw)@np.asarray(a['emitter_local_m']) if not a['silent_decor'] else root+rotation(yaw)@silent_probe
                 delta=rep-listener;f=np.asarray(scene['camera_forward']);right=np.cross(f,[0.,1.,0.]);depth=float(delta@f)
                 visible=visible_from_path(delta)
                 central=depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=20.
@@ -357,7 +359,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 # to check_support's proposed root. Every surviving candidate
                 # still runs all original rays, contacts and real native pixels.
                 proposed_root,proposed_yaw,_,_=support_points(meta,support)
-                proposed_rep=(proposed_root+rotation(proposed_yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else proposed_root+np.array([0.,.5,0.])
+                proposed_rep=(proposed_root+rotation(proposed_yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else proposed_root+rotation(proposed_yaw)@silent_probe
                 if not visible_from_path(proposed_rep-listener):
                     reject('outside_observed_camera_path');continue
                 placement=check_support(self.sim,r,meta,support)
@@ -390,7 +392,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 placement['typed_support_probe_readbacks']=typed
 
                 root=np.asarray(placement['root_m']);yaw=placement['yaw_rad']
-                representative=(root+rotation(yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else root+np.array([0.,.5,0.])
+                representative=(root+rotation(yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else root+rotation(yaw)@silent_probe
                 delta=representative-listener;forward=np.asarray(scene['camera_forward']);right=np.cross(forward,[0.,1.,0.]);depth=float(delta@forward)
                 horizontal=math.degrees(math.atan2(float(delta@right),depth));vertical=math.degrees(math.atan2(delta[1],max(1e-9,depth)))
                 if target is not None and abs(horizontal-float(target))>3.4:
