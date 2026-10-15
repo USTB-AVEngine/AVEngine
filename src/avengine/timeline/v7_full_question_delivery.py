@@ -122,6 +122,8 @@ def sample_pilot_comparison_frame(raw,scene,*,seed='v7'):
 
 def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,count):
     from avengine.qa.v7_native_adapter import native_bundle, collect_questions
+    from avengine.timeline.v7_footstep_bouts import footstep_bout_question_inputs
+    scene,evidence=footstep_bout_question_inputs(scene,evidence)
     proof=deepcopy(evidence)
     # The producer's observed mask stream owns this field; caller requests and
     # sparse snapshots never replace native 150-frame visibility readback.
