@@ -353,9 +353,8 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
     from pathlib import Path
     import numpy as np
     from avengine.assets.roster_motion.episode import admitted_master, triangle_mesh
-    from avengine.assets.roster_motion.pose import pose, animation_times
-    from avengine.assets.roster_motion.contact import FootPlant, foot_masks, foot_min
-    from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
+    from avengine.assets.roster_motion.contact import FootPlant
+    from avengine.construction.joint import admitted_human_clock_source, complete_human_gait_clock
 
     if answer not in {"yes", "no"}:
         raise ValueError("unknown QA-09 gait branch")
@@ -372,16 +371,13 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
         with np.load(path, allow_pickle=False) as data:
             return {"vertices": data["vertices"], "faces": data["faces"], "distance": data["distance"],
                     "metadata": json.loads(str(data["metadata"].item()))}
-    ts = animation_times(d, b, action)
-    masks = foot_masks(d, b)
-    double = []
-    for t in ts:
-        parts, _ = pose(d, b, action, float(t), ground=False)
-        if max(abs(foot_min(parts, masks, side)[0]) for side in ("L", "R")) < .025:
-            double.append(float(t))
-    if not double:
-        raise ValueError("admitted QA-09 gait lacks observed double support")
-    times, moving, velocity, distance, clock, receipt = human_distance_driven_clock(ts, double, 1., intervals)
+    source = admitted_human_clock_source(asset, runtime, house)
+    if source["source_lineage"] != lineage:
+        raise ValueError("QA-09 clock and pose source must share the same admitted lineage")
+    fitted = complete_human_gait_clock(source, 1., intervals)
+    ts = source["source_times_s"]
+    times, distance, clock = fitted["times_s"], fitted["distance_m"], fitted["phase_s"]
+    receipt = fitted["certificate"]
     from avengine.assets.roster_motion.straight_route import _shape_xy
     anchor = float(distance[135])
     corner = (anchor, .8, (float(distance[-1])-anchor)/.8) if answer == "yes" else None
@@ -821,7 +817,8 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
                 "original_predicates_on_complete_native_mask_stream",
                 evidence={"requested_answer": answer, "certificates": certificates})
             if passed:
-                yield strict_motion_sweep(video, entries)
+                from avengine.construction.joint import native_full_mesh_sweep
+                yield from native_full_mesh_sweep(video, entries)
 
         request = FamilyRequest("QA-09", answer, (target["asset_id"], foreground["asset_id"]),
                                 {"require_native_preflight": not geometric_only})
@@ -852,51 +849,3 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
         row["automatic_construction"]["prototype_validation_only"] = True
         return {"profile": "phase2", "row": row}
 
-
-def strict_motion_sweep(video, entries):
-    """Delegate every actual posed frame to the original full-triangle verifier.
-
-    The legacy final recheck samples every tenth pose and records collisions.
-    A construction certificate for these scenes requires no known furniture
-    penetration, so use the existing strict verifier, with no skipped poses.
-    """
-    import numpy as np
-    from avengine.construction.joint import CheckResult
-    from avengine.assets.roster_motion.episode import TriangleClearance
-    from avengine.capture.v7_visible_mesh import indexed_static_mesh
-    evidence = []
-    for entry in entries:
-        record = entry.get("motion_episode")
-        if not record:
-            continue
-        paths = record["pose_glbs"]
-        matrices = np.asarray([r.get("body_to_world_m", []) for r in record.get("native_30Hz_readbacks", [])], float)
-        if matrices.shape != (901, 4, 4):
-            return CheckResult("native:QA09:full_physics", "fail", "missing_actual_native_root_readbacks")
-        roots = matrices[:, :3, 3]
-        yaws = np.arctan2(matrices[:, 0, 2], matrices[:, 0, 0])
-        if len(paths) != 901 or roots.shape != (901, 3) or yaws.shape != (901,):
-            return CheckResult("native:QA09:full_physics", "fail", "incomplete_original_pose_sweep")
-        verifier = TriangleClearance(video, video.motion_house, record["physical_ground_y_m"], entry)
-        verifier.record_only = False
-        verifier.stride = 1
-        minimum = float("inf")
-        meshes = {}
-        for index, path in enumerate(paths):
-            if path not in meshes:
-                if len(meshes) >= 16:
-                    meshes.pop(next(iter(meshes)))
-                meshes[path] = indexed_static_mesh(path)
-            mesh = meshes[path]
-            try:
-                distance, _ = verifier.check(mesh.vertices, mesh.faces, roots[index], float(yaws[index]))
-            except ValueError as exc:
-                return CheckResult("native:QA09:full_physics", "fail", str(exc), evidence={
-                    "asset_id": entry["declaration"]["asset_id"], "failed_frame_30hz": index,
-                    "checked_pose_frames": index+1, "stride": 1, "record_only": False})
-            minimum = min(minimum, distance)
-        evidence.append({"asset_id": entry["declaration"]["asset_id"], "checked_pose_frames": len(paths),
-            "stride": 1, "record_only": False, "recorded_intersections": 0,
-            "minimum_nonfloor_clearance_m": minimum, "floor": verifier.floor_certificate()})
-    return CheckResult("native:QA09:full_physics", "pass" if evidence else "fail",
-                       "original_triangle_verifier_every_actual_pose", evidence={"actors": evidence})
