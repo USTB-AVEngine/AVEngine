@@ -638,3 +638,24 @@ def test_qa21_keeps_request_when_cell_lacks_a_real_fixed_domain_source(inputs):
     with pytest.raises(ValueError,match='no registered source'):
         construct_family_scene(rooms[0],houses[rooms[0]['house']],{},assets,
             [{'sound_class':'laughter'}],semantic,contract,{},scene_id='new_scene',seed=43,family='QA-21')
+
+
+def test_room_capacity_rank_uses_original_floor_and_retry_preserves_needed_categories(inputs):
+    from avengine.timeline.v7_family_room_capacity import ranked_room_candidates
+    from tools.timeline.generate_v7_demand_scenes import room_for_candidate
+    rooms,houses,assets,semantic,contract=copy.deepcopy(inputs)
+    houses[rooms[1]['house']]['checked_rooms'][0]['floor_polygon']={'type':'Polygon','coordinates':[[[-9,-9],[9,-9],[9,9],[-9,9],[-9,-9]]]}
+    rooms[1]['categories'].append('floor_object')
+    pairs=ranked_room_candidates(list(enumerate(rooms)),houses)
+    assert pairs[0][1]['room_id']==rooms[1]['room_id']
+    assert room_for_candidate(rooms[0],pairs,1,required_categories={'standing_human'})[1]['room_id']==rooms[1]['room_id']
+    assert room_for_candidate(rooms[0],pairs,1,required_categories={'standing_human','floor_object'})[1]['room_id']==rooms[1]['room_id']
+
+
+def test_native_failure_stopping_uses_concrete_cause_instead_of_asset_or_changing_counts():
+    from tools.timeline.generate_v7_demand_scenes import failure_signature
+    a={'status':'failed','error_type':'ValueError','reason':'no strict native floor placement for v7_a [placement_cause=attachment_rays]'}
+    b={**a,'reason':'no strict native floor placement for v7_b [placement_cause=attachment_rays]'}
+    c={**a,'reason':'no strict native floor placement for v7_c [placement_cause=owner_minimum_camera_distance_1_5m]'}
+    assert failure_signature(a)==failure_signature(b)
+    assert failure_signature(a)!=failure_signature(c)

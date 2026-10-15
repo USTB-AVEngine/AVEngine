@@ -325,13 +325,15 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if key=='floor':candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
             from avengine.timeline.v7_spatial_layout import body_yaw,spacing_rejection,noncollinear_rejection,is_person,entry_roots
             person_index=next(i for i,e in enumerate(e for e in self.actors if is_person(e['declaration'])) if e is entry) if is_person(a) else 0
-            listener=np.asarray(scene['listener_m']);rejections={}
+            listener=np.asarray(scene['listener_m']);rejections={};rejection_samples=[]
             from avengine.timeline.v7_natural_orientation import sample_initial_orientation,all_people_face_camera
             centre=poly.representative_point();room_center=[centre.x,floor,centre.y]
             people=[{'position_m':entry_roots(e)[0].tolist(),'yaw_rad':float(e['resolved_yaw_rad'])}for e in placed if is_person(e['declaration'])]
             furniture=[entry_roots(e)[0].tolist()for e in placed if e['declaration']['kind']=='object']
 
-            def reject(reason):rejections[reason]=rejections.get(reason,0)+1
+            def reject(reason,detail=None):
+                rejections[reason]=rejections.get(reason,0)+1
+                if detail is not None and rejections[reason]<=8:rejection_samples.append({'reason':reason,'detail':detail})
             from avengine.capture.v7_alpha_native import forward_at
             camera_path_vectors=[(forward_at(scene,k['time_s']),None) for k in scene['camera_yaw_knots']]
             camera_path_vectors=[(f,np.cross(f,[0.,1.,0.])) for f,_ in camera_path_vectors]
@@ -461,7 +463,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_social_layout import spacing_violation
                 social=spacing_violation(scene,a,root,placed)
                 if social is not None:
-                    reject('owner_minimum_human_or_animal_spacing_1m');continue
+                    reason=('requested_native_distance_band'if 'requested_distance_band_m'in social else'owner_minimum_camera_distance_1_5m'if social.get('other_asset_id')=='fixed_camera'else'owner_minimum_human_or_animal_spacing_1m')
+                    reject(reason,{'constraint':social,'body_root_m':root.tolist(),'listener_m':scene['listener_m']});continue
                 if native_attempts>=contact_budget:
                     search_exhausted=True;reject('bounded_native_search_exhausted');break
                 native_attempts+=1
@@ -519,7 +522,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 else:bounds.append((lo,hi))
                 checks.append(accepted);placed.append(entry);break
             if accepted is None:
-                write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})
+                write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections,'rejection_samples':rejection_samples})
                 from avengine.capture.v7_support_construction import retry_same_surface
                 support_retry=retry_same_surface(scene,a,key,supports,poly,floor,origin,lambda point:survey(self.sim,r,{'object_position':point}))
                 if support_retry is not None:
@@ -528,9 +531,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_offscreen_layout import placement_construction_fallback
                 stage=placement_construction_fallback(scene,a,key,target,require_pair)
                 if stage is not None:
-                    write_json(directory/('attachment_rejection_before_'+stage+'_'+a['asset_id']+'.json'),{'status':'retry_with_construction_fallback','stage':stage,'failed_asset_id':a['asset_id'],'surface':key,'rejection_counts':rejections})
+                    write_json(directory/('attachment_rejection_before_'+stage+'_'+a['asset_id']+'.json'),{'status':'retry_with_construction_fallback','stage':stage,'failed_asset_id':a['asset_id'],'surface':key,'rejection_counts':rejections,'rejection_samples':rejection_samples})
                     placement_queue.insert(0,entry);continue
-                raise ValueError('no strict native '+key+' placement for '+a['asset_id'])
+                raise ValueError('no strict native '+key+' placement for '+a['asset_id']+' [placement_cause='+max(rejections,key=rejections.get,default='no_candidates')+']')
         if require_pair:
             pixels=self._native_pair_pixels(scene,paired)
             write_json(directory/'simultaneous_controlled_pair.json',{'status':'pass' if all(n>=100 for n in pixels.values()) else 'fail','native_semantic_pixels':pixels,'frame_time_s':0.,'minimum_pixels':100})
