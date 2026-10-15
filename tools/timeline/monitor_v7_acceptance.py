@@ -85,9 +85,11 @@ def peer_processes(m):
  return processes(roots)
 
 
-def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory):
+def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory,combined_pss=0,combined_limit=None):
  if now >= deadline:return 'delivery_deadline_no_new_jobs'
  if pss >= limit:return 'PSS_limit_no_new_jobs'
+ if combined_limit is not None and combined_pss>=combined_limit:return 'combined_PSS_limit_no_new_jobs'
+ if available_memory<20_000_000_000:return 'critical_memory_ranked_alert_no_new_jobs'
  from avengine.timeline.v7_storage_budget import acceptance_minimum_free_bytes
  if free < acceptance_minimum_free_bytes(now):return 'disk_headroom_no_new_jobs'
  if allocated_size >= 60_000_000_000:return 'task_disk_limit_no_new_jobs'
@@ -126,7 +128,7 @@ def main():
   records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=len(records)+2
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
-  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem)
+  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000))
   if resource_pause=='delivery_deadline_no_new_jobs':pending=[]
   if time.monotonic()-last_progress>=900 or not last_progress:
    append_progress(o,m,now,active);last_progress=time.monotonic()
@@ -165,6 +167,7 @@ def main():
     reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion'}else 7_000_000_000 for s in active)
     requested=30_000_000_000 if moving else 7_000_000_000
     if not parent_launch_headroom(reserve,pss,requested,limit,mem):continue
+    if pss+peer_pss+requested>int(m.get('maximum_combined_pss_bytes',190_000_000_000)):continue
     if forecast_cpu+4>limits["maximum_cpu_processes"]:continue
     env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
     if ue:

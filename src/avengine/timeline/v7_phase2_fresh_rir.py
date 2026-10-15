@@ -29,21 +29,34 @@ def _launch_native_child(command,log,inputs):
             policy=json.loads(pathlib.Path(configured).read_text())
             fcntl.flock(lock,fcntl.LOCK_EX)
             try:
-                roots=[]
+                roots=[];peer_roots=[]
                 for path in pathlib.Path('/proc').iterdir():
                     if not path.name.isdigit():continue
                     value=proc(int(path.name))
-                    if value and value['state']!='Z'and any(root in value['cmd']for root in policy['output_roots']):roots.append(value['pid'])
+                    if value and value['state']!='Z':
+                        if any(root in value['cmd']for root in policy['output_roots']):roots.append(value['pid'])
+                        elif any(root in value['cmd']for root in policy.get('peer_output_roots',[])):peer_roots.append(value['pid'])
                 records=processes(roots);pss=sum(r['pss_bytes']for r in records)
+                peers=processes(peer_roots);owned_ids={r['pid']for r in records};peers=[r for r in peers if r['pid']not in owned_ids]
+                peer_pss=sum(r['pss_bytes']for r in peers)
+                root_pid=int(inputs.get('native_resource_parent_pid',os.getpid()))
+                if proc(root_pid)is None:root_pid=os.getpid()
+                tree=processes([root_pid]);tree_pss=sum(r['pss_bytes']for r in tree)
                 sdk=[r for r in records if 'avengine.timeline.v7_phase2_fresh_rir'in r['cmd']and '--request'in r['cmd']]
                 reserve=int(policy.get('native_process_reserve_bytes',1_500_000_000))
                 forecast=pss+sum(max(0,reserve-r['pss_bytes'])for r in sdk)+reserve
+                all_sdk=[r for r in [*records,*peers]if 'avengine.timeline.v7_phase2_fresh_rir'in r['cmd']and '--request'in r['cmd']]
+                tree_sdk=[r for r in tree if 'avengine.timeline.v7_phase2_fresh_rir'in r['cmd']and '--request'in r['cmd']]
+                combined_forecast=pss+peer_pss+sum(max(0,reserve-r['pss_bytes'])for r in all_sdk)+reserve
+                tree_forecast=tree_pss+sum(max(0,reserve-r['pss_bytes'])for r in tree_sdk)+reserve
                 available=next(int(s.split()[1])*1024 for s in pathlib.Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'))
-                if (len(sdk)<min(16,int(policy.get("maximum_native_processes",16))) and len(records)<80 and forecast<=int(policy.get("maximum_pss_bytes",140_000_000_000))
-                    and available-sum(max(0,reserve-r['pss_bytes'])for r in sdk)-reserve>=30_000_000_000 and shutil.disk_usage('/data').free>=acceptance_minimum_free_bytes()):
+                if (len(sdk)<min(16,int(policy.get("maximum_native_processes",16))) and len(records)<80 and forecast<=int(policy.get("maximum_pss_bytes",150_000_000_000))
+                    and combined_forecast<=int(policy.get("maximum_combined_pss_bytes",190_000_000_000))
+                    and tree_forecast<=int(policy.get("maximum_parent_tree_pss_bytes",30_000_000_000))
+                    and available-sum(max(0,reserve-r['pss_bytes'])for r in all_sdk)-reserve>=30_000_000_000 and shutil.disk_usage('/data').free>=acceptance_minimum_free_bytes()):
                     return subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
                 if time.monotonic()-last_log>=30:
-                    log.write(('waiting_for_new_native_process_admission '+json.dumps({'SDK_processes':len(sdk),'PSS_bytes':pss,'forecast_bytes':forecast,'MemAvailable_bytes':available})+'\n').encode());log.flush();last_log=time.monotonic()
+                    log.write(('waiting_for_new_native_process_admission '+json.dumps({'SDK_processes':len(sdk),'PSS_bytes':pss,'forecast_bytes':forecast,'combined_forecast_bytes':combined_forecast,'parent_tree_forecast_bytes':tree_forecast,'parent_tree_root_pid':root_pid,'MemAvailable_bytes':available,'critical_below_20GB':available<20_000_000_000})+'\n').encode());log.flush();last_log=time.monotonic()
             finally:fcntl.flock(lock,fcntl.LOCK_UN)
             time.sleep(.5)
 

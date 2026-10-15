@@ -125,3 +125,13 @@ def test_owner_workload_budget_and_host_memory_have_separate_scopes():
     assert not parent_launch_headroom(100*gb,110*gb,7*gb,180*gb,36*gb)
     assert not parent_launch_headroom(120*gb,110*gb,7*gb,180*gb,40*gb)
     assert not parent_launch_headroom(170*gb,174*gb,7*gb,180*gb,80*gb)
+
+
+def test_combined_workloads_and_critical_memory_pause_new_launches():
+    fields=dict(now=datetime.datetime(2026,10,15,3,tzinfo=datetime.timezone.utc),
+        deadline=datetime.datetime(2026,10,15,4,tzinfo=datetime.timezone.utc),pss=100_000_000_000,
+        limit=150_000_000_000,combined_pss=191_000_000_000,combined_limit=190_000_000_000,
+        free=90_000_000_000,allocated_size=40_000_000_000,available_memory=40_000_000_000)
+    assert launch_pause_reason(**fields)=='combined_PSS_limit_no_new_jobs'
+    fields.update(combined_pss=130_000_000_000,available_memory=19_000_000_000)
+    assert launch_pause_reason(**fields)=='critical_memory_ranked_alert_no_new_jobs'
