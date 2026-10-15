@@ -123,6 +123,8 @@ def augment_content_binding(row,members,root):
         if not frozen.is_file() or not marker.is_file():break
         fp=read_json(frozen);cp=read_json(marker);frozen_directory=root/fp['attempt']
         wanted={'revision':CONTENT_BRIDGE_REVISION,'source_pool':str(frozen_directory)}
+        from avengine.timeline.v7_native_stage_resume import compatible_relocated_pool_recipe
+        wanted=compatible_relocated_pool_recipe(root,'content_pools_'+name,wanted)
         if (fp['recipe']['original_native_registry_sha256']!=original_registry_sha
                 or fp['recipe']['actual_registry_sha256']!=mapped_sha or cp['recipe']!=wanted):
             raise ValueError('completed content registry or recipe changed')

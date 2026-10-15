@@ -338,9 +338,14 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
         for name in names:ordinary[name],branch_audits[name]=restrict_constructed_branch(ordinary[name],private[name],demand)
         if names==quartet:
             ordinary,pair_audit=filter_observed_nuisance_candidates(ordinary,private,window_ids)
+            quartet_allocation={}
+            for name in names:
+                allocations[name],quartet_allocation[name]=available_single_parent_allocation(ordinary[name],private[name],allocations[name])
             chosen,gold,audit=select_counterfactual_group(ordinary,private,allocations,
                 binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index,family_counts=family_counts)
             audit['observed_nuisance_preselection']=pair_audit
+            audit['owner_quartet_available_candidate_allocation']=quartet_allocation
+            audit['post_dedup_modality_target']={'vision':.30,'audio':.25,'audiovisual':.45}
         else:
             partial_audit=None
             if partial:

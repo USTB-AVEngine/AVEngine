@@ -22,10 +22,11 @@ def main():
     # Their original recipes still require exact matching in the producer.
     copied=[]
     for member in row['members']:
-        for prefix in ('windows_','frozen_dialogue_pools_'):
+        for prefix in ('windows_','frozen_dialogue_pools_','content_pools_'):
             marker=source/(prefix+member+'_completed.json')
             if not marker.exists():continue
             saved=json.loads(marker.read_text());_link_tree(source/saved['attempt'],target/saved['attempt']);shutil.copyfile(marker,target/marker.name);copied.append(marker.name)
+    if (source/'content_binding/summary.json').is_file():_link_tree(source/'content_binding',target/'content_binding')
     runtime=recipe['runtime_inputs'];catalog=json.loads(Path(m['assets_cpu']).read_text());catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     contract=json.loads(Path(runtime['production_input_contract']).read_text());admission=json.loads(Path(contract['inputs']['source_admission']['path']).read_text());human=json.loads(Path(m['human_registered_cpu']).read_text())
     os.environ[SELECTION_FEEDBACK_ENV]=str(owned/'inputs/demand_state.json')
