@@ -345,6 +345,8 @@ class UENativeContinuousVideo:
                         materials=declaration['material_receipt'];profiles=materials['profiles']
                         metric=measure_ue_source_highlights(rendered,semantic==1001+j,
                             max_highlight_ratio=min(p['max_highlight_ratio'] for p in profiles),reference_rgb=reference)
+                        if getattr(self,'fail_fast_source_materials',False) and metric['status']=='fail':
+                            raise ValueError('original native source material rejected before completing capture: '+str({'frame_index':index,'asset_id':actor['asset_id'],'metrics':metric}))
                         material_checks.append({'frame_index':index,'asset_id':actor['asset_id'],'metrics':metric,
                             'reference_kind':'same native UE BaseColor for retained highlight baseline; color is not an admission criterion',
                             'native_foot_contact':actor['native_foot_contact']})

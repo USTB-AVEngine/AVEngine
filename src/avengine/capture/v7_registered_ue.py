@@ -86,6 +86,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.physical_environment_bindings={}
         self.current_native_environment=bool(scene.get('require_current_native_environment'))
         self.suspend_unused_capture_sensors=bool(inputs.get('suspend_unused_registered_capture_sensors',False))
+        self.fail_fast_source_materials=bool(inputs.get('registered_fail_fast_source_materials',False))
         self.registered_actor_yaw_offset_deg=float(inputs.get('registered_actor_yaw_offset_deg',90.))
         self.construct_registered_dialogue_camera=bool(inputs.get('construct_registered_dialogue_camera',False))
         if not math.isfinite(self.registered_actor_yaw_offset_deg):raise ValueError('registered actor yaw offset must be finite')
