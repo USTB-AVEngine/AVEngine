@@ -434,6 +434,7 @@ def test_native_motion_readback_requires_same_complete_clock_and_roots():
     v,e=fake_native_world(p)
     matrices=np.repeat(np.eye(4)[None],901,axis=0);matrices[:,:3,3]=actor.positions_m
     e["motion_episode"]={"world_roots_m":actor.positions_m.tolist(),"sample_rate_hz":30.,
+                          "status":"pass","final_complete_scene_recheck":{"status":"pass","method":"unit fixture"},
                           "native_30Hz_readbacks":[{"body_to_world_m":m.tolist(),"action_sample_index":i}for i,m in enumerate(matrices)]}
     # Actual posed mesh loading belongs to the native adapter; a retained static
     # local mesh suffices for this readback-clock counterexample.
@@ -460,3 +461,79 @@ def test_joint_solution_records_proposal_scope_without_claiming_rendered_truth()
     assert source["solver_entry"]=="avengine.construction.joint.solve"
     assert source["native_preflight_status"]=="not_run"
     assert not source["native_full_render_and_qa_verified"]
+
+
+def test_composite_raycaster_preserves_long_registered_identity():
+    import trimesh
+    from avengine.construction.joint.mesh_prediction import InstanceRaycaster
+    wall=trimesh.creation.box((2.,2.,.1));wall.apply_translation([0,0,-4.])
+    foreground=trimesh.creation.box((1.,1.,.1));foreground.apply_translation([0,0,-2.])
+    identifier="registered_occluder_"+"x"*160
+    ray=CompositeRaycaster(MeshRaycaster(wall),InstanceRaycaster(MeshInstance(identifier,MeshRaycaster(foreground))))
+    distance,ids=ray.first_hit([0,0,0],[[0,0,-1]])
+    assert distance[0]==pytest.approx(1.95,abs=1e-5)
+    assert ids[0]==identifier
+
+
+def test_exact_mesh_roi_matches_full_depth_counts_and_does_not_mutate_background():
+    import trimesh
+    c=CameraPose((0.,1.25,0.),0.,width=160,height=90)
+    mesh=trimesh.creation.box((.6,1.8,.2));transform=np.eye(4);transform[:3,3]=[.3,.9,-4.]
+    target=MeshInstance("t",MeshRaycaster(mesh),transform)
+    background=depth(c);before=background.depth_m.copy()
+    blocker=trimesh.creation.box((.3,2.,.2));blocker.apply_translation([.3,1.,-2.])
+    other=MeshInstance("b",MeshRaycaster(blocker))
+    result=predict_mesh_visibility(c,target,scene_depth=background,occluders=(other,))
+    td=raster_mesh_depth(c,target);od=raster_mesh_depth(c,other)
+    mask=np.isfinite(td);visible=mask&(td<=od+1e-5)
+    assert result.evidence["target_only_pixels"]==int(mask.sum())
+    assert result.visible_pixels_estimate==int(visible.sum())
+    np.testing.assert_array_equal(background.depth_m,before)
+    x0,y0,x1,y1=result.evidence["raster_roi_xyxy"]
+    assert (x1-x0)*(y1-y0)<c.width*c.height/2
+
+
+def fallback_context():
+    import trimesh
+    c=context();c.allow_native_map_fallback=True
+    for a in c.walkable_map.layers.values():a[:]=False
+    c.pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p)+[0,.17,0],
+                                 distance_to_closest_obstacle=lambda p,r:1.)
+    floor=trimesh.creation.box((20.,.1,20.));floor.apply_translation([0,-.05,0])
+    c.floor_raycaster=MeshRaycaster(floor)
+    return c
+
+
+def test_map_miss_stays_pending_after_real_floor_navmesh_screen():
+    c=fallback_context();track=np.array([[0.,0.,-3.],[0.,0.,-4.]])
+    q,report=validate_track(c,track)
+    assert report["native_map_fallback"]["status"]=="pending_native_sweep"
+    assert report["native_map_fallback"]["continuous_samples"]>=40
+    np.testing.assert_array_equal(q[:,1],[0,0])
+    p=ScenePlan(c.cameras[0],{"a":static_actor("a",[0,0,-4])})
+    assert not certify_plan(c,p).passed
+    plugin=SimpleNamespace(candidates=lambda c,r:iter([p]),verify=lambda c,r,p:[CheckResult("branch","pass")])
+    assert solve(c,FamilyRequest("QA-21","x",("a",)),plugin).status=="unavailable"
+    assert not c.walkable_map.layers["human"].any()
+
+
+def test_map_fallback_cannot_skip_physical_floor_or_body_clearance():
+    c=fallback_context()
+    c.pathfinder.distance_to_closest_obstacle=lambda p,r:.2
+    with pytest.raises(ConstructionError,match="body_clearance"):
+        validate_track(c,[[0,0,-4]])
+    c.pathfinder.distance_to_closest_obstacle=lambda p,r:1.
+    with pytest.raises(ConstructionError,match="physical_floor"):
+        validate_track(c,[[0,.05,-4]])
+
+
+def test_native_fallback_requires_same_pose_physics_proof_and_live_payload():
+    c=fallback_context();p=ScenePlan(c.cameras[0],{"a":static_actor("a",[0,0,-4])})
+    plugin=SimpleNamespace(candidates=lambda c,r:iter([p]),verify=lambda c,r,p:[CheckResult("branch","pass")])
+    request=FamilyRequest("QA-21","x",("a",),{"require_native_preflight":True})
+    proof=[CheckResult(n,"pass")for n in ["native:a:full_pose_physics","native:a:exact_pose","native:identities","native:camera_unchanged"]]
+    result=solve(c,request,plugin,prepare_and_verify=lambda *a:PreparedCandidate(object(),tuple(proof)))
+    assert result.status=="certified"
+    assert any(x.reason=="original_native_full_pose_overrides_coarse_map_miss"for x in result.certificate.checks)
+    assert solve(c,request,plugin,prepare_and_verify=lambda *a:PreparedCandidate(object(),tuple(proof[:-1]))).status=="unavailable"
+    assert solve(c,request,plugin,prepare_and_verify=lambda *a:PreparedCandidate(None,tuple(proof))).status=="unavailable"
