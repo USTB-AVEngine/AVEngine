@@ -111,11 +111,11 @@ def construct_layout(house,room_id,runtime,*,attempt=0,eye_height_m=1.5):
     from avengine.capture.kujiale_spear_runtime import to_ue
     from tools.rooms.check_kujiale_native_capsule_contact import query_capsule
     room=next(r for r in house['checked_rooms']if r['room_label']==room_id);declaration=next(r for r in json.loads(Path(house['input']['ue_config']['acceptance_plan_path']).read_text())['rooms']if r['room_id']==room_id)
-    polygon=shape(declaration['floor_polygon']).buffer(-.05);floor=NativeFloorReference(house['input']['ue_config']['native_floor_surface']);floor.validate_probes(room['floor_reference']);hs,_=load_habitat_runtime(runtime_mode='current-installed',**runtime['runtime']);pf=hs.PathFinder()
+    polygon=shape(declaration['floor_polygon']).buffer(-.05);floor=NativeFloorReference(house['input']['ue_config']['native_floor_surface']);floor.validate_probes(room['floor_reference']);proposal_floor_y=floor.room_floor_y_m if floor.room_floor_y_m is not None else floor.proposal_floor_y_m;hs,_=load_habitat_runtime(runtime_mode='current-installed',**runtime['runtime']);pf=hs.PathFinder()
     if not pf.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('native room NavMesh unavailable')
     x0,z0,x1,z1=polygon.bounds;seen=set();all_candidates=[];statistics={'proposed':0,'nav_rejected':0,'native_floor_rejected':0,'capsule_rejected':0};native_probes=[p['nav_point_m']for p in room['floor_reference']['probes']if p['role'].startswith('source')]
     for step in [.5,.35,.25,.15]:
-        proposals=native_probes+[[float(x),floor.room_floor_y_m,float(z)]for x in np.arange(x0+.05,x1,step)for z in np.arange(z0+.05,z1,step)if polygon.covers(Point(x,z))]
+        proposals=native_probes+[[float(x),proposal_floor_y,float(z)]for x in np.arange(x0+.05,x1,step)for z in np.arange(z0+.05,z1,step)if polygon.covers(Point(x,z))]
         for target in proposals:
             key=(round(target[0],4),round(target[2],4))
             if key in seen:continue
@@ -130,13 +130,13 @@ def construct_layout(house,room_id,runtime,*,attempt=0,eye_height_m=1.5):
         if eye_height_m!=1.5:
             lowered=[]
             for eye in views:
-                eye=[eye[0],floor.room_floor_y_m+eye_height_m,eye[2]]
+                eye=[eye[0],proposal_floor_y+eye_height_m,eye[2]]
                 cap=query_capsule(floor.mesh,{'witness_index':0,'role':'camera','capsule':{'radius_cm':25.,'half_height_cm':25.,'center_ue_cm':to_ue(eye)}})
                 if cap['status']=='pass':lowered.append(eye)
             views=lowered
         # Add the same legal room's native-navigation camera positions. The
         # old witness often offers three nearly identical collinear views.
-        camera_eyes=[(np.asarray(p['root_m'])+[0,eye_height_m,0]).tolist()for p in all_candidates]+air_camera_proposals(polygon,floor.room_floor_y_m,step,eye_height_m)
+        camera_eyes=[(np.asarray(p['root_m'])+[0,eye_height_m,0]).tolist()for p in all_candidates]+air_camera_proposals(polygon,proposal_floor_y,step,eye_height_m)
         for eye in camera_eyes:
             cap=query_capsule(floor.mesh,{'witness_index':0,'role':'camera','capsule':{'radius_cm':25.,'half_height_cm':25.,'center_ue_cm':to_ue(eye)}})
             if cap['status']=='pass':views.append(list(eye))

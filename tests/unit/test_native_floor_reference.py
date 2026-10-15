@@ -37,9 +37,30 @@ def test_navigation_height_outlier_keeps_the_existing_tolerance(tmp_path):
     with pytest.raises(ValueError,match='snap tolerance'):NativeFloorReference(floor(tmp_path)).sample([0.,.2,0.])
 
 
-def test_floor_cannot_claim_native_agreement_without_nine_measured_probes(tmp_path):
-    reference=NativeFloorReference(floor(tmp_path))
-    with pytest.raises(ValueError,match='nine'):reference.validate_probes(probes(.03))
+def test_no_consistent_witness_requires_fresh_native_contact_without_claiming_agreement(tmp_path):
+    reference=NativeFloorReference(floor(tmp_path));result=reference.validate_probes(probes(.03))
+    assert result['status']=='fresh_native_construction_required'
+    assert result['checks']==[] and len(result['excluded_probes'])==9
+    assert reference.room_floor_y_m is None and reference.proposal_floor_y_m==0.
+    assert result['proposal_is_contact_admission'] is False
+    assert reference.sample([.5,.04,-.5])==[.5,0.,-.5]
+
+
+def test_one_bad_depth_probe_does_not_discard_eight_consistent_native_points(tmp_path):
+    reference=NativeFloorReference(floor(tmp_path));witnesses=probes();witnesses['probes'][0]['native_visual_floor_y_m']=.2
+    result=reference.validate_probes(witnesses)
+    assert result['status']=='pass' and result['retained_probe_count']==8
+    assert len(result['excluded_probes'])==1 and reference.room_floor_y_m==0.
+    assert result['native_depth_tolerance_m']==.02
+
+
+def test_unmeasured_or_nonfloor_witness_is_excluded_but_bad_support_stays_rejected(tmp_path):
+    reference=NativeFloorReference(floor(tmp_path));witnesses=probes();witnesses['probes'][0]['status']='unmeasured'
+    witnesses['probes'][1]['nav_point_m']=[3.,.04,0.]
+    result=reference.validate_probes(witnesses)
+    assert result['status']=='pass' and result['retained_probe_count']==7
+    assert len(result['excluded_probes'])==2
+    with pytest.raises(ValueError,match='missing'):reference.sample([3.,.04,0.])
 
 
 def test_geometry_mutation_is_rejected_before_actor_spawn(tmp_path):

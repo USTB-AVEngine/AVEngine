@@ -70,7 +70,7 @@ class NativeSupportGeometry:
         from shapely.geometry import shape,Point
         plan=json.loads(Path(house['input']['ue_config']['acceptance_plan_path']).read_text())
         declared=next(x for x in plan['rooms'] if x['room_id']==room['room_label']);polygon=shape(declared['floor_polygon'])
-        self.floor.validate_probes(room['floor_reference']);baseline=self.floor.room_floor_y_m
+        self.floor.validate_probes(room['floor_reference']);baseline=self.floor.room_floor_y_m if self.floor.room_floor_y_m is not None else self.floor.proposal_floor_y_m
         catalog={'floor':[],'table':[],'wall':[],'ceiling':[]};minx,minz,maxx,maxz=polygon.bounds
         points=[]
         for x in np.arange(minx+.15,maxx,.3):
