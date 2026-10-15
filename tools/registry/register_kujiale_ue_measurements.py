@@ -32,9 +32,9 @@ def build(manifest):
             from avengine.timeline.v7_export_scene_policy import cached_parent_policy
             delivery=cached_parent_policy(job['export']['source_seal'],root/'evidence/current_owner_policy_cache')
         valid_smoke=job['status']=='passed'and delivery['status']=='pass'
-        if valid_smoke and entry['smoke_status']!='pass':
+        if valid_smoke:
             summary={k:v for k,v in delivery.items()if k in {'revision','status','source_seal','reasons','member_listener','original_native_evidence'}};summary['native_layout']={v:proof['layout']for v,proof in delivery['native_views'].items()if v!='windows'}
-            entry.update(smoke_status='pass',independent_questions=job['independent_questions'],scene_id=job['scene_id'],families=job['export']['question_family_counts'],parent_receipt={'path':str(path),'sha256':sha256(path)},reader=job['reader'],english_status='pass',current_owner_scene_policy=summary,reason='')
+            entry.update(smoke_status='pass',selected_smoke_slot=job['slot'],selected_smoke_policy='latest completely passed request slot; earlier fresh media retained',independent_questions=job['independent_questions'],scene_id=job['scene_id'],families=job['export']['question_family_counts'],parent_receipt={'path':str(path),'sha256':sha256(path)},reader=job['reader'],english_status='pass',current_owner_scene_policy=summary,reason='')
         elif entry['smoke_status']!='pass':
             entry.update(smoke_status='failed'if delivery and not valid_smoke else job['status'],reason=';'.join(delivery['reasons'])if delivery and not valid_smoke else job.get('reason','current complete parent pending'),scene_id=job['scene_id'])
         if valid_smoke and job.get('new_current_native_category_qualification'):

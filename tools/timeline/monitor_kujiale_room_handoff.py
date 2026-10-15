@@ -8,7 +8,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--registration',type=Path,required=True);p.add_argument('--stop-file',type=Path,required=True);p.add_argument('--poll-seconds',type=float,default=10.);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);work=Path(m['worktree']);state=root/'evidence/room_ready_receipts.json';seen=load(state)if state.exists()else{r['house']+'/'+r['room_id']:{'initial_pass':True}for r in load(a.registration)['rooms']if r['smoke_status']=='pass'}
     while not a.stop_file.exists():
         try:
-            m=load(a.manifest);data=publish(m,a.registration);new=[r for r in data['rooms']if r['smoke_status']=='pass'and r['house']+'/'+r['room_id']not in seen]
+            m=load(a.manifest);data=publish(m,a.registration);new=[r for r in data['rooms']if r['smoke_status']=='pass'and (r['house']+'/'+r['room_id']not in seen or seen[r['house']+'/'+r['room_id']].get('scene_id')!=r['scene_id'])]
             for room in new:
                 subprocess.run(['git','add','--',str(a.registration),str(a.registration)+'.sha256'],cwd=work,check=True)
                 if subprocess.run(['git','diff','--cached','--quiet','--',str(a.registration),str(a.registration)+'.sha256'],cwd=work).returncode:
