@@ -49,7 +49,9 @@ def prepare_conditioned_motion_gap(row,state,catalog,records,inputs,house,semant
     if not eligible:raise ValueError('post-sound request needs three distinct whole recordings by one actual voice')
     voice=eligible[row['scene_seed']%len(eligible)];clips=sorted(voices[voice].values(),key=lambda r:(r['duration_s'],r['sound_asset_id']))[:3]
     authored=[s for s in semantic['sounds']if s['voice_reference']['gender']==companion['visual_gender']and .8<=float(s['synthesis_readback']['duration_s'])<=2.3]
-    sound=min(authored,key=lambda s:(s['synthesis_readback']['duration_s'],s['sound_asset_id']))
+    voice_ids=sorted({s['voice_reference']['speaker_id']for s in authored})
+    chosen_voice=voice_ids[row['scene_seed']%len(voice_ids)]
+    sound=min((s for s in authored if s['voice_reference']['speaker_id']==chosen_voice),key=lambda s:(s['synthesis_readback']['duration_s'],s['sound_asset_id']))
     row.update(semantic_scenario_id=sound['scenario_id'],semantic_sound_ids=[sound['sound_asset_id']],semantic_human_asset_ids=[other_id],semantic_start_offsets_s=[0.])
     row.pop('motion_during_condition_requests',None);row.pop('motion_during_condition_plan',None)
     row.get('phase2_include_footsteps_asset_ids',[]).clear()
@@ -59,6 +61,7 @@ def prepare_conditioned_motion_gap(row,state,catalog,records,inputs,house,semant
     row.setdefault('phase2_recorded_sound_ids',{})[target_id]=[r['sound_asset_id']for r in clips]
     for field in ('phase2_recorded_speech_schedule_s','phase2_recorded_sound_ids'):row[field].pop(other_id,None)
     row['phase2_authored_speech_schedule_s']={other_id:[0.,10.,20.]}
+    row['authored_voice_rotation']={'bank_voice_count':24,'speaker_ids':[chosen_voice],'whole_authored_transcripts':[sound['transcript']]}
     yaw=float(row['camera_yaw_deg']);row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}];row.pop('semantic_camera_sector_targets_deg',None)
     speed=float(row.get('motion_requests',{}).get(target_id,{}).get('speed_m_s',.15))
     row['motion_requests']={target_id:{'action':'walk','speed_m_s':speed,'intervals_s':[]}}

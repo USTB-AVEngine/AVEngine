@@ -307,3 +307,20 @@ def test_foreground_proposal_preserves_all_requested_rear_targets():
     outside=proposal_score(scene,foreground,[.8,0.,-1.2],entries)
     assert centered<outside
     with pytest.raises(ValueError):proposal_score(scene,foreground,[0.,0.,-1.2],entries[:1])
+
+
+@pytest.mark.fast_unit
+def test_v3_post_sound_named_conditions_resolve_in_retained_helper_recipes():
+    from copy import deepcopy
+    from avengine.timeline.v7_demand import FAMILY_SCENE_REQUIREMENTS,requested_question_families
+    demand={'condition_families':{},'requested_conditions':FAMILY_SCENE_REQUIREMENTS['QA-16']['conditions']}
+    before=deepcopy(demand)
+    assert 'QA-16'in requested_question_families(demand)
+    assert demand==before
+
+
+@pytest.mark.fast_unit
+def test_each_published_family_has_resolvable_named_scene_conditions():
+    from avengine.timeline.v7_demand import FAMILY_SCENE_REQUIREMENTS,requested_question_families
+    for family,request in FAMILY_SCENE_REQUIREMENTS.items():
+        assert family in requested_question_families({'condition_families':{},'requested_conditions':request['conditions']})

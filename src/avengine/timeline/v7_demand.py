@@ -46,7 +46,10 @@ def requested_question_families(demand):
     rewrite an already rendered recipe. Unknown conditions still fail rather
     than silently dropping a requested family. This is coverage metadata only.
     """
-    mapping = {**CONDITION_FAMILIES, **demand['condition_families']}
+    named={}
+    for family,request in FAMILY_SCENE_REQUIREMENTS.items():
+        for condition in request['conditions']:named.setdefault(condition,[]).append(family)
+    mapping = {**named, **CONDITION_FAMILIES, **demand['condition_families']}
     return {family for condition in demand['requested_conditions']
             for family in mapping[condition]}
 
