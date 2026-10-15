@@ -46,13 +46,20 @@ def registered_people(catalog,registration,seed):
 def select_group(candidates,listener,attempt=0):
     from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view,comparison_person_candidates
     listener=np.asarray(listener,float);ordered=sorted(candidates,key=lambda p:(abs(np.linalg.norm((np.asarray(p['position_m'])-listener)[[0,2]])-2.4),p['position_m']))
-    found=0
+    if len(ordered)<3:raise ValueError('no clear separated three-person group')
+    roots=np.asarray([p['root_m']for p in ordered])[:,[0,2]];rays=np.asarray([p['position_m']for p in ordered])-listener;radii=np.linalg.norm(rays[:,[0,2]],axis=1);bearings=np.degrees(np.arctan2(rays[:,0],-rays[:,2]));distance=np.linalg.norm(roots[:,None,:]-roots[None,:,:],axis=2);angles=np.abs((bearings[:,None]-bearings[None,:]+180)%360-180)
+    compatible=(distance>=.85-1e-9)&(np.abs(radii[:,None]-radii[None,:])>=.6-1e-9)&(angles>=8.-1e-7);bits=[int.from_bytes(np.packbits(row,bitorder='little').tobytes(),'little')for row in compatible];pairs=(distance>=.85-1e-9)&(angles>=16.-1e-7)&(angles<=60.+1e-7);found=0
     for i,first in enumerate(ordered):
-        for second in ordered[i+1:]:
-            if np.linalg.norm((np.asarray(first['root_m'])-second['root_m'])[[0,2]])<.85:continue
-            if not binding_pair_fits_view(listener,first['position_m'],second['position_m']):continue
-            other=[c for c in ordered if min(np.linalg.norm((np.asarray(c['root_m'])-a['root_m'])[[0,2]])for a in [first,second])>=.85]
-            thirds=comparison_person_candidates(listener,[first['position_m'],second['position_m']],[c['position_m']for c in other])
+        for j in np.flatnonzero(pairs[i,i+1:])+i+1:
+            common=bits[i]&bits[j]
+            if not common:continue
+            second=ordered[j]
+            if np.linalg.norm(roots[i]-roots[j])<.85 or not binding_pair_fits_view(listener,first['position_m'],second['position_m']):continue
+            indices=[]
+            while common:
+                lowest=common&-common;index=lowest.bit_length()-1;common-=lowest
+                if min(np.linalg.norm(roots[index]-roots[k])for k in [i,j])>=.85:indices.append(index)
+            other=[ordered[k]for k in indices];thirds=comparison_person_candidates(listener,[first['position_m'],second['position_m']],[c['position_m']for c in other])
             for third in thirds[:3]:
                 if found==attempt:
                     c=next(c for c in other if c['position_m']==third);return [deepcopy(first),deepcopy(second),deepcopy(c)]
@@ -101,6 +108,7 @@ def construct_layout(house,room_id,runtime,*,attempt=0):
             if cap['status']=='pass':views.append(eye.tolist())
         views=list({tuple(v):v for v in views}.values())
         if len(views)>128:views=[views[i]for i in np.linspace(0,len(views)-1,128).astype(int)]
+        print('AUTO_ROOM_GEOMETRY',house['house'],room_id,{'grid_step':step,'native_candidates':len(all_candidates),'cameras':len(views),'rejections':statistics},flush=True)
         failures=[]
         for camera_index in range(len(views)):
             listener=np.asarray(views[(camera_index+attempt//3)%len(views)],float);candidates=visible_candidates(floor.mesh,listener,all_candidates)

@@ -31,3 +31,10 @@ def test_resource_pressure_queues_only_new_parents_and_gpu0_is_excluded(tmp_path
     with pytest.raises(ValueError,match='GPU0'):assign_gpu([0,2],{})
     command=isolated_command(tmp_path/'plan.json',5,3,'python',tmp_path/'worktree',tmp_path/'out')
     assert '/dev/nvidia3'in command and '/dev/nvidia0'not in command
+
+def test_dense_same_radius_proposals_reject_before_expensive_three_body_search(monkeypatch):
+    from avengine.capture import kujiale_pilot_environment
+    def unexpected(*args):raise AssertionError('third-person test called without any possible distance contrast')
+    monkeypatch.setattr(kujiale_pilot_environment,'comparison_person_candidates',unexpected)
+    candidates=[{'position_m':[2*np.sin(a),1.3,-2*np.cos(a)],'root_m':[2*np.sin(a),0.,-2*np.cos(a)],'body_yaw_deg':0.}for a in np.linspace(-1.,1.,500)]
+    with pytest.raises(ValueError,match='no clear separated'):select_group(candidates,[0,1.5,0])

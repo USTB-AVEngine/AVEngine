@@ -53,6 +53,7 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
     for cls,candidates in native_class_candidates(inventory,classes,house['input']['ue_config']['uproject'],row['scene_seed']+11*int(row.get('construction_request',{}).get('construction_attempt',0))):
         accepted=None;rejections=[]
         for asset in candidates[:max_assets]:
+            print('AUTO_NATIVE_ASSET_CANDIDATE',row['house'],row['room_id'],cls,asset['asset_id'],flush=True)
             primary=json.loads(Path(asset['primary_native_evidence']).read_text());manifest_path=Path(primary['input_manifest']);manifest=json.loads(manifest_path.read_text());metadata=next(a for a in manifest['assets']if a['asset_id']==asset['asset_id']);import_path=manifest_path.parent.parent/'evidence/import'/manifest['revision']/(asset['asset_id']+'.json');vertices=import_vertices(json.loads(import_path.read_text()));error=np.abs(np.ptp(vertices,axis=0)-np.asarray(asset['dimensions_m']))/np.maximum(asset['dimensions_m'],1e-5)
             if error.max()>.15:raise ValueError('admitted native size changed before construction')
             tolerance=.012 if asset['category']!='object'else .015;supports=sorted(catalog[asset['attachment_surface']],key=lambda q:abs(np.linalg.norm((np.asarray(q['point_m'])-listener)[[0,2]])-3.1))
@@ -81,6 +82,7 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
                 if accepted:break
             if accepted:break
         if not accepted:raise ValueError('bounded native physical construction found no support for required class '+cls)
+        print('AUTO_NATIVE_PHYSICAL_PLAN',row['house'],row['room_id'],accepted['asset_id'],accepted['placement']['root_m'],flush=True)
         plans.append(accepted)
     return plans
 
