@@ -101,13 +101,13 @@ def test_exactly_one_second_passes_but_fourteen_frames_do_not():
     assert "no_stable_registered_full_occlusion" in certify(f, o)["errors"]
 
 
-def test_visibility_requires_a_stable_clear_interval_not_one_reappearance_pixel():
+def test_visibility_requires_a_stable_visible_interval_not_one_reappearance_pixel():
     f, o = sequence()
     for r in f[75:]:
         r.update(state="visible_occluded", visible_pixels=1)
     result = certify(f, o)
     assert result["observed_answer"] == "yes"
-    assert "no_stable_clear_reappearance" in result["errors"]
+    assert "no_stable_visible_reappearance" in result["errors"]
 
 
 def test_no_branch_must_have_been_seen_before_becoming_hidden():
@@ -145,3 +145,71 @@ def test_negative_relation_does_not_require_a_later_clear_frame():
 def test_invalid_request_is_rejected(kwargs):
     with pytest.raises(ValueError):
         ReappearanceDemand("person", "speaker", "no", **kwargs)
+
+
+def final_clock(answer="yes"):
+    import numpy as np
+    times = np.arange(901) / 30
+    # Deliberately 1.8m first travel: a nominal 1.5m plan must not displace shadow.
+    d = np.clip((times - 1.5) / 1.8, 0, 1) * 1.8
+    if answer == "yes":
+        d += np.clip((times - 6.0) / 1.9, 0, 1) * 1.9
+    return d
+
+
+def test_final_gait_distance_is_anchored_at_shadow_without_rescaling():
+    import numpy as np
+    from avengine.construction.joint.families.qa09 import clock_anchored_positions
+    route = {"answer": "yes", "cross_direction_xz": [1., 0.], "shadow_root_m": [3., .2, -5.]}
+    d = final_clock()
+    p = clock_anchored_positions(d, route)
+    np.testing.assert_allclose(p[135:166], np.broadcast_to([3., .2, -5.], (31, 3)))
+    np.testing.assert_allclose(p[0], [1.2, .2, -5.])
+    np.testing.assert_allclose(p[-1], [4.9, .2, -5.])
+    np.testing.assert_allclose(np.linalg.norm(np.diff(p, axis=0), axis=1), np.diff(d), atol=1e-12)
+
+
+def test_negative_gait_cannot_leave_its_hidden_stop_later_in_the_parent():
+    from avengine.construction.joint.families.qa09 import clock_anchored_positions
+    route = {"answer": "no", "cross_direction_xz": [1., 0.], "shadow_root_m": [3., .2, -5.]}
+    assert clock_anchored_positions(final_clock("no"), route).shape == (901, 3)
+    with pytest.raises(ValueError, match="stay at the hidden stop"):
+        clock_anchored_positions(final_clock("yes"), route)
+
+
+def test_complete_step_extension_into_hidden_interval_is_not_silently_accepted():
+    import numpy as np
+    from avengine.construction.joint.families.qa09 import clock_anchored_positions
+    route = {"answer": "no", "cross_direction_xz": [1., 0.], "shadow_root_m": [3., .2, -5.]}
+    bad = np.clip(np.arange(901) / 30 - 1.5, 0, 3.5)
+    with pytest.raises(ValueError, match="did not stop"):
+        clock_anchored_positions(bad, route)
+
+
+def test_qa09_reappearance_accepts_stably_visible_occluded_as_original_predicate_does():
+    f, o = sequence()
+    for r in f[75:]:
+        r.update(state="visible_occluded", visible_pixels=400)
+    result = certify(f, o)
+    assert result["status"] == "pass"
+    assert result["observed_answer"] == "yes"
+    assert result["visible_after_intervals_frames"] == [[75, 149]]
+    assert result["clear_after_intervals_frames"] == []
+
+
+def test_native_execution_rejects_new_distance_instead_of_solving_another_start():
+    import numpy as np
+    from avengine.construction.joint.families.qa09 import native_qa09_route_proposals
+    d = final_clock()
+    request = {"joint_qa09_route": {"planned_distance_m": d.tolist(), "positions_m": np.zeros((901, 3)).tolist()}}
+    with pytest.raises(ValueError, match="clock differs"):
+        next(native_qa09_route_proposals(None, {}, {}, d + np.linspace(0, .01, 901), [0, 0, -1], request))
+
+
+def test_native_execution_rejects_relocated_start_instead_of_applying_the_plan_elsewhere():
+    import numpy as np
+    from avengine.construction.joint.families.qa09 import native_qa09_route_proposals
+    d = final_clock();root=np.eye(4);root[0,3]=.1
+    request = {"joint_qa09_route": {"planned_distance_m": d.tolist(), "positions_m": np.zeros((901, 3)).tolist()}}
+    with pytest.raises(ValueError, match="no execution relocation"):
+        next(native_qa09_route_proposals(None, {"applied_root_input": root}, {}, d, [0, 0, -1], request))
