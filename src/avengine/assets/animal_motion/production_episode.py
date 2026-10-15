@@ -209,6 +209,32 @@ def realized_animal_motion(scene, visual):
             'motion_degradation': record.get('motion_degradation')}
 
 
+
+def animal_route_samples(times, origin, yaw, direction, speed, curved_route=None):
+    """Execute a supplied native route and drive its gait by translated distance.
+
+    Rigid fitting preserves the template path. Stationary samples keep their
+    last heading and accumulate no distance, so their admitted pose also stays
+    fixed. The original paw, skin, NavMesh and full-scene checks run afterwards.
+    """
+    times=np.asarray(times,float)
+    if curved_route is None:
+        roots=np.asarray(origin,float)+times[:,None]*float(speed)*np.asarray(direction,float)
+        yaws=np.full(len(times),float(yaw))
+        distance=times*float(speed)
+        return roots,yaws,distance,np.full(len(times),float(speed))
+    roots=np.asarray(curved_route.positions,float).copy()
+    yaws=np.asarray(curved_route.yaws,float).copy()
+    if roots.shape!=(len(times),3) or yaws.shape!=(len(times),) or not np.isfinite(roots).all() or not np.isfinite(yaws).all():
+        raise ValueError('animal native route needs one finite position and heading per frame')
+    steps=np.linalg.norm(np.diff(roots[:,[0,2]],axis=0),axis=1)
+    distance=np.r_[0.,np.cumsum(steps)]
+    velocity=np.r_[steps[0],steps]/(times[1]-times[0])
+    for i in range(1,len(yaws)):
+        if steps[i-1]<=1e-10:yaws[i]=yaws[i-1]
+    return roots,np.unwrap(yaws),distance,velocity
+
+
 def compile_admitted_animal(video, entry, scene, house, inputs, directory, request):
     from shapely.geometry import shape, LineString, Point, box
     from avengine.assets.roster_motion.episode import PhysicalFloor, TriangleClearance
@@ -239,7 +265,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     old_end = np.asarray(source[-1]['root_world_m'], float)
     source_speed = float(np.linalg.norm((old_end - old_origin)[[0, 2]]) / period)
     from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION,curved_route_proposals
-    curved_motion=request.get('motion_execution_revision')==EXECUTION_REVISION
+    template=request.get('motion_quartet_route')
+    reflected_motion=bool(template and template.get('reflect_walk'))
+    curved_motion=reflected_motion or request.get('motion_execution_revision')==EXECUTION_REVISION
     speed = float(request.get('speed_m_s', source_speed))
     from avengine.timeline.v7_motion_speed import SPEED_RANGES
     speed_kind='slide' if mode=='slide_no_animation' else entry['declaration']['species_id']
@@ -283,7 +311,11 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         bodies.append(box(vertices[:, 0].min() - .03, vertices[:, 2].min() - .03, vertices[:, 0].max() + .03, vertices[:, 2].max() + .03))
     if curved_motion:
         if request.get('motion_quartet_route',{}).get('reflect_walk'):request['_reflection_diagnostics_path']=str(directory/'reflection_native_prefilter.json')
-        curve_stream=curved_route_proposals(video,entry,scene,distance,local_forward,request)
+        if reflected_motion:
+            from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
+            curve_stream=reflected_route_proposals(video,entry,scene,local_forward,request)
+        else:
+            curve_stream=curved_route_proposals(video,entry,scene,distance,local_forward,request)
         routes=(((0.,route.positions[0].copy(),float(route.yaws[0]),np.zeros(3),speed),requested_mode,route)for route in curve_stream)
     else:
         candidates,construction=native_walkable_starts(video,scene,poly,start,candidates,source[0]['mouth_m'],entry['resolved_yaw_rad'])
@@ -330,7 +362,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         if not curved_motion and time.monotonic() - begun > 1800:
             break
         try:
-            phase = np.mod(times * route_speed / source_speed, period)
+            roots,frame_yaws,route_distance,velocity=animal_route_samples(
+                times,p0,yaw,direction,route_speed,curved_route)
+            phase = np.mod(route_distance / source_speed, period)
             indices = np.minimum(len(source) - 2, np.rint(phase / period * (len(source) - 1)).astype(int))
             if mode != 'walk_animation':
                 indices[:] = 0
@@ -340,10 +374,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                     meshes[path] = indexed_static_mesh(path)
             actual_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(p0)
             p0[1] = actual_floor + qualified_initial_root_offset
-            roots = p0 + times[:, None] * route_speed * direction
-            frame_yaws=np.full(len(times),yaw)
-            if curved_route is not None:
-                roots=curved_route.positions.copy();roots[:,1]+=p0[1]-roots[0,1];frame_yaws=curved_route.yaws
+            roots[:,1]+=p0[1]-roots[0,1]
             roots[:, 1] += [source[int(i)]['root_world_m'][1] - old_origin[1] for i in indices]
             snaps = np.asarray([video.pathfinder.snap_point(p) for p in roots])
             nav = float(np.max(np.linalg.norm((snaps - roots)[:, [0, 2]], axis=1)))
@@ -413,7 +444,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'original_full_skin_floor_collision': clearance.floor_certificate(),
                         'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
                         'rigid_route_placement': rigid_placement,
-                        'requested_speed_m_s': speed, 'actual_speed_m_s': route_speed,
+                        'requested_speed_m_s': speed, 'actual_speed_m_s': float(np.median(velocity[velocity>1e-8])) if np.any(velocity>1e-8) else 0.,
                         'requested_motion_mode': requested_mode,
                         'motion_degradation': None,
                         'owner_quality_policy': {'authority': 'owner 2026-10-14: ability to generate questions first',
@@ -429,7 +460,14 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'production_visual_quality_policy': dict(OWNER_PRODUCTION_QUALITY),
                         'truth_and_answer_gates_changed': False}
             if curved_route is not None:
-                evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=bounds,scene_motion_execution=curved_route.receipt,animation_playback_multiplier=route_speed/source_speed,source_clip_root_speed_m_s=source_speed)
+                evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=bounds,
+                    scene_motion_execution=curved_route.receipt,animation_playback_multiplier=route_speed/source_speed,
+                    source_clip_root_speed_m_s=source_speed,
+                    animation_distance_clock={'method':'actual cumulative horizontal native route distance / admitted source speed; pauses freeze phase',
+                        'travelled_distance_m':float(route_distance[-1]),'maximum_scene_speed_m_s':float(velocity.max()),
+                        'stationary_frame_count':int(np.count_nonzero(velocity<=1e-8)),
+                        'native_route_kind':'reflected template' if reflected_motion else 'curved native proposal'},
+                    animation_playback_multiplier_per_frame=(velocity/source_speed).tolist())
             write_json(directory / 'motion_geometry.json', evidence)
             return evidence
         except ValueError as error:
