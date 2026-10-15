@@ -7,12 +7,31 @@ from __future__ import annotations
 from collections import Counter,defaultdict
 import json
 
-REVISION='independent-parent-modality-30-25-45-family-floor-20261015-v1'
+REVISION='independent-parent-rounded-modality-30-25-45-family-floor-20261015-v2'
 WEIGHTS={'vision':6,'audio':5,'audiovisual':9}
 
 
+def rounded_modality_quotas(capacity,minimums=None):
+    """Largest feasible row count with Hamilton rounding of 30/25/45.
+
+    Each quota differs from its fractional target by less than one question.
+    Native candidate capacity and existing family floors remain constraints;
+    a batch need not contain a multiple of twenty questions.
+    """
+    minimums=minimums or {}
+    upper=min(sum(capacity.values()),*((20*(capacity.get(m,0)+1)-1)//w for m,w in WEIGHTS.items()))
+    lower=max(1,sum(minimums.values()))
+    order=list(WEIGHTS)
+    for total in range(upper,lower-1,-1):
+        quotas={m:total*w//20 for m,w in WEIGHTS.items()}
+        remaining=total-sum(quotas.values())
+        for m in sorted(order,key=lambda m:(-(total*WEIGHTS[m]%20),order.index(m)))[:remaining]:quotas[m]+=1
+        if all(minimums.get(m,0)<=quotas[m]<=capacity.get(m,0)for m in WEIGHTS):return quotas
+    raise ValueError('modality budget cannot preserve the available family floor in a rounded 30/25/45 batch')
+
+
 def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
-    """Keep earliest crop, then 6/5/9 per 20 with family and parent coverage.
+    """Keep earliest crop, then rounded 30/25/45 with family and parent coverage.
 
     An entry contains the public row plus its private physical independence key.
     Keeping the key outside the public row prevents metadata from becoming text
@@ -31,11 +50,14 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
     pool,branch_capacity=balance_available_branches(list(unique.values()),minimum_family=minimum_family)
     capacity=Counter(e['row']['modality']for e in pool)
     if set(capacity)-set(WEIGHTS):raise ValueError('unknown model modality')
-    units=min(capacity[m]//n for m,n in WEIGHTS.items())
-    if not units:raise ValueError('validated independent pool cannot fill a 30/25/45 batch')
-    quotas={m:units*n for m,n in WEIGHTS.items()}
     available_families=Counter(e['row']['qa_id']for e in pool)
     floors={f:min(max(minimum_family,(family_minimums or {}).get(f,minimum_family)),n)for f,n in available_families.items()}
+    family_modalities=defaultdict(set)
+    for e in pool:family_modalities[e['row']['qa_id']].add(e['row']['modality'])
+    fixed_floors=Counter()
+    for family,modalities in family_modalities.items():
+        if len(modalities)==1:fixed_floors[next(iter(modalities))]+=floors[family]
+    quotas=rounded_modality_quotas(capacity,fixed_floors)
     from avengine.timeline.v7_answer_branch_demand import branch,selection_priority,summarize
     used=set();counts=Counter();families=Counter();parents=Counter();selected=[];branch_counts=Counter()
     byfamily=defaultdict(list);byparent=defaultdict(list)
@@ -71,7 +93,8 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
             candidates.remove(i);take(i)
     selected.sort(key=lambda e:(e['row']['independent_parent_scene_id'],float(e['row']['window_start_s']),e['row']['question_id']))
     report={'revision':REVISION,'input_rows':len(entries),'answer_branch_capacity':branch_capacity,'independent_candidate_rows':len(pool),
-        'physical_duplicates_dropped':len(entries)-len(pool),'capacity_by_modality':dict(capacity),
+        'physical_duplicates_dropped':len(entries)-len(unique),'answer_branch_candidates_not_selected':len(unique)-len(pool),'capacity_by_modality':dict(capacity),
+        'modality_quotas':quotas,'quota_rounding':'Hamilton; less than one question per modality',
         'selected_rows':len(selected),'selected_by_modality':dict(counts),
         'selected_family_counts':dict(families),'available_family_floors':floors,
         'represented_parents':len(parents),'target_proportions':{m:w/20 for m,w in WEIGHTS.items()},
