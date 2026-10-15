@@ -193,3 +193,12 @@ def test_configured_shared_memory_floor_reserves_headroom_for_running_jobs():
     from tools.timeline.monitor_v7_acceptance import parent_launch_headroom
     assert not parent_launch_headroom(0,0,7_000_000_000,150_000_000_000,46_000_000_000,40_000_000_000)
     assert parent_launch_headroom(0,0,7_000_000_000,150_000_000_000,47_000_000_000,40_000_000_000)
+
+
+def test_runtime_and_manifest_cannot_bypass_the_inherited_taskset():
+    from tools.timeline.run_v7_acceptance import worker_cpu_policy
+    broad={'cpu_affinity_ids':list(range(112)),'fresh_rir_workers':8}
+    parent,rir,workers=worker_cpu_policy(broad,{},0,{'fresh_rir_cpu_ids':list(range(96,104))},inherited_cpu_ids=set(range(16,32)))
+    assert parent==16 and rir==list(range(16,32)) and workers==8
+    with pytest.raises(ValueError,match='inherited taskset'):
+        worker_cpu_policy(broad,{'cpu_ids':[0,1]},0,{},inherited_cpu_ids={16,17})
