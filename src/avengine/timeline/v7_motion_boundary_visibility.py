@@ -9,7 +9,7 @@ def measure_boundary(cache,scene,trajectory,lo,hi,attempt,endpoint,sr=16000):
     if not hasattr(renderer,'house')or not hasattr(renderer,'inputs'):
         return {'status':'unverified','direct_visibility_flips':False,'reason':'native house/runtime not available'}
     folder=Path(attempt)/(endpoint+'_boundary_visibility')/(str(lo)+'_'+str(hi));folder.mkdir(parents=True,exist_ok=True);request=folder/'request.json';report=folder/'result.json'
-    a=max(0,lo-round(.05*sr));b=min(len(trajectory)*sr,hi+round(.05*sr))
+    a=max(0,lo-round(.05*sr));b=min(round(float(trajectory[-1]['time_s'])*sr),hi+round(.05*sr))
     samples=sorted({lo,hi,(lo+hi)//2,*range(a,b+1,max(1,round(.001*sr)))})
     value={'house':renderer.house,'inputs':renderer.inputs,'scene':scene,'sample_indices':samples,
         'positions_m':[position_at(trajectory,k/sr).tolist()for k in samples],

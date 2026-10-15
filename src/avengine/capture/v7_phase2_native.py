@@ -130,7 +130,7 @@ class NativePhase2Video(NativeVisibleVideo):
                     if len(mesh_cache)>=8:mesh_cache.pop(next(iter(mesh_cache)))
                     mesh_cache[path]=indexed_static_mesh(path)
                 mesh=mesh_cache[path]
-                dist,_=clearance.check(np.asarray(mesh.vertices),np.asarray(mesh.faces),np.asarray(record['world_roots_m'][index]),record['yaw_rad'])
+                dist,_=clearance.check(np.asarray(mesh.vertices),np.asarray(mesh.faces),np.asarray(record['world_roots_m'][index]),float(record['yaw_rad_per_frame'][index]) if record.get('yaw_rad_per_frame') is not None else record['yaw_rad'])
                 minimum=min(minimum,dist)
             record['final_complete_scene_recheck']={'status':'pass','original_pose_frames':901,'minimum_nonfloor_clearance_m':minimum,'method':'original full posed triangles against original complete stage and all final registered bystanders; swept bounds reserved before standing people'}
             record['original_full_skin_floor_collision']=clearance.floor_certificate()
@@ -169,7 +169,7 @@ class NativePhase2Video(NativeVisibleVideo):
         else:raise ValueError('unsupported phase-two motion; no static fallback')
         entry['motion_episode']=record
         from avengine.timeline.v7_native_resource_slots import acquire_native_resource
-        self._task_motion_capture_lease=acquire_native_resource('motion_capture')
+        self._task_motion_capture_lease=acquire_native_resource('motion_capture',expected_incremental_bytes=(35_000_000_000 if a['kind']=='human' else 3_000_000_000 if record.get('motion_mode')=='slide_no_animation' else 8_000_000_000 if a.get('species_id')=='cat' else 16_000_000_000))
         actual=[]
         for index in range(901):
             row=self._apply_motion_entry(entry,index);row.update(frame_index=index,time_s=index/30)
@@ -193,7 +193,7 @@ class NativePhase2Video(NativeVisibleVideo):
                 mesh=indexed_static_mesh(entry['motion_episode']['pose_glbs'][min(900,frame_index*2)])
                 entry['body_subset_verified']=True
                 entry['body_vertex_index']=cKDTree(np.asarray(mesh.vertices))
-                entry['resolved_yaw_rad']=entry['motion_episode']['yaw_rad']
+                entry['resolved_yaw_rad']=float(entry['motion_episode']['yaw_rad_per_frame'][min(900,frame_index*2)]) if entry['motion_episode'].get('yaw_rad_per_frame') is not None else entry['motion_episode']['yaw_rad']
         super()._check_source_frame(rgb,semantic,frame_index)
         if getattr(self,'seat_material_entries',None):
             from avengine.assets.source_materials import measure_source_appearance

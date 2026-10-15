@@ -46,6 +46,9 @@ def run_worker(manifest,slot):
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
         from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
     if task['profile']=='phase2':
+        from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion,REVISION as EXECUTION_REVISION
+        if not previous.exists():row['motion_execution_revision']=EXECUTION_REVISION
+        row=prepare_scene_motion(row,catalog)
         from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
         row=prepare_motion_during_row(row,catalog,source['records'])
     write(root/'inputs/planned'/f'{slot:03d}.json',row)
@@ -55,6 +58,8 @@ def run_worker(manifest,slot):
         'code_commit':manifest['code_commit'],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     try:
+        from avengine.timeline.v7_native_resource_slots import acquire_native_resource
+        parent_execution_lease=acquire_native_resource('parent')
         result=generate(row,house,inputs,catalog,source,human,str(root/'native'))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
         if not admitted:raise ValueError('native producer did not admit the parent')

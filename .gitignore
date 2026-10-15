@@ -20,3 +20,5 @@ __pycache__/
 
 # Workspace tmp is an external-storage symlink (or a local directory).
 /tmp
+
+/src/.v7_snapshots/

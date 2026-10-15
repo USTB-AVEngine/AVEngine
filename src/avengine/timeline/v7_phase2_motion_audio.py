@@ -14,7 +14,7 @@ from avengine.acoustics.moving_rir_calibration import CorrelatedRIRTimeline,effe
 from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_storage_budget import check_write
-REVISION='actual-30hz-independent-references-owner-measured-boundary-100ms-v6'
+REVISION='actual-30hz-independent-references-owner-boundary-100ms-adaptive-sample-clock-v7'
 
 def emitted_intervals(dry,block=160):
     x=np.asarray(dry);flags=[bool(np.any(x[i:i+block]!=0)) for i in range(0,len(x),block)]
@@ -128,7 +128,8 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
     from avengine.timeline.v7_motion_audio_exception import recordable_boundary_difference,event_exception_budget
     refinements=[];accepted=[];keys=real_keys
-    for refinement_pass in range(8):
+    maximum_refinement_passes=max(8,int(math.ceil(math.log2(max(np.diff(real_keys),default=1))))+2)
+    for refinement_pass in range(maximum_refinement_passes):
         timeline_keys=sorted({0,n-1,*keys})
         waves=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
         timeline=CorrelatedRIRTimeline(waves,timeline_keys)
@@ -145,7 +146,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
             if not any(np.any(dry[max(lo,a):min(hi+1,b+1)]!=0)for a,b in bands if lo<=b and hi>=a):
                 continue
             mid=(lo+hi)//2
-            if mid<=lo:raise ValueError('moving interval cannot be independently sampled')
+            if mid<=lo:mid=lo  # Adjacent emission samples: check the exact endpoint kernel independently.
             estimate=effective_emission_filter(timeline,mid,n);p=position_at(trajectory,mid/sr)
             raw=[compare_rirs(estimate,r,source=p,listener=listener,forward=forward,sample_rate=sr)for r in independent(mid)]
             measured=median_reference_check(raw);verdict=qualify_energy(raw)
@@ -159,6 +160,9 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
                 boundary=measure_boundary(cache,scene,trajectory,lo,hi,attempt,endpoint,sr)
                 if recordable_boundary_difference(verdict,boundary):
                     accepted.append({'interval_samples':[lo,hi],'midpoint_sample':mid,'check':measured,'raw_checks':raw,'qualification':verdict,'recorded_energy_decay_exception':True,'measured_boundary_proof':boundary})
+                    continue
+                if hi-lo>1:
+                    new.append(mid)
                     continue
                 write_json(attempt/(endpoint+'_moving_energy_rejection.json'),{'status':'blocked','revision':REVISION,'refinements':refinements,'thresholds_changed':False,'reference_statistics':ref_stats})
                 raise ValueError('moving native interval fails unchanged absolute energy/decay/direction gates after dense refinement')
@@ -198,7 +202,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
     final_filters=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
     wet=correlated_convolve(dry,final_filters,timeline_keys,sample_rate=sr,block_samples=160)
     receipt={'status':'pass','revision':REVISION,'crossfade_revision':CROSSFADE_REVISION,
-        'native_step_policy':'actual 30Hz attached emitter trajectory; initial native RIR segments 100ms; failing intervals bisected down to 1/120s',
+        'native_step_policy':'actual 30Hz attached emitter trajectory; initial native RIR segments 100ms; boundary intervals classified below 1/120s; persistent differences measured adaptively to the discrete emission-sample clock',
         'active_emission_intervals_samples':bands,'key_samples':timeline_keys,'actual_native_key_samples':keys,'RIR_count':len(keys),
         'silent_timeline_placeholders':{'first':0 if keys[0]>0 else None,'last':n-1 if keys[-1]<n-1 else None,'zero_emissions_required':True},
         'every_independent_raw_reference_must_pass':not bool(exceptions),'measured_boundary_exception_budget':exception_budget,'owner_engineering_policy_changed':True,'qa_truth_or_scorer_changed':False,'independent_midpoints':len(checks),'midpoint_checks':checks,'detailed_midpoint_checks':accepted,'energy_qualification':qualification,
