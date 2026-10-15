@@ -1,7 +1,7 @@
 {
   "schema": "v7-kujiale-ue-native-measurements-v1",
   "revision": "20261015-native-measured-v1",
-  "updated_utc": "2026-10-15T12:51:09.809243+00:00",
+  "updated_utc": "2026-10-15T12:53:35.580952+00:00",
   "original_registrations_modified": false,
   "runtime_authority": "production reads these measured native bases and original package hashes; world matrices remain measured per new frame",
   "scope": {
@@ -13766,7 +13766,7 @@
       "house": "kujiale_0066",
       "room_id": "R0",
       "measurement_status": "pass",
-      "smoke_status": "running",
+      "smoke_status": "pass",
       "measurements": [
         {
           "scene_id": "v7_kujiale_fixed_v2_kujiale_0066_R0_a00",
@@ -14457,8 +14457,8 @@
           }
         }
       ],
-      "independent_questions": 0,
-      "reason": "current complete parent pending",
+      "independent_questions": 77,
+      "reason": "",
       "native_floor_surface": {
         "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0066/native_editor_audit.json",
         "native_editor_audit_sha256": "38d3ae7dadaadebe635e839e8197781379af32d6e09859f331da830bcce9cb60",
@@ -14470,7 +14470,120 @@
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
       "scene_id": "v7_kujiale_fixed_v2_kujiale_0066_R0_a01",
-      "fix": "按原生日志定位并自动重构同房下一条件；未通过不计能用"
+      "selected_smoke_slot": 53,
+      "selected_smoke_policy": "latest completely passed request slot; earlier fresh media retained",
+      "families": {
+        "QA-02": 8,
+        "QA-12": 8,
+        "QA-19": 8,
+        "QA-14": 4,
+        "STARSS-FRUSTUM": 1,
+        "QA-05": 1,
+        "QA-25": 1,
+        "QA-28": 2,
+        "QA-24": 1,
+        "QA-26": 8,
+        "QA-27": 8,
+        "QA-04": 2,
+        "STARSS-SPEAKERS": 1,
+        "QA-08": 2,
+        "QA-20": 1,
+        "STARSS-CLASS13": 1,
+        "V7-CONTENT-BIND": 12,
+        "QA-23": 2,
+        "QA-01": 1,
+        "QA-03": 1,
+        "QA-22": 1,
+        "QA-18": 1,
+        "QA-13": 2
+      },
+      "parent_receipt": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/evidence/jobs/053.json",
+        "sha256": "c3aa0ce89c03f5c733a0aa2b472bd8927a89dbcfd6eb53ff786faa3c35c436c3"
+      },
+      "reader": {
+        "status": "pass",
+        "hostname": "cw-SYS-4029GP-TRT3",
+        "actual_decoded_windows": 20,
+        "unique_windows": 20,
+        "errors": [],
+        "GPU_started": false,
+        "method": "ffprobe all frames + ffmpeg actual first RGB frame + soundfile complete FOA and W-mono read"
+      },
+      "english_status": "pass",
+      "current_owner_scene_policy": {
+        "revision": "v7-fixed-observer-natural-layout-measured-speed-standoff-v2",
+        "status": "pass",
+        "source_seal": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0066_R0_a01/alpha_seal_completed.json",
+        "reasons": [],
+        "member_listener": {
+          "v0_a0": {
+            "yaw_range_deg": 0.0,
+            "position_diameter_m": 0.0,
+            "samples": 750,
+            "forward_range_deg": 0.0,
+            "status": "pass"
+          },
+          "v0_a1": {
+            "yaw_range_deg": 0.0,
+            "position_diameter_m": 0.0,
+            "samples": 750,
+            "forward_range_deg": 0.0,
+            "status": "pass"
+          },
+          "v1_a0": {
+            "yaw_range_deg": 0.0,
+            "position_diameter_m": 0.0,
+            "samples": 750,
+            "forward_range_deg": 0.0,
+            "status": "pass"
+          },
+          "v1_a1": {
+            "yaw_range_deg": 0.0,
+            "position_diameter_m": 0.0,
+            "samples": 750,
+            "forward_range_deg": 0.0,
+            "status": "pass"
+          }
+        },
+        "original_native_evidence": [
+          {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0066_R0_a01/visual_v0_attempt_d3d466186629467bbf3443602ea7f6b5/native_registered_visual_evidence.json",
+            "sha256": "4e086931152a39d14af455e77c0b9a154eac963b6fec038886fae1d31e7cb91e"
+          },
+          {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0066_R0_a01/visual_v1_attempt_6280b70ee6e54da2a121db00d7117b7f/native_registered_visual_evidence.json",
+            "sha256": "4991f3a48daa86eb2fca57d9999e1e52cdc78ed558e3a9d857f8244a012c9613"
+          }
+        ],
+        "native_layout": {
+          "v0": {
+            "status": "pass",
+            "minimum_human_centre_distance_m": 1.0253863932273448,
+            "minimum_human_camera_distance_m": 2.270476349858042,
+            "human_camera_distance_basis": "horizontal XZ root-to-camera; all actual frames",
+            "minimum_human_animal_centre_distance_m": null,
+            "orientation": {
+              "line_cross_track_rms_m": 0.16666373795207315,
+              "heading_spread_deg": 120.69955592339137
+            },
+            "reasons": []
+          },
+          "v1": {
+            "status": "pass",
+            "minimum_human_centre_distance_m": 1.0253863932273448,
+            "minimum_human_camera_distance_m": 2.270476349858042,
+            "human_camera_distance_basis": "horizontal XZ root-to-camera; all actual frames",
+            "minimum_human_animal_centre_distance_m": null,
+            "orientation": {
+              "line_cross_track_rms_m": 0.16666373795207315,
+              "heading_spread_deg": 120.69955592339137
+            },
+            "reasons": []
+          }
+        }
+      },
+      "fix": "完整门禁已过"
     },
     {
       "house": "kujiale_0067",
