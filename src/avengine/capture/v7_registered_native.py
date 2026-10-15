@@ -52,7 +52,7 @@ def sole_regions(local,asset):
 
 class NativeRegisteredVideo(NativeAlphaVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
-        if inputs.get('render_backend')!='cpu_llvmpipe':raise ValueError('registered CPU backend required')
+        if inputs.get('render_backend') not in {'cpu_llvmpipe','habitat_gpu'}:raise ValueError('registered Habitat backend required')
         NativeContinuousVideo.__init__(self,house,scene,inputs,[],**kwargs)
         from avengine.assets.source_materials import prepare_source_glb
         self.camera_frame_readbacks=[];self.standing_checks=[];self.motion_house=house;self.motion_inputs=inputs
