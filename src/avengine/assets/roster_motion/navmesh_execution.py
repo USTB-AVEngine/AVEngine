@@ -90,3 +90,43 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
                         'route_kind':'smooth closed native NavMesh waypoint loop','radius_m':radius,'centre_xz_m':[centre.x,centre.y],
                         'speed_m_s':float(request['speed_m_s']),'root_samples':len(positions),'maximum_horizontal_snap_error_m':float(errors.max()),
                         'native_waypoint_connections':links,'heading_follows_route_tangent':True,'native_full_pose_checks_still_required':True})
+
+
+def human_distance_driven_clock(source_times,double_support,speed,intervals,nominal=1.2):
+    """Fit complete observed steps, then drive animation by translated distance.
+
+    Extending a requested movement envelope to the next observed two-foot pause
+    changes scene construction only. Each original pose still goes through IK,
+    exact skin collision, contacts and native readback.
+    """
+    times=np.arange(901)/30.;duration=float(source_times[-1]-source_times[0])
+    phase0=float(min(double_support));velocity=np.zeros(len(times));moving=np.zeros(len(times),bool)
+    base=phase0;executed=[]
+    for number,(lo,hi)in enumerate(intervals):
+        lo=float(lo);hi=float(hi);limit=float(intervals[number+1][0])if number+1<len(intervals) else 30.
+        if not 0<=lo<hi<=limit<=30:raise ValueError('overlapping or invalid real-speed human intervals')
+        active=(times>=lo)&(times<hi);edge=np.clip(np.minimum(times-lo,hi-times)/.25,0,1)
+        original=np.where(active,speed*edge**2*(3-2*edge),0.);desired=base+float(np.sum((original[1:]+original[:-1])*np.diff(times)/2))/nominal
+        cycles=math.ceil((base+35)/duration)+2
+        endings=sorted({float(p)+cycle*duration for cycle in range(cycles)for p in double_support if float(p)+cycle*duration>=desired-1e-9})
+        accepted=None
+        for target in endings:
+            end=math.ceil((lo+(target-base)*nominal/speed+.25)*30-1e-9)/30
+            if end>limit+1e-9:break
+            active=(times>=lo)&(times<end);edge=np.clip(np.minimum(times-lo,end-times)/.25,0,1)
+            v=np.where(active,speed*edge**2*(3-2*edge),0.);length=float(np.sum((v[1:]+v[:-1])*np.diff(times)/2))
+            if length<=0:continue
+            ratio=(target-base)*nominal/length;steady=speed*ratio
+            if not .8-1e-9<=steady<=1.4+1e-9:continue
+            accepted=(end,v*ratio,active,target,steady);break
+        if accepted is None:raise ValueError('no complete observed double-support gait fits this real-speed envelope; construct a longer envelope')
+        end,v,active,target,steady=accepted;velocity+=v;moving|=active
+        executed.append({'requested_s':[lo,hi],'executed_s':[lo,end],'stable_speed_m_s':steady,
+                         'start_source_phase_s':base,'end_source_phase_s':target})
+        base=target
+    distance=np.r_[0.,np.cumsum((velocity[1:]+velocity[:-1])/60)]
+    clock=phase0+distance/nominal
+    return times,moving,velocity,distance,clock,{'method':'source phase equals exact integrated root distance / admitted nominal stride speed',
+        'nominal_source_speed_m_s':nominal,'intervals':executed,'pause_source_phase_s':base,
+        'maximum_stable_speed_m_s':float(max(velocity)),
+        'maximum_clock_distance_error_s':float(np.max(np.abs(clock-phase0-distance/nominal)))}

@@ -256,6 +256,11 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         target=min(candidates,key=lambda p:abs(p-desired));cumulative=target-phase[0]
         real_nodes.append(float(hi));phase_nodes.append(target)
     real_nodes.append(30.);phase_nodes.append(cumulative+phase[0]);clock=np.interp(times,real_nodes,phase_nodes)
+    scene_clock=None
+    if curved_motion:
+        from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
+        times,moving,velocity,distance,clock,scene_clock=human_distance_driven_clock(
+            ts,double,speed,request.get('intervals_s',[[2.,6.],[16.,20.]]),nominal)
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
     accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
@@ -326,7 +331,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     # Export re-evaluates the identical deterministic skinning.
                     geometry.append(qualified_globals);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
                 accepted=(positions,yaw,frame_yaws,curved_route,geometry,frames,floor_y,nav,clearance,minimum);break
-            except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
+            except ValueError as error:
+                failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
+                with(directory/'motion_route_search.jsonl').open('a')as stream:
+                    stream.write(__import__('json').dumps({'candidate':len(failures),'cpu_seconds':time.process_time()-route_cpu_started,**failures[-1]})+'\n')
         if accepted:break
     if not accepted:
         write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted human has no fully qualified new-house walking route')
@@ -354,5 +362,5 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False}
     if curved_route is not None:
-        evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=speed/nominal)
+        evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=scene_clock['maximum_stable_speed_m_s'],requested_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=scene_clock['maximum_stable_speed_m_s']/nominal,animation_distance_clock=scene_clock)
     write_json(directory/'motion_geometry.json',evidence);return evidence

@@ -35,3 +35,17 @@ def test_scene_speed_also_binds_the_existing_condition_solver_budget():
  condition=out['motion_during_condition_requests'][0]
  assert condition['speed_range_m_s']==list(SPEED_RANGES['human'])
  assert condition['speed_m_s']==out['motion_requests']['human']['speed_m_s']
+
+
+def test_real_human_playback_tracks_distance_during_acceleration_and_pauses():
+ from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
+ times,moving,velocity,distance,phase,proof=human_distance_driven_clock([0.,1.], [0.,.5],1.322,[[0.,2.5],[15.,17.5]])
+ assert np.allclose(np.diff(phase),np.diff(distance)/1.2,rtol=0,atol=1e-12)
+ assert .8<=proof['maximum_stable_speed_m_s']<=1.4
+ for interval in proof['intervals']:
+  lo,hi=interval['executed_s']
+  assert hi>=interval['requested_s'][1]
+  pause=np.flatnonzero(times>=hi)[0]
+  assert min(abs((phase[pause]%1.)-v)for v in [0.,.5,1.])<1e-10
+  assert not moving[pause]
+ assert proof['maximum_clock_distance_error_s']==0
