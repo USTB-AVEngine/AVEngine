@@ -53,3 +53,16 @@ def test_offscreen_human_clearance_keeps_collision_but_does_not_require_an_in_vi
     video=SimpleNamespace(environment_nodes={'environment1':{'physical':True,'native_evidence':evidence}},scene={'listener_m':[0.,1.,0.]})
     assert human_clear_of_environment(video,np.array([-.4,0,-2.]),np.array([.4,1.9,-1.6]))
     assert not human_clear_of_environment(video,np.array([-.4,0,-4.]),np.array([.4,1.9,-3.5]))
+
+
+def test_actual_ue_offscreen_finish_requires_all_450_physical_drawable_proofs(tmp_path):
+    from types import SimpleNamespace
+    from avengine.capture.kujiale_pilot_environment import finish_scene
+    frames=[{'frame_index':i,'entities':[{'endpoint_id':'environment1','visible_pixels':0,
+        'source_geometry_present':True,'intentional_offscreen_proof':{'status':'pass'}}]}for i in range(450)]
+    video=SimpleNamespace(current_environment_frames=frames,current_environment_admission={'environment1':{'status':'pass'}},
+        environment_nodes={'environment1':{'native_evidence':{'intentional_offscreen_role':{'view':'outside'}}}})
+    result={};proof=finish_scene(video,result,tmp_path/'render.mp4')
+    assert proof['status']=='pass' and proof['all_sources_have_drawable_geometry']
+    frames[17]['entities'][0]['source_geometry_present']=False
+    with pytest.raises(ValueError,match='450 actual drawable'):finish_scene(video,{},tmp_path/'render.mp4')

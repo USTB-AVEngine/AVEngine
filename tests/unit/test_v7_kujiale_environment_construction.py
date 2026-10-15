@@ -49,3 +49,41 @@ def test_cached_support_proposals_match_original_native_placement_anchor():
             assert np.allclose(root,original['root_m'],atol=1e-12)
             world=vertices@matrix.T+original['root_m'];assert np.allclose(low,world.min(axis=0),atol=1e-12)and np.allclose(high,world.max(axis=0),atol=1e-12)
     assert len(cache.rotations)==15
+
+
+def test_required_real_dog_retries_legal_floor_behind_camera_without_removing_it(tmp_path,monkeypatch):
+    from avengine.timeline import v7_kujiale_environment_construction as construction
+    from avengine.qa import kujiale_asset_geometry as geometry
+    from avengine.capture import kujiale_source_floor_paws as paws
+    vertices=np.array([[x,y,z]for x in [-.1,.1]for y in [0.,.2]for z in [-.1,.1]])
+    manifest=tmp_path/'inputs/manifest.json';manifest.parent.mkdir();manifest.write_text(json.dumps({'revision':'r','assets':[{'asset_id':'tiny_dog'}]}))
+    receipt=tmp_path/'evidence/import/r/tiny_dog.json';receipt.parent.mkdir(parents=True);receipt.write_text('{}')
+    primary=tmp_path/'primary.json';primary.write_text(json.dumps({'input_manifest':str(manifest)}))
+    asset={'asset_id':'tiny_dog','primary_native_evidence':str(primary),'dimensions_m':[.2,.2,.2],
+           'attachment_surface':'floor','category':'dog','emitter_local_m':[0.,.1,0.],
+           'ue_asset_paths':['/Game/ActualDog/Body.Body']}
+    inventory=tmp_path/'inventory.json';inventory.write_text(json.dumps({'assets':[asset]}))
+    monkeypatch.setattr(construction,'native_class_candidates',lambda *a:[('dog_bark',[asset])])
+    monkeypatch.setattr(geometry,'import_vertices',lambda r:vertices)
+    contact_calls=[];paw_calls=[]
+    class Support:
+        def support_catalog(self,*args):return {'floor':[{'point_m':[0.,0.,3.],'normal':[0,1,0]}]},object()
+        def ray(self,*args):return None
+        def placement(self,mesh,support,yaw,tolerance):
+            contact_calls.append(tolerance)
+            return {'root_m':support['point_m'],'yaw_rad':yaw,'normal':support['normal']}
+    monkeypatch.setattr(geometry,'NativeSupportGeometry',lambda *a:Support())
+    monkeypatch.setattr(geometry,'camera_candidates',lambda *a:[{'position_m':[2.,1.,3.],'target_m':[0.,.1,3.]}]*3)
+    class Paws:
+        def __init__(self,*args):pass
+        def measure(self,*args):paw_calls.append(True);return {'status':'pass'}
+    monkeypatch.setattr(paws,'PreparedPawContacts',Paws)
+    humans=[{'root_m':[x,0.,z],'position_m':[x,1.3,z]}for x,z in [(-2.,-3.),(2.,-3.),(0.,-5.)]]
+    row={'house':'any_house','room_id':'any_room','scene_seed':1,'production_scenario':{},
+         'measured_static_layout':{'listener_m':[0.,1.,0.],'valid':humans,'fixed_camera_yaw_deg':0.}}
+    house={'input':{'ue_config':{'native_floor_surface':{},'uproject':'registered_project'}},'checked_rooms':[{'room_label':'any_room'}]}
+    plans=construction.construct_environment(row,house,{'kujiale_ue_asset_admission':str(inventory)},['dog_bark'])
+    assert len(plans)==1 and plans[0]['asset_id']=='tiny_dog' and plans[0]['sound_class']=='dog_bark'
+    assert plans[0]['intentional_offscreen_role']['real_registered_drawable_required']
+    assert contact_calls==[.012] and paw_calls==[True]
+    assert plans[0]['placement']['root_m']==[0.,0.,3.] and len(humans)==3
