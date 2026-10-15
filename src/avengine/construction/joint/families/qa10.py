@@ -347,8 +347,13 @@ def certify_native_static_layout(row, house, catalog, records, semantic, runtime
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
     working, scene, _program, assets = build_constructed_scene(row, house, records, catalog, semantic)
+    preflight_runtime = deepcopy(runtime)
+    # Preparation may solve a nearby real support before it is certified.
+    # Formal rendering receives the accepted exact site and uses one proposal.
+    preflight_runtime["visible_placement_max_proposals_per_asset"] = int(
+        runtime.get("qa10_preflight_support_proposal_limit", 121))
     video = NativePhase2Video(
-        working, scene, runtime, assets,
+        working, scene, preflight_runtime, assets,
         source_material_cache_directory=runtime["source_material_cache_directory"])
     try:
         checks = video.qualify_standing(scene, output_dir / "standing")
@@ -412,6 +417,9 @@ def certify_native_static_layout(row, house, catalog, records, semantic, runtime
             "authority": "actual_native_static_layout_preflight",
             "one_frame_only": True, "complete_450_frame_stream_still_required": True,
             "relations": certificates, "full_body_projection": body_projection,
+            "actual_roots_m": {aid: point.tolist() for aid, point in roots.items()},
+            "actual_yaw_rad": {e["declaration"]["asset_id"]: float(e["resolved_yaw_rad"])
+                               for e in video.actors},
             "native_colour_checks": video.color_checks,
             "native_control_restoration": witness.get("native_control_restoration"),
             "qa_predicates_truth_scorer_changed": False,
@@ -431,6 +439,9 @@ def certify_native_static_layout(row, house, catalog, records, semantic, runtime
             result["native_placement_preferences_m"][aid] = roots[aid].tolist()
         result["automatic_construction"]["native_preflight"] = {
             "certificate_path": str(output_dir / "certificate.json"),
+            "actual_roots_m": certificate["actual_roots_m"],
+            "actual_yaw_rad": certificate["actual_yaw_rad"],
+            "formal_render_support_proposal_limit": 1,
             "status": "pass", "expected_occluder_asset_ids":
                 [r["occluder_asset_id"] for r in row["native_occlusion_relations"]],
             "scope": "actual native static layout; final stream remains independent",
