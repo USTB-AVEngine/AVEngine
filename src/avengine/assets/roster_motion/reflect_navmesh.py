@@ -211,6 +211,9 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     # whole native floor grid.
     local=[np.array([x,z])for x in (0.,.25,-.25,.5,-.5,1.,-1.)for z in (0.,.25,-.25,.5,-.5,1.,-1.)]
     shifts=local+[g-centre for g in grid]
+    if scene.get('joint_strict_placement'):
+        # A solve-certified route is an execution pin, never a search seed.
+        shifts=[np.zeros(2)];rotations=[0.]
     limit=max(24,int(request.get('native_route_candidate_pool',96)))
     preserved_planned=False
     for shift in shifts:
