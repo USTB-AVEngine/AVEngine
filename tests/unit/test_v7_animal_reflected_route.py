@@ -130,3 +130,21 @@ def test_height_failure_refines_rigid_seed_through_the_same_native_prefilter(mon
     np.testing.assert_allclose(second.positions[:,[0,2]],original+[.025,0.])
     np.testing.assert_array_equal(np.array(request['motion_quartet_route']['positions_xz_m']),original)
     assert second.receipt['original_physical_gates_unchanged']is True
+
+
+def test_fine_fit_creates_its_directory_before_real_native_prefilter_receipts(tmp_path):
+    from shapely.geometry import box
+    _,base=turning_route()
+    entry={'applied_root_input':np.eye(4),'declaration':{'kind':'animal'}}
+    video=SimpleNamespace(actors=[entry],pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p),distance_to_closest_obstacle=lambda p,r:1.))
+    scene={'listener_m':[0.,1.25,0.],'production_scenario':{'motion_floor_polygon':box(-10,-10,10,10).__geo_interface__}}
+    request={'native_route_candidate_pool':24,'_reflection_diagnostics_path':str(tmp_path/'prefilter.json'),
+        'motion_quartet_route':{'positions_xz_m':base.positions[:,[0,2]].tolist(),'travel_yaws_rad':base.yaws.tolist(),
+        'emission_slot':{'start_s':1.5,'end_s':2.5,'qa15':False},'species':'dog','candidate_count':1,'candidate_trials':[],'selected_attempt':1}}
+    stream=animals.animal_reflected_route_proposals(video,entry,scene,np.array([1.,0.,0.]),request)
+    first=next(stream);first.report_failure('no constant rigid animal route height satisfies original skin and paw gates')
+    for _ in range(23):next(stream)
+    fine=next(stream)
+    assert fine.receipt['animal_rigid_fitting_round']==1
+    receipt=tmp_path/'fine_fit_1/prefilter.json'
+    assert receipt.exists() and json.loads(receipt.read_text())['native_admissible_route_pool']==24
