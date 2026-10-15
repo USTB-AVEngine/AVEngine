@@ -19,7 +19,7 @@ def decide(snapshot,policy):
     if snapshot['combined_pss_bytes']+reserve>combined_limit:reasons.append('combined_PSS_reservation')
     own_over=[r for r in snapshot['ranked_parent_trees']if r['owned']and r['PSS_bytes']>r['limit_bytes']]
     if own_over:reasons.append('owned_parent_tree_over_limit')
-    if snapshot['processes']>=int(policy.get('maximum_cpu_processes',80)):reasons.append('CPU_process_budget')
+    if snapshot.get('compute_processes',snapshot['processes'])>=int(policy.get('maximum_cpu_processes',80)):reasons.append('CPU_process_budget')
     disk_pause=snapshot['data_free_bytes']<snapshot['minimum_disk_free_bytes']
     return {'pause_new_native_operations':bool(reasons),'pause_new_parents':bool(reasons)or disk_pause,
         'reasons':reasons+(['disk_floor_for_new_parents']if disk_pause else[]),
@@ -54,9 +54,11 @@ def observe(manifest):
                 'pipe_write_pids':[p['pid']for p in tree if'pipe_write'in p['wchan']],'cmd':live['cmd']})
         records=output_processes([root]);groups[root.name]={'roots':roots,'pss_bytes':sum(p['pss_bytes']for p in records),
             'processes':len(records),'pipe_writers':[p['pid']for p in records if'pipe_write'in p['wchan']]}
+    from avengine.timeline.v7_cpu_budget import compute_process_count
     now=datetime.datetime.now(datetime.timezone.utc)
     result={'time_utc':now.isoformat(),'groups':groups,'own_pss_bytes':sum(p['pss_bytes']for p in own_records),
         'combined_pss_bytes':sum(p['pss_bytes']for p in all_records),'processes':len(all_records),
+        'compute_processes':compute_process_count(all_records),'cpu_budget_scope':'compute workers, native/media operations and other runnable work; inactive metadata excluded; all processes remain in PSS',
         'MemAvailable_bytes':next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:')),
         'data_free_bytes':shutil.disk_usage(manifest.get('resource_filesystem','/data')).free,
         'minimum_disk_free_bytes':launch_minimum_free_bytes(manifest.get('launch_disk_policy'),now),

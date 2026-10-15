@@ -37,6 +37,7 @@ def _launch_native_child(command,log,inputs):
                         if any(root in value['cmd']for root in policy['output_roots']):roots.append(value['pid'])
                         elif any(root in value['cmd']for root in policy.get('peer_output_roots',[])):peer_roots.append(value['pid'])
                 records=processes(roots);pss=sum(r['pss_bytes']for r in records)
+                from avengine.timeline.v7_cpu_budget import compute_process_count
                 peers=processes(peer_roots);owned_ids={r['pid']for r in records};peers=[r for r in peers if r['pid']not in owned_ids]
                 peer_pss=sum(r['pss_bytes']for r in peers)
                 root_pid=int(inputs.get('native_resource_parent_pid',os.getpid()))
@@ -50,7 +51,7 @@ def _launch_native_child(command,log,inputs):
                 combined_forecast=pss+peer_pss+sum(max(0,reserve-r['pss_bytes'])for r in all_sdk)+reserve
                 tree_forecast=tree_pss+sum(max(0,reserve-r['pss_bytes'])for r in tree_sdk)+reserve
                 available=next(int(s.split()[1])*1024 for s in pathlib.Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'))
-                if (len(sdk)<min(16,int(policy.get("maximum_native_processes",16))) and len(records)<80 and forecast<=int(policy.get("maximum_pss_bytes",150_000_000_000))
+                if (len(sdk)<min(16,int(policy.get("maximum_native_processes",16))) and compute_process_count([*records,*peers])<80 and forecast<=int(policy.get("maximum_pss_bytes",150_000_000_000))
                     and combined_forecast<=int(policy.get("maximum_combined_pss_bytes",190_000_000_000))
                     and tree_forecast<=int(policy.get("maximum_parent_tree_pss_bytes",30_000_000_000))
                     and available-sum(max(0,reserve-r['pss_bytes'])for r in all_sdk)-reserve>=30_000_000_000 and shutil.disk_usage('/data').free>=launch_minimum_free_bytes(resolve_launch_disk_policy(policy.get('launch_disk_policy',inputs.get('launch_disk_policy'))))):
