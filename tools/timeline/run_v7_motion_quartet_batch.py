@@ -126,6 +126,10 @@ def main():
                     save(receipt_path,receipt)
                 receipt=load(receipt_path)
                 print(now(),'FINISHED',slot,receipt['status'],receipt.get('reason'),flush=True)
+                reason=receipt.get('reason','')
+                if receipt.get('error_type')in {'ImportError','ModuleNotFoundError','SyntaxError','KeyError'}or reason.startswith('Installed Habitat/RLR runtime is unavailable'):
+                    pending=[]
+                    save(out/'INFRASTRUCTURE_FAILURE.json',{'status':'pause new dispatch until code fix','slot':slot,'reason':reason,'active_native_jobs_not_signalled':True})
                 for audit in (out/'native/parents'/manifest['parents'][slot]['row']['scene_id']).glob('**/candidate_audit.json'):
                     data=load(audit);qa=data.get('v6_generation',{}).get('unmet_quota_by_qa',{})
                     save(out/'evidence'/f'candidate_audit_{slot:03d}.json',{'source':str(audit),'v6_generation.unmet_quota_by_qa':qa})

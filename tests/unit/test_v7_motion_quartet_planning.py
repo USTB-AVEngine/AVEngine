@@ -33,3 +33,18 @@ def test_template_cannot_silently_lower_the_real_human_speed_or_distance():
 def test_post_sound_motion_speech_cannot_be_replaced_with_footsteps():
     row,assets=fixture();row['source_classes']['walker']=['footsteps']
     with pytest.raises(ValueError,match='without footsteps'):validate_template_request(row,assets)
+
+
+def test_native_room_adapter_selects_the_explicit_installed_runtime(monkeypatch):
+    from types import SimpleNamespace
+    from avengine.timeline import v7_motion_quartet_planning as planning
+    from avengine.acoustics import runtime
+    calls=[]
+    pf=SimpleNamespace(load_nav_mesh=lambda path:path=='registered.navmesh')
+    def load(**kwargs):
+        calls.append(kwargs);return SimpleNamespace(PathFinder=lambda:pf),None
+    monkeypatch.setattr(runtime,'load_habitat_runtime',load)
+    monkeypatch.setattr(planning,'plan_room_motion_quartet',lambda *args,**kwargs:'constructed')
+    result=planning.plan_native_room_motion_quartet({'room_id':'R'},{},{'checked_rooms':[{'room_label':'R'}],'input':{'navmesh_source':'registered.navmesh'}},[],{},[],{'runtime':{'runtime_prefix':'registered-runtime'}})
+    assert result=='constructed'
+    assert calls==[{'runtime_mode':'current-installed','runtime_prefix':'registered-runtime'}]

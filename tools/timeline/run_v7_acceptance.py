@@ -149,7 +149,7 @@ def main():
         raise ValueError('explicit isolated acceptance scope required')
     try:code=run_worker(m,a.worker)
     except Exception as exc:
-        write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':m['parents'][a.worker]['row']['scene_id'],'reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})
+        write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':m['parents'][a.worker]['row']['scene_id'],'house':m['parents'][a.worker]['row']['house'],'room_id':m['parents'][a.worker]['row']['room_id'],'pid':os.getpid(),'stage':'construction_preflight','reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})
         traceback.print_exc();code=2
     raise SystemExit(code)
 
