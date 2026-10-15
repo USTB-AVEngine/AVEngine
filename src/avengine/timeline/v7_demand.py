@@ -384,6 +384,13 @@ def plan_registered_content_demand(row,state,catalog,semantic_manifest):
                 category_focus_class=None,environment_sound_classes=[])
     if len(speakers)==2:
         plan['semantic_role_start_offsets_s']=[.5,4.5]
+        # The symmetric zero-offset layout can put both measured mouths on
+        # the original +/-22.5 degree dead zones. Use the registered camera's
+        # ordinary 7 degree offset as a physical proposal; native QA-28 still
+        # checks the actual mouths, distinct sectors and unchanged dead zones.
+        if not plan.get('binding_camera_yaw_offset_deg'):
+            plan['binding_camera_yaw_offset_deg']=7.
+    row['scene_demand']['required_distinct_semantic_direction_sectors']=True
     row['scene_demand'].update(required_program_source_type='author_tts',
         required_native_members=list(row['members']),required_sound_asset_ids=list(selected),
         required_asset_ids=list(ids),required_independent_family_counts={f:3 for f in
