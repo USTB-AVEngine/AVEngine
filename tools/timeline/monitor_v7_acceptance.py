@@ -51,8 +51,8 @@ def combined_peak_budget(active_reserve,local_pss,requested_reserve,peer_pss):
  return max(active_reserve+requested_reserve,local_pss+requested_reserve)+peer_pss
 
 
-def parent_launch_headroom(active_reserve,local_pss,requested,limit,available_memory):
- return combined_peak_budget(active_reserve,local_pss,requested,0)<=limit and available_memory-max(0,active_reserve-local_pss)-requested>=30_000_000_000
+def parent_launch_headroom(active_reserve,local_pss,requested,limit,available_memory,minimum_available_bytes=30_000_000_000):
+ return combined_peak_budget(active_reserve,local_pss,requested,0)<=limit and available_memory-max(0,active_reserve-local_pss)-requested>=minimum_available_bytes
 
 
 def admission_limits(m,now):
@@ -85,7 +85,7 @@ def peer_processes(m):
  return processes(roots)
 
 
-def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory,combined_pss=0,combined_limit=None,disk_policy=None,maximum_task_bytes=60_000_000_000):
+def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory,combined_pss=0,combined_limit=None,disk_policy=None,maximum_task_bytes=60_000_000_000,minimum_available_bytes=30_000_000_000):
  if now >= deadline:return 'delivery_deadline_no_new_jobs'
  if pss >= limit:return 'PSS_limit_no_new_jobs'
  if combined_limit is not None and combined_pss>=combined_limit:return 'combined_PSS_limit_no_new_jobs'
@@ -93,7 +93,7 @@ def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, avai
  from avengine.timeline.v7_storage_budget import launch_minimum_free_bytes
  if free < launch_minimum_free_bytes(disk_policy,now):return 'disk_headroom_no_new_jobs'
  if allocated_size >= maximum_task_bytes:return 'task_disk_limit_no_new_jobs'
- if available_memory < 30_000_000_000:return 'memory_headroom_no_new_jobs'
+ if available_memory < minimum_available_bytes:return 'memory_headroom_no_new_jobs'
  return ''
 
 
@@ -150,7 +150,7 @@ def main():
   records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=__import__('avengine.timeline.v7_cpu_budget',fromlist=['compute_process_count']).compute_process_count([*records,*peers])+2
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
-  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000),disk_policy=m.get('launch_disk_policy'),maximum_task_bytes=m.get('maximum_task_bytes',60_000_000_000))
+  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000),disk_policy=m.get('launch_disk_policy'),maximum_task_bytes=m.get('maximum_task_bytes',60_000_000_000),minimum_available_bytes=m.get('minimum_available_bytes',30_000_000_000))
   if resource_pause=='delivery_deadline_no_new_jobs':pending=[]
   from tools.timeline.finalize_v7_acceptance import delivery_fingerprint
   delivered=o/'evidence/FINAL_MODEL_READER.json'
@@ -211,7 +211,7 @@ def main():
     if len(active)>=limits["maximum_parents"] or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
     reserve=sum(30_000_000_000 if (m['parents'][s].get('focus')in{'human_motion','animal_motion','motion_quartet_template'}or m['parents'][s].get('target_family')in{'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'})else 7_000_000_000 for s in active)
     requested=30_000_000_000 if moving else 7_000_000_000
-    if not parent_launch_headroom(reserve,pss,requested,limit,mem):continue
+    if not parent_launch_headroom(reserve,pss,requested,limit,mem,m.get('minimum_available_bytes',30_000_000_000)):continue
     if pss+peer_pss+requested>int(m.get('maximum_combined_pss_bytes',190_000_000_000)):continue
     if forecast_cpu+4>limits["maximum_cpu_processes"]:continue
     with(o/'inputs/plan.lock').open('a')as launch_lock:
