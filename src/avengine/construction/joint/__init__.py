@@ -53,5 +53,5 @@ __all__ += ["native_acoustic_checks"]
 from .physics import native_full_mesh_sweep
 __all__ += ["native_full_mesh_sweep"]
 
-from .routes import out_and_back
-__all__ += ["out_and_back"]
+from .routes import out_and_back, out_and_back_shape
+__all__ += ["out_and_back", "out_and_back_shape"]
