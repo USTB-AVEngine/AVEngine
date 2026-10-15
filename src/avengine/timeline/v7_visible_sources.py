@@ -223,6 +223,13 @@ def select_proposed_record(pool, asset_id, row, rng):
 
 def recorded_event_layout(row,asset,record,human_speech,fallback):
     """Keep a whole admitted animal recording on an explicit physical clock."""
+    starts=row.get('phase2_whole_source_recordings',{}).get(asset['asset_id'])
+    if starts is not None:
+        if record.get('sound_class')=='footsteps' or asset['kind']not in {'animal','human'}:raise ValueError('whole source schedule requires a registered physical non-footstep emitter')
+        if any(not math.isfinite(float(t))or float(t)<0 or float(t)+float(record['duration_s'])>30 for t in starts):raise ValueError('whole source schedule exceeds parent')
+        return [float(t)for t in starts],True
+    starts=row.get('phase2_sound_program_schedule_s',{}).get(asset['asset_id'])
+    if starts is not None:return [float(t)for t in starts],False
     starts=row.get('phase2_whole_animal_recordings',{}).get(asset['asset_id'])
     if starts is None:return fallback,human_speech
     if asset['kind']!='animal' or asset['asset_id'] not in set(row.get('motion_requests',{}))|set(row.get('phase2_moving_asset_ids',[])):
@@ -324,7 +331,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
             measured_program=row.get('phase2_animal_program_samples',{}).get(a['asset_id'])
             if measured_program is not None:
                 n=int(measured_program['sample_count']);begin=int(measured_program.get('crop_start_sample',0))
-                if a['kind']!='animal' or n<=0 or n%1600 or begin<0 or begin+n>record['header']['sample_count']:
+                if (a['kind']!='animal' and not (a['kind']=='human' and record['sound_class']in {'laughter','coughing'})) or n<=0 or n%1600 or begin<0 or begin+n>record['header']['sample_count']:
                     raise ValueError('invalid complete measured animal activity program')
                 ticks=n//1600;whole=False
             lo=round(start*10);hi=lo+ticks
@@ -334,7 +341,9 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
             crop=0 if whole else max(0,min(int(activity[0][0]),record['header']['sample_count']-ticks*1600))
             if measured_program is not None:
                 crop=int(measured_program.get('crop_start_sample',0))
-                if any(int(lo)<crop or int(hi)>crop+ticks*1600 for lo,hi in activity):
+                required=measured_program.get('required_activity_intervals_samples',activity)
+                if measured_program.get('selected_activity_index')is not None and required!=[activity[int(measured_program['selected_activity_index'])]]:raise ValueError('selected activity must match the original measured complete call')
+                if any(int(lo)<crop or int(hi)>crop+ticks*1600 for lo,hi in required):
                     raise ValueError('measured animal program would remove observed animal activity')
             eid=f'event_{len(scene["events"]):04d}';cid=source['class_id'] if human_speech else STRICT_CLASS13.get(cls)
             scene['events'].append({'event_id':eid,'endpoint_id':ep,'source_id':i+1,'class_id':cid,'sound_class':cls,'start_tick':lo,'end_tick':hi,'mechanism':mechanism})

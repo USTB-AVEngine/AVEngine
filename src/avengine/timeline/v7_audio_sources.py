@@ -190,7 +190,7 @@ def assemble_recorded_buses(scene, program):
         authored = record.get("source_type") == "author_tts"
         whole_recording = binding.get("preserve_full_recorded_clip") is True
         if whole_recording and (authored or record.get("source_type", "recorded") != "recorded"
-                or not record.get("speaker_id") or not record.get("transcript")
+                or (source.get("content_kind")=="speech" and (not record.get("speaker_id") or not record.get("transcript")))
                 or crop or length < len(clip) or length - len(clip) > 1600):
             raise ValueError("whole recorded utterance must preserve every sample, with at most one tick of trailing silence")
         if authored and (crop or length < len(clip) or length - len(clip) > 1600):

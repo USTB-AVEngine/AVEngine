@@ -247,7 +247,13 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     # Re-time actual saved joint poses with the translated distance. No new
     # deformation, inferred skeleton, or gait is invented for a slide.
     times = np.arange(901) / 30.
-    phase = np.mod(times * speed / source_speed, period)
+    distance=times*speed;velocity=np.full(len(times),speed)
+    template=request.get('motion_quartet_route')
+    if template:
+        from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock,timed_straight_clock
+        if template.get('single_pass'):distance,velocity=single_pass_clock(times,speed,template['turn_speed_m_s'])
+        else:distance,velocity,_=timed_straight_clock(times,speed,straight_start_s=template['straight_start_s'],straight_end_s=template['straight_end_s'],turn_speed_m_s=template['turn_speed_m_s'])
+    phase = np.mod(distance / source_speed, period)
     indices = np.minimum(len(source) - 2, np.rint(phase / period * (len(source) - 1)).astype(int))
     if mode == 'slide_no_animation':
         if len({f['pose_glb'] for f in source}) != 1:
@@ -259,7 +265,8 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     local_forward = np.asarray(source[0]['head_m']) - np.asarray(source[0]['tail_m'])
     local_forward[1] = 0.
     local_forward /= np.linalg.norm(local_forward)
-    poly = shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
+    search_floor=shape(scene['production_scenario']['motion_floor_polygon'])
+    poly=(search_floor.convex_hull if request.get('motion_quartet_route') else search_floor).buffer(-.02)
     start = np.asarray(entry['applied_root_input'][:3, 3])
     candidates = [start]
     candidates.extend(np.asarray([p[0], start[1], p[2]]) for p in scene.get('native_placement_candidates', [])[:128])
@@ -270,7 +277,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         vertices = np.asarray(a['original_mesh'].vertices) @ a['applied_root_input'][:3, :3].T + a['applied_root_input'][:3, 3]
         bodies.append(box(vertices[:, 0].min() - .03, vertices[:, 2].min() - .03, vertices[:, 0].max() + .03, vertices[:, 2].max() + .03))
     if curved_motion:
-        curve_stream=curved_route_proposals(video,entry,scene,times*speed,local_forward,request)
+        curve_stream=curved_route_proposals(video,entry,scene,distance,local_forward,request)
         routes=(((0.,route.positions[0].copy(),float(route.yaws[0]),np.zeros(3),speed),requested_mode,route)for route in curve_stream)
     else:
         candidates,construction=native_walkable_starts(video,scene,poly,start,candidates,source[0]['mouth_m'],entry['resolved_yaw_rad'])
@@ -385,7 +392,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 frames.append({'time_s': float(times[i]), 'source_phase_s': float(phase[i]),
                                'source_frame_index': int(indices[i]), 'mouth_m': old['mouth_m'],
                                'head_m': old['head_m'], 'tail_m': old['tail_m'], 'feet': feet,
-                               'moving': True, 'motion_mode': mode,
+                               'moving': bool(velocity[i]>1e-8), 'motion_mode': mode,
                                'joint_animation_present': mode == 'walk_animation',
                                'minimum_nonfloor_clearance_m': dist})
                 bounds.append([world.min(0).tolist(), world.max(0).tolist()])

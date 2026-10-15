@@ -45,6 +45,9 @@ def main():
     p.add_argument('--exclude-evidence-roots',type=Path,nargs='*',default=[])
     p.add_argument('--launch-until-utc')
     p.add_argument('--room-id')
+    p.add_argument('--launch-deadline-utc')
+    p.add_argument('--expand-after-first',action='store_true')
+    p.add_argument('--source-types',nargs='+',default=['human_speech','human_other','dog_walk','cat_walk','animal_slide'])
     a=p.parse_args()
     if not 1<=a.workers<=6:raise ValueError('parent workers must be <=6; shared native SDK queue reserves <=10')
     out=a.output_root.resolve();out.mkdir(parents=True,exist_ok=True);budget=(a.resource_budget_root or out).resolve()
@@ -86,33 +89,54 @@ def main():
     candidates=candidate_rooms(houses,load(a.contract),excluded if not a.room_id else (),a.room_id)
     if not candidates:raise ValueError('no untouched legal training house admits the requested humans')
     pending=[]
-    existing={(t['row']['house'],t['row']['room_id'],t.get('construction_attempt',0))for t in manifest['parents']}
+    existing={(t['row']['house'],t['row']['room_id'],t.get('construction_attempt',0))for t in manifest['parents'] if (t.get('code_commit',manifest['code_commit'])==commit or (out/'evidence/jobs'/f'{t["slot"]:03d}.json').exists()and load(out/'evidence/jobs'/f'{t["slot"]:03d}.json')['status']=='passed')}
     for attempt in range(3):
         for house,rooms in candidates:
             room=rooms[min(attempt,len(rooms)-1)]
             if (house['house'],room['room_label'],attempt)in existing:continue
             pending.append((house,room,attempt))
     active={};last_progress=0.;completed_at_start=sum((out/'evidence/jobs'/f'{t["slot"]:03d}.json').exists()for t in manifest['parents'])
+    class AdoptedProcess:
+        def __init__(self,pid,created):self.pid=pid;self.created=created;self.returncode=None
+        def poll(self):
+            try:
+                p=psutil.Process(self.pid)
+                if abs(p.create_time()-self.created)<.01 and p.status()!=psutil.STATUS_ZOMBIE:return None
+            except psutil.NoSuchProcess:pass
+            self.returncode=0;return 0
+    prior_active=load(out/'ACTIVE_JOBS.json')if(out/'ACTIVE_JOBS.json').exists()else[]
+    for entry in prior_active:
+        adopted=AdoptedProcess(entry['pid'],entry['create_time'])
+        if adopted.poll()is None:active[entry['slot']]={**{k:v for k,v in entry.items()if k!='slot'},'process':adopted}
     def report():
-        totals=Counter();passed=[];failures=Counter();rows=[];attempted=0
+        totals=Counter();passed=[];failures=Counter();rows=[];attempted=0;native_attempted=0;typed={}
         for task in manifest['parents']:
             path=out/'evidence/jobs'/f'{task["slot"]:03d}.json'
             receipt=load(path)if path.exists()else{'status':'not_started'}
             row={'slot':task['slot'],'house':task['row']['house'],'room_id':task['row']['room_id'],
+                 'constructed_source_type':task['row'].get('motion_source_type','human_speech'),
                  'status':receipt['status'],'receipt':str(path),'reason':receipt.get('reason')}
-            if receipt['status']in {'passed','failed'}:attempted+=1
+            if receipt['status']in {'passed','failed'}:
+                attempted+=1
+                if receipt.get('started_utc'):native_attempted+=1
             if receipt['status']=='passed':
                 exported=receipt.get('export',{});counts=exported.get('question_family_counts',{})
                 totals.update({f:counts.get(f,0)for f in FAMILIES});row['family_counts']=counts
                 row['independent_questions']=receipt.get('independent_questions',0);passed.append(task)
+                from avengine.timeline.v7_motion_type_counts import question_type_counts
+                type_receipt=out/'evidence'/f'motion_source_type_counts_{task["slot"]:03d}.json'
+                if not type_receipt.exists():save(type_receipt,question_type_counts(out/'export',out/'export/parent_rows'/f'{task["slot"]:03d}.jsonl'))
+                counted=load(type_receipt);row['question_source_type_counts']=counted
+                for kind,family_counts in counted['counts_by_actual_question_target_source_type'].items():typed.setdefault(kind,Counter()).update(family_counts)
             elif receipt['status']=='failed':failures[(receipt.get('reason')or'unknown').split(':')[0]]+=1
             rows.append(row)
         distinct={t['row']['house']for t in passed};families={t['family']for t in passed}
         meets=len(distinct)>=a.minimum_houses and {'hm3d','mp3d'}<=families and all(totals[f]>=a.minimum_per_family for f in FAMILIES)
         data={'time_utc':now(),'status':'complete'if meets else'running','code_commit':manifest['code_commit'],
               'independent_motion_family_counts':dict(totals),'distinct_passed_houses':len(distinct),
-              'house_families':sorted(families),'native_parent_attempts_completed':attempted,
-              'native_parent_passes':len(passed),'native_pass_rate':len(passed)/attempted if attempted else None,
+              'house_families':sorted(families),'construction_attempts_completed':attempted,'native_parent_attempts_completed':native_attempted,
+              'counts_by_actual_question_target_source_type':{kind:dict(c)for kind,c in typed.items()},
+              'native_parent_passes':len(passed),'native_pass_rate':len(passed)/native_attempted if native_attempted else None,
               'failure_categories':dict(failures),'parents':rows}
         save(out/'MOTION_QUARTET_RESULTS.json',data);return data
     while True:
@@ -134,8 +158,13 @@ def main():
                 for audit in (out/'native/parents'/manifest['parents'][slot]['row']['scene_id']).glob('**/candidate_audit.json'):
                     data=load(audit);qa=data.get('v6_generation',{}).get('unmet_quota_by_qa',{})
                     save(out/'evidence'/f'candidate_audit_{slot:03d}.json',{'source':str(audit),'v6_generation.unmet_quota_by_qa':qa})
-                if a.first_only and receipt['status']=='passed' and all(receipt.get('export',{}).get('question_family_counts',{}).get(f,0)>0 for f in FAMILIES):
-                    result=report();print(json.dumps(result,ensure_ascii=False),flush=True);return
+                    missing={f:qa.get(f)for f in FAMILIES if not receipt.get('export',{}).get('question_family_counts',{}).get(f,0)}
+                    if missing:
+                        with(budget/'PROGRESS.md').open('a')as stream:stream.write(now()+' 原始运动候选拒因 scene='+manifest['parents'][slot]['row']['scene_id']+' source='+str(audit)+' '+json.dumps(missing,ensure_ascii=False)+'\n')
+                if a.first_only and receipt['status']=='passed' and receipt.get('export',{}).get('question_family_counts',{}).get('QA-15',0)>0:
+                    result=report();print('FIRST_HUMAN_QA15_EXPORT_PASS',json.dumps(result,ensure_ascii=False),flush=True)
+                    if a.expand_after_first:a.first_only=False
+                    else:return
         if result['status']=='complete' and not active:return
         completed=sum(r['status']in {'passed','failed'}for r in result['parents'])
         smoke_ready=any(r['status']=='passed' and all(r.get('family_counts',{}).get(f,0)>0 for f in FAMILIES)for r in result['parents'])
@@ -154,6 +183,7 @@ def main():
             if any(t['row']['house']==house['house'] and (out/'evidence/jobs'/f"{t['slot']:03d}.json").exists() and load(out/'evidence/jobs'/f"{t['slot']:03d}.json").get('status')=='passed'for t in manifest['parents']):continue
             row={'schema':'v7-visible-registered-pilot-phase2-v1','split':{'development':'dev'}.get(house['split'],house['split']),
                  'house':house['house'],'room_id':room['room_label'],'scene_seed':seed,
+                 'motion_source_type':('human_speech'if a.first_only else a.source_types[slot%len(a.source_types)]),
                  'scene_id':'motion_quartet_'+identity+'__attempt_'+str(attempt),'question_quota_base':10,'questions_per_window':14,
                  'window_count':5,'members':['v0_a0'],'trial_only':True}
             task={'slot':slot,'row':row,'device':'cpu','profile':'phase2','family':house['family'],

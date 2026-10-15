@@ -41,7 +41,13 @@ def run_worker(manifest,slot):
         elif task.get('focus')=='motion_quartet_template' or task.get('constructor')=='motion_quartet_template':
             from avengine.timeline.v7_motion_quartet_planning import plan_native_room_motion_quartet
             row=plan_native_room_motion_quartet(row,state,house,catalog,load(inputs['semantic_manifest']),source['records'],inputs,attempt=int(task.get('construction_attempt',0)))
-        else:row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
+        else:
+            def construction_context():
+                from avengine.acoustics.runtime import load_habitat_runtime
+                hs,_=load_habitat_runtime(runtime_mode='current-installed',**inputs['runtime']);pf=hs.PathFinder()
+                if not pf.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('registered native NavMesh missing')
+                return {'room':next(r for r in house['checked_rooms']if r['room_label']==row['room_id']),'semantic_manifest':load(inputs['semantic_manifest']),'pathfinder':pf}
+            row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'),construction_context=construction_context)
         if manifest.get('require_authored_tts_per_new_parent') and not previous.exists() and row.get('scene_constructor')!='motion_quartet_template':
             from avengine.timeline.v7_demand import assign_authored_tts
             row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
@@ -119,7 +125,7 @@ def run_worker(manifest,slot):
         reader=open_delivered_media(readroot)
         if reader['status']!='pass' or reader['actual_decoded_windows']!=len(exported['windows']):
             raise ValueError('delivered media reader failed: '+str(reader))
-        feedback={**result,'windows':[{'family_counts':exported['question_family_counts'],'logical_questions':exported['independent_questions']}],'raw_logical_questions':exported['raw_export_questions'],'dedup_dropped':exported['dedup_dropped']}
+        feedback={**result,'motion_source_type':row.get('motion_source_type'),'windows':[{'family_counts':exported['question_family_counts'],'logical_questions':exported['independent_questions']}],'raw_logical_questions':exported['raw_export_questions'],'dedup_dropped':exported['dedup_dropped']}
         record_selected_parent(root/'inputs/demand_state.json',feedback)
         receipt.update(status='passed',producer_result=result,export=exported,reader=reader,
                        independent_questions=exported['independent_questions'],raw_questions=exported['raw_export_questions'])

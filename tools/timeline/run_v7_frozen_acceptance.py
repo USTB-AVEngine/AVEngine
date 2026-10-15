@@ -2,7 +2,7 @@
 """Freeze committed code inside the authorised worktree before launching a parent."""
 import argparse,fcntl,json,os,pathlib,subprocess,sys
 p=argparse.ArgumentParser();p.add_argument('--manifest',required=True);p.add_argument('--worker',required=True,type=int);a=p.parse_args()
-m=json.loads(pathlib.Path(a.manifest).read_text());work=pathlib.Path(m['worktree']).resolve();commit=m['code_commit'];assert len(commit)==40 and all(c in '0123456789abcdef'for c in commit)
+m=json.loads(pathlib.Path(a.manifest).read_text());work=pathlib.Path(m['worktree']).resolve();commit=m['parents'][a.worker].get('code_commit',m['code_commit']);assert len(commit)==40 and all(c in '0123456789abcdef'for c in commit)
 base=work/'src/.v7_snapshots';base.mkdir(exist_ok=True);snapshot=base/commit
 with(base/(commit+'.lock')).open('a+')as lock:
  fcntl.flock(lock,fcntl.LOCK_EX)

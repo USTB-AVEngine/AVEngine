@@ -27,11 +27,11 @@ def timed_straight_clock(times,speed,*,straight_start_s=.7,straight_end_s=7.6,tu
         'turn_speed_m_s':slow,'silent_straight_slowdown_start_s':3.5,'clock_kind':'smooth slower turns outside straight required windows',
         'distance_integral_method':'analytic smoothstep integral; source phase follows the same exact distance'}
 
-def single_pass_clock(times,speed):
+def single_pass_clock(times,speed,quiet_speed=.4):
     """Speak at scene speed, continue silently, then finish a complete step."""
     times=np.asarray(times,float);a=np.clip(times/.25,0,1);b=np.clip((times-3.5)/.3,0,1)
     c=np.clip((7.9-times)/.3,0,1)
-    velocity=(speed-(speed-.8)*b*b*(3-2*b))*a*a*(3-2*a)*c*c*(3-2*c)
+    velocity=(speed-(speed-quiet_speed)*b*b*(3-2*b))*a*a*(3-2*a)*c*c*(3-2*c)
     velocity[times>=7.9]=0.
     distance=np.r_[0.,np.cumsum((velocity[:-1]+velocity[1:])*np.diff(times)/2)]
     return distance,velocity
