@@ -96,8 +96,9 @@ class _StaticDomainContext:
     samples. This is only a domain precheck; solve still certifies all 901 frames.
     Base grids and their shared cache are never modified.
     """
-    def __init__(self, base):
+    def __init__(self, base, point_check=None):
         self.base = base
+        self.point_check = point_check
         self._domains = {}
 
     def __getattr__(self, name):
@@ -114,7 +115,7 @@ class _StaticDomainContext:
         for index, point in enumerate(self.points_m):
             actor = static_actor('qa21_static_point', point, body, duration_s=1./30., fps=30.)
             certificate = certify_plan(self.base, ScenePlan(camera, {'qa21_static_point': actor}, duration_s=1./30.))
-            accepted[index] = certificate.passed
+            accepted[index] = certificate.passed and (self.point_check is None or self.point_check(camera, body, point))
         result = replace(grid, frustum_state=np.where(accepted, grid.frustum_state, 'edge'),
             evidence={**grid.evidence, 'qa21_static_common_domain_filter': {
                 'points': len(accepted), 'accepted': int(accepted.sum()),
@@ -135,10 +136,22 @@ class Qa21Plugin:
 
     def candidates(self, context, request):
         from avengine.construction.joint import enumerate_static_layouts
-        domain_context = _StaticDomainContext(context)
+        domain_context = _StaticDomainContext(context, lambda camera, body, point: self.point_visible(context, camera, body, point))
         for plan in enumerate_static_layouts(domain_context, self.bodies, self.roles, max_candidates=self.maximum):
             yield replace(plan, sounds=self.sounds, metadata={**plan.metadata,
                 'qa21_target_id': self.target_id, 'qa21_sound_class': self.sound_class})
+
+    def point_visible(self, context, camera, body, point):
+        """Choose a visible source domain before combining independent emitters."""
+        from avengine.construction.joint.routes import static_actor
+        from avengine.construction.joint.types import ScenePlan
+        target_id = next((aid for aid, spec in self.bodies.items() if spec == body and aid in self.targets), None)
+        if target_id is None:return True
+        if not self.assets:return False
+        actor = static_actor(target_id, point, body, duration_s=1./30., fps=30.)
+        prediction = self.exact_prediction(context, ScenePlan(camera, {target_id: actor}, duration_s=1./30.), target_id)
+        return (prediction.state in {'visible_clear', 'visible_occluded'}
+            and prediction.visible_pixels_lower >= MINIMUM_TARGET_PIXELS and prediction.edge_margin_px >= FRAME_MARGIN_PX)
 
     def exact_prediction(self, context, plan, target_id):
         from avengine.construction.joint.geometry import MeshRaycaster
