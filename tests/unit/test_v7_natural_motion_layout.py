@@ -29,12 +29,12 @@ def test_third_person_does_not_extend_a_single_row():
     assert noncollinear_rejection({'kind':'human'},[4.,0.,0.],others)
     assert not noncollinear_rejection({'kind':'human'},[2.,0.,2.],others)
 
-def test_human_headings_are_diverse_and_do_not_all_face_camera():
-    values=[body_yaw(0.,{'kind':'human'},i) for i in range(5)]
-    assert len({round(v,3) for v in values})==5
-    assert values[0]==pytest.approx(0.)
-    assert max(abs(v)for v in values)>math.radians(120)
-    assert sum(abs(v)<math.radians(40)for v in values)<len(values)
+def test_human_headings_vary_by_scene_rather_than_actor_order():
+    declaration={'kind':'human','asset_id':'unseen_person'}
+    values=[body_yaw(0.,declaration,0,seed=seed,root=[2.,0.,-2.],listener=[0.,1.3,0.],room_center=[0.,0.,-3.])for seed in range(12)]
+    assert len({round(v,3)for v in values})>=6
+    assert body_yaw(0.,declaration,0,seed=77,root=[2.,0.,-2.])==body_yaw(0.,declaration,99,seed=77,root=[2.,0.,-2.])
+
 
 def test_automatic_layout_keeps_requested_people_and_uses_room_depth():
     layout={'listener_m':[0.,1.3,0.],'room_floor_polygon':{'type':'Polygon','coordinates':[[[-3.,-3.],[3.,-3.],[3.,3.],[-3.,3.],[-3.,-3.]]]},'valid':[{'position_m':[0.,1.3,-2.]}]}

@@ -57,9 +57,9 @@ def choose_assets(catalog,row):
             a['appearance']={'top_color':a['color']};a['appearance_zh']={'blue':'蓝色上衣的人','yellow':'黄色上衣的人','green':'绿色上衣的人'}[a['color']]
     return assets
 
-def _placements(layout,n):
+def _placements(layout,n,*,seed=None):
     from avengine.timeline.v7_spatial_layout import separated_layout
-    return separated_layout(layout,n)
+    return separated_layout(layout,n,seed=seed)
 
 def semantic_record(sound,gender):
     from avengine.qa.v7_recorded_audio import natural_speech_blockers
@@ -92,7 +92,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     knots=[{'time_s':float(i),'yaw_deg':yaw} for i in range(31)]
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],'split':row['split'],'duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':layout['listener_m'],'camera_forward':[math.sin(angle),0.,-math.cos(angle)],'camera_yaw_knots':knots,'window_starts_s':starts,'sources':{},'events':[],'production_scenario':plan,'source_motion_policy':'registered standing only; independent objects require separate motion admission','sampling_limitations':['walk/sit/seat pending complete episode admission','unadmitted old sound classes are not generated','moving object episode intake pending','profile requests are not measured realized marginals']}
     if row.get('scene_demand'):scene['scene_demand']=deepcopy(row['scene_demand'])
-    placements=_placements(layout,len(assets))
+    placements=_placements(layout,len(assets),seed=row['scene_seed'])
     if camera_policy in {'binding_static','binding_sweep','pilot_binding_coverage'}:
         vectors=[np.asarray(p['position_m'])-np.asarray(layout['listener_m']) for p in placements[:2]]
         forward=sum(v/np.linalg.norm(v) for v in vectors);forward[1]=0.;forward/=np.linalg.norm(forward)
