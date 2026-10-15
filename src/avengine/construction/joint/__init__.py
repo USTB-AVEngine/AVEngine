@@ -58,3 +58,6 @@ __all__ += ["out_and_back", "out_and_back_shape"]
 
 from .paired import paired_parallel_routes, independent_straight_pair_routes
 __all__ += ["paired_parallel_routes", "independent_straight_pair_routes"]
+
+from .certification import track_framing_check
+__all__ += ["track_framing_check"]

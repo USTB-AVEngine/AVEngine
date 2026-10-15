@@ -269,8 +269,24 @@ def static_actor(entity_id, root_m, body=BodySpec(), *, duration_s=30., fps=30.,
                      np.full(n, facing_rad), {"route_length_m": 0., "walk_intervals_s": []})
 
 
+
+def _framed_route(actor, camera, required_framing):
+    if required_framing is None:
+        return actor
+    if camera is None:
+        raise ConstructionError("route_framing_requires_camera")
+    from dataclasses import asdict
+    from .certification import track_framing_check
+    check=track_framing_check(camera,actor,required=required_framing)
+    actor.metadata["framing_constraint"]=asdict(check)
+    if check.status!="pass":
+        raise ConstructionError("route_framing_constraint",asdict(check))
+    return actor
+
+
 def construct_route(context, waypoints_m, *, species="human", speed_m_s=1., start_s=1., dwell_s=None,
-                    duration_s=30., fps=30., corner_radius_m=.8, camera=None, entity_id="target", body=None):
+                    duration_s=30., fps=30., corner_radius_m=.8, camera=None, entity_id="target", body=None,
+                    required_framing=None):
     lo, hi = SPEED_BANDS[species]
     if not lo <= speed_m_s <= hi:
         raise ConstructionError("species_speed_band", {"species": species, "allowed_m_s": [lo, hi]})
@@ -304,14 +320,16 @@ def construct_route(context, waypoints_m, *, species="human", speed_m_s=1., star
         current += walk_s+dwell[right]
         total += length
     out, validation = validate_track(context, out, species, camera=camera)
-    return ActorPlan(entity_id, out, body or BodySpec.for_species(species), headings,
+    actor = ActorPlan(entity_id, out, body or BodySpec.for_species(species), headings,
                      {"route_length_m": total, "walk_intervals_s": intervals, "speed_m_s": speed_m_s,
                       "ramp_s": .3, "waypoints_m": points.tolist(), "dwell_s": dwell.tolist(),
                       "validation": validation, "clock": {"fps": fps, "duration_s": duration_s}})
+    return _framed_route(actor,camera,required_framing)
 
 
 def bind_distance_clock(context, distance_m, *, origin_m, heading_rad, species="human",
-                        corner=None, camera=None, entity_id="target", body=None, fps=30., ramp_s=.5):
+                        corner=None, camera=None, entity_id="target", body=None, fps=30., ramp_s=.5,
+                        required_framing=None):
     """Bind an already admitted cumulative clock to one straight/rounded path.
 
     corner=(start_distance_m, radius_m, signed_turn_rad), as in the existing
@@ -336,12 +354,13 @@ def bind_distance_clock(context, distance_m, *, origin_m, heading_rad, species="
     active=np.diff(distance)>1e-8
     edges=np.diff(np.r_[False,active,False].astype(int))
     intervals=[[float(a/fps),float(b/fps)]for a,b in zip(np.flatnonzero(edges==1),np.flatnonzero(edges==-1))]
-    return ActorPlan(entity_id,positions,body or BodySpec.for_species(species),headings,
+    actor = ActorPlan(entity_id,positions,body or BodySpec.for_species(species),headings,
         {"route_length_m":float(distance[-1]-distance[0]),"walk_intervals_s":intervals,
          "ramp_s":ramp_s,"distance_clock_bound":True,"distance_clock_m":distance.tolist(),
          "fixed_clock_geometry":{"origin_m":origin.tolist(),"heading_rad":heading_rad,
                                  "corner":None if corner is None else list(corner)},
          "validation":validation,"clock":{"fps":fps,"duration_s":(len(distance)-1)/fps}})
+    return _framed_route(actor,camera,required_framing)
 
 
 def straight_then_arc(context, shadow_root_m, tangent_xz, distance_m, shadow_distance_m, *,

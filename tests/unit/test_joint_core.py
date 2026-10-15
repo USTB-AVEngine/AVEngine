@@ -809,3 +809,27 @@ def test_independent_pair_reports_finite_budget_without_certifying_collision():
     assert not plans
     assert stats["stop_reason"]=="evaluation_budget_exhausted"
     assert stats["rejections"]["independent_continuous_pair_distance"]==1
+
+
+def test_whole_track_outside_rejects_crossing_between_two_outside_rests():
+    c=context();camera=c.cameras[0]
+    path=[[-3.9,0,-2.8],[3.9,0,-2.8]]
+    actor=construct_route(c,path,speed_m_s=1.2,camera=camera)
+    assert track_framing_check(camera,actor,frame_indices=[0,900]).status=="pass"
+    check=track_framing_check(camera,actor)
+    assert check.status=="fail"and check.evidence["failed_frame_count"]>0
+    assert check.evidence["state_counts"]["inside"]>0
+    with pytest.raises(ConstructionError,match="route_framing_constraint"):
+        construct_route(c,path,speed_m_s=1.2,camera=camera,required_framing="outside")
+    assert track_framing_check(camera,actor,frame_indices=[]).status=="unknown"
+
+
+def test_fixed_clock_outside_route_checks_all_frames_and_preserves_clock():
+    c=context();d=np.clip(np.arange(901)/30-1.,0.,.6)
+    actor=bind_distance_clock(c,d,origin_m=[2.5,0,.5],heading_rad=0.,camera=c.cameras[0],required_framing="outside")
+    np.testing.assert_array_equal(actor.metadata["distance_clock_m"],d)
+    check=actor.metadata["framing_constraint"]
+    assert check["status"]=="pass"and check["evidence"]["checked_frames"]==901
+    assert not check["evidence"]["native_pixels_verified"]
+    with pytest.raises(ConstructionError,match="requires_camera"):
+        bind_distance_clock(c,d,origin_m=[2.5,0,.5],heading_rad=0.,required_framing="outside")
