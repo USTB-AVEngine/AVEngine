@@ -43,6 +43,10 @@ def sounding_at(scene,endpoint,time_s):
 
 def curved_route_proposals(video,entry,scene,distance,local_forward,request):
     """Closed smooth waypoint routes; search alternate centres around obstacles."""
+    if request.get('straight_motion_windows_s'):
+        from avengine.assets.roster_motion.straight_window_routes import straight_window_routes
+        yield from straight_window_routes(video,entry,scene,distance,local_forward,request)
+        return
     poly=shape(scene['production_scenario']['motion_floor_polygon']);start=np.asarray(entry['applied_root_input'][:3,3],float)
     radius_body=float(request.get('route_body_margin_m',.32 if entry['declaration']['kind']=='human'else .25))
     free=poly.buffer(-radius_body);obstacles=[]
