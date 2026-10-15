@@ -80,6 +80,20 @@ def relabel_english(text,replacements):
     return tidy_english(text)
 
 
+# The admitted 34-class panel has a broader domain than the QA-21 label table.
+# These are presentation aliases only, never additions to an answer domain.
+CLASS34_DISPLAY_ALIASES={
+    'clapping':'hand clapping','coughing':'coughing','flute_live':'flute playing',
+    'footsteps':'footsteps','guitar_live':'guitar playing','hand_drum_live':'hand drumming',
+    'pet_bird_canary':'canary calls','pet_bird_parrot':'parrot calls',
+    'piano_live':'piano playing','saxophone_live':'saxophone playing','violin_live':'violin playing'}
+
+
+def natural_sound_class_alias(canonical):
+    from avengine.qa.unified_catalog import _sound_class_phrases
+    return CLASS34_DISPLAY_ALIASES[canonical]if canonical in CLASS34_DISPLAY_ALIASES else _sound_class_phrases(str(canonical))[0]
+
+
 def reissue_item_english(item,replacements):
     """Re-render labels and accepted aliases; canonical values stay exact."""
     from copy import deepcopy
@@ -116,7 +130,7 @@ def reissue_item_english(item,replacements):
         for form in result.get('forms',{}).values():
             for canonical,aliases in form.get('classes',{}).items():
                 if isinstance(aliases,list):
-                    label=_sound_class_phrases(str(canonical))[0]
+                    label=natural_sound_class_alias(str(canonical))
                     form['classes'][canonical]=list(dict.fromkeys([*aliases,label]))
     if canonical_values(result)!=before:raise ValueError('English presentation changed canonical truth')
     return result
