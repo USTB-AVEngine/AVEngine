@@ -143,3 +143,27 @@ def test_planned_mover_collision_is_light_and_record_only():
     tc.record_only = True; tc.stride = 10; tc.cache = {}; tc._calls = 1     # pose 1 was fully checked
     calls = [tc.check_world(np.zeros((3, 3)), np.zeros((1, 3), int)) for _ in range(9)]  # poses 2..10 skipped
     assert tc._calls == 10 and all(abs(c - .0200001) < 1e-12 for c in calls)
+
+
+def test_reverberation_tail_is_muted_half_a_second_after_each_sound():
+    import numpy as np
+    from avengine.timeline.v7_wet_support import cap_wet_tail, cap_wet_support
+    sr = 16000; dry = np.zeros(5 * sr); dry[sr:2 * sr] = 1.            # a 1 s sound from 1 s to 2 s
+    stem = np.ones((4, 8 * sr))                                         # a long rendered tail
+    capped, ends = cap_wet_tail(stem, dry)
+    assert ends == [2 * sr]
+    assert np.all(capped[:, int(1.5 * sr)] == 1.) and np.all(capped[:, int(2.39 * sr)] == 1.)
+    assert 0 < capped[0, int(2.45 * sr)] < 1 and np.all(capped[:, int(2.5 * sr) + 1:] == 0.)
+    support = {'e1': {'support_samples_global': [sr, 6 * sr], 'source_nonzero_samples_global': [sr, 2 * sr]}}
+    assert cap_wet_support(support)['e1']['support_samples_global'] == [sr, int(2.5 * sr)]
+
+
+def test_tail_cap_starts_at_the_exact_last_sounding_sample():
+    import numpy as np
+    from avengine.timeline.v7_wet_support import cap_wet_tail, cap_wet_support
+    sr = 16000; dry = np.zeros(4 * sr); last = sr + 12345; dry[sr:last] = .3     # ends mid-block
+    capped, ends = cap_wet_tail(np.ones((4, 6 * sr)), dry)
+    assert ends == [last]
+    assert np.all(capped[:, last + int(.4 * sr) - 1] == 1.) and np.all(capped[:, last + int(.5 * sr):] == 0.)
+    support = {'e': {'support_samples_global': [sr, 5 * sr], 'source_nonzero_samples_global': [sr, last]}}
+    assert cap_wet_support(support)['e']['support_samples_global'][1] == last + int(.5 * sr)
