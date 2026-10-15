@@ -48,6 +48,12 @@ def measure_dynamic_relations(video,scene,entries):
         return truth
     try:
         for relation in relations:
+            if relation.get('qa09_demand'):
+                if {id(e)for e in entries}!={id(e)for e in video.actors}:continue
+                from avengine.construction.joint.families.qa09 import ReappearanceDemand,probe_native_sequence
+                certificate=probe_native_sequence(video,scene,entries,ReappearanceDemand(**relation['qa09_demand']))
+                observed.append({**relation,'native_complete_window_certificate':certificate,'satisfies_request':certificate['status']=='pass'})
+                continue
             target=byid[relation['target_asset_id']];foreground=byid[relation['occluder_asset_id']]
             tid=str(target['declaration']['native_instance_id']);oid=str(foreground['declaration']['native_instance_id']);samples=[]
             times=relation['query_times_s']
@@ -65,5 +71,6 @@ def measure_dynamic_relations(video,scene,entries):
         for e in entries:
             if e.get('motion_episode'):video._apply_motion_entry(e,0)
         video._native_pair_pixels(scene,entries)
+        stream.close()
     return {'satisfies_request':all(r['satisfies_request']for r in observed),'relations':observed,
         'native_control_restoration':stream.receipt(),'scope':'proposal only; final complete native stream and original QA independently decide'}
