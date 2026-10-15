@@ -59,6 +59,13 @@ class NativeSupportProposalCache:
 
 
 def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=1600):
+    from avengine.timeline.v7_kujiale_environment_acoustics import EnvironmentPositionAdmission
+    admission=EnvironmentPositionAdmission(row,house,inputs)
+    try:return _construct_environment(row,house,inputs,classes,max_assets=max_assets,max_supports=max_supports,acoustic_admission=admission)
+    finally:admission.close()
+
+
+def _construct_environment(row,house,inputs,classes,*,max_assets,max_supports,acoustic_admission):
     from avengine.qa.kujiale_asset_geometry import NativeSupportGeometry,import_vertices,rotation,camera_candidates
     from avengine.capture.kujiale_source_floor_paws import PreparedPawContacts
     inventory=json.loads(Path(inputs['kujiale_ue_asset_admission']).read_text());geometry=NativeSupportGeometry(house['input']['ue_config']['native_floor_surface']);room=next(r for r in house['checked_rooms']if r['room_label']==row['room_id']);catalog,polygon=geometry.support_catalog(house,room);listener=np.asarray(row['measured_static_layout']['listener_m'],float);envelopes=[];plans=[]
@@ -81,7 +88,11 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
             primary=json.loads(Path(asset['primary_native_evidence']).read_text());manifest_path=Path(primary['input_manifest']);manifest=json.loads(manifest_path.read_text());metadata=next(a for a in manifest['assets']if a['asset_id']==asset['asset_id']);import_path=manifest_path.parent.parent/'evidence/import'/manifest['revision']/(asset['asset_id']+'.json');vertices=import_vertices(json.loads(import_path.read_text()));error=np.abs(np.ptp(vertices,axis=0)-np.asarray(asset['dimensions_m']))/np.maximum(asset['dimensions_m'],1e-5)
             if error.max()>.15:raise ValueError('admitted native size changed before construction')
             prepared_paws=PreparedPawContacts(metadata,vertices);support_poses=NativeSupportProposalCache(vertices);rejected=Counter()
-            tolerance=.012 if asset['category']!='object'else .015;supports=sorted(catalog[asset['attachment_surface']],key=lambda q:abs(np.linalg.norm((np.asarray(q['point_m'])-listener)[[0,2]])-3.1))
+            tolerance=.012 if asset['category']!='object'else .015
+            # Nearer offscreen animals separate the floor reflection from the
+            # unchanged 0.5ms direct-path check. This ranks, never admits, a pose.
+            preferred_distance=1.5 if offscreen and asset['category'] in {'dog','cat'} else 3.1
+            supports=sorted(catalog[asset['attachment_surface']],key=lambda q:abs(np.linalg.norm((np.asarray(q['point_m'])-listener)[[0,2]])-preferred_distance))
             for support in (supports if offscreen else supports[:max_supports]):
                 n=np.asarray(support['normal']);angles=[math.atan2(-n[2],n[0])]if asset['attachment_surface']=='wall'else[0.,math.pi/2,math.pi,-math.pi/2]
                 for yaw in angles:
@@ -109,6 +120,10 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
                         eye=np.asarray(view['position_m']);delta=np.asarray(view['target_m'])-eye;distance=np.linalg.norm(delta)
                         if geometry.ray(eye,delta/distance,distance-.02)is None:views.append(view)
                     if len(views)<3:rejected['three_independent_clear_native_views']+=1;continue
+                    point=np.asarray(place['root_m'])+matrix@np.asarray(asset['emitter_local_m'])
+                    acoustic=acoustic_admission.check('environment'+str(len(plans)+1),point)
+                    if acoustic['status']=='blocked':rejected['unchanged_5_degree_native_acoustic_direction']+=1;continue
+                    place['construction_acoustic_admission']=acoustic
                     place.update(paw_contacts=paws,camera_candidates=views,native_world_bounds_m=[low.tolist(),high.tolist()]);point=np.asarray(place['root_m'])+matrix@np.asarray(asset['emitter_local_m']);accepted={'asset_id':asset['asset_id'],'sound_class':cls,'silent_decor':False,'placement':place,'ue_asset_paths':asset['ue_asset_paths'],'size':{'status':'pass','native_dimensions_m':np.ptp(vertices,axis=0).tolist(),'relative_errors':error.tolist(),'tolerance_fraction':.15},'expected_emitter_m':point.tolist(),'import_receipt':str(import_path),'status':'pass_geometry_requires_current_native_scene'};envelopes.append((low,high));break
                 if accepted:break
             if accepted:break
