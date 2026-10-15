@@ -61,6 +61,11 @@ def finalize(manifest_path):
         raise ValueError('explicit acceptance-only output scope is required')
     with(root/'evidence/report_build.lock').open('a')as lock:
         fcntl.flock(lock,fcntl.LOCK_EX);receipts,excluded=admitted_receipts(manifest)
+        if not receipts:
+            result={'status':'waiting_for_native_admission','independent_questions':0,'native_admitted_parents':0,
+                'excluded_historical_parents':excluded,'new_native_renders':0}
+            print(json.dumps(result,ensure_ascii=False),flush=True)
+            return result
         target=manifest.get('motion_quartet_final_targets',{});minimums={f:int(target.get('minimum_independent_questions_per_family',30))for f in target.get('qa_ids',[])}
         rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums)
         for row in rows:validate_english_model_text(row)
