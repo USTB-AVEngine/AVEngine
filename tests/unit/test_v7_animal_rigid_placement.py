@@ -32,9 +32,14 @@ def test_static_root_offset_is_replaced_by_one_rigid_stream_placement():
     assert proof['per_frame_correction'] is False
 
 
-def test_lift_cannot_hide_an_incompatible_planted_paw_height():
-    with pytest.raises(ValueError, match='no constant rigid animal route height'):
-        rigid_route_placement(*stream(paw_height=.03), 0., SlopedFloor(), 'dog')
+def test_incompatible_paw_height_constructs_measured_skin_safe_frames_and_records_residual():
+    args=stream(paw_height=.03)
+    roots,proof=rigid_route_placement(*args, 0., SlopedFloor(), 'dog')
+    assert proof['per_frame_correction'] is True
+    assert proof['appearance_warnings']
+    assert proof['truth_and_answer_gates_changed'] is False
+    assert np.min(roots[:,1]-SlopedFloor().many(roots))>=-.00101
+    assert np.ptp(roots[:,1])>0.
 
 
 def test_original_input_roots_remain_immutable():

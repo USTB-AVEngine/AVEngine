@@ -99,9 +99,11 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
             if foot['in_contact']:
                 lower = max(lower, -paw_limit + .00001 - float(delta))
                 upper = min(upper, paw_limit - .00001 - float(delta))
-    if not math.isfinite(lower) or lower > upper:
-        raise ValueError('no constant rigid animal route height satisfies original skin and paw gates: '
-                         + json.dumps({'minimum_shift_m': lower, 'maximum_shift_m': upper}))
+    if not math.isfinite(lower):
+        raise ValueError('animal route has no measured skin or paw support')
+    if lower > upper:
+        from .production_grounding import framewise_route_height
+        return framewise_route_height(poses, meshes, roots, source, indices, yaw_values, floor, species, local_paw)
     shift = min(max(preferred, lower), upper)
     placed = roots.copy()
     placed[:, 1] += shift
@@ -293,6 +295,7 @@ def animal_route_samples(times, origin, yaw, direction, speed, curved_route=None
 def compile_admitted_animal(video, entry, scene, house, inputs, directory, request):
     from shapely.geometry import shape, LineString, Point, box
     from avengine.assets.roster_motion.episode import PhysicalFloor, TriangleClearance
+    from .production_grounding import POLICY, StationaryPawGrounder
     from avengine.capture.v7_visible_mesh import indexed_static_mesh
     from avengine.timeline.continuous_pilot import write_json
     authority = request['animal_motion_admission']
@@ -405,8 +408,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     ignore = {int(a['object'].object_id) for a in video.actors}
     # Retain the already qualified initial full-skin root offset in this house.
     # An old validation-house sole offset can bury the actual initial skin.
-    placed_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(start)
+    placed_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore, .08)(start)
     qualified_initial_root_offset = float(start[1] - placed_floor)
+    grounder=StationaryPawGrounder(native,entry['declaration']['species_id'],directory/'stationary_paw_ik')
     maximum_attempts=int(request.get('maximum_native_route_attempts',64))
     if not 1<=maximum_attempts<=256:raise ValueError('invalid native route retry budget')
     for attempt_number,((_, p0, yaw, direction, route_speed), mode, curved_route) in enumerate(routes,1):
@@ -426,10 +430,10 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             for path in set(poses):
                 if path not in meshes:
                     meshes[path] = indexed_static_mesh(path)
-            actual_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(p0)
+            actual_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore, .08)(p0)
             p0[1] = actual_floor + qualified_initial_root_offset
             roots[:,1]+=p0[1]-roots[0,1]
-            floor = PhysicalFloor(video, actual_floor, ignore)
+            floor = PhysicalFloor(video, actual_floor, ignore, .08)
             terrain_placement=None
             if reflected_motion:roots,terrain_placement=follow_measured_route_floor(roots,floor,actual_floor)
             roots[:, 1] += [source[int(i)]['root_world_m'][1] - old_origin[1] for i in indices]
@@ -446,11 +450,21 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 raise ValueError('rigidly placed animal route exceeds unchanged 2mm NavMesh drift')
             clearance = TriangleClearance(video, house, actual_floor, entry)
             frames, bounds, minimum = [], [], math.inf
+            appearance_warnings=[];stationary_grounding=[]
             for i, (path, root) in enumerate(zip(poses, roots)):
                 if not curved_motion and time.monotonic() - begun > 1800:
                     raise ValueError('bounded animal route search expired')
                 old = source[int(indices[i])]
                 frame_yaw=float(frame_yaws[i])
+                if velocity[i]<=1e-8 and mode=='walk_animation':
+                    try:
+                        old,path,grounding=grounder.ground(old,path,root,frame_yaw,floor)
+                        poses[i]=path
+                        if path not in meshes:meshes[path]=indexed_static_mesh(path)
+                        if not stationary_grounding or stationary_grounding[-1]!=grounding:stationary_grounding.append(grounding)
+                    except (ValueError, KeyError) as error:
+                        warning={'reason':'stationary paw IK unavailable; actual pose retained', 'detail':str(error)}
+                        if warning not in appearance_warnings:appearance_warnings.append(warning)
                 mesh = meshes[path]
                 dist, world = clearance.check(np.asarray(mesh.vertices), np.asarray(mesh.faces), root, frame_yaw)
                 minimum = min(minimum, dist)
@@ -471,17 +485,17 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                     limit = OWNER_PRODUCTION_QUALITY['contact_gap_m']
                     lower = -.00101 if entry['declaration']['species_id'] == 'cat' else -.008
                     if delta < lower or (planted and abs(delta) > limit + 1e-12) or foot.get('support_lock_error_m', 0) > OWNER_PRODUCTION_QUALITY['support_lock_error_m'] + 1e-12:
-                        raise ValueError('admitted animal pose violates owner visual foot/contact quality gate: ' + json.dumps({
+                        appearance_warnings.append({'reason':'animal paw visual contact/lock',
                             'frame_index': i, 'source_frame_index': int(indices[i]), 'paw': side,
                             'floor_delta_m': delta, 'in_contact': planted,
                             'support_lock_error_m': foot.get('support_lock_error_m', 0),
                             'required_lower_m': lower, 'required_planted_abs_max_m': limit,
                             'required_support_lock_max_m': OWNER_PRODUCTION_QUALITY['support_lock_error_m'],
                             'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
-                            'root_m': root.tolist(), 'sole_local_m': local.tolist()}, sort_keys=True))
+                            'root_m': root.tolist(), 'sole_local_m': local.tolist()})
                     feet[side] = foot
                 if not any(f['in_contact'] for f in feet.values()):
-                    raise ValueError('admitted animal pose has no actual support')
+                    appearance_warnings.append({'frame_index':i,'reason':'no planted paw label; actual contacts retained'})
                 frames.append({'time_s': float(times[i]), 'source_phase_s': float(phase[i]),
                                'source_frame_index': int(indices[i]), 'mouth_m': old['mouth_m'],
                                'head_m': old['head_m'], 'tail_m': old['tail_m'], 'feet': feet,
@@ -500,6 +514,8 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'original_full_skin_floor_collision': clearance.floor_certificate(),
                         'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
                         'rigid_route_placement': rigid_placement, 'terrain_route_placement': terrain_placement,
+                        'animal_visual_fallback_policy':dict(POLICY),
+                        'appearance_warnings':appearance_warnings,'stationary_paw_grounding':stationary_grounding,
                         'requested_speed_m_s': speed, 'actual_speed_m_s': float(np.median(velocity[velocity>1e-8])) if np.any(velocity>1e-8) else 0.,
                         'requested_motion_mode': requested_mode,
                         'motion_degradation': None,

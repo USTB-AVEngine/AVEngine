@@ -20,8 +20,9 @@ REVISION='admitted-contact-clip-new-house-full-triangle-native-v1'
 
 
 class PhysicalFloor:
-    def __init__(self, video, reference, ignore=()):
+    def __init__(self, video, reference, ignore=(), reference_tolerance_m=.015):
         self.video=video;self.reference=float(reference);self.ignore=set(ignore)
+        self.reference_tolerance_m=float(reference_tolerance_m)
         self.original_ray=None;self.native_ray_agreements=[];self.native_ray_count=0
         if getattr(video,'motion_inputs',{}).get('phase2'):
             from avengine.assets.v7_phase2_floor import OriginalVerticalStageRay
@@ -44,12 +45,12 @@ class PhysicalFloor:
             original=float(self.original_ray.many([p])[0])
             error=abs(original-y);self.native_ray_agreements.append(error)
             if error>.0001:raise ValueError('original full-stage support differs from native floor ray by >0.1mm')
-        if abs(y-self.reference)>.015:raise ValueError('motion support ray hit furniture or a different floor level')
+        if abs(y-self.reference)>self.reference_tolerance_m:raise ValueError('motion support ray hit furniture or a different floor level')
         return y
     def many(self, points):
         if self.original_ray is None:return np.array([self(p) for p in points])
         y=self.original_ray.many(points)
-        if np.any(abs(y-self.reference)>.015):raise ValueError('candidate support hit furniture or a different floor level')
+        if np.any(abs(y-self.reference)>self.reference_tolerance_m):raise ValueError('candidate support hit furniture or a different floor level')
         return y
 
 

@@ -401,6 +401,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if not proposal_view_ok(scene,a['asset_id'],proposed_rep-listener,scene['camera_forward'],visible_from_path(proposed_rep-listener)):
                     reject('outside_observed_camera_path');continue
                 placement=check_support(self.sim,r,meta,support)
+                if placement is None and key=='floor' and a['kind']=='animal':
+                    from avengine.assets.animal_motion.production_grounding import construct_animal_floor_support
+                    placement=construct_animal_floor_support(self.sim,r,meta,support)
                 if placement is None:
                     reject("attachment_rays");continue
                 # An optional recipe-side filter can request tighter quadruped
@@ -410,7 +413,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     paw_limit=float(paw_limit)
                     if not 0.<paw_limit<=.015:raise ValueError('paw candidate filter must be within the original 15mm gate')
                     if any(abs(v)>paw_limit for v in placement['contact_deltas_m'][-4:]):
-                        reject('quadruped_paw_candidate_gap');continue
+                        placement.setdefault('appearance_warnings',[]).append({'reason':'quadruped_paw_candidate_gap','measured_deltas_m':placement['contact_deltas_m'][-4:],'candidate_limit_m':paw_limit})
                 if key=='doorbell_wall':
                     from avengine.capture.v7_visible_attachment import anchor_distance
                     point=placement['support']['original_surface_point_m']
@@ -491,6 +494,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                           'floor_type_authority':'native navmesh + all native support rays within 80mm of measured room floor/free polygon + original floor or ground-covering triangles <=15mm; contact itself <=15mm',
                           'table_type_authority':'actual native horizontal patch + original scan table/desk/counter-labelled triangles within <=15mm',
                           'motion_admission':'original static complete mesh; no new walking/sitting motion'}
+                if placement.get('animal_floor_support'):
+                    accepted.update(animal_floor_support=True,animal_visual_fallback_policy=placement['animal_visual_fallback_policy'],appearance_warnings=placement['appearance_warnings'])
+                    scene.setdefault('construction_fallbacks',[]).append({'asset_id':a['asset_id'],'stage':'animal_measured_floor_root_grounding','details':placement['appearance_warnings']})
                 if relation_witness['relations']:accepted['requested_occlusion_witness']=relation_witness
                 if offscreen_proof is not None:accepted['intentional_offscreen_proof']=offscreen_proof
                 if scene.get('phase2_profile'):

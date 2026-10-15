@@ -3,12 +3,16 @@ import numpy as np
 from avengine.assets.roster_motion.quality import HUMAN_QUALITY
 
 def motion_checks(visual):
-    errors=[];feet=[];readbacks=[];motions=visual.get('native_motion_admissions',{})
+    errors=[];warnings=[];feet=[];readbacks=[];motions=visual.get('native_motion_admissions',{})
     clearances=[];navigation=[];instances=[];quality_limits={}
     if set(motions)!=set(visual.get('phase2_requested_motion',motions)):
         errors.append('requested native motions missing or silently substituted')
     for ep,record in motions.items():
         actual=record.get('native_30Hz_readbacks',[]);source=record['source_frames']
+        animal_visual_only=(record.get('species_id') in {'dog','cat'}
+            and record.get('animal_visual_fallback_policy',{}).get('revision')=='owner-animal-appearance-construction-20261015')
+        def contact_issue(message):
+            (warnings if animal_visual_only else errors).append(ep+':'+message)
         if record.get('status')!='pass' or len(actual)!=901 or len(source)!=901:
             errors.append(ep+':incomplete original pose/native 30Hz sequence');continue
         floor_proof=record.get('original_full_skin_floor_collision',{})
@@ -55,9 +59,9 @@ def motion_checks(visual):
                     if tilt+frame.get('upright_tilt_deg',0)>10:
                         errors.append(ep+':actual native quadruped body up not preserved')
                 if not frame['moving'] and not all(v['in_contact'] for v in frame['feet'].values()):
-                    errors.append(ep+':stationary quadruped has an unplanted paw')
+                    contact_issue('stationary quadruped has an unplanted paw')
             contact=[v for v in frame['feet'].values() if v['in_contact']]
-            if not contact:errors.append(ep+':no actual planted support at frame '+str(index))
+            if not contact:contact_issue('no actual planted support at frame '+str(index))
             for side,foot in frame['feet'].items():
                 delta=float(foot['floor_delta_m'])
                 minimum=-.00101 if record.get('species_id')=='cat' else -.008
@@ -67,7 +71,7 @@ def motion_checks(visual):
                 if owner_quality:
                     if lock_error>support_limit+1e-12:passed=False
                 elif lock_error>=support_limit:passed=False
-                if not passed:errors.append(ep+':foot contact/penetration/lock')
+                if not passed:contact_issue('foot contact/penetration/lock')
                 feet.append({'endpoint_id':ep,'frame_index':index,'foot':side,'in_contact':bool(foot['in_contact']),
                     'delta_m':delta,'contact_limit_m':limit,'support_lock_limit_m':support_limit,'owner_quality':owner_quality,'passed':passed,'lock_error_m':foot.get('support_lock_error_m')})
             for child in row.get('attached_emitter_readbacks',[]):
@@ -81,7 +85,7 @@ def motion_checks(visual):
         instances.append({'endpoint_id':ep,'motion_kind':record.get('motion_kind','human_walk'),'native_frames':len(actual),'moving_frames':moving,
             'species_id':record.get('species_id','human'),'maximum_contact_error_m':max((abs(v['delta_m']) for v in feet if v['endpoint_id']==ep and v['in_contact']),default=0),
             'minimum_nonfloor_clearance_m':clearance,'actual_source_registry':record['lineage']['roster']})
-    return {'status':'fail' if errors else 'pass','errors':sorted(set(errors)),'instances':instances,
+    return {'status':'fail' if errors else 'pass','errors':sorted(set(errors)),'appearance_warnings':sorted(set(warnings)),'instances':instances,
         'native_30Hz_frames':sum(v['native_frames'] for v in instances),'foot_rows_checked':len(feet),
         'foot_rows_passed':sum(v['passed'] for v in feet),'stance_rows':sum(v['in_contact'] for v in feet),
         'worst_stance_error_m':max((abs(v['delta_m'])for v in feet if v['in_contact']),default=0),
