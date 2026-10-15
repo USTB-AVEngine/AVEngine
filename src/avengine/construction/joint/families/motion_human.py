@@ -107,8 +107,10 @@ class HumanMotionPlugin:
         yield from checks
         expected='nearer'if int(self.base_row['scene_seed'])%2 else'farther'
         actual=row['motion_requests'][row['semantic_human_asset_ids'][0]]['motion_quartet_route']['emission_slot']['branch']
-        yield CheckResult('motion_human:requested_radial_branch','pass'if actual==expected else'fail',
-            evidence={'requested':expected,'planned':actual})
+        second=row['motion_requests'][row['semantic_human_asset_ids'][1]]['motion_quartet_route']['emission_slot']['branch']
+        wanted_second=expected if self.base_row.get('human_motion_pair_mode')=='following'else('farther'if expected=='nearer'else'nearer')
+        yield CheckResult('motion_human:requested_radial_branch','pass'if actual==expected and second==wanted_second else'fail',
+            evidence={'requested':[expected,wanted_second],'planned':[actual,second]})
         yield CheckResult('motion_human:two_complete_motion_witness_sets',
             'pass'if len(checks)==8 and all(c.status=='pass'for c in checks)else'fail')
 
@@ -157,6 +159,7 @@ def construct_motion_human_scene(room,house,state,catalog,records,semantic,contr
     base={'schema':'v7-visible-registered-pilot-phase2-v1','split':'train','house':house['house'],
         'room_id':room['room_id'],'scene_seed':seed,'scene_id':scene_id,
         'motion_source_type':'human_speech','human_motion_event_count':2,'human_motion_strategy':'two_walkers',
+        'human_motion_pair_mode':runtime.get('motion_human_pair_mode','opposing'),
         'motion_requested_families':['QA-06','QA-15','QA-16','QA-17'],
         'question_quota_base':10,'questions_per_window':18,'window_count':5,'members':['v0_a0'],'trial_only':True}
     root=runtime.get('motion_human_native_oracle_root')
@@ -175,7 +178,7 @@ def construct_motion_human_scene(room,house,state,catalog,records,semantic,contr
             roles=plan.metadata['roles'],minimum_visible_pixels={aid:100 for aid in plan.metadata['family_row']['motion_requests']},
             family_check=lambda video,scene,entries:native_motion_obligations(video,scene,entries,plan.metadata['family_row']['motion_during_condition_plan']))
     try:
-        request=FamilyRequest(family,'two_walkers_'+('nearer_then_farther'if seed%2 else'farther_then_nearer'),
+        request=FamilyRequest(family,'two_walkers_'+base['human_motion_pair_mode']+'_'+('nearer'if seed%2 else'farther'),
             (),{'require_native_preflight':True})
         solved=solve(context,request,plugin,prepare_and_verify=oracle,
             budget_s=float(runtime.get('motion_human_joint_budget_s',900.)),

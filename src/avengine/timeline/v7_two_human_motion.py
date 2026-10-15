@@ -77,7 +77,7 @@ def negative_control_bystander(room,pathfinder,listener,yaw_deg,routes):
     return max(choices,key=lambda item:item[0])[1]if choices else None
 
 
-def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_duration_s=1.6,require_negative_control=False):
+def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_duration_s=1.6,require_negative_control=False,pair_mode='opposing'):
     """Finite analytic lane offsets; no second actor can cross the first."""
     from avengine.assets.roster_motion.reflect_navmesh import native_free_predicate
     from avengine.assets.roster_motion.straight_route import frame_rest_poses
@@ -94,7 +94,10 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
     if not coverage.covers(LineString(p)) or not all(pred(v) for v in np.unique(p,axis=0)):return
     for separation in (1.25,1.4,1.6,1.8):
         for side in (1.,-1.):
-            b=single_bout_at(a,start_s=15.+local_start,offset_s=15.,reverse=True,shift_xz=side*separation*lateral,duration_s=second_duration_s)
+            if pair_mode not in {'opposing','following'}:raise ValueError('unknown planned human pair mode')
+            if pair_mode=='following' and side<0:continue
+            shift=(-separation*direction)if pair_mode=='following'else(side*separation*lateral)
+            b=single_bout_at(a,start_s=15.+local_start,offset_s=15.,reverse=pair_mode=='opposing',shift_xz=shift,duration_s=second_duration_s)
             q=np.asarray(b['positions_xz_m'])
             if not coverage.covers(LineString(q)):continue
             if not all(pred(v)for v in np.unique(q,axis=0)):continue
@@ -110,7 +113,7 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
             control=negative_control_bystander(room,pathfinder,listener,yaw,(a,b))if require_negative_control else None
             if require_negative_control and control is None:continue
             for route in (a,b):route.update(camera_yaw_deg=yaw,rest_pose_framing=framing)
-            yield a,b,{'lane_separation_m':separation,'side':side,'minimum_pair_distance_m':continuous_distance,'rest_framing':framing,'negative_control':control}
+            yield a,b,{'lane_separation_m':separation,'side':side,'minimum_pair_distance_m':continuous_distance,'rest_framing':framing,'negative_control':control,'pair_mode':pair_mode}
 
 
 def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,*,attempt=0,contract=None):
@@ -142,19 +145,20 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
         record.setdefault('screens',{})['automatic_activity']={'activity_intervals_samples':[[int(nz[0]),int(nz[-1]+1)]],'method':'measured exact complete source support'}
         measured.append(record)
     duration_a=float(pair[0]['synthesis_readback']['duration_s']);duration_b=float(pair[1]['synthesis_readback']['duration_s'])
+    pair_mode=base_row.get('human_motion_pair_mode','opposing')
     desired='nearer'if int(base_row['scene_seed'])%2 else'farther'
     errors=[]
     import time
     deadline=time.process_time()+30.
     def partner_possible(candidate):
-        return next(paired_corridors(candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True),None)is not None
+        return next(paired_corridors(candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True,pair_mode=pair_mode),None)is not None
     for geometry_attempt in range(2):
         try:
             seed_route=(base['motion_requests'][first]['motion_quartet_route']if geometry_attempt==0 else
                 find_human_seed_route(room,pathfinder,int(base_row['scene_seed']),attempt+geometry_attempt,
                     utterance_s=duration_a,local_start_s=local_start,post_motion_s=.6,candidate_validator=partner_possible,cpu_deadline=deadline))
         except ValueError as exc:errors.append(str(exc));continue
-        for route_a,route_b,layout in paired_corridors(seed_route,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True):
+        for route_a,route_b,layout in paired_corridors(seed_route,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True,pair_mode=pair_mode):
             row=deepcopy(base);row['human_motion_event_count']=2;row['human_motion_strategy']='two_walkers'
             row['motion_quartet_template_revision']=REVISION
             row['phase2_source_event_schedule_s']={first:[local_start,11.,22.],second:[7.5,15.+local_start,27.5]}

@@ -33,7 +33,8 @@ def test_independent_opposing_walks_keep_constant_heading_and_all_crop_speeds():
         assert all(r['status']=='pass'for r in measured_actor_metrics(actors,15.))
 
 
-def test_full_two_person_template_certifies_both_targets_with_original_solver(monkeypatch,tmp_path):
+@pytest.mark.parametrize('pair_mode',['opposing','following'])
+def test_full_two_person_template_certifies_both_targets_with_original_solver(monkeypatch,tmp_path,pair_mode):
     import soundfile as sf
     from avengine.timeline import v7_registered_sampling
     sounds=[];records={}
@@ -54,7 +55,7 @@ def test_full_two_person_template_certifies_both_targets_with_original_solver(mo
         calls.append(1)
         return iter(())if len(calls)==1 else original(*args,**kwargs)
     monkeypatch.setattr(module,'paired_corridors',after_first)
-    row=two_human_motion_template({'scene_seed':42,'scene_id':'new','motion_source_type':'human_speech','human_motion_event_count':2},
+    row=two_human_motion_template({'scene_seed':42,'scene_id':'new','motion_source_type':'human_speech','human_motion_event_count':2,'human_motion_pair_mode':pair_mode},
         room,catalog,{'sounds':sounds},[],pf)
     assert len(calls)>1
     assert len(row['asset_ids'])==3 and len(row['motion_requests'])==2
@@ -106,3 +107,19 @@ def test_failed_resting_turn_recipe_cannot_be_dispatched_as_admitted_production(
     from avengine.timeline.v7_motion_quartet_template import motion_quartet_template,MotionTemplateUnavailable
     with pytest.raises(MotionTemplateUnavailable,match='resting-turn replay is not admitted'):
         motion_quartet_template({'human_motion_event_count':3},{},[],{},[],object())
+
+
+
+def test_following_people_reuse_one_narrow_corridor_with_independent_original_witnesses():
+    from avengine.construction.joint.routes import minimum_track_distance
+    room,pf=geometry()
+    seed=find_human_seed_route(room,pf,42,utterance_s=1.8,local_start_s=2.6,post_motion_s=.6)
+    a,b,layout=next(paired_corridors(seed,room,pf,first_branch='nearer',second_duration_s=1.6,pair_mode='following'))
+    assert a['emission_slot']['branch']==b['emission_slot']['branch']=='nearer'
+    p,q=np.asarray(a['positions_xz_m']),np.asarray(b['positions_xz_m'])
+    direction=(p[-1]-p[0])/np.linalg.norm(p[-1]-p[0])
+    assert np.linalg.norm(np.cross(direction,q[0]-p[0]))<1e-8
+    assert minimum_track_distance(np.column_stack((p[:,0],np.zeros(901),p[:,1])),
+        np.column_stack((q[:,0],np.zeros(901),q[:,1])))>=1.2
+    assert layout['pair_mode']=='following'
+    assert b['emission_slot']['start_s']>=a['short_window_walk']['walk_end_s']+10
