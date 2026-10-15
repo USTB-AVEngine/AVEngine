@@ -339,3 +339,19 @@ def test_finishing_old_snapshot_cannot_reintroduce_excluded_counts_on_read(tmp_p
     assert state['logical_questions']==3 and state['family_counts']=={'QA-01':3}
     assert state['excluded_legacy_parents']['old']['logical_questions']==2
     assert p.read_bytes()==original
+
+
+def test_visual_condition_requests_follow_independent_modality_shortfall():
+    state={'logical_questions':100,'family_counts':{'QA-19':100},'modality_counts':{'vision':7,'audio':30,'audiovisual':63}}
+    demand=demand_snapshot(state,next_questions=0)
+    assert demand['modality_deficits']['vision']==23
+    assert demand['visual_construction_request']['additional_independent_visual_questions']==23
+    assert set(demand['visual_construction_request']['preferred_families'])=={'QA-07','QA-09','QA-10','QA-11','QA-14'}
+    assert demand['visual_construction_request']['observed_counts_status']=='actual_independent_export'
+
+
+def test_visual_condition_requests_do_not_treat_unpublished_counts_as_actual():
+    state={'logical_questions':100,'family_counts':{'QA-19':100},'modality_counts':{'vision':10}}
+    demand=demand_snapshot(state,next_questions=0)
+    assert demand['modality_deficits']=={}
+    assert demand['visual_construction_request']['additional_independent_visual_questions']is None

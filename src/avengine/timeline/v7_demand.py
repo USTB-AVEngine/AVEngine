@@ -22,6 +22,8 @@ TARGET_GROUPS = (
     ('motion_time', .13, 1, ('QA-06','QA-13','QA-15','QA-16','QA-17','QA-18','QA-19','QA-23','STARSS-SPEAKERS')),
     ('taxonomy', .05, 4, ('QA-21','QA-22','STARSS-CLASS13','V7-CLASS34')),
 )
+MODALITY_TARGETS={'vision':.30,'audio':.25,'audiovisual':.45}
+VISUAL_CONSTRUCTION_FAMILIES=('QA-07','QA-09','QA-10','QA-11','QA-14')
 CONDITION_FAMILIES = {
     'motion_quartet':['QA-06','QA-15','QA-16','QA-17'],
     'walking_human': ['QA-06','QA-13','QA-15','QA-16','QA-17'],
@@ -184,7 +186,17 @@ def demand_snapshot(state, *, next_questions=14):
                for f,gap in deficits.items()}
     from avengine.timeline.v7_answer_branch_demand import construction_request
     population=construction_request(state)
-    return {'offscreen_population_request':population,'answer_branch_deficits':population['answer_branch_deficits'],
+    modalities=Counter(state.get('modality_counts',{}))
+    modalities_known=sum(modalities.values())==total
+    modality_deficits={m:max(0.,horizon*share-modalities[m])for m,share in MODALITY_TARGETS.items()}if modalities_known else {}
+    visual_families=sorted(VISUAL_CONSTRUCTION_FAMILIES,key=lambda f:(-max(0,3-counts[f]),-deficits.get(f,0),f))
+    visual_request={'preferred_families':visual_families,
+        'additional_independent_visual_questions':max(0,math.ceil(horizon*.30)-modalities['vision'])if modalities_known else None,
+        'observed_counts_status':'actual_independent_export'if modalities_known else'missing_or_pending_publication',
+        'source':'selected independent model rows; never candidate counts or raw windows'}
+    return {'modality_targets':dict(MODALITY_TARGETS),'modality_deficits':modality_deficits,
+            'observed_modality_counts':dict(modalities)if modalities_known else {},'visual_construction_request':visual_request,
+            'offscreen_population_request':population,'answer_branch_deficits':population['answer_branch_deficits'],
             'source_inventory_requests':deepcopy(state.get('source_inventory_requests',[])),
             'revision':DEMAND_REVISION,'observed_logical_questions':total,'observed_family_counts':dict(counts),
             'next_question_horizon':horizon,'target_shares':dict(targets),'family_deficits':deficits,
