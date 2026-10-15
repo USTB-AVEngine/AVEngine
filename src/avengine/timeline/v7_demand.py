@@ -320,14 +320,17 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
             trend='receding' if row['scene_seed']%2 else 'approaching'
             row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.15,'intervals_s':[[0.,2.5],[8.,9.9],[10.,12.5],[18.,19.9],[20.,22.5],[28.,29.9]],'distance_trend':trend}
             # New demand-driven parents use the existing v3 compiler/solver.
-            # A complete longer utterance supplies the requested >=1.5m route;
+            # A complete measured utterance at real walking speed supplies >=1.5m;
             # the registered person has speech only, without automatic feet.
             aid=walker['asset_id'];gender='F' if walker.get('visual_gender')=='female' else 'M'
             whole=[r for r in records if r.get('dataset')=='VCTK-Corpus 0.92'
                 and r.get('source_type','recorded')=='recorded' and r.get('gender')==gender
                 and r.get('legacy_library_split')=='train' and r.get('transcript')
-                and 4.5<=r.get('duration_s',0)<=6.5]
-            if not whole:raise ValueError('conditioned QA-15 needs a whole admitted 4.5-6.5s utterance')
+                and 2.1<=r.get('duration_s',0)<=2.5
+                and r.get('screens',{}).get('automatic_activity',{}).get('activity_intervals_samples')
+                and (r['screens']['automatic_activity']['activity_intervals_samples'][-1][1]
+                     -r['screens']['automatic_activity']['activity_intervals_samples'][0][0])/16000>=2.]
+            if not whole:raise ValueError('conditioned real-speed QA-15 needs a whole admitted 2.1-2.5s utterance with >=2s measured audible span')
             utterance=max(whole,key=lambda r:(r['duration_s'],r['sound_asset_id']))
             row['proposed_sound_asset_ids'][aid]=utterance['sound_asset_id']
             row['phase2_recorded_speech_schedule_s'][aid]=[.3]

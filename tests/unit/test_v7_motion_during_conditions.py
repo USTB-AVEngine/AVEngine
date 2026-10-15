@@ -27,6 +27,26 @@ def test_original_solver_verifier_checks_actual_native_trajectory():
     assert verify_motion_during_native(result,scene,{})['status']=='fail'
 
 
+def test_whole_animal_recording_uses_measured_v3_sound_clock():
+    row,assets,records=fixture('QA-15','farther')
+    assets[0].update(kind='animal')
+    row['phase2_recorded_speech_schedule_s'].pop('target')
+    row['phase2_whole_animal_recordings']={'target':[.7]}
+    out=prepare_motion_during_row(row,assets,records)
+    assert out['motion_during_condition_plan']['status']=='solved'
+    assert out['motion_during_condition_plan']['plans'][0]['config']['event_start_s']['target']==.7
+
+
+def test_whole_animal_clip_retains_length_and_does_not_add_a_human_sound():
+    from avengine.timeline.v7_visible_sources import recorded_event_layout
+    row={'motion_requests':{'dog':{}},'phase2_whole_animal_recordings':{'dog':[.3]}}
+    record={'duration_s':3.14,'source_type':'recorded'}
+    assert recorded_event_layout(row,{'asset_id':'dog','kind':'animal'},record,False,[.2,5.2])==([.3],True)
+    assert recorded_event_layout(row,{'asset_id':'human','kind':'human'},record,False,[.2,5.2])==([.2,5.2],False)
+    row['phase2_whole_animal_recordings']['dog']=[28.]
+    with pytest.raises(ValueError,match='does not fit'):recorded_event_layout(row,{'asset_id':'dog','kind':'animal'},record,False,[.2])
+
+
 def test_native_verifier_uses_body_root_speed_and_actual_mouth_distance():
     import numpy as np
     row,assets,records=fixture();out=prepare_motion_during_row(row,assets,records)

@@ -25,7 +25,9 @@ def prepare_scene_motion(row,catalog):
         speed=float(np.random.default_rng(int(row['scene_seed'])+97001+number).uniform(*SPEED_RANGES[kind]))
         request.update(speed_m_s=speed,motion_execution_revision=REVISION,scene_speed_range_m_s=list(SPEED_RANGES[kind]),require_clear_direct_path_during_sound=False)
         for condition in row.get('motion_during_condition_requests',[]):
-            if condition['target_asset_id']==aid:condition['speed_m_s']=speed
+            if condition['target_asset_id']==aid:
+                condition['speed_m_s']=speed
+                condition['speed_range_m_s']=list(SPEED_RANGES[kind])
         if row.get('source_classes',{}).get(aid)==['footsteps']:request.pop('distance_trend',None)
     return row
 

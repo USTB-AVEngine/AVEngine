@@ -51,7 +51,8 @@ def prepare_motion_during_row(row,catalog,records):
             sounds[aid]={'sound_asset_id':sid,'sample_rate_hz':rate,'sample_count':count,
                 'audible_start_sample':int(intervals[0][0]),'audible_end_sample_exclusive':int(intervals[-1][1]),
                 'source_activity_intervals_samples':intervals,'source_origin':record['path']}
-            starts[aid]=float(result.get('phase2_recorded_speech_schedule_s',{}).get(aid,[.3])[0])
+            starts[aid]=float(result.get('phase2_whole_animal_recordings',{}).get(aid,
+                result.get('phase2_recorded_speech_schedule_s',{}).get(aid,[.3]))[0])
         if target not in sounds:raise ValueError('conditioned target needs a complete measured sound program')
         config={'query':{'qa_id':qa,'target_instance_ids':[target],'event':{'kind':'target_audible_window'}},
             'branch':branch,'instances':[{**x,'role':'anchor' if x['asset_id']==target else 'competitor'}for x in instances],
