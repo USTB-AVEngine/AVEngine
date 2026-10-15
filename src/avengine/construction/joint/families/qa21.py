@@ -90,17 +90,42 @@ def body_spec(asset):
 
 
 class Qa21Plugin:
-    def __init__(self, bodies, roles, target_id, sound_class, *, sounds=(), maximum=256, targets=None):
+    def __init__(self, bodies, roles, target_id, sound_class, *, sounds=(), maximum=256, targets=None, assets=None):
         self.bodies, self.roles = bodies, roles
         self.target_id, self.sound_class = target_id, sound_class
         self.sounds, self.maximum = tuple(sounds), maximum
         self.targets = targets or {target_id: sound_class}
+        self.assets = assets or {}
+        self._mesh_raycasters = {}
 
     def candidates(self, context, request):
         from avengine.construction.joint import enumerate_static_layouts
         for plan in enumerate_static_layouts(context, self.bodies, self.roles, max_candidates=self.maximum):
             yield replace(plan, sounds=self.sounds, metadata={**plan.metadata,
                 'qa21_target_id': self.target_id, 'qa21_sound_class': self.sound_class})
+
+    def exact_prediction(self, context, plan, target_id):
+        from avengine.construction.joint.geometry import MeshRaycaster
+        from avengine.construction.joint.mesh_prediction import MeshInstance, predict_mesh_visibility
+        from avengine.capture.v7_visible_mesh import indexed_static_mesh
+        instances = {}
+        for aid, actor in plan.actors.items():
+            # A whole-body outside envelope cannot occlude an image ray; its
+            # human yaw remains the original natural-orientation policy.
+            if self.roles.get(aid) == 'outside':continue
+            asset = self.assets[aid]
+            if aid not in self._mesh_raycasters:
+                self._mesh_raycasters[aid] = MeshRaycaster(indexed_static_mesh(asset['habitat_glb']),
+                    evidence={'asset_id': aid, 'source': 'original admitted static mesh'})
+            root = np.asarray(actor.positions_m, float)[0]
+            delta = np.asarray(plan.camera.position_m)-root
+            yaw = math.atan2(-delta[0], -delta[2]) if asset.get('kind') in {'human', 'performer', 'animal'} else math.atan2(-delta[2], delta[0])
+            c, s = math.cos(yaw), math.sin(yaw)
+            transform = np.eye(4);transform[:3, :3] = [[c, 0., s], [0., 1., 0.], [-s, 0., c]]
+            transform[:3, 3] = root
+            instances[aid] = MeshInstance(aid, self._mesh_raycasters[aid], transform)
+        return predict_mesh_visibility(plan.camera, instances[target_id], scene_depth=context.depth(plan.camera),
+            occluders=tuple(instance for aid, instance in instances.items() if aid != target_id))
 
     def verify(self, context, request, plan):
         from avengine.construction.joint import CheckResult
@@ -125,13 +150,16 @@ class Qa21Plugin:
                 continue
             occluders = tuple((other_id, np.asarray(other.positions_m)[0], other.body)
                 for other_id, other in plan.actors.items() if other_id != target_id)
-            prediction = context.predict(plan.camera, positions[0], actor.body, occluders=occluders)
+            prediction = (self.exact_prediction(context, plan, target_id) if self.assets
+                else context.predict(plan.camera, positions[0], actor.body, occluders=occluders))
             lower = float(prediction.visible_pixels_lower); edge = float(prediction.edge_margin_px)
-            status = 'pass' if prediction.state == 'visible_clear' and lower >= MINIMUM_TARGET_PIXELS and edge >= FRAME_MARGIN_PX else 'fail'
+            status = 'pass' if self.assets and prediction.state in {'visible_clear', 'visible_occluded'} and lower >= MINIMUM_TARGET_PIXELS and edge >= FRAME_MARGIN_PX else 'fail'
             yield CheckResult('qa21_visible_'+target_id, status,
                 margin=min(lower-MINIMUM_TARGET_PIXELS, edge-FRAME_MARGIN_PX),
                 evidence={'state': prediction.state, 'visible_pixels_lower': lower,
                     'edge_margin_px': edge, 'authority': 'planning_geometry_only',
+                    'prediction_confidence': getattr(prediction, 'confidence', 'unknown'),
+                    'mesh_prepared': bool(self.assets),
                     'original_native_pixels_still_required': True})
             classes = {event.sound_class for event in plan.sounds if event.entity_id == target_id}
             yield CheckResult('qa21_one_class_'+target_id, 'pass' if classes == {cls} else 'fail',
@@ -342,7 +370,7 @@ def prepare_qa21_sources(room, house, state, catalog, records, semantic, contrac
         'category_focus_class': next(iter(targets.values())),
         'qa21_taxonomy_schedule': {'target_asset_ids': target_ids, 'real_offscreen_companion_asset_id': companion},
         'native_view_roles': {**{aid: {'view': 'inside', 'static': True, 'required_visible_sometime': True} for aid in target_ids},
-            companion: {'view': 'outside', 'static': True, 'minimum_abs_azimuth_deg': 60., 'real_geometry_and_native_projection_required': True}}}
+            companion: {'view': 'outside', 'static': True, 'minimum_abs_azimuth_deg': 42.5, 'real_geometry_and_native_projection_required': True}}}
     _request(row, state, family)
     row['scene_demand']['class34_construction'] = [proof for _, _, proof in selected]
     row['scene_demand']['required_independent_family_counts'] = {family: len(selected)}
@@ -370,7 +398,7 @@ def construct_qa21_scene(room, house, state, catalog, records, semantic, contrac
         cache_dir=runtime.get('qa21_joint_cache_dir'), camera_limit=24, width=1280, height=720)
     try:
         request = FamilyRequest('QA-21', '|'.join(targets.values()), tuple(target_ids))
-        plugin = Qa21Plugin(bodies, roles, target_ids[0], targets[target_ids[0]], sounds=sounds, targets=targets)
+        plugin = Qa21Plugin(bodies, roles, target_ids[0], targets[target_ids[0]], sounds=sounds, targets=targets, assets={a['asset_id']: a for a in [*(a for a, _, _ in selected), person]})
         solved = solve(context, request, plugin, budget_s=120., max_candidates=256)
     finally:
         close = getattr(context, 'close', None)

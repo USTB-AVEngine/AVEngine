@@ -201,3 +201,31 @@ def test_native_appearance_preflight_uses_original_reviewer_and_restores_video_s
     video._check_source_frame = wrong
     assert native_appearance_check(video, scene, [entry])['status'] == 'fail'
     assert video.color_checks is old_colors
+
+
+def test_actual_core_proxy_is_not_an_actual_pixel_lower_bound_and_exact_mesh_is_used(tmp_path):
+    import trimesh
+    from avengine.construction.joint import CameraPose, BodySpec, ActorPlan, ScenePlan, SoundEvent, FamilyRequest
+    from avengine.construction.joint.geometry import DepthBuffer, predict_visibility
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    camera = CameraPose((0., 1.25, 0.), 0., width=320, height=180)
+    depth = DepthBuffer(camera, np.full((180, 320), np.inf), source='visual_mesh')
+    root = np.array([0., 0., -3.8]);body = BodySpec('cat', .4, .6, .04)
+    proxy = predict_visibility(camera, root, body, depth=depth)
+    assert proxy.visible_pixels_lower == 0
+    assert proxy.evidence['inner_proxy_visible_pixels'] > 100
+    mesh = trimesh.creation.box(extents=[.65, .65, .35]);mesh.apply_translation([0., .325, 0.])
+    path = tmp_path/'cat.glb';mesh.export(path)
+    actor = ActorPlan('cat', np.tile(root, (901, 1)), body)
+    event = SoundEvent('cat', 'actual_record', 'cat_meow', 1., 2., 2.5)
+    plan = ScenePlan(camera, {'cat': actor}, (event,))
+    plugin = Qa21Plugin({'cat': body}, {'cat': 'inside'}, 'cat', 'cat_meow', sounds=(event,),
+        assets={'cat': {'habitat_glb': str(path), 'kind': 'animal', 'species_id': 'cat'}})
+    context = NS(depth=lambda pose: depth)
+    request = FamilyRequest('QA-21', 'cat_meow', ('cat',))
+    checks = list(plugin.verify(context, request, plan))
+    visible = next(c for c in checks if c.name == 'qa21_visible_cat')
+    assert visible.status == 'pass'
+    assert visible.evidence['prediction_confidence'] == 'exact_mesh_prediction'
+    assert visible.evidence['mesh_prepared']
+    assert visible.evidence['visible_pixels_lower'] >= 300
