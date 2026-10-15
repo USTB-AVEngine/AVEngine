@@ -186,8 +186,6 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     listener=np.asarray(scene['listener_m'],float)[[0,2]]
     rejected=Counter()
     slot=route['emission_slot'];i0=round(slot['start_s']*30);i1=round(slot['end_s']*30)
-    listener3=np.asarray(scene['listener_m'],float);mouth_y_los=float(listener3[1])+(.3 if route.get('species','human')=='human' else -.8)
-    actor_ids={int(a['object'].object_id) for a in video.actors if a.get('object') is not None}
     plan_for_fit=request.get('motion_during_condition_plan_for_fit')
     if plan_for_fit is not None:
         from avengine.timeline.v7_motion_during_conditions import verify_planned_trajectories
@@ -236,16 +234,6 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
                 track3=np.column_stack((points[:,0],np.full(len(points),mouth_y),points[:,1]))
                 verdict=verify_planned_trajectories(plan_for_fit,{**static_tracks,mover_id:track3},scene['listener_m'])
                 if not all(verdict.values()):rejected['judge_motion_conditions']+=1;continue
-            if hasattr(video,'sim') and hasattr(video,'hs'):
-                # The camera must hear the direct sound while the source speaks (Vvot9: an occluded mouth gave a
-                # floor-reflection direction 32 deg off).  Rays every 0.1 s of the emission, listener -> mouth.
-                blocked=False
-                for f in range(i0,i1+1,3):
-                    mouth=np.array([points[f][0],mouth_y_los,points[f][1]]);delta=mouth-listener3;dist=float(np.linalg.norm(delta))
-                    if dist<=.3:continue
-                    ray=video.hs.geo.Ray(video.mn.Vector3(listener3),video.mn.Vector3(delta/dist))
-                    if any(int(h.object_id) not in actor_ids for h in video.sim.cast_ray(ray,dist-.2).hits):blocked=True;break
-                if blocked:rejected['emission_line_of_sight']+=1;continue
             unique=np.unique(points,axis=0)
             if walkable_map is not None and not all(walkable_map.segment_free(a,b,species)for a,b in zip(points[:-1],points[1:])if np.linalg.norm(b-a)>1e-10):rejected['walkable_map_crossed_cell']+=1;continue
             if not all(is_free(p) for p in unique):rejected['native_snap_clearance_or_camera']+=1;continue
