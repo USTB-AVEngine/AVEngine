@@ -58,8 +58,9 @@ def reissue(manifest_path,slot):
     if not any(source.resolve().is_relative_to(p)for p in permitted):raise ValueError('source outside authorized read-only evidence roots')
     if row['members']!=['v0_a0']or row['split']!='train':raise ValueError('complete single-member native CPU footstep parent required')
     if row['house']in read_json(m['contract']).get('test_houses',[]):raise ValueError('held-out house')
-    if not row.get('phase2_include_footsteps_asset_ids'):raise ValueError('parent does not declare real footstep emitters')
-    if any(row.get('source_classes',{}).get(a)!=['footsteps']for a in row['phase2_include_footsteps_asset_ids']):raise ValueError('footstep person cannot also speak')
+    footstep_assets=row.get('phase2_include_footsteps_asset_ids') or [a for a,classes in row.get('source_classes',{}).items()if classes==['footsteps']]
+    if not footstep_assets:raise ValueError('parent does not declare real footstep emitters')
+    if any(row.get('source_classes',{}).get(a)!=['footsteps']for a in footstep_assets):raise ValueError('footstep person cannot also speak')
     selected=read_json(source/'selected_windows_v0_a0_completed.json');pool=Path(selected['recipe']['pool_directory'])
     audio_pointer=read_json(source/'audio_v0_a0_completed.json');audio_dir=source/audio_pointer['attempt']
     raw_rir=[]
