@@ -300,15 +300,52 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         return rows
 
     def qualify_standing(self,directory):
+        from avengine.capture.v7_kujiale_standing_construction import NativeStandingPlacementExhausted,standing_group_proposals
+        directory=Path(directory)
+        try:return self._qualify_standing_once(directory)
+        except NativeStandingPlacementExhausted:
+            # Counterfactual geometry is already fixed by the actual first
+            # member. It must never be independently moved to pass admission.
+            if self.shared_native_standing:raise
+        trials=[]
+        from avengine.capture.v7_offscreen_layout import placement_construction_fallback
+        for minimum in (1.5,1.2):
+            if minimum==1.2:
+                for asset in self.assets:
+                    placement_construction_fallback(self.scene,{**asset,'kind':'human','controlled_shirt':True},'floor',None,True)
+            for group in standing_group_proposals(self.scene,self.assets,minimum_camera_m=minimum):
+                index=len(trials)+1;trial=directory/('construction_retry_%03d'%index)
+                self._standing_candidate_group=group;self._standing_preference_fallback=True
+                self._standing_camera_minimum_m=minimum
+                try:checks=self._qualify_standing_once(trial)
+                except NativeStandingPlacementExhausted:
+                    trials.append({'trial':index,'status':'rejected_by_original_native_gates','group':group,'directory':str(trial)})
+                    continue
+                finally:
+                    self._standing_candidate_group=None;self._standing_preference_fallback=False
+                    self._standing_camera_minimum_m=1.5
+                trials.append({'trial':index,'status':'pass_original_native_gates','group':group,'directory':str(trial)})
+                proof=json.loads((trial/'standing_admission.json').read_text())
+                proof['automatic_group_backtracking']=trials
+                proof['construction_preference_fallback']={'camera_minimum_m':minimum,'sampling_margins_are_not_qa_gates':True}
+                write_json(directory/'standing_admission.json',proof)
+                write_json(directory/'automatic_group_construction.json',{'status':'pass','trials':trials,'required_people_retained':len(self.assets)})
+                return checks
+        write_json(directory/'automatic_group_construction.json',{'status':'retry_with_expanded_room_grid','trials':trials,'required_people_retained':len(self.assets)})
+        raise NativeStandingPlacementExhausted('registered UE actor lacks original qualified placement after automatic complete-group backtracking')
+
+    def _qualify_standing_once(self,directory):
         from tools.rooms.check_kujiale_native_capsule_contact import query_capsule
         from tools.rooms.check_v7_kujiale_native_assets import vector_field
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True);checks=[];bounds=[];attempts=[]
         self.alpha_standing_refs={};self.current_camera_yaw_offset=0.
         binding_layout=(self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'or(self.scene['production_scenario'].get('camera_policy')=='binding_static'and str(self.scene['production_scenario'].get('recipe_revision','')).startswith('kujiale-fixed-natural-construction-')))
+        preference_fallback=bool(getattr(self,'_standing_preference_fallback',False) or self.shared_native_standing)
         for a,d in zip(self.assets,self.declarations,strict=True):
             accepted=None;ep=a['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
             candidates=[self.placement_overrides[ep]]if self.shared_native_standing else[original,*self.scene.get('native_placement_candidates',[])]
-            if (binding_layout and len(self.assets)>2 and a is self.assets[2]):
+            if getattr(self,'_standing_candidate_group',None):candidates=[self._standing_candidate_group[ep]]
+            if (not preference_fallback and binding_layout and len(self.assets)>2 and a is self.assets[2]):
                 from avengine.capture.kujiale_pilot_environment import comparison_person_candidates
                 points=[self.alpha_standing_refs[x['endpoint_id']]['position_m'] for x in self.assets[:2]]
                 candidates=comparison_person_candidates(self.scene['listener_m'],points,candidates)
@@ -321,7 +358,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:self._navigation_foot(p)
                 except ValueError as e:
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)});continue
-                if ((self.construct_registered_dialogue_camera or binding_layout)
+                if (not preference_fallback and (self.construct_registered_dialogue_camera or binding_layout)
                         and a is self.assets[1] and self.assets[0]['endpoint_id'] in self.alpha_standing_refs):
                     from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view
                     first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
@@ -331,15 +368,16 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                     from avengine.timeline.v7_fixed_camera_layout import binding_candidate_in_fixed_view
                     if not binding_candidate_in_fixed_view(self.scene['listener_m'],p,self.scene['camera_yaw_knots'][0]['yaw_deg']):
                         attempts.append({'endpoint_id':ep,'candidate':p,'reason':'preserve required body inside the fixed binding view'});continue
-                if np.linalg.norm((np.asarray(p)-np.asarray(self.scene['listener_m']))[[0,2]])<1.5-1e-9:
-                    attempts.append({'endpoint_id':ep,'candidate':p,'reason':'owner human camera construction distance must be at least1.5m'});continue
+                minimum_camera=1.2 if self.shared_native_standing else getattr(self,'_standing_camera_minimum_m',1.5)
+                if np.linalg.norm((np.asarray(p)-np.asarray(self.scene['listener_m']))[[0,2]])<minimum_camera-1e-9:
+                    attempts.append({'endpoint_id':ep,'candidate':p,'reason':'human camera clearance below current construction preference','required_distance_m':minimum_camera});continue
                 if any(np.linalg.norm((np.asarray(p)-saved['position_m'])[[0,2]])<1.0-1e-9 for saved in self.alpha_standing_refs.values()):
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':'owner human center spacing must be at least1.0m'});continue
                 self.placement_overrides[ep]=p
                 try:
                     with self.instance.begin_frame():actor=next(x for x in self._apply(0) if x['endpoint_id']==ep)
                     with self.instance.end_frame():pass
-                    if ((self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'or(binding_layout and len(self.assets)>2 and a is self.assets[2]))
+                    if (not preference_fallback and (self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'or(binding_layout and len(self.assets)>2 and a is self.assets[2]))
                             and self.alpha_standing_refs):
                         from avengine.capture.kujiale_pilot_environment import binding_mouth_distance_contrast
                         mouths=[x['emitter_position_m'] for x in self.alpha_standing_refs.values()]
@@ -370,7 +408,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                     bounds.append((lo,hi));self.alpha_standing_refs[ep]={'position_m':actor['position_m'],'emitter_position_m':actor['emitter_position_m'],'reference':good};break
                 except ValueError as e:attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)})
             if accepted is None:
-                write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts,'accepted_standing_references':self.alpha_standing_refs,'listener_m':self.scene['listener_m'],'fixed_camera_yaw_deg':self.scene['camera_yaw_knots'][0]['yaw_deg'],'binding_layout':binding_layout});raise ValueError('registered UE actor lacks original qualified placement')
+                write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts,'accepted_standing_references':self.alpha_standing_refs,'listener_m':self.scene['listener_m'],'fixed_camera_yaw_deg':self.scene['camera_yaw_knots'][0]['yaw_deg'],'binding_layout':binding_layout});raise __import__('avengine.capture.v7_kujiale_standing_construction',fromlist=['NativeStandingPlacementExhausted']).NativeStandingPlacementExhausted('registered UE actor lacks original qualified placement')
             checks.append(accepted)
         for ep,native in self.environment_nodes.items():
             if native.get('physical'):
