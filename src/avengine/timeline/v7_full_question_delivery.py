@@ -156,7 +156,8 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
         from collections import Counter
         actual={q['logical_question_id']:q for q in public}
         available=Counter(q['qa_id'] for q in actual.values())
-        requested={f for condition in demand['requested_conditions'] for f in demand['condition_families'][condition]}
+        from avengine.timeline.v7_demand import requested_question_families
+        requested=requested_question_families(demand)
         audit['demand_realization']={'requested_conditions':demand['requested_conditions'],
             'legal_candidate_family_counts':dict(available),'missing_requested_families':sorted(f for f in requested if not available[f]),
             'native_moving_actor_ids':sorted({actor for actor,frames in raw['frame_readbacks']['actors'].items()

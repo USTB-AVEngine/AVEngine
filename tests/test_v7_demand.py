@@ -146,3 +146,30 @@ def test_content_dedup_keeps_same_appearance_on_different_physical_actors():
     second=independence_key('parent',q,gold('2'))[0]
     assert first!=second
     assert first==independence_key('parent',q,gold('1'))[0]
+
+
+@pytest.mark.fast_unit
+def test_new_motion_condition_resolves_without_mutating_retained_recipe():
+    from copy import deepcopy
+    from avengine.timeline.v7_demand import requested_question_families
+    demand = {'condition_families': {'moving_animal': ['QA-06']},
+              'requested_conditions': ['moving_animal', 'static_speaking_human']}
+    before = deepcopy(demand)
+    assert requested_question_families(demand) == {'QA-06', 'QA-17'}
+    assert demand == before
+
+
+@pytest.mark.fast_unit
+def test_retained_condition_map_preserves_its_explicit_meaning():
+    from avengine.timeline.v7_demand import requested_question_families
+    demand = {'condition_families': {'walking_human': ['QA-06']},
+              'requested_conditions': ['walking_human']}
+    assert requested_question_families(demand) == {'QA-06'}
+
+
+@pytest.mark.fast_unit
+def test_unknown_scene_condition_is_never_silently_skipped():
+    from avengine.timeline.v7_demand import requested_question_families
+    with pytest.raises(KeyError, match='unregistered_condition'):
+        requested_question_families({'condition_families': {},
+            'requested_conditions': ['unregistered_condition']})
