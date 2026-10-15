@@ -20,7 +20,7 @@ def main():
     # Their original recipes still require exact matching in the producer.
     copied=[]
     for member in row['members']:
-        for prefix in ('windows_','frozen_dialogue_pools_'):
+        for prefix in ('windows_',):
             marker=source/(prefix+member+'_completed.json')
             if not marker.exists():continue
             saved=json.loads(marker.read_text());_link_tree(source/saved['attempt'],target/saved['attempt']);shutil.copyfile(marker,target/marker.name);copied.append(marker.name)
