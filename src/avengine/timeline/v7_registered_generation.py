@@ -120,7 +120,10 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         'source_material_revision':MATERIAL_REVISION,'pixel_visibility_revision':VISIBILITY_REVISION}
     existing=root/'input_recipe.json'
     if existing.exists():
-        if read_json(existing)!=recipe:raise ValueError('alpha parent recipe changed; select a fresh output')
+        previous=read_json(existing)
+        if previous!=recipe:
+            write_json(root/f'recipe_mismatch_{os.getpid()}_{time.time_ns()}.json',{'previous_recipe':previous,'requested_recipe':recipe,'gate_unchanged':True})
+            raise ValueError('alpha parent recipe changed; select a fresh output')
     else:write_json(existing,recipe)
     pointer=root/'alpha_seal_completed.json'
     if pointer.exists():
