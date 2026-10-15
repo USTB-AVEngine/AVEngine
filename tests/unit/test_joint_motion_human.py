@@ -35,7 +35,7 @@ def test_native_motion_preflight_rejects_incomplete_readbacks_before_judging():
 
 def test_silent_registered_bystander_outside_role_is_explicit():
     from avengine.construction.joint.families.motion_human import native_view_roles_for_motion
-    row={'motion_requests':{'a':{},'b':{}},'motion_wrong_emitter_control':{'asset_id':'quiet','frame_state':'outside'}}
+    row={'motion_requests':{'a':{},'b':{}},'semantic_human_asset_ids':['a','b'],'motion_wrong_emitter_control':{'asset_id':'quiet','frame_state':'outside'}}
     roles=native_view_roles_for_motion(row)
     assert roles['quiet']['view']=='outside'
     assert roles['quiet']['required_visible_sometime']is False

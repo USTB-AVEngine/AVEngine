@@ -161,7 +161,9 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
         return next(layouts(candidate),None)is not None
     for geometry_attempt in range(2):
         try:
-            seed_route=(base['motion_requests'][first]['motion_quartet_route']if geometry_attempt==0 else
+            hint=base_row.get('precomputed_human_radial_seed')
+            if hint and abs((hint['emission_slot']['end_s']-hint['emission_slot']['start_s'])-math.ceil(duration_a*10-1e-9)/10)>.00000001:hint=None
+            seed_route=((deepcopy(hint)if hint else base['motion_requests'][first]['motion_quartet_route'])if geometry_attempt==0 else
                 find_human_seed_route(room,pathfinder,int(base_row['scene_seed']),attempt+geometry_attempt,
                     utterance_s=duration_a,local_start_s=local_start,post_motion_s=.6,candidate_validator=partner_possible,cpu_deadline=deadline))
         except ValueError as exc:errors.append(str(exc));continue

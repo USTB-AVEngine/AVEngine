@@ -26,6 +26,11 @@ def scene_plan_for_row(row,room):
         aid=control['asset_id'];roots=np.tile(np.asarray(control['root_m'],float),(901,1))
         actors[aid]=ActorPlan(aid,roots,BodySpec.for_species('human'),metadata={'silent_negative_control':True})
         emitters[aid]=roots
+    for aid in row['asset_ids']:
+        if aid in actors:continue
+        roots=np.tile(np.asarray(row['native_placement_preferences_m'][aid],float),(901,1))
+        actors[aid]=ActorPlan(aid,roots,BodySpec.for_species('human'),metadata={'static_authored_companion':True})
+        emitters[aid]=roots.copy();emitters[aid][:,1]=camera.position_m[1]+.3
     sounds=[]
     durations=dict(zip(row['semantic_human_asset_ids'],row['motion_quartet_construction']['utterance_durations_s']))
     for aid,starts in row['phase2_source_event_schedule_s'].items():
@@ -62,8 +67,12 @@ def core_corridor_proposals(context, seed_route, room, pathfinder, *, first_bran
         reverse=pair_mode=='opposing',duration_s=second_duration_s)
     second_branch=second['emission_slot']['branch']
     def actor(aid,route):
-        xz=np.asarray(route['positions_xz_m'],float);w=route['short_window_walk']
-        return ActorPlan(aid,np.column_stack((xz[:,0],np.full(901,room['measured_floor_y_m']),xz[:,1])),
+        xz=np.asarray(route['positions_xz_m'],float);w=route['short_window_walk'];floor=float(room['measured_floor_y_m'])
+        ray=getattr(context,'floor_raycaster',None)
+        if ray is not None:
+            distance,_=ray.first_hit([[xz[0,0],floor+.2,xz[0,1]]],[[0.,-1.,0.]])
+            if np.isfinite(distance[0])and 0<=distance[0]<=.85:floor=floor+.2-float(distance[0])
+        return ActorPlan(aid,np.column_stack((xz[:,0],np.full(901,floor),xz[:,1])),
             BodySpec.for_species('human'),np.asarray(route['travel_yaws_rad'],float),
             metadata={'walk_intervals_s':[[w['walk_start_s'],w['walk_end_s']]],'ramp_s':w.get('ramp_s',.3)})
     a,b=actor('first',first),actor('second',second)
@@ -106,12 +115,31 @@ def core_corridor_proposals(context, seed_route, room, pathfinder, *, first_bran
 def bystander_native_yaw(row, root, listener):
     seed=int(row['scene_seed'])
     yaw=(seed%6283)/1000.-np.pi
-    if row.get('human_motion_pair_mode')=='following' and seed%2:
+    if (row.get('human_motion_pair_mode')=='following' or row.get('human_single_walker_fallback')) and seed%2:
         # Both approaching walkers can face the camera; solve the quiet person's
         # random orientation in a side/back domain before physical preparation.
         away=np.asarray(root,float)[[0,2]]-np.asarray(listener,float)[[0,2]]
         yaw=-np.arctan2(away[1],away[0])-np.pi/2+((seed%10001)/10000.-.5)*2*np.pi/3
     return float(yaw)
+
+
+
+def single_walker_fallback_row(row):
+    """Keep both real voices and every person; promise only A's four witnesses."""
+    from copy import deepcopy
+    result=deepcopy(row);first,second=result['semantic_human_asset_ids']
+    result['motion_requests'].pop(second)
+    result['motion_during_condition_requests']=[p for p in result['motion_during_condition_requests']if p['target_asset_id']==first]
+    result['motion_during_condition_plan']['plans']=[p for p in result['motion_during_condition_plan']['plans']if p['target_asset_id']==first]
+    result['primary_motion_speech_anchors_s']={first:result['primary_motion_speech_anchors_s'][first]}
+    result['human_motion_event_planned_verification']=[p for p in result['human_motion_event_planned_verification']if p['asset_id']==first]
+    result.update(human_single_walker_fallback=True,human_motion_event_count=1,human_motion_strategy='one_walker_real_static_speaking_companion')
+    result['motion_quartet_construction']['routes'].pop(second)
+    result['motion_quartet_construction']['independent_walking_speakers']=1
+    result['motion_quartet_construction']['planned_verification']=result['human_motion_event_planned_verification']
+    result['motion_quartet_construction']['fallback_scope']='one walking-speaking target per family; static companion answers are not added to motion quotas'
+    result['motion_quartet_construction']['revision']+='-single-walker'
+    return result
 
 
 class HumanMotionPlugin:
@@ -126,11 +154,23 @@ class HumanMotionPlugin:
         from avengine.construction.joint import SoundEvent
         from copy import deepcopy
         from avengine.timeline.v7_two_human_motion import two_human_motion_template
+        if self.base_row.get('human_motion_seed_hint_root'):
+            from pathlib import Path
+            import json
+            for path in sorted(Path(self.base_row['human_motion_seed_hint_root']).glob('*.json')):
+                saved=json.loads(path.read_text())
+                if(saved.get('house')==self.base_row['house']and saved.get('room_id')==self.base_row['room_id']and saved.get('scene_seed')==self.base_row['scene_seed']):
+                    key=saved['semantic_human_asset_ids'][0]
+                    self.base_row['precomputed_human_radial_seed']=saved['motion_requests'][key]['motion_quartet_route']
+                    self.base_row['geometric_seed_provenance']={'path':str(path),'scope':'proposal only; common/family/native checks rerun'}
+                    break
         def shared_constructor(*args,**kwargs):
             return two_human_motion_template(*args,joint_context=context,**kwargs)
         row=plan_room_motion_quartet(self.base_row,self.state,context.room,self.catalog,
             self.semantic,self.records,context.pathfinder,attempt=self.attempt,contract=self.contract,constructor=shared_constructor)
+        if self.base_row.get('human_single_walker_fallback'):row=single_walker_fallback_row(row)
         plan=scene_plan_for_row(row,context.room)
+        row['joint_motion_witness_certificate']=certificate_record(motion_certificate(row['motion_during_condition_plan'],plan.metadata['planned_emitter_positions_by_asset'],plan.camera.position_m))
         by_id={a['asset_id']:a for a in self.catalog}
         # compile_walking uses this original scan vertical ray at the route's
         # first root, then holds that root Y. Solve that Y before native execution.
@@ -166,7 +206,7 @@ class HumanMotionPlugin:
                 min(30.,event['end_tick']/10.+.5)))
         plan.sounds=tuple(sounds)
         plan.metadata.update(family_row=deepcopy(row),
-            roles={aid:('inside' if aid in row['motion_requests'] else 'any')for aid in plan.actors})
+            roles={aid:('inside' if aid in row['semantic_human_asset_ids'] else 'any')for aid in plan.actors})
         yield plan
 
     def verify(self, context, request, plan):
@@ -177,12 +217,12 @@ class HumanMotionPlugin:
         yield from checks
         expected='nearer'if int(self.base_row['scene_seed'])%2 else'farther'
         actual=row['motion_requests'][row['semantic_human_asset_ids'][0]]['motion_quartet_route']['emission_slot']['branch']
-        second=row['motion_requests'][row['semantic_human_asset_ids'][1]]['motion_quartet_route']['emission_slot']['branch']
+        second=(row['motion_requests'][row['semantic_human_asset_ids'][1]]['motion_quartet_route']['emission_slot']['branch']if len(row['motion_requests'])==2 else None)
         wanted_second=expected if self.base_row.get('human_motion_pair_mode')=='following'else('farther'if expected=='nearer'else'nearer')
-        yield CheckResult('motion_human:requested_radial_branch','pass'if actual==expected and second==wanted_second else'fail',
+        yield CheckResult('motion_human:requested_radial_branch','pass'if actual==expected and (second is None or second==wanted_second)else'fail',
             evidence={'requested':[expected,wanted_second],'planned':[actual,second]})
-        yield CheckResult('motion_human:two_complete_motion_witness_sets',
-            'pass'if len(checks)==8 and all(c.status=='pass'for c in checks)else'fail')
+        yield CheckResult('motion_human:complete_requested_motion_witness_sets',
+            'pass'if len(checks)==4*len(row['motion_requests'])and all(c.status=='pass'for c in checks)else'fail')
 
 
 def native_motion_obligations(video, scene, entries, condition_plan=None):
@@ -216,7 +256,7 @@ def native_motion_obligations(video, scene, entries, condition_plan=None):
         yield from native_full_mesh_sweep(video,entries)
 
 def native_view_roles_for_motion(row):
-    roles={aid:{'view':'inside','static':False,'required_visible_sometime':True}for aid in row['motion_requests']}
+    roles={aid:{'view':'inside','static':aid not in row['motion_requests'],'required_visible_sometime':True}for aid in row['semantic_human_asset_ids']}
     control=row['motion_wrong_emitter_control'];aid=control['asset_id'];view=control['frame_state']
     if view not in {'inside','outside'}:raise ValueError('quiet human must be entirely inside or outside')
     roles[aid]={'view':view,'static':True,'required_visible_sometime':view=='inside',
@@ -240,6 +280,8 @@ def construct_motion_human_scene(room,house,state,catalog,records,semantic,contr
         'motion_source_type':'human_speech','human_motion_event_count':2,'human_motion_strategy':'two_walkers',
         'human_motion_pair_mode':runtime.get('motion_human_pair_mode','opposing'),
         'human_second_motion_offset_s':float(runtime.get('motion_human_second_offset_s',20.)),
+        'human_single_walker_fallback':int(runtime.get('motion_human_walker_count',2))==1,
+        'human_motion_seed_hint_root':runtime.get('motion_human_seed_hint_root'),
         'motion_requested_families':['QA-06','QA-15','QA-16','QA-17'],
         'question_quota_base':10,'questions_per_window':18,'window_count':5,'members':['v0_a0'],'trial_only':True}
     root=runtime.get('motion_human_native_oracle_root')
@@ -260,7 +302,7 @@ def construct_motion_human_scene(room,house,state,catalog,records,semantic,contr
             roles=plan.metadata['roles'],minimum_visible_pixels={aid:100 for aid in plan.metadata['family_row']['motion_requests']},
             family_check=lambda video,scene,entries:native_motion_obligations(video,scene,entries,plan.metadata['family_row']['motion_during_condition_plan']))
     try:
-        request=FamilyRequest(family,'two_walkers_'+base['human_motion_pair_mode']+'_'+('nearer'if seed%2 else'farther'),
+        request=FamilyRequest(family,('one_walker_'if base['human_single_walker_fallback']else'two_walkers_')+base['human_motion_pair_mode']+'_'+('nearer'if seed%2 else'farther'),
             (),{'require_native_preflight':True})
         solved=solve(context,request,plugin,prepare_and_verify=oracle,
             budget_s=float(runtime.get('motion_human_joint_budget_s',900.)),

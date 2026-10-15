@@ -99,6 +99,20 @@ def test_full_two_person_template_certifies_both_targets_with_original_solver(mo
         assert request['speed_m_s']==request['motion_quartet_route']['speed_m_s']
     assert len(row['motion_during_condition_plan']['plans'])==8
     assert all(m['status']=='pass'for c in row['planned_crop_speed_checks']for m in c['metrics'])
+    if shared_core and pair_mode=='opposing'and second_offset==20.:
+        from avengine.construction.joint.families.motion_human import single_walker_fallback_row,motion_certificate,native_view_roles_for_motion,HumanMotionPlugin
+        fallback=single_walker_fallback_row(row);single=scene_plan_for_row(fallback,room)
+        first,second=fallback['semantic_human_asset_ids']
+        assert len(row['motion_requests'])==2 and len(fallback['motion_requests'])==1
+        assert len(single.actors)==3 and len(single.sounds)==6
+        assert np.ptp(single.actors[second].positions_m,axis=0).max()==0.
+        assert motion_certificate(fallback['motion_during_condition_plan'],single.metadata['planned_emitter_positions_by_asset'],single.camera.position_m).passed
+        single.metadata['family_row']=fallback
+        plugin=HumanMotionPlugin({'scene_seed':42},None,None,None,None,None,None)
+        assert all(c.status=='pass'for c in plugin.verify(context,None,single))
+        assert native_view_roles_for_motion(fallback)[second]['static']is True
+        assert fallback['asset_ids']==row['asset_ids']
+        assert fallback['phase2_source_event_schedule_s']==row['phase2_source_event_schedule_s']
 
 
 def test_joint_partner_obligation_is_checked_before_selecting_a_corridor():
