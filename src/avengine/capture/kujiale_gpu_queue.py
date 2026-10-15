@@ -47,7 +47,11 @@ def launch_reserved_gpu(output,gpu,arguments,*,executable=None):
             for index in range(4):
                 stream=(directory/f'gpu{gpu}_slot{index}.json').open('a+')
                 try:fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB)
-                except BlockingIOError:stream.close();reserved.append(-1);continue
+                except BlockingIOError:
+                    stream.seek(0)
+                    try:reserved.append(json.load(stream)['pid'])
+                    except (ValueError,KeyError):reserved.append(-1)
+                    stream.close();continue
                 stream.seek(0)
                 try:prior=json.load(stream)
                 except ValueError:prior={}

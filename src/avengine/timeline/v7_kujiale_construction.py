@@ -98,8 +98,22 @@ def construct_layout(house,room_id,runtime,*,attempt=0):
     raise ValueError('no native geometry construction after bounded camera/grid search: '+json.dumps(failures))
 
 def construct_request(request,house,runtime,catalog,semantic,registration):
-    seed=int(request['scene_seed']);attempt=int(request.get('construction_attempt',0));ids,gender=registered_people(catalog,registration,seed);scenario,sounds,offsets=authored_pair(semantic,gender,seed)
+    seed=int(request['scene_seed']);attempt=int(request.get('construction_attempt',0));ids,gender=registered_people(catalog,registration,seed);scenario,sounds,offsets=authored_pair(semantic,gender,seed,latest_end_s=4.8)
     row={'schema':'v7-recorded-registered-standing-v1','house':house['house'],'room_id':request['room_id'],'scene_id':request['scene_id'],'independent_parent_scene_id':request['scene_id'],'scene_seed':seed,'scene_index':seed,'seeds':factor_seeds(seed),'split':{'development':'dev'}.get(house['split'],house['split']),'duration_s':30,'members':['v0_a0','v0_a1','v1_a0','v1_a1'],'window_count':5,'window_start_ticks':[0,50,100,150,200],'questions_per_window':14,'question_quota_base':int(request.get('question_quota_base',0)),'counterfactual_plan':'appearance_x_emitter_association','allowed_member_changes':['actor_appearance_assignment','dry_bus_to_emitter_assignment'],'assignment_status':'admitted','render_path':'ue_spear','shared_factors':['house','room','materials','camera','background','trajectory','event_times'],'construction_request':deepcopy(request)}
     row['measured_static_layout']=construct_layout(house,request['room_id'],runtime,attempt=attempt)
     row['production_scenario']={'speaker_count':2,'gender':'F'if gender=='female'else'M','asset_ids':ids,'semantic_scenario_id':scenario,'semantic_sound_ids':sounds,'semantic_sound_subset_ids':sounds,'semantic_role_start_offsets_s':offsets,'environment_sound_classes':[],'camera_policy':'binding_static','camera_yaw_deg':0.,'binding_camera_yaw_offset_deg':0.,'recipe_revision':REVISION,'requested_posture_policy':'registered stand; full original native episode admission mandatory','category_focus_class':None,'non_speech_class':None}
+    sounds_by_id={s['sound_asset_id']:s for s in semantic['sounds']}
+    speech_end=max(offset+sounds_by_id[sid]['synthesis_readback']['duration_s']for sid,offset in zip(sounds,offsets))
+    row['production_scenario'].update(camera_policy='binding_sweep',camera_sweep_schedule=[[0.,0.],[round(speech_end+.1,6),0.],[6.6,90.],[8.,90.],[9.4,0.],[10.,0.]])
+    required=request.get('required_sound_classes',[])
+    if required:
+        from avengine.timeline.v7_kujiale_environment_construction import construct_environment,separate_environment_schedule
+        plans=construct_environment(row,house,runtime,required)
+        row['production_scenario'].update(native_environment=plans,environment_sound_classes=list(required),category_focus_class=required[0])
+        end,effect_start=separate_environment_schedule(row,semantic)
+        from avengine.capture.kujiale_pilot_environment import binding_camera_yaw
+        listener=np.asarray(row['measured_static_layout']['listener_m']);center=(np.asarray(plans[0]['placement']['native_world_bounds_m'][0])+plans[0]['placement']['native_world_bounds_m'][1])/2
+        delta=center-listener;bearing=math.degrees(math.atan2(delta[0],-delta[2]));base=binding_camera_yaw(listener,[p['position_m']for p in row['measured_static_layout']['valid'][:2]]);offset=(bearing-base+180)%360-180
+        peak=90. if offset>=0 else -90.
+        row['production_scenario']['camera_sweep_schedule']=[[0.,0.],[round(end+.1,6),0.],[effect_start,offset],[effect_start+2.,offset],[8.35,peak],[8.8,peak],[9.4,0.],[10.,0.]]
     return row

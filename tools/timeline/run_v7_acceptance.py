@@ -36,6 +36,9 @@ def run_worker(manifest,slot):
         from avengine.timeline.v7_kujiale_construction import construct_request
         from avengine.registry.kujiale_ue_measurements import read_registration
         registration,_=read_registration(inputs.get('kujiale_native_measurement_registration'))
+        if row.get('required_sound_classes'):
+            from avengine.timeline.v7_kujiale_environment_construction import bind_inventory_project
+            inputs=bind_inventory_project(inputs,house,root)
         row=construct_request(row,house,inputs,catalog,load(inputs['semantic_manifest']),registration)
     state=read_demand_state(root/'inputs/demand_state.json')
     if task['profile']=='phase2':
