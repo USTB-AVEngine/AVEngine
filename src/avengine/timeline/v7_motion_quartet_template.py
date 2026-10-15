@@ -63,7 +63,7 @@ def _snap(pathfinder, point):
     snapped = np.asarray(pathfinder.snap_point(np.asarray(point, float)), float)
     return snapped if np.isfinite(snapped).all() and np.linalg.norm((snapped-point)[[0, 2]]) <= .002 else None
 
-def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.2),quiet_speed=.8):
+def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4)):
     from avengine.assets.roster_motion.straight_window_routes import stadium_samples
     from avengine.assets.roster_motion.timed_straight_clock import timed_straight_clock
     rng = np.random.default_rng(seed)
@@ -135,7 +135,7 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.
                     continue
                 delta = approximate_mouth[75]-listener
                 yaw = math.degrees(math.atan2(delta[0], -delta[2]))
-                return {**profile, 'speed_m_s': speed, 'speed_range_m_s': [quiet_speed, speed_range[1]],
+                return {**profile, 'speed_m_s': speed, 'speed_range_m_s': list(allowed_speed_range),
                         'centre_xz_m': [centre.x, centre.y], 'heading_rad': float(angle),
                         'straight_length_m': length, 'turn_radius_m': radius,
                         'listener_m': listener.tolist(), 'camera_yaw_deg': yaw,
@@ -176,7 +176,7 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.
                 accepted+=1
                 if accepted<=attempt:continue
                 delta=positions[75]+[0,1.5,0]-listener
-                return {'single_pass':True,'speed_m_s':float(speed),'speed_range_m_s':[quiet_speed,speed_range[1]],
+                return {'single_pass':True,'speed_m_s':float(speed),'speed_range_m_s':list(allowed_speed_range),
                     'emission_speed_range_m_s':list(speed_range),'centre_xz_m':[centre.x,centre.y],
                     'heading_rad':float(angle),'straight_length_m':length,'turn_radius_m':0.,
                     'phase_distance_offset_m':0.,'straight_start_s':0.,'straight_end_s':7.5,
@@ -190,7 +190,9 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.
                     'geometry_status':'native NavMesh proposal; exact complete-step, full skin/contact/pixel gates still required'}
     from avengine.assets.roster_motion.critical_hairpin import find_critical_hairpin
     compact=find_critical_hairpin(room,pathfinder,seed,speed_range,quiet_speed)
-    if compact is not None:return compact
+    if compact is not None:
+        compact['speed_range_m_s']=list(allowed_speed_range)
+        return compact
     raise MotionTemplateUnavailable('bounded native NavMesh straight/turn search exhausted: '+str(tested)+' proposals; stages='+str(dict(checks))+'; planner must choose another legal room')
 
 def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_records,
@@ -213,7 +215,9 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     assets = choose_template_assets(catalog, pair, seed, attempt)
     role=select_motion_role(source_type,assets[0],catalog,production_audio_record_views(source_records),contract,seed,attempt)
     assets[0]=role['asset']
-    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type])
+    from avengine.timeline.v7_motion_speed import SPEED_RANGES
+    speed_kind='human' if source_type.startswith('human') else 'slide' if source_type=='animal_slide' else assets[0]['species_id']
+    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind])
     a, b = [asset['asset_id'] for asset in assets[:2]]
     row.update(schema='v7-visible-registered-pilot-phase2-v1', members=['v0_a0'], trial_only=True,
                asset_ids=[asset['asset_id'] for asset in assets],

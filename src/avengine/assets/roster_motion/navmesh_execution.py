@@ -113,16 +113,16 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
     if timed_route is not None and timed_route.get('single_pass'):
         from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
         minimum_stop=float(timed_route.get('minimum_stop_s',7.9))
-        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),minimum_stop);desired=phase0+distance[-1]/nominal
+        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.81),minimum_stop);desired=phase0+distance[-1]/nominal
         endings=sorted(float(p)+cycle*duration for cycle in range(math.ceil(desired/duration)+2)for p in double_support if float(p)+cycle*duration>=desired-1e-9)
         target=endings[0];target_distance=(target-phase0)*nominal
         lo,hi=minimum_stop,9.7
-        if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),hi)[0][-1]<target_distance:raise ValueError('complete observed step cannot finish before the next sounding window; choose another admitted gait')
+        if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.81),hi)[0][-1]<target_distance:raise ValueError('complete observed step cannot finish before the next sounding window; choose another admitted gait')
         for _ in range(45):
             mid=(lo+hi)/2
-            if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),mid)[0][-1]<target_distance:lo=mid
+            if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.81),mid)[0][-1]<target_distance:lo=mid
             else:hi=mid
-        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),hi)
+        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.81),hi)
         ratio=target_distance/distance[-1];distance*=ratio;velocity*=ratio
         return times,velocity>1e-8,velocity,distance,phase0+distance/nominal,{'method':'single straight pass; exact scene speed during speech; complete-step quiet finish','complete_step_source_phase_s':target,'distance_clock_ratio':ratio,'executed_motion_end_s':hi,'emission_speed_m_s':speed,'nominal_source_speed_m_s':nominal,'maximum_stable_speed_m_s':float(max(velocity)),'maximum_clock_distance_error_s':0.}
 

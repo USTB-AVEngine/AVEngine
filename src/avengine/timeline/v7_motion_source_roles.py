@@ -3,8 +3,8 @@ from copy import deepcopy
 import numpy as np
 
 SOURCE_TYPES=('human_speech','human_other','dog_walk','cat_walk','animal_slide','human_footsteps')
-EMISSION_SPEEDS={'human_speech':(.8,1.2),'human_other':(.8,1.2),'dog_walk':(.9,1.2),'cat_walk':(.6,.8),'animal_slide':(.4,.5),'human_footsteps':(.8,1.4)}
-QUIET_SPEEDS={'human_speech':.8,'human_other':.8,'dog_walk':.5,'cat_walk':.3,'animal_slide':.2,'human_footsteps':.8}
+EMISSION_SPEEDS={'human_speech':(.82,1.2),'human_other':(.82,1.2),'dog_walk':(.9,1.2),'cat_walk':(.6,.8),'animal_slide':(.4,.5),'human_footsteps':(.8,1.4)}
+QUIET_SPEEDS={'human_speech':.81,'human_other':.81,'dog_walk':.51,'cat_walk':.31,'animal_slide':.21,'human_footsteps':.8}
 
 def activity(record):
     return record.get('screens',{}).get('automatic_activity',{}).get('activity_intervals_samples') or record.get('source_normalization',{}).get('measured_activity',{}).get('source_activity_intervals_samples') or []

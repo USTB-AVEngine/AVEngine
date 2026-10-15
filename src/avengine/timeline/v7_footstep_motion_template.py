@@ -14,7 +14,7 @@ def footstep_motion_template(base_row,room,catalog,semantic_manifest,*,attempt=0
     target=(np.asarray(placement['source_1_m'])+np.asarray(placement['source_2_m']))/2
     forward=target-listener;forward[1]=0.
     if np.linalg.norm(forward)<1e-6:raise MotionTemplateUnavailable('registered room camera has no forward placement ray')
-    speed=float(np.random.default_rng(seed+33571).uniform(.8,1.4))
+    speed=float(np.random.default_rng(seed+33571).uniform(.82,1.38))
     row.update(schema='v7-visible-registered-pilot-phase2-v1',members=['v0_a0'],trial_only=True,
         asset_ids=[asset['asset_id']for asset in assets],silent_asset_ids=[asset['asset_id']for asset in assets[2:]],
         source_classes={a:['footsteps'],b:['speech_playback']},motion_source_type='human_footsteps',
