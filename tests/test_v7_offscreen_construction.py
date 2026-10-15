@@ -36,7 +36,9 @@ def test_planned_outside_role_does_not_override_missing_actual_body_or_proof():
         'source_is_real_drawable':True,'all_vertices_outside_native_frustum_plane':True,'native_object_id':7}}
     assert not coverage_errors(scene,assets,{'visible_attachment_checks':[proof]}, {'out':0,'in':1})
     assert coverage_errors(scene,assets,{'visible_attachment_checks':[proof]}, {'out':1,'in':1})
-    assert coverage_errors(scene,assets,{'visible_attachment_checks':[proof]}, {'out':0,'in':0})
+    # owner 10-15: only a body the question plan requires in view must appear (here 'in' is required).
+    assert coverage_errors({**scene,'native_visibility_required_asset_ids':['in']},assets,{'visible_attachment_checks':[proof]}, {'out':0,'in':0})
+    assert not coverage_errors(scene,assets,{'visible_attachment_checks':[proof]}, {'out':0,'in':0})
     assert coverage_errors(scene,[{'asset_id':'in'}],{}, {'in':1})
 
 
