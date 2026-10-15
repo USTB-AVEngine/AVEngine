@@ -30,3 +30,20 @@ def test_entry_plugin_receives_the_final_complete_step_distance(monkeypatch):
     request = {'joint_entry_route': {'endpoint_m': [0., 0., -4.]}}
     assert list(curved_route_proposals(None, None, None, distance, None, request)) == ['native proposal']
     assert seen[0][0] is distance and seen[0][1] is request
+
+
+def test_solved_qa09_route_keeps_speed_and_final_clock(monkeypatch):
+    row = {'scene_seed': 9, 'motion_requests': {'person': {'action': 'walk', 'speed_m_s': .88,
+            'joint_qa09_route': {'shadow_root_m': [0., 0., -4.]}}}}
+    catalog = [{'asset_id': 'person', 'kind': 'human', 'species_id': 'human'}]
+    request = prepare_scene_motion(row, catalog)['motion_requests']['person']
+    assert request['speed_m_s'] == .88
+    seen = []
+    def generate(video, entry, scene, distance, forward, req):
+        seen.append(distance)
+        yield 'qa09 native proposal'
+    monkeypatch.setitem(sys.modules, 'avengine.construction.joint.families.qa09',
+                        SimpleNamespace(native_qa09_route_proposals=generate))
+    distance = np.linspace(0., 3.91, 901)
+    assert list(curved_route_proposals(None, None, None, distance, None, request)) == ['qa09 native proposal']
+    assert seen[0] is distance
