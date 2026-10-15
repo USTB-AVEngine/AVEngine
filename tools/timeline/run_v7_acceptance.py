@@ -141,6 +141,9 @@ def run_worker(manifest,slot):
     receipt.update(wall_seconds=time.monotonic()-start,cpu_seconds=time.process_time()-cpu,
         finished_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),max_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
+    if receipt['status']=='passed':
+        from avengine.timeline.v7_acceptance_publication import publish_current_parents
+        publish_current_parents(root)
     print(json.dumps({k:v for k,v in receipt.items()if k not in ['producer_result','export','reader','traceback']},ensure_ascii=False),flush=True)
     return 0 if receipt['status']=='passed'else 2
 

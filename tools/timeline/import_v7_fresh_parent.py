@@ -49,6 +49,8 @@ def main():
         'independent_questions':export['independent_questions'],'raw_questions':export['raw_export_questions'],
         'fresh_import_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'fresh_import_seconds':time.monotonic()-started,'old_media_or_seals_reused':False}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
+    from avengine.timeline.v7_acceptance_publication import publish_current_parents
+    publish_current_parents(root)
     print(json.dumps({'slot':slot,'scene_id':scene,'independent_questions':receipt['independent_questions'],'policy':export['scene_delivery_policy']['status']}),flush=True)
 
 if __name__=='__main__':main()
