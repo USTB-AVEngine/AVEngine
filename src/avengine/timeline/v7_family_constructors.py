@@ -312,7 +312,7 @@ def registered_layout_proposals(ctx,people,attempt):
         while z<z1:
             if polygon.covers(Point(x,z)):
                 distance=math.hypot(x-listener[0],z-listener[2])
-                if distance>.5:
+                if distance>=1.5:
                     angle=(math.degrees(math.atan2(x-listener[0],-(z-listener[2])))-yaw+180)%360-180
                     points.append((x,z,distance,angle))
             z+=step

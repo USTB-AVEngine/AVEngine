@@ -80,6 +80,10 @@ def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract
         options=[]
         for person in catalog:
             if person.get('kind')!='human'or person['asset_id']in {*ids,*extras}or person['asset_id']in excluded:continue
+            used_colors={assets[aid].get('color',assets[aid].get('registered_label_color'))
+                for aid in [*ids,*extras]if assets[aid].get('controlled_shirt')}
+            if person.get('controlled_shirt')and(person.get('color',person.get('registered_label_color'))in used_colors
+                    or person.get('color',person.get('registered_label_color'))not in {'black','blue','green','white','yellow'}):continue
             if 'speech_playback'not in person.get('allowed_classes',[])or person.get('visual_gender')not in {'male','female'}:continue
             if asset_category(person,{},room['family'])not in room['categories']:continue
             gender='F'if person['visual_gender']=='female'else'M'
