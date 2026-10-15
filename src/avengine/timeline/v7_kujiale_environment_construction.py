@@ -1,6 +1,7 @@
 """Construct required native animals/objects without a scene-specific plan."""
 from __future__ import annotations
 from copy import deepcopy
+from collections import Counter
 from pathlib import Path
 import hashlib,json,math,os
 import numpy as np
@@ -46,7 +47,7 @@ def _clear_segment(origin,target,envelopes):
 
 def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=1600):
     from avengine.qa.kujiale_asset_geometry import NativeSupportGeometry,import_vertices,rotation,camera_candidates
-    from avengine.capture.kujiale_source_floor_paws import landmark_contacts
+    from avengine.capture.kujiale_source_floor_paws import PreparedPawContacts
     inventory=json.loads(Path(inputs['kujiale_ue_asset_admission']).read_text());geometry=NativeSupportGeometry(house['input']['ue_config']['native_floor_surface']);room=next(r for r in house['checked_rooms']if r['room_label']==row['room_id']);catalog,polygon=geometry.support_catalog(house,room);listener=np.asarray(row['measured_static_layout']['listener_m'],float);envelopes=[];plans=[]
     for point in row['measured_static_layout']['valid'][:3]:
         root=np.asarray(point['root_m'],float);envelopes.append((root+[-.4,0,-.4],root+[.4,1.9,.4]))
@@ -56,32 +57,34 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
             print('AUTO_NATIVE_ASSET_CANDIDATE',row['house'],row['room_id'],cls,asset['asset_id'],flush=True)
             primary=json.loads(Path(asset['primary_native_evidence']).read_text());manifest_path=Path(primary['input_manifest']);manifest=json.loads(manifest_path.read_text());metadata=next(a for a in manifest['assets']if a['asset_id']==asset['asset_id']);import_path=manifest_path.parent.parent/'evidence/import'/manifest['revision']/(asset['asset_id']+'.json');vertices=import_vertices(json.loads(import_path.read_text()));error=np.abs(np.ptp(vertices,axis=0)-np.asarray(asset['dimensions_m']))/np.maximum(asset['dimensions_m'],1e-5)
             if error.max()>.15:raise ValueError('admitted native size changed before construction')
+            prepared_paws=PreparedPawContacts(metadata,vertices);rejected=Counter()
             tolerance=.012 if asset['category']!='object'else .015;supports=sorted(catalog[asset['attachment_surface']],key=lambda q:abs(np.linalg.norm((np.asarray(q['point_m'])-listener)[[0,2]])-3.1))
             for support in supports[:max_supports]:
                 n=np.asarray(support['normal']);angles=[math.atan2(-n[2],n[0])]if asset['attachment_surface']=='wall'else[0.,math.pi/2,math.pi,-math.pi/2]
                 for yaw in angles:
                     matrix=rotation(yaw);rotated=vertices@matrix.T;rough=np.asarray(support['point_m'])-(rotated.min(axis=0)+rotated.max(axis=0))/2
-                    if not _separated(rotated.min(axis=0)+rough,rotated.max(axis=0)+rough,envelopes):continue
+                    if not _separated(rotated.min(axis=0)+rough,rotated.max(axis=0)+rough,envelopes):rejected['human_or_required_entity_envelope_prefilter']+=1;continue
                     place=geometry.placement(vertices,support,yaw,tolerance)
-                    if place is None:continue
+                    if place is None:rejected['original_native_support_contact_collision_or_negative_control']+=1;continue
                     world=rotated+np.asarray(place['root_m']);low,high=world.min(axis=0),world.max(axis=0);center=(low+high)/2;ray=center-listener;length=np.linalg.norm(ray);horizontal=np.linalg.norm(ray[[0,2]])
-                    if not _separated(low,high,envelopes)or horizontal<.2 or abs(math.degrees(math.atan2(ray[1],horizontal)))>23 or not _clear_segment(listener,center,envelopes):continue
+                    if not _separated(low,high,envelopes)or horizontal<.2 or abs(math.degrees(math.atan2(ray[1],horizontal)))>23 or not _clear_segment(listener,center,envelopes):rejected['listener_view_or_human_separation']+=1;continue
                     from avengine.capture.kujiale_pilot_environment import binding_camera_yaw
                     yaw_center=binding_camera_yaw(listener,[p['position_m']for p in row['measured_static_layout']['valid'][:2]])
                     bearing=math.degrees(math.atan2(ray[0],-ray[2]));offset=(bearing-yaw_center+180)%360-180
-                    if abs(offset)>110:continue
-                    if geometry.ray(listener,ray/length,length-.04)is not None:continue
-                    paws=landmark_contacts(geometry,metadata,vertices,place)
-                    if asset['category']in ['dog','cat']and paws['status']!='pass':continue
+                    if abs(offset)>110:rejected['required_camera_sweep_span']+=1;continue
+                    if geometry.ray(listener,ray/length,length-.04)is not None:rejected['native_camera_to_entity_ray']+=1;continue
+                    paws=prepared_paws.measure(geometry,place)
+                    if asset['category']in ['dog','cat']and paws['status']!='pass':rejected['original_four_native_paw_12mm_contact']+=1;continue
                     views=[]
                     for view in camera_candidates(vertices,place,polygon):
                         eye=np.asarray(view['position_m']);delta=np.asarray(view['target_m'])-eye;distance=np.linalg.norm(delta)
                         if geometry.ray(eye,delta/distance,distance-.02)is None:views.append(view)
-                    if len(views)<3:continue
+                    if len(views)<3:rejected['three_independent_clear_native_views']+=1;continue
                     place.update(paw_contacts=paws,camera_candidates=views,native_world_bounds_m=[low.tolist(),high.tolist()]);point=np.asarray(place['root_m'])+matrix@np.asarray(asset['emitter_local_m']);accepted={'asset_id':asset['asset_id'],'sound_class':cls,'silent_decor':False,'placement':place,'ue_asset_paths':asset['ue_asset_paths'],'size':{'status':'pass','native_dimensions_m':np.ptp(vertices,axis=0).tolist(),'relative_errors':error.tolist(),'tolerance_fraction':.15},'expected_emitter_m':point.tolist(),'import_receipt':str(import_path),'status':'pass_geometry_requires_current_native_scene'};envelopes.append((low,high));break
                 if accepted:break
             if accepted:break
-        if not accepted:raise ValueError('bounded native physical construction found no support for required class '+cls)
+            rejections.append({'asset_id':asset['asset_id'],'support_candidates':min(len(supports),max_supports),'rejections':dict(rejected)});print('AUTO_NATIVE_ASSET_REJECTED',json.dumps(rejections[-1],sort_keys=True),flush=True)
+        if not accepted:raise ValueError('bounded native physical construction found no support for required class '+cls+': '+json.dumps(rejections,sort_keys=True))
         print('AUTO_NATIVE_PHYSICAL_PLAN',row['house'],row['room_id'],accepted['asset_id'],accepted['placement']['root_m'],flush=True)
         plans.append(accepted)
     return plans
