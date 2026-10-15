@@ -545,3 +545,30 @@ def test_new_post_sound_construction_defaults_request_owner_legal_human_speed():
     from avengine.timeline.v7_conditioned_post_motion import solve_post_sound_window,plan_post_sound_motion
     for function in (solve_post_sound_window,plan_post_sound_motion):
         assert .8<=inspect.signature(function).parameters['speed_m_s'].default<=1.4
+
+
+@pytest.mark.parametrize('offscreen_people',[1,2])
+def test_offscreen_constructor_keeps_every_person_distinct_registered_shirts_and_whole_sounds(inputs,offscreen_people):
+    from avengine.timeline.v7_offscreen_construction import construct_offscreen_scene
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    for color in ('white','black'):
+        for gender in ('female','male'):
+            assets.append({**copy.deepcopy(assets[0]),'asset_id':gender+'_'+color,'color':color,'visual_gender':gender})
+    records=[{'sound_asset_id':f'whole_{gender}_{i}','sound_class':'speech_playback',
+        'dataset':'VCTK-Corpus 0.92','legacy_library_split':'train','source_type':'recorded',
+        'gender':gender,'speaker_id':f'external_{gender}_{i}','transcript':f'A complete fresh sentence {i}.',
+        'duration_s':1.}for gender in ('M','F')for i in range(2)]
+    row=construct_offscreen_scene(room,houses[room['house']],{},assets,records,semantic,contract,{},
+        scene_id='new_offscreen',seed=51,offscreen_people=offscreen_people)['row']
+    assert len(row['asset_ids'])==3+offscreen_people
+    colors={a['asset_id']:a['color']for a in assets}
+    assert len({colors[aid]for aid in row['asset_ids']})==3+offscreen_people
+    assert len(row['silent_asset_ids'])==1
+    assert len(row['native_view_roles'])==offscreen_people
+    assert len({knot['yaw_deg']for knot in row['camera_yaw_knots']})==1
+    assert row['offscreen_construction']['audio_only_points']==0
+    for aid in row['native_view_roles']:
+        assert row['source_classes'][aid]==['speech_playback']
+        assert row['phase2_recorded_sound_ids'][aid]
+        assert len(row['phase2_recorded_sound_ids'][aid])==len(row['phase2_recorded_speech_schedule_s'][aid])
+    assert all(len(kinds)==1 for kinds in row['source_classes'].values())
