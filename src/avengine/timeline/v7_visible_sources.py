@@ -268,7 +268,8 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
         'native_placement_candidates':[], 'source_motion_policy':'stationary original registered entities',
         'sampling_limitations':['pilot only; no train-table export','walking/moving RIR/external seats deferred to stage two']}
     if row.get('native_attachment_supports'):scene['native_attachment_supports']=deepcopy(row['native_attachment_supports'])
-    for key in ('native_view_roles','native_placement_preferences_m','offscreen_construction','owner_social_layout','automatic_construction'):
+    for key in ('native_view_roles','native_placement_preferences_m','offscreen_construction','owner_social_layout','automatic_construction',
+                'native_distance_bands_m','native_dynamic_occlusion_relations','native_facing_offsets_deg'):
         if row.get(key):scene[key]=deepcopy(row[key])
     program={'schema':PROGRAM_SCHEMA,'records':[],'events':[]};used={};rng=np.random.default_rng(row['scene_seed']);used_speakers=set()
     authored=[]

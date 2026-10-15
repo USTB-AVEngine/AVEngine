@@ -4,7 +4,7 @@ import numpy as np
 
 
 def relation_roles(scene, asset_id):
-    relations=scene.get('native_occlusion_relations',[])
+    relations=[*scene.get('native_occlusion_relations',[]),*scene.get('native_dynamic_occlusion_relations',[])]
     targets=[r for r in relations if r['target_asset_id']==asset_id]
     foreground=[r for r in relations if r['occluder_asset_id']==asset_id]
     if targets and foreground:
@@ -31,6 +31,9 @@ def foreground_geometry(listener, target_root, root):
 
 
 def proposal_score(scene, entry, support_root, placed):
+    from avengine.capture.v7_dynamic_occlusion_proposals import dynamic_proposal_score
+    dynamic=dynamic_proposal_score(scene,entry,support_root,placed)
+    if dynamic is not None:return dynamic
     _,relations=relation_roles(scene,entry['declaration']['asset_id'])
     if not relations:return None
     if len(relations)>1:
@@ -66,7 +69,9 @@ def measure_requested_relations(video,scene,entries):
     byid={e['declaration']['asset_id']:e for e in entries}
     relations=[r for r in scene.get('native_occlusion_relations',[])
                if r['target_asset_id'] in byid and r['occluder_asset_id'] in byid]
-    if not relations:return {'satisfies_request':True,'relations':[]}
+    from avengine.capture.v7_dynamic_occlusion_proposals import measure_dynamic_relations
+    dynamic=measure_dynamic_relations(video,scene,entries)
+    if not relations:return dynamic
     from avengine.capture.continuous_native_visibility import NativeVisibilityStream
     video._native_pair_pixels(scene,entries)
     modal=np.asarray(video.sim.get_sensor_observations()['semantic']).copy()
@@ -85,6 +90,6 @@ def measure_requested_relations(video,scene,entries):
             relation.get('minimum_occluded_fraction',0.))
         observed.append({**relation,'native_state':state,**frame,
             'native_mask_metrics':mask_truth,'satisfies_request':satisfies})
-    return {'satisfies_request':all(r['satisfies_request'] for r in observed),
-            'relations':observed,'native_control_restoration':stream.receipt(),
+    return {'satisfies_request':dynamic['satisfies_request']and all(r['satisfies_request'] for r in observed),
+            'relations':[*observed,*dynamic['relations']],'native_control_restoration':stream.receipt(),
             'scope':'layout proposal only; final complete 450-frame stream independently measured'}

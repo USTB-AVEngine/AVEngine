@@ -579,3 +579,18 @@ def test_offscreen_constructor_keeps_every_person_distinct_registered_shirts_and
         assert row['phase2_recorded_sound_ids'][aid]
         assert len(row['phase2_recorded_sound_ids'][aid])==len(row['phase2_recorded_speech_schedule_s'][aid])
     assert all(len(kinds)==1 for kinds in row['source_classes'].values())
+
+
+def test_offscreen_speaks_first_when_the_actual_selected_answer_branch_is_missing(inputs):
+    from avengine.timeline.v7_offscreen_construction import construct_offscreen_scene
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    for gender in ('female','male'):
+        assets.append({**copy.deepcopy(assets[0]),'asset_id':gender+'_white','color':'white','visual_gender':gender})
+    records=[{'sound_asset_id':'outside_'+g,'sound_class':'speech_playback','dataset':'VCTK-Corpus 0.92',
+        'legacy_library_split':'train','source_type':'recorded','gender':g,'speaker_id':'external_'+g,
+        'transcript':'This is a complete short sentence.','duration_s':1.}for g in ('M','F')]
+    row=construct_offscreen_scene(room,houses[room['house']],{},assets,records,semantic,contract,{},
+        scene_id='positive',seed=13)['row']
+    outside=row['offscreen_construction']['offscreen_asset_ids'][0]
+    assert row['phase2_recorded_speech_schedule_s'][outside][0]==0.
+    assert min(row['phase2_authored_speech_schedule_s'][aid][0]for aid in row['semantic_human_asset_ids'])>0.

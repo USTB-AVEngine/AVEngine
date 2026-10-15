@@ -111,7 +111,10 @@ class NativePhase2Video(NativeVisibleVideo):
         assert_static_camera(scene)
         directory=Path(directory)
         admissions=getattr(self,'phase2_motion_admissions',{})
-        if not admissions:return checks
+        if not admissions:
+            from avengine.capture.v7_offscreen_layout import refresh_actual_offscreen_proofs
+            refresh_actual_offscreen_proofs(self,scene,checks)
+            return checks
         # Standing people are placed outside the reserved swept body bounds.
         # Then independently recheck every original pose against the complete
         # final scene, including the newly placed people and all stage triangles.
@@ -135,6 +138,8 @@ class NativePhase2Video(NativeVisibleVideo):
             record['minimum_certified_triangle_nonfloor_clearance_m']=minimum
         self.camera_frame_readbacks=[];self.environment_frame_readbacks=[]
         write_json(directory/'phase2_motion_admission.json',{'status':'pass','admissions':admissions,'native_readback_hz':30,'thresholds_changed':any(r.get('quality_gates_changed',False) for r in admissions.values())})
+        from avengine.capture.v7_offscreen_layout import refresh_actual_offscreen_proofs
+        refresh_actual_offscreen_proofs(self,scene,checks)
         return checks
 
     def _on_phase2_placement_accepted(self,entry,scene,directory,supports,accepted):

@@ -22,6 +22,9 @@ def spacing_violation(scene,asset,root,placed):
     if is_human(asset):
         listener=np.asarray(scene['listener_m'],float)
         distance=float(np.linalg.norm(root[[0,2]]-listener[[0,2]]))
+        band=scene.get('native_distance_bands_m',{}).get(asset.get('asset_id'))
+        if band is not None and not band[0]<=distance<=band[1]:
+            return {'other_asset_id':'fixed_camera','distance_m':distance,'requested_distance_band_m':band}
         if distance+1e-9<1.5:
             return {'other_asset_id':'fixed_camera','distance_m':distance,'required_m':1.5,
                 'centres':'actual body root and fixed camera on horizontal floor'}

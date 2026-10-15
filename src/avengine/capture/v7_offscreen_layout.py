@@ -17,6 +17,10 @@ def azimuth_degrees(delta,forward):
 
 
 def proposal_view_ok(scene,asset_id,delta,forward,ordinary_visible):
+    band=scene.get('native_distance_bands_m',{}).get(asset_id)
+    if band is not None:
+        distance=float(np.linalg.norm(np.asarray(delta)[[0,2]]))
+        if not band[0]<=distance<=band[1]:return False
     role=offscreen_role(scene,asset_id)
     if role:return abs(azimuth_degrees(delta,forward))>=float(role.get('minimum_abs_azimuth_deg',60.))
     return ordinary_visible
@@ -45,7 +49,11 @@ def native_projection_proof(video,scene,entry,visible_pixels):
     sensor=video.sim._sensors['rgb']._sensor_object
     projection=np.asarray(sensor.render_camera.projection_matrix,float)
     world_to_camera=np.linalg.inv(np.asarray(sensor.node.absolute_transformation(),float))
-    local=np.asarray(entry['original_mesh'].vertices,float);transform=np.asarray(entry['applied_root_input'],float)
+    mesh=entry['original_mesh']
+    if entry.get('motion_episode'):
+        from avengine.capture.v7_visible_mesh import indexed_static_mesh
+        mesh=indexed_static_mesh(entry['motion_pose_path'])
+    local=np.asarray(mesh.vertices,float);transform=np.asarray(entry['applied_root_input'],float)
     vertices=local@transform[:3,:3].T+transform[:3,3]
     outside=vertices_outside_camera(vertices,world_to_camera,projection)
     observed=video._apply_entry(entry,scene)
@@ -68,5 +76,21 @@ def coverage_errors(scene,assets,visual,visible_frame_counts):
                 or not proof.get('all_vertices_outside_native_frustum_plane')or proof.get('native_object_id')is None):
             errors.append('intentional offscreen body lacks actual native drawable/projection proof')
         if role.get('static',True)and count:errors.append('static offscreen body entered the actual image')
+        if role.get('required_visible_sometime')and not count:errors.append('entry body never reached 100 actual native visible pixels')
     if set(scene.get('native_view_roles',{}))-set(byid):errors.append('offscreen role has no actual registered body')
     return errors
+
+
+def refresh_actual_offscreen_proofs(video,scene,checks):
+    if not scene.get('native_view_roles'):return
+    entries=video.actors
+    for entry in entries:video._apply_entry(entry,scene)
+    counts,_=video._native_observed_pixels(scene,entries)
+    if not native_pixels_ok(scene,entries,counts):raise ValueError('final native frame-zero view roles do not match actual pixels')
+    byid={c['asset_id']:c for c in checks}
+    for entry in entries:
+        aid=entry['declaration']['asset_id']
+        if not offscreen_role(scene,aid):continue
+        proof=native_projection_proof(video,scene,entry,counts[aid])
+        if proof['status']!='pass':raise ValueError('final actual posed body is not outside native camera projection')
+        byid[aid]['intentional_offscreen_proof']=proof
