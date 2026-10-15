@@ -58,26 +58,8 @@ def choose_assets(catalog,row):
     return assets
 
 def _placements(layout,n):
-    values=deepcopy(layout['valid'])
-    if n>len(values):
-        # New positions are candidate placements, not inherited admissions.
-        # Every registered complete mesh is probed in its actual episode.
-        from shapely.geometry import shape,Point
-        polygon=shape(layout['room_floor_polygon'])
-        floor=float(np.median([p['position_m'][1]-1.3 for p in values]))
-        x0,z0,x1,z1=polygon.bounds
-        candidates=[]
-        for x in np.arange(x0+.3,x1,.65):
-            for z in np.arange(z0+.3,z1,.65):
-                if polygon.covers(Point(x,z)) and min(np.linalg.norm(np.array([x,z])-np.array([p['position_m'][0],p['position_m'][2]])) for p in values)>.7:
-                    d=math.hypot(x-layout['listener_m'][0],z-layout['listener_m'][2]);candidates.append((abs(d-1.87),x,z))
-        for _,x,z in sorted(candidates):
-            if min(np.linalg.norm(np.array([x,z])-np.array([p['position_m'][0],p['position_m'][2]])) for p in values)<.65:continue
-            yaw=math.degrees(math.atan2(layout['listener_m'][0]-x,-(layout['listener_m'][2]-z)))
-            values.append({'position_m':[float(x),floor+1.3,float(z)],'body_yaw_deg':yaw,'status':'unqualified_candidate_requires_native_episode'})
-            if len(values)>=n:break
-    if len(values)<n:raise ValueError('room has too few separated candidate placements')
-    return values[:n]
+    from avengine.timeline.v7_spatial_layout import separated_layout
+    return separated_layout(layout,n)
 
 def semantic_record(sound,gender):
     from avengine.qa.v7_recorded_audio import natural_speech_blockers

@@ -300,6 +300,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if pinned.get('surface')!=a['attachment_surface']:raise ValueError('pinned attachment surface differs from registration')
                 candidates=[dict(pinned,point=pinned['original_surface_point_m']),*candidates]
             if key=='floor':candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
+            from avengine.timeline.v7_spatial_layout import body_yaw,spacing_rejection,noncollinear_rejection,is_person,entry_roots
+            person_index=next(i for i,e in enumerate(e for e in self.actors if is_person(e['declaration'])) if e is entry) if is_person(a) else 0
             listener=np.asarray(scene['listener_m']);rejections={}
             def reject(reason):rejections[reason]=rejections.get(reason,0)+1
             from avengine.capture.v7_alpha_native import forward_at
@@ -323,7 +325,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 az=math.degrees(math.atan2(float(delta@right),depth))
                 if target is not None:
                     return (not visible,abs(az-float(target)),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
-                return (not visible,not central if a['kind'] in {'human','performer'} or self.motion_inputs.get('independent_probe_camera_search') else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
+                separation=min((float(np.min(np.linalg.norm((root-entry_roots(other))[:,[0,2]],axis=1))) for other in placed if a['kind'] in {'human','performer','animal'} and other['declaration']['kind'] in {'human','performer','animal'}),default=1.)
+                return (not visible,-min(separation,2.),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
             accepted=None;native_attempts=0;search_exhausted=False
             contact_budget=int(self.motion_inputs.get('visible_placement_max_contact_attempts_per_asset',64))
@@ -332,9 +335,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned['_outward_clearance_m'])] if pinned is not None else [])
             support_budget=int(self.motion_inputs.get('visible_placement_max_support_candidates_per_asset',320))
             if not 1<=support_budget<=320:raise ValueError('invalid support candidate sampling budget')
-            proposals.extend(dict(p,_outward_clearance_m=offset) for p in ordinary[:support_budget] for offset in (0.,.002,.005,.010,.014))
+            proposals.extend(dict(p,_outward_clearance_m=offset,_body_yaw_retry=retry) for p in ordinary[:support_budget] for retry in (range(3) if is_person(a) else range(1)) for offset in (0.,.002,.005,.010,.014))
             proposal_budget=self.motion_inputs.get('visible_placement_max_proposals_per_asset')
-            if proposal_budget is not None and not 1<=int(proposal_budget)<=1601:
+            if proposal_budget is not None and not 1<=int(proposal_budget)<=4801:
                 raise ValueError('invalid support proposal search budget')
             for proposal_index,support in enumerate(proposals):
                 if proposal_budget is not None and proposal_index>=int(proposal_budget):
@@ -343,10 +346,16 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if key=='floor':
                     delta=listener-np.asarray(support['point'])
                     support['yaw_rad']=math.atan2(-delta[0],-delta[2]) if a['kind'] in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
+                    support['yaw_rad']=body_yaw(support['yaw_rad'],a,person_index,support.get('_body_yaw_retry',0))
                 # Pure candidate filtering: the support transform is identical
                 # to check_support's proposed root. Every surviving candidate
                 # still runs all original rays, contacts and real native pixels.
                 proposed_root,proposed_yaw,_,_=support_points(meta,support)
+                spacing=spacing_rejection(a,proposed_root,placed)
+                if spacing:
+                    reject(spacing['reason']);continue
+                if noncollinear_rejection(a,proposed_root,placed):
+                    reject('people_arranged_in_one_row');continue
                 proposed_rep=(proposed_root+rotation(proposed_yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else proposed_root+np.array([0.,.5,0.])
                 if not visible_from_path(proposed_rep-listener):
                     reject('outside_observed_camera_path');continue

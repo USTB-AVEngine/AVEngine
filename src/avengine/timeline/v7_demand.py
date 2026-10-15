@@ -6,6 +6,7 @@ The default target shares are configurable production goals, not measured facts.
 from __future__ import annotations
 from collections import Counter
 from copy import deepcopy
+import numpy as np
 from pathlib import Path
 import json,math,os,random
 
@@ -291,7 +292,7 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None,construct
             walker=selected[0]
             if not walker.get('walk_allowed'):raise ValueError('demand selected body has no registered walk')
             trend='receding' if row['scene_seed']%2 else 'approaching'
-            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.15,'intervals_s':[[0.,2.5],[8.,9.9],[10.,12.5],[18.,19.9],[20.,22.5],[28.,29.9]],'distance_trend':trend}
+            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':float(np.random.default_rng(int(row['scene_seed'])+97001).uniform(.8,1.4)),'motion_execution_revision':'species-scene-speeds-native-curved-waypoints-v1','scene_speed_range_m_s':[.8,1.4],'intervals_s':[[0.,2.5],[8.,9.9],[10.,12.5],[18.,19.9],[20.,22.5],[28.,29.9]],'distance_trend':trend}
             # New demand-driven parents use the existing v3 compiler/solver.
             # A complete measured utterance at real walking speed supplies >=0.5m;
             # the registered person has speech only, without automatic feet.

@@ -112,7 +112,7 @@ class NativePhase2Video(NativeVisibleVideo):
         return checks
 
     def _on_phase2_placement_accepted(self,entry,scene,directory,supports,accepted):
-        import math
+        import math,numpy as np
         from pathlib import Path
         from avengine.timeline.continuous_pilot import write_json
         requests=scene.get('production_scenario',{}).get('motion_requests',{})
@@ -146,6 +146,12 @@ class NativePhase2Video(NativeVisibleVideo):
         for index in range(901):
             row=self._apply_motion_entry(entry,index);row.update(frame_index=index,time_s=index/30)
             actual.append(row)
+        if request['action']=='walk':
+            from avengine.timeline.v7_motion_speed import certify_moving_root_speed
+            roots=[np.asarray(r['body_to_world_m'],float)[:3,3] for r in actual]
+            kind='human' if a['kind']=='human' else 'slide' if record.get('motion_mode')=='slide_no_animation' else a['species_id']
+            record['native_speed_admission']=certify_moving_root_speed(roots,[r['time_s'] for r in actual],
+                [f['moving'] for f in record['source_frames']],kind)
         record['native_30Hz_readbacks']=actual
         self._apply_motion_entry(entry,0)
         self.phase2_motion_admissions=getattr(self,'phase2_motion_admissions',{})

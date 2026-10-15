@@ -9,7 +9,7 @@ import math
 import numpy as np
 from shapely.geometry import shape,LineString,Point,box
 REVISION='species-scene-speeds-native-curved-waypoints-v1'
-SPEED_RANGES={'human':(.8,1.4),'dog':(.5,1.2),'cat':(.3,.8),'slide':(.2,.5)}
+from avengine.timeline.v7_motion_speed import SPEED_RANGES
 
 def motion_yaw(record,index):
     values=record.get('yaw_rad_per_frame')
@@ -17,9 +17,10 @@ def motion_yaw(record,index):
 
 def prepare_scene_motion(row,catalog):
     if row.get('motion_quartet_template_revision'):return row
-    if row.get('motion_execution_revision')!=REVISION:return row
+    if not any(r.get('action')=='walk' for r in row.get('motion_requests',{}).values()):return row
     row=deepcopy(row);assets={a['asset_id']:a for a in catalog}
     for number,(aid,request)in enumerate(sorted(row.get('motion_requests',{}).items())):
+        if request.get('action')!='walk':continue
         mode=request.get('animal_motion_admission',{}).get('mode');species=assets[aid].get('species_id') or 'human'
         kind='slide'if mode=='slide_no_animation'else species
         if kind not in SPEED_RANGES:raise ValueError('scene locomotion speed species missing')
@@ -69,6 +70,8 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
                     positions=np.column_stack((centre.x+radius*np.cos(theta),np.full(len(theta),start[1]),centre.y+radius*np.sin(theta)))
                     line=LineString(positions[:,[0,2]])
                     if not free.covers(line)or any(line.intersects(o)for o in obstacles):continue
+                    from avengine.timeline.v7_spatial_layout import spacing_rejection
+                    if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):continue
                     if np.min(np.linalg.norm(positions[:,[0,2]]-np.asarray(scene['listener_m'])[[0,2]],axis=1))<.6:continue
                     snaps=np.asarray([video.pathfinder.snap_point(p)for p in positions]);errors=np.linalg.norm((snaps-positions)[:,[0,2]],axis=1)
                     if not np.isfinite(snaps).all()or float(errors.max())>.002:continue
@@ -109,16 +112,16 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
     phase0=float(min(double_support));velocity=np.zeros(len(times));moving=np.zeros(len(times),bool)
     if timed_route is not None and timed_route.get('single_pass'):
         from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
-        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.4));desired=phase0+distance[-1]/nominal
+        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8));desired=phase0+distance[-1]/nominal
         endings=sorted(float(p)+cycle*duration for cycle in range(math.ceil(desired/duration)+2)for p in double_support if float(p)+cycle*duration>=desired-1e-9)
         target=endings[0];target_distance=(target-phase0)*nominal
         lo,hi=7.9,9.7
-        if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.4),hi)[0][-1]<target_distance:raise ValueError('complete observed step cannot finish before the next sounding window; choose another admitted gait')
+        if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),hi)[0][-1]<target_distance:raise ValueError('complete observed step cannot finish before the next sounding window; choose another admitted gait')
         for _ in range(45):
             mid=(lo+hi)/2
-            if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.4),mid)[0][-1]<target_distance:lo=mid
+            if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),mid)[0][-1]<target_distance:lo=mid
             else:hi=mid
-        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.4),hi)
+        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),hi)
         ratio=target_distance/distance[-1];distance*=ratio;velocity*=ratio
         return times,velocity>1e-8,velocity,distance,phase0+distance/nominal,{'method':'single straight pass; exact scene speed during speech; complete-step quiet finish','complete_step_source_phase_s':target,'distance_clock_ratio':ratio,'executed_motion_end_s':hi,'emission_speed_m_s':speed,'nominal_source_speed_m_s':nominal,'maximum_stable_speed_m_s':float(max(velocity)),'maximum_clock_distance_error_s':0.}
 

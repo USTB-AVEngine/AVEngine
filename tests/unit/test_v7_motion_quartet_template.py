@@ -21,7 +21,10 @@ def test_unseen_open_room_gets_native_straight_windows_and_alternating_distance_
     assert result['single_pass']
     assert .8<=result['speed_m_s']<=1.2
     assert result['minimum_emission_radial_cosine']>=np.cos(np.deg2rad(30))
-    assert result['straight_length_m']<result['speed_m_s']*6.9
+    from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
+    distance,velocity=single_pass_clock(np.arange(901)/30.,result['speed_m_s'],result['turn_speed_m_s'])
+    assert result['turn_speed_m_s']>=.8
+    assert result['straight_length_m']==pytest.approx(distance[-1]*1.12+.02)
 
 def test_tts_walk_permission_does_not_replace_complete_native_admission():
     scene={'pending_registered_walk_tts':['a'],'sources':{'a':{'asset_id':'registered body'}}}
