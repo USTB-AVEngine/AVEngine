@@ -4,7 +4,7 @@ import argparse,json,subprocess
 from pathlib import Path
 from copy import deepcopy
 from avengine.timeline.v7_conditioned_post_motion import (
-    POST_SOUND_FAMILIES,registered_human_motion_registry,plan_post_sound_motion)
+    POST_SOUND_FAMILIES,registered_human_motion_registry,plan_post_sound_motion,build_conditioned_post_scene)
 from avengine.timeline.v7_phase2_sources import build_phase2_scene
 from avengine.timeline.v7_demand import read_demand_state,demand_snapshot,FAMILY_SCENE_REQUIREMENTS
 
@@ -52,7 +52,7 @@ def prepare(manifest_path,*,source_slot,scene_id,qa_id=None):
     row=plan_post_sound_motion(row,qa_id=qa_id,target=target['asset_id'],companion=companion['asset_id'],
         assets=assets,registry=registry,records_by_asset=records_by_asset)
     # Resolve the resulting real full clips once more before publishing the plan.
-    _,resolved,resolved_program,_=build_phase2_scene(row,house,source_admission['records'],catalog,semantic)
+    _,resolved,resolved_program,_=build_conditioned_post_scene(row,house,source_admission['records'],catalog,semantic)
     slot=len(m['parents']);m['parents'].append({'slot':slot,'family':source['family'],'device':'cpu',
         'profile':'phase2','focus':'human_motion','row':row})
     m['code_commit']=subprocess.check_output(['git','-C',m['worktree'],'rev-parse','HEAD'],text=True).strip()

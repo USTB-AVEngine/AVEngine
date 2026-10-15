@@ -12,7 +12,7 @@ from avengine.rooms import conditioned_motion as cm
 from avengine.rooms import conditioned_sampler as cs
 
 POST_SOUND_FAMILIES=('QA-13','QA-16','QA-17')
-REVISION='v3-post-sound-conditions-v7-five-crop-adapter-v1'
+REVISION='v3-post-sound-conditions-v7-five-crop-adapter-v2-authored-clock'
 
 
 def registered_human_motion_registry(assets,inputs,house,*,frame_rate_hz=15.):
@@ -152,6 +152,8 @@ def plan_post_sound_motion(row,*,qa_id,target,companion,assets,registry,
         row.get('phase2_recorded_speech_schedule_s',{}).pop(companion,None)
         row.get('phase2_recorded_sound_ids',{}).pop(companion,None)
     else:row.setdefault('phase2_recorded_speech_schedule_s',{})[companion]=list(epochs_s)
+    if companion in row.get('semantic_human_asset_ids',[]):
+        row['phase2_authored_speech_schedule_s']={companion:list(epochs_s)}
     row['acceptance_window_starts_s']=[0.,5.,10.,15.,20.];row['window_count']=5
     row['conditioned_post_motion']={'revision':REVISION,'qa_id':qa_id,'target_asset_id':target,
         'companion_asset_id':companion,'five_crop_world_starts_s':[0.,5.,10.,15.,20.],
@@ -163,3 +165,53 @@ def plan_post_sound_motion(row,*,qa_id,target,companion,assets,registry,
     row['scene_demand']['required_post_sound_motion_contrast']={'moving_asset_id':target,'static_asset_id':companion}
     row['conditioned_post_motion']['event_scheduler']='avengine.rooms.conditioned_sampler.schedule_legal_events'
     return row
+
+
+def apply_authored_post_schedule(row,scene,program,assets):
+    requested=row.get('phase2_authored_speech_schedule_s',{})
+    if not requested:return scene,program
+    scene=deepcopy(scene);program=deepcopy(program)
+    byid={r['sound_asset_id']:r for r in program['records']}
+    for aid,starts in requested.items():
+        actor=next(a for a in assets if a['asset_id']==aid);ep=actor['endpoint_id']
+        events=[e for e in scene['events'] if e['endpoint_id']==ep]
+        bindings={b['event_id']:b for b in program['events']}
+        if not events:raise ValueError('authored post schedule has no actual source event')
+        identities={bindings[e['event_id']]['sound_asset_id'] for e in events}
+        if len(identities)!=1:raise ValueError('explicit authored post schedule needs one fixed complete utterance')
+        record=byid[next(iter(identities))]
+        if record.get('source_type')!='author_tts':raise ValueError('authored schedule cannot relabel a recorded source')
+        template=deepcopy(events[0]);binding=deepcopy(bindings[template['event_id']])
+        if binding.get('crop_start_sample',0)!=0:raise ValueError('authored speech must remain complete')
+        old={e['event_id'] for e in events}
+        scene['events']=[e for e in scene['events'] if e['event_id']not in old]
+        program['events']=[b for b in program['events'] if b['event_id']not in old]
+        h=record['header'];ticks=(h['sample_count']*10+h['sample_rate_hz']-1)//h['sample_rate_hz']
+        previous=-1
+        for i,start in enumerate(starts):
+            lo=round(start*10)
+            if abs(start*10-lo)>1e-8 or lo<previous or lo+ticks>300:
+                raise ValueError('complete authored post programme conflicts with the native clock')
+            eid='conditioned_author_'+ep+'_'+str(i)
+            scene['events'].append({**template,'event_id':eid,'start_tick':lo,'end_tick':lo+ticks})
+            program['events'].append({**binding,'event_id':eid})
+            previous=lo+ticks
+    scene['authored_post_schedule_source']='compiled post-sound epoch EventPlacement, not the legacy 0/15s schedule'
+    return scene,program
+
+
+def build_conditioned_post_scene(row,house,records,catalog,semantic_manifest=None):
+    from avengine.timeline.v7_phase2_sources import build_phase2_scene
+    working,scene,program,assets=build_phase2_scene(row,house,records,catalog,semantic_manifest)
+    scene,program=apply_authored_post_schedule(row,scene,program,assets)
+    return working,scene,program,assets
+
+
+def generate_post_sound_parent(*args,**kwargs):
+    # One isolated parent per worker. Keep the adapter in its own file while
+    # the existing generator still owns all native admissions and QA gates.
+    from avengine.timeline import v7_phase2_generation as generation
+    original=generation.build_visible_scene
+    generation.build_visible_scene=build_conditioned_post_scene
+    try:return generation.generate_phase2_parent(*args,**kwargs)
+    finally:generation.build_visible_scene=original
