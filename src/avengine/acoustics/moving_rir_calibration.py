@@ -51,7 +51,7 @@ def qualify_calibrated(checks,budget):
         'unchanged_nonenergy_failures':retained,'residuals':rows}
 
 
-CROSSFADE_REVISION = 'integer-arrival-local-correlation-emission-aligned-v1'
+CROSSFADE_REVISION = 'integer-arrival-local-correlation-native-key-emission-grid-v2'
 
 
 class CorrelatedRIRInterval:
@@ -149,13 +149,13 @@ class CorrelatedRIRTimeline:
         return self._interval.sample(u)
 
 
-def _virtual_keys(length, block_samples):
+def _virtual_keys(length, block_samples, native_keys=()):
     if length < 1 or block_samples < 1:
         raise ValueError('positive dry length and convolution step required')
     keys = list(range(0, length, block_samples))
     if keys[-1] != length-1:
         keys.append(length-1)
-    return keys
+    return sorted(set(keys)|{int(k)for k in native_keys if 0<=int(k)<length})
 
 
 def _align_first_peak(kernel, target):
@@ -169,7 +169,7 @@ def _align_first_peak(kernel, target):
 
 def effective_emission_filter(timeline, sample, dry_length, block_samples=160):
     """The exact source-time impulse response of correlated_convolve below."""
-    keys = _virtual_keys(dry_length, block_samples)
+    keys = _virtual_keys(dry_length, block_samples,timeline.keys)
     if not 0 <= sample < dry_length:
         raise ValueError('emission outside continuous dry world')
     if len(keys) == 1 or sample == keys[-1]:
@@ -207,7 +207,7 @@ def correlated_convolve(dry, filters, key_samples, *, sample_rate=16000, block_s
     arrivals = [first_arrival_samples(h[0])[1] for h in timeline.filters]
     maximum_tail = max(h.shape[1] for h in timeline.filters)+max(arrivals)-min(arrivals)
     output = np.zeros((4, len(x)+maximum_tail-1))
-    keys = _virtual_keys(len(x), block_samples)
+    keys = _virtual_keys(len(x), block_samples,timeline.keys)
     for i, center in enumerate(keys):
         lo = keys[i-1] if i else 0
         hi = keys[i+1]+1 if i+1 < len(keys) else len(x)

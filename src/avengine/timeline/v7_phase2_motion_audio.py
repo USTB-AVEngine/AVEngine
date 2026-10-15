@@ -14,7 +14,7 @@ from avengine.acoustics.moving_rir_calibration import CorrelatedRIRTimeline,effe
 from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_storage_budget import check_write
-REVISION='actual-30hz-trajectory-all-three-raw-reference-gates-real-wrong-emitter-v4'
+REVISION='actual-30hz-all-raw-reference-gates-native-key-emission-grid-v5'
 
 def emitted_intervals(dry,block=160):
     x=np.asarray(dry);flags=[bool(np.any(x[i:i+block]!=0)) for i in range(0,len(x),block)]
