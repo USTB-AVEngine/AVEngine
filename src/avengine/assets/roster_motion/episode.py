@@ -262,7 +262,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         times,moving,velocity,distance,clock,scene_clock=human_distance_driven_clock(
             ts,double,speed,request.get('intervals_s',[[2.,6.],[16.,20.]]),nominal)
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
-    accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
+    accepted=None;prepared_solver=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
@@ -301,11 +301,17 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 if not hits:raise ValueError('motion route has no actual native ground')
                 floor_y=float(hits[0].point[1]);positions[:,1]=floor_y
                 floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
-                solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),frame_yaws.tolist(),1.,float(ts[0]),duration,floor)
-                solver.times=times
-                from avengine.assets.roster_motion.animal import ground_slow_gait_support
-                support_repairs=ground_slow_gait_support(solver) if inputs.get('phase2') else 0
-                for values in solver.active.values():values[~moving]=True
+                if prepared_solver is None:
+                    solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),frame_yaws.tolist(),1.,float(ts[0]),duration,floor)
+                    solver.times=times
+                    from avengine.assets.roster_motion.animal import ground_slow_gait_support
+                    support_repairs=ground_slow_gait_support(solver) if inputs.get('phase2') else 0
+                    for values in solver.active.values():values[~moving]=True
+                    prepared_solver=(solver,support_repairs)
+                else:
+                    from avengine.assets.roster_motion.contact import fork_prepared_gait
+                    solver=fork_prepared_gait(prepared_solver[0],positions,frame_yaws,floor)
+                    support_repairs=prepared_solver[1]
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
                     qualified_globals,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
