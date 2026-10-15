@@ -224,3 +224,18 @@ def test_new_whole_utterances_cannot_change_or_fake_the_recorded_voice():
         _validate_recorded_speech_voice({**record,'speaker_id':'another_voice'},original)
     with pytest.raises(ValueError,match='same admitted'):
         _validate_recorded_speech_voice({**record,'source_type':'author_tts'},original)
+
+
+@pytest.mark.fast_unit
+def test_authored_epochs_keep_roles_and_real_voice_identity():
+    from avengine.timeline.v7_registered_sampling import authored_epoch_sound_rows
+    sounds=[{'sound_asset_id':f'{epoch}_{actor}','scenario_id':str(epoch),'role_id':str(actor),
+             'voice_reference':{'speaker_id':str(actor),'gender':'female'}}
+            for epoch in range(3) for actor in range(2)]
+    plan={'semantic_epoch_sound_ids':[[f'{epoch}_{actor}' for actor in range(2)] for epoch in range(3)]}
+    bodies=[{'visual_gender':'female'}]*2
+    rows=authored_epoch_sound_rows(plan,{'sounds':sounds},[0,10,20],bodies)
+    assert len(rows)==3 and len({s['scenario_id'] for row in rows for s in row})==3
+    sounds[-1]['voice_reference']['speaker_id']='changed_voice'
+    with pytest.raises(ValueError,match='fixed physical voices'):
+        authored_epoch_sound_rows(plan,{'sounds':sounds},[0,10,20],bodies)

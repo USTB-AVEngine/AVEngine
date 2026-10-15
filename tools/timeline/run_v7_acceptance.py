@@ -48,7 +48,8 @@ def run_worker(manifest,slot):
         else:
             row=add_scene_demand(row,state,focus=task.get('focus'))
         row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
-        row['scene_demand']['requested_conditions'].append('authored_native_quartet')
+        if len(row['members'])==4:
+            row['scene_demand']['requested_conditions'].append('authored_native_quartet')
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
         from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
     write(root/'inputs/planned'/f'{slot:03d}.json',row)
