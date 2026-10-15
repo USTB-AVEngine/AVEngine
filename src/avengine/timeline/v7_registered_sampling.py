@@ -130,7 +130,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     if camera_policy in {'binding_static','binding_sweep','pilot_binding_coverage'}:
         vectors=[np.asarray(p['position_m'])-np.asarray(layout['listener_m']) for p in placements[:2]]
         forward=sum(v/np.linalg.norm(v) for v in vectors);forward[1]=0.;forward/=np.linalg.norm(forward)
-        yaw=math.degrees(math.atan2(forward[0],-forward[2]))+float(plan.get('binding_camera_yaw_offset_deg',7.))
+        yaw=math.degrees(math.atan2(forward[0],-forward[2]))+float(plan.get('binding_camera_yaw_offset_deg',22.5))
         a=math.radians(yaw);scene['camera_forward']=[math.sin(a),0.,-math.cos(a)]
         scene['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]
         if camera_policy=='binding_sweep':
