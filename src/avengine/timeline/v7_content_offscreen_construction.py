@@ -18,7 +18,7 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         break
     else:raise ConstructionUnavailable('pure authored quartet needs a third legal registered body and three complete distinct fixed voices across three scenarios; no person or member is removed')
     if len(ctx['source_proposals'])<2:raise ConstructionUnavailable('whole native quartet needs the original legal room height proposals')
-    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,1,row['scene_seed']+attempt,visible_people=3 if include_silent_bystander else 2)
+    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,1,row['scene_seed']+attempt,visible_people=3 if include_silent_bystander else 2,minimum_visible_radial_difference_m=.95 if include_silent_bystander else 0.)
     floor_height=sum(p[1]for p in ctx['source_proposals'])/len(ctx['source_proposals'])
     points=[inside[0],inside[1],outside[0],*([inside[2]]if include_silent_bystander else[])]
     positions=[[p[0],floor_height,p[1]]for p in points];ids=[a['asset_id']for a in actual];extra_id=ids[2]
@@ -46,6 +46,8 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         offscreen_construction={'revision':'pure-authored-offscreen-quartet-v1','offscreen_asset_ids':[extra_id],
             'visible_asset_ids':[ids[0],ids[1],*([ids[3]]if include_silent_bystander else[])],'all_waveforms_author_tts':True,'all_waveforms_complete':True,
             'speaker_count_whole_world':3,'audio_only_points':0,'first_sounding_view_requested':'outside'})
+    if include_silent_bystander:
+        row['native_distance_bands_m']={ids[i]:[inside[i][2]-.15,inside[i][2]+.15]for i in range(2)}
     row['automatic_construction'].update(family='V7-CONTENT-BIND',constructor='construct_pure_tts_offscreen_quartet',required_role_count=len(ids))
     _request(row,state,'V7-CONTENT-BIND')
     row=plan_registered_content_demand(row,state,actual,semantic)

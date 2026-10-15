@@ -117,7 +117,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     knots=[{'time_s':float(i),'yaw_deg':yaw} for i in range(31)]
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],'split':row['split'],'duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':layout['listener_m'],'camera_forward':[math.sin(angle),0.,-math.cos(angle)],'camera_yaw_knots':knots,'window_starts_s':starts,'sources':{},'events':[],'production_scenario':plan,'source_motion_policy':'registered standing only; independent objects require separate motion admission','sampling_limitations':['walk/sit/seat pending complete episode admission','unadmitted old sound classes are not generated','moving object episode intake pending','profile requests are not measured realized marginals']}
     if row.get('scene_demand'):scene['scene_demand']=deepcopy(row['scene_demand'])
-    for key in ('native_view_roles','offscreen_construction','owner_social_layout','automatic_construction'):
+    for key in ('native_view_roles','native_distance_bands_m','offscreen_construction','owner_social_layout','automatic_construction'):
         if row.get(key):scene[key]=deepcopy(row[key])
     placements=_placements(layout,len(assets),seed=row['scene_seed'])
     if camera_policy in {'binding_static','binding_sweep','pilot_binding_coverage'}:

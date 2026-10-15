@@ -59,7 +59,15 @@ def test_all_four_members_selected_before_publication_and_resume(tmp_path):
 
 def test_late_window_deficit_publishes_no_partial_selected_member(tmp_path):
     row,members,root=fixture_parent(tmp_path,deficient_second=True)
-    with pytest.raises(ValueError,match='vision: 1 legal'):
+    # A missing modality can be filled by real candidates of another modality.
+    # Retain the atomic-publication regression using a true total-pool deficit.
+    for member in members:
+        folder=Path(member['windows_directory'])/member['windows'][1]['window_id']
+        questions=json.loads((folder/'questions.json').read_text())[:10]
+        keep={q['question_id']for q in questions}
+        gold=[g for g in json.loads((folder/'private_answers.json').read_text())if g['question_id']in keep]
+        (folder/'questions.json').write_text(json.dumps(questions));(folder/'private_answers.json').write_text(json.dumps(gold))
+    with pytest.raises(ValueError,match='fewer actual legal questions'):
         finalize_parent_question_pools(row,members,root)
     assert not list(root.glob('selected_windows_*_completed.json'))
     assert not list(root.glob('selected_windows_*_attempt_*'))

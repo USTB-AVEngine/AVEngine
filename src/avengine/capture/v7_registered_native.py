@@ -250,7 +250,13 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             for position in [original,*candidates]:
                 entry['placement_override_m']=position;entry.pop('floor_adjustment',None)
                 try:
-                    self._apply_entry(entry,scene)
+                    observed=self._apply_entry(entry,scene)
+                    band=scene.get('native_distance_bands_m',{}).get(entry['declaration']['asset_id'])
+                    if band is not None:
+                        distance=float(np.linalg.norm((np.asarray(observed['emitter_position_m'])-np.asarray(scene['listener_m']))[[0,2]]))
+                        if not band[0]<=distance<=band[1]:
+                            attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'reason':'requested_visual_distance_witness_band','measured_m':distance,'requested_band_m':band})
+                            continue
                     entry['resolved_root_m']=entry['applied_root_input'][:3,3].copy()
                     from avengine.capture.v7_social_layout import spacing_violation
                     if spacing_violation(scene,entry['declaration'],entry['resolved_root_m'],placed) is not None:continue

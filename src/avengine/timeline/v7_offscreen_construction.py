@@ -25,7 +25,7 @@ def _azimuth(point,listener,yaw):
     return (math.degrees(math.atan2(point[0]-listener[0],-(point[1]-listener[2])))-yaw+180)%360-180
 
 
-def plan_offscreen_floor(ctx,off_count,seed,visible_people=2):
+def plan_offscreen_floor(ctx,off_count,seed,visible_people=2,*,minimum_visible_radial_difference_m=0.):
     """Choose initial fixed yaw and unqualified floor proposals in any room."""
     from shapely.geometry import shape,Point
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable,stable_seed
@@ -54,6 +54,8 @@ def plan_offscreen_floor(ctx,off_count,seed,visible_people=2):
             inside=[]
             for angle,distance in [(-26.,2.8),(26.,3.4),(5.,1.8)][:visible_people]:
                 options=[p for p in points if abs(_azimuth(p,listener,yaw))<=33 and separate(p,[*outside,*inside])]
+                if len(inside)==1 and minimum_visible_radial_difference_m:
+                    options=[p for p in options if p[2]-inside[0][2]>=minimum_visible_radial_difference_m]
                 if len(inside)>=2:
                     a,b=inside[:2];dx,dz=b[0]-a[0],b[1]-a[1]
                     options=[p for p in options if abs(dx*(p[1]-a[1])-dz*(p[0]-a[0]))/max(1e-9,math.hypot(dx,dz))>=.35]
@@ -64,7 +66,7 @@ def plan_offscreen_floor(ctx,off_count,seed,visible_people=2):
     raise ConstructionUnavailable('same legal room has no measured-floor proposal for three visible plus requested offscreen people; retry another area/room, never remove a person')
 
 
-def joint_offscreen_floor(ctx,off_count,seed,visible_people=2):
+def joint_offscreen_floor(ctx,off_count,seed,visible_people=2,*,minimum_visible_radial_difference_m=0.):
     """Select a new initial legal camera when the inherited point cannot fit.
 
     This is construction before capture, never a camera trajectory. Native
@@ -73,7 +75,7 @@ def joint_offscreen_floor(ctx,off_count,seed,visible_people=2):
     from shapely.geometry import shape,Point
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable,stable_seed
     try:
-        yaw,inside,outside=plan_offscreen_floor(ctx,off_count,seed,visible_people)
+        yaw,inside,outside=plan_offscreen_floor(ctx,off_count,seed,visible_people,minimum_visible_radial_difference_m=minimum_visible_radial_difference_m)
         return ctx,yaw,inside,outside
     except ConstructionUnavailable as original:
         reason=str(original)
@@ -91,7 +93,7 @@ def joint_offscreen_floor(ctx,off_count,seed,visible_people=2):
         points.remove(p);chosen.append(p);ordered.append(p)
     for index,p in enumerate(ordered):
         candidate=deepcopy(ctx);candidate['listener_m']=[p.x,ctx['listener_m'][1],p.y]
-        try:yaw,inside,outside=plan_offscreen_floor(candidate,off_count,seed,visible_people)
+        try:yaw,inside,outside=plan_offscreen_floor(candidate,off_count,seed,visible_people,minimum_visible_radial_difference_m=minimum_visible_radial_difference_m)
         except ConstructionUnavailable:continue
         candidate['initial_camera_construction']={'method':'legal same-room floor grid; spread candidates before capture',
             'inherited_camera_m':ctx['listener_m'],'selected_camera_m':candidate['listener_m'],
