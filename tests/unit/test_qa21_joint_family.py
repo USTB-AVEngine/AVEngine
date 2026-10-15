@@ -1,0 +1,152 @@
+"""QA21 conditions tested against the original authority and real projection math."""
+from copy import deepcopy
+from types import SimpleNamespace as NS
+import numpy as np
+import pytest
+from avengine.construction.joint.families.qa21 import (
+    REVISION, target_options, emission_mechanism, native_candidate_check,
+    certify_qa21_observation, MINIMUM_TARGET_PIXELS)
+from avengine.qa.unified_catalog import normalize_episode_bundle
+from test_qa_unified_catalog import _fixture
+
+pytestmark = pytest.mark.fast_unit
+
+
+def animal(aid, species, cls):
+    return {'asset_id': aid, 'kind': 'animal', 'species_id': species,
+        'allowed_classes': [cls], 'attachment_surface': 'floor', 'silent_decor': False}
+
+
+def test_choose_requested_actual_class_before_geometry_and_keep_inputs_unchanged():
+    cat = animal('cat', 'cat', 'cat_meow'); dog = animal('dog', 'dog', 'dog_bark')
+    catalog = [cat, dog]; original = deepcopy(catalog)
+    room = {'family': 'hm3d', 'categories': ['floor_cat', 'floor_dog']}
+    records = [{'sound_class': 'cat_meow'}, {'sound_class': 'dog_bark'}]
+    options = target_options(room, catalog, records, {}, {'qa21_positive_counts': {'cat_meow': 5}})
+    assert options[0][0]['asset_id'] == 'dog'
+    assert options[0][1] == 'dog_bark'
+    requested = target_options(room, catalog, records, {}, {}, requested_class='cat_meow')
+    assert len(requested) == 1 and requested[0][1] == 'cat_meow'
+    assert catalog == original
+
+
+def test_no_unadmitted_class_no_illegal_category_no_wrong_species():
+    cat = animal('cat', 'cat', 'cat_meow')
+    room = {'family': 'hm3d', 'categories': ['floor_dog']}
+    assert target_options(room, [cat], [{'sound_class': 'cat_meow'}], {}, {}) == []
+    room['categories'] = ['floor_cat']
+    assert target_options(room, [cat], [{'sound_class': 'dog_bark'}], {}, {}) == []
+    bad = animal('wrong', 'cat', 'dog_bark')
+    assert target_options(room, [bad], [{'sound_class': 'dog_bark'}], {}, {}) == []
+    excluded = {'policy': {'temporarily_excluded_asset_ids': {'cat': 'not ready'}}}
+    assert target_options(room, [cat], [{'sound_class': 'cat_meow'}], excluded, {}) == []
+
+
+def test_actual_emission_mechanism_cannot_be_assigned_to_silent_decor_or_person():
+    assert emission_mechanism(animal('cat', 'cat', 'cat_meow'), 'cat_meow') == 'animal_live_recorded'
+    speaker = {'kind': 'object', 'entity_class': 'loudspeaker', 'allowed_classes': ['music_playback', 'cat_meow']}
+    assert emission_mechanism(speaker, 'music_playback') == 'loudspeaker_playback'
+    with pytest.raises(ValueError): emission_mechanism(speaker, 'cat_meow')
+    with pytest.raises(ValueError): emission_mechanism({'kind': 'human', 'allowed_classes': ['cat_meow']}, 'cat_meow')
+
+
+def test_original_qa21_selects_expected_target_and_class():
+    facts = normalize_episode_bundle(_fixture())
+    assert certify_qa21_observation(facts, 'a0', 'bark')['status'] == 'pass'
+    assert certify_qa21_observation(facts, 'a1', 'bark')['status'] == 'fail'
+
+
+def test_original_qa21_rejects_unreviewed_duplicate_and_multiclass_appearance():
+    facts = normalize_episode_bundle(_fixture())
+    facts['appearance_review'].clear()
+    assert certify_qa21_observation(facts, 'a0', 'bark')['status'] == 'fail'
+    facts = normalize_episode_bundle(_fixture())
+    facts['actors']['a1']['appearance'] = deepcopy(facts['actors']['a0']['appearance'])
+    facts['appearance_review']['a1'] = deepcopy(facts['appearance_review']['a0'])
+    assert certify_qa21_observation(facts, 'a0', 'bark')['status'] == 'fail'
+    facts = normalize_episode_bundle(_fixture())
+    event = {**facts['events'][0], 'event_id': 'second_class', 'sound_class': 'cat_meow'}
+    facts['events'].append(event)
+    assert certify_qa21_observation(facts, 'a0', 'bark')['status'] == 'fail'
+
+
+def native_scene():
+    sensor = NS(render_camera=NS(projection_matrix=np.eye(4)),
+        node=NS(absolute_transformation=lambda: np.eye(4)))
+    video = NS(sim=NS(_sensors={'rgb': NS(_sensor_object=sensor)}))
+    scene = {'automatic_construction': {'family': 'QA-21', 'revision': REVISION,
+        'qa21_target_asset_id': 'target'}, 'listener_m': [0., 0., 0.]}
+    entry = {'declaration': {'asset_id': 'target', 'kind': 'animal'},
+        'applied_root_input': np.eye(4),
+        'original_mesh': NS(vertices=np.array([[-.25, -.25, 0.], [.25, .25, 0.]]))}
+    return video, scene, entry
+
+
+def test_native_preflight_uses_measured_pixels_and_complete_mesh_projection():
+    video, scene, entry = native_scene()
+    assert native_candidate_check(video, scene, [entry], {'target': MINIMUM_TARGET_PIXELS})['status'] == 'pass'
+    assert native_candidate_check(video, scene, [entry], {'target': 299})['status'] == 'fail'
+    entry['original_mesh'].vertices[1, 0] = 1.05
+    result = native_candidate_check(video, scene, [entry], {'target': 1000})
+    assert result['status'] == 'fail' and result['edge_margin_px'] < 0.
+
+
+def test_later_actual_occlusion_cannot_hide_target_and_unrelated_scenes_are_untouched():
+    video, scene, entry = native_scene()
+    other = deepcopy(entry);other['declaration']['asset_id'] = 'other'
+    other['applied_root_input'][0, 3] = 2.
+    assert native_candidate_check(video, scene, [entry, other], {'target': 350, 'other': 0})['status'] == 'pass'
+    assert native_candidate_check(video, scene, [entry, other], {'target': 15, 'other': 0})['status'] == 'fail'
+    scene['automatic_construction']['family'] = 'QA-10'
+    assert native_candidate_check(video, scene, [], {})['status'] == 'not_applicable'
+
+
+def test_multi_target_public_authority_preserves_each_independent_target():
+    from avengine.qa.unified_catalog import generate_unified_questions
+    facts = normalize_episode_bundle(_fixture())
+    expected = {'a0': 'cat_meow', 'a1': 'dog_bark', 'a2': 'music_playback', 'a3': 'speech_playback'}
+    for event in facts['events']:event['sound_class'] = expected[event['actor_id']]
+    result = generate_unified_questions(facts, qa_ids=['QA-21'], items_per_type=5, seed='multi')
+    observed = {i['truth']['evidence']['target_actor_id']: i['truth']['value'] for i in result['items']}
+    assert observed == expected and not result['deferred']
+    for actor, cls in expected.items():assert certify_qa21_observation(facts, actor, cls)['status'] == 'pass'
+
+
+def test_source_selection_backtracks_for_three_distinct_appearances():
+    from avengine.construction.joint.families.qa21 import select_target_set
+    options = [
+        ({**animal('cat', 'cat', 'cat_meow'), 'label_color': 'brown'}, 'cat_meow', {}),
+        ({**animal('dog0', 'dog', 'dog_bark'), 'label_color': 'black_white'}, 'dog_bark', {}),
+        ({**animal('dog1', 'dog', 'dog_bark'), 'label_color': 'black'}, 'dog_bark', {}),
+        ({'asset_id': 'speaker', 'kind': 'object', 'entity_class': 'loudspeaker', 'label_color': 'white'}, 'music_playback', {})]
+    chosen = select_target_set(options, 3)
+    assert [o[0]['asset_id'] for o in chosen] == ['cat', 'dog1', 'speaker']
+
+
+def source_schedule_fixture():
+    row = {'qa21_taxonomy_schedule': {'target_asset_ids': ['cat', 'dog', 'speaker']},
+        'source_classes': {'cat': ['cat_meow'], 'dog': ['dog_bark'], 'speaker': ['music_playback']}}
+    records = [{'sound_asset_id': 'tts', 'sound_class': 'speech_playback', 'source_type': 'author_tts',
+        'header': {'sample_count': 24000, 'sample_rate_hz': 16000}}]
+    records += [{'sound_asset_id': aid, 'sound_class': cls, 'source_type': 'recording'}
+        for aid, cls in [('cat', 'cat_meow'), ('dog', 'dog_bark'), ('speaker', 'music_playback')]]
+    events = [{'event_id': aid, 'endpoint_id': aid, 'start_tick': 0, 'end_tick': 20,
+        'sound_class': cls, 'mechanism': 'actual_registered'}
+        for aid, cls in [('cat', 'cat_meow'), ('dog', 'dog_bark'), ('speaker', 'music_playback')]]
+    bindings = [{'event_id': aid, 'sound_asset_id': aid, 'crop_start_sample': 4000} for aid in ['cat', 'dog', 'speaker']]
+    return row, {'events': events}, {'records': records, 'events': bindings}, [
+        {'asset_id': aid, 'endpoint_id': aid} for aid in ['cat', 'dog', 'speaker']]
+
+
+def test_schedule_uses_real_duration_and_binding_without_changing_source_inputs():
+    from avengine.construction.joint.families.qa21 import apply_emission_schedule
+    row, scene, program, assets = source_schedule_fixture();original = deepcopy((scene, program))
+    realized, audio = apply_emission_schedule(row, scene, program, assets)
+    assert (scene, program) == original
+    assert audio['records'] == program['records']
+    assert [e['start_tick'] for e in realized['events']] == [20, 42, 64, 120, 142, 164, 220, 242, 264]
+    assert [e['end_tick'] for e in realized['events']] == [40, 62, 84, 140, 162, 184, 240, 262, 284]
+    assert {b['crop_start_sample'] for b in audio['events']} == {4000}
+    assert apply_emission_schedule(row, realized, audio, assets) == (realized, audio)
+    program['records'][0]['header']['sample_count'] = 160000
+    with pytest.raises(ValueError, match='do not fit'):apply_emission_schedule(row, scene, program, assets)
