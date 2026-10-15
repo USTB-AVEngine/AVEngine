@@ -82,6 +82,12 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.instance=self.camera=self.components=self.foot_camera=self.foot_components=None
         self.runtimes={};self.environment_nodes={};self.environment_frame_readbacks=[]
         self.placement_overrides={};self.alpha_time=0.;self.alpha_lower_endpoint=None;self.alpha_camera_rows={}
+        self.contact_construction_path=Path(self.ue['output_root'])/'native/parents'/scene['scene_id']/'native_vertical_contact_construction.json'
+        saved_contact=json.loads(self.contact_construction_path.read_text()) if self.contact_construction_path.exists() else {}
+        self.vertical_root_offsets=dict(saved_contact.get('vertical_root_offsets_m',{}))
+        self.contact_gap_history=dict(saved_contact.get('baseline_measured_gaps_m',{}))
+        self.rejected_contact_positions=dict(saved_contact.get('rejected_native_positions_xz_m',{}))
+        self.native_support_floor_y={}
         self.initial_placement_preflight=self._seed_initial_navigation_placements()
         self.physical_environment_bindings={}
         self.current_native_environment=bool(scene.get('require_current_native_environment'))
@@ -236,6 +242,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         p=np.asarray(self.placement_overrides.get(ep,spec['trajectory'][0]['position_m']),float)
         foot,_=self._navigation_foot(p)
         root=np.asarray(self.native_floor_surface.sample(foot),float)
+        self.native_support_floor_y[ep]=float(root[1])
+        root[1]+=float(self.vertical_root_offsets.get(ep,0.))
         if ep==self.alpha_lower_endpoint:root[1]-=.1
         direction=np.asarray(self.scene['listener_m'])-p
         yaw=math.degrees(math.atan2(direction[0],-direction[2]))
@@ -262,7 +270,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 'loaded_artifact_sha256':native['loaded_artifact_sha256'],'original_glb_sha256':native['original_glb_sha256'],
                 'endpoint_id':a['endpoint_id'],'actor_id':self.scene['sources'][a['endpoint_id']]['actor_id'],
                 'native_actor_id':d['actor_id'],'native_object_id':int(native['visual_actor'].uobject),'asset_id':a['asset_id'],'position_m':position,
-                'emitter_position_m':from_ue(emitter['location_cm']),'moving':False,'action_id':'registered_stand',
+                'native_support_floor_y_m':self.native_support_floor_y[a['endpoint_id']],'emitter_position_m':from_ue(emitter['location_cm']),'moving':False,'action_id':'registered_stand',
                 'action_phase':0.,'root_max_error':error,'joint_state':'registered rigid Blueprint; no joint DOFs',
                 'source_registry_sha256':a['source_registry_sha256']})
         env=[]
@@ -295,6 +303,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 points=[self.alpha_standing_refs[x['endpoint_id']]['position_m'] for x in self.assets[:2]]
                 candidates=comparison_person_candidates(self.scene['listener_m'],points,candidates)
             for p in candidates:
+                if any(np.linalg.norm(np.asarray(p)[[0,2]]-q)<.05 for q in self.rejected_contact_positions.get(ep,[])):continue
                 # SPEAR's begin_frame marks its transaction permanently in
                 # error if a ValueError escapes _apply. Check the unchanged
                 # 15 cm navigation rule before entering that transaction so
@@ -336,7 +345,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                     gate=getattr(self,'acoustic_position_admission',None);acoustic=gate(ep,np.asarray(actor['emitter_position_m'])) if gate else {'status':'not_requested'}
                     if acoustic['status']=='blocked':continue
                     accepted={'status':'pass','endpoint_id':ep,'asset_id':a['asset_id'],'action':'registered_stand',
-                        'contact_tolerance_m':.02,'tolerance_changed':False,'root_y_adjustment_m':0.,
+                        'contact_tolerance_m':.02,'tolerance_changed':False,'root_y_adjustment_m':self.vertical_root_offsets.get(ep,0.),
                         'native_sole_depth':good,'native_capsule_static_geometry':capsule,'native_full_skin_bounds_m':[lo.tolist(),hi.tolist()],
                         'bounds_authority':'actual UE GetActorBounds of all original registered mesh components',
                         'known_bad_10cm_floor_contacts':bad,'known_bad_detected':detected,'acoustic_position_readback':acoustic}
@@ -390,19 +399,23 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             self.receipt['isolated_depth_capture_policy']='every native target depth frame rendered; unused RGB/object-ID sensors suspended only during isolated passes and restored'
         write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts})
         self.alpha_camera_rows={};self.environment_frame_readbacks=[]
+        self.alpha_contact_checks=checks
         return checks
 
     def _uncropped_foot_probe(self,actor):
         saved=self.alpha_standing_refs[actor['endpoint_id']]
         if actor['moving'] or actor['action_id']!='registered_stand' or np.max(np.abs(np.asarray(actor['position_m'])-saved['position_m']))>.0005:
             raise ValueError('registered rigid static support reference changed')
-        ref=saved['reference'];root_y=actor['position_m'][1]
-        return {'status':ref['status'],'gap_m':ref['gap_m'],'lowest_rendered_body_y_m':root_y+ref['gap_m'],
-            'support_floor_y_m':root_y,'raster_depth_tolerance_m':.02,'method':'actual full native front/rear rigid registered depth; native root checked this frame',
+        ref=saved['reference'];floor_y=actor.get('native_support_floor_y_m',actor['position_m'][1])
+        return {'status':ref['status'],'gap_m':ref['gap_m'],'lowest_rendered_body_y_m':floor_y+ref['gap_m'],
+            'support_floor_y_m':floor_y,'raster_depth_tolerance_m':.02,'method':'actual full native front/rear rigid registered depth; native root checked this frame',
             'measurement_reused':True,'reference_views':ref['views']}
 
     def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=True):
-        result=super().encode(scene,path,review_frames,collect_pixel_visibility=collect_pixel_visibility)
+        if self.current_native_environment:
+            from avengine.capture.v7_native_contact_construction import encode_with_contact_construction
+            result=encode_with_contact_construction(self,scene,path,review_frames,collect_pixel_visibility,super().encode)
+        else:result=super().encode(scene,path,review_frames,collect_pixel_visibility=collect_pixel_visibility)
         # Protocol extra camera samples are not RGB frames; retain precisely
         # the last actual rendering record for each of the 450 frame indices.
         rows={r['frame_index']:r for r in self.environment_frame_readbacks[:450]}
@@ -425,6 +438,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         copy_path=Path(path).parent/'native_registered_assets.json'
         write_json(copy_path,{'schema':'v7-UE-measured-registration-copy-v1','original_registry_modified':False,'assets':copies})
         result['measured_registration_copy']=str(copy_path)
+        if result.get('native_vertical_contact_construction'):
+            packet=json.loads(self.contact_construction_path.read_text())
+            write_json(Path(path).parent/'native_vertical_contact_construction.json',packet)
         write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':result['environmental_emitter_readbacks'],'visual_geometry':'admitted original physical StaticMesh assets' if self.physical_environment_bindings else 'legacy audio-only source points'})
         write_json(Path(path).parent/'native_registered_visual_evidence.json',result)
         return result

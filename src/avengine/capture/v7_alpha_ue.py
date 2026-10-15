@@ -99,7 +99,7 @@ class NativeUEAlphaVideo(UENativeContinuousVideo):
                         self.foot_components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
                         self.foot_components['depth'].set_property_value(property_name='ShowOnlyActors',property_value=[runtime['visual_actor']])
                     with self.instance.end_frame():depth=self.read_depth(self.foot_components['depth'])
-                rows.append({'view':name,**depth_support(depth,float(origin[1]),float(root[1]))})
+                rows.append({'view':name,**depth_support(depth,float(origin[1]),float(actor.get('native_support_floor_y_m',root[1])))})
         finally:
             self.alpha_lower_endpoint=None
             with self.instance.begin_frame():self._apply(0)

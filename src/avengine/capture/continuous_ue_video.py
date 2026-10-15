@@ -295,7 +295,7 @@ class UENativeContinuousVideo:
                             direction_y=(math.sin(pitch)+ry*math.cos(pitch))/np.sqrt(1+rx*rx+ry*ry)
                             surface_y=scene['listener_m'][1]+direction_y*target[ty,tx]
                             native_foot=float(surface_y.min())
-                            floor_y=actor['position_m'][1]
+                            floor_y=actor.get('native_support_floor_y_m',actor['position_m'][1])
                             actor['native_foot_contact']={'method':'native target-only ray depth reconstructed in world coordinates',
                                 'lowest_rendered_body_y_m':native_foot,'support_floor_y_m':floor_y,
                                 'gap_m':native_foot-floor_y,
@@ -312,7 +312,9 @@ class UENativeContinuousVideo:
                     physical_actors=[]
                     if getattr(self,'current_native_environment',False):
                         from avengine.capture.kujiale_pilot_environment import capture_frame
-                        if any(abs(a['native_foot_contact']['gap_m'])>.015 for a in actors):raise ValueError('current pilot human contact exceeds 15 mm')
+                        if any(abs(a['native_foot_contact']['gap_m'])>.015 for a in actors):
+                            from avengine.capture.v7_native_contact_construction import NativeContactConstructionRequired
+                            raise NativeContactConstructionRequired(index,actors,.015)
                         physical_actors=capture_frame(self,index,bgr,normal,semantic,targets,ids,pose_id)
                 if collect_pixel_visibility:
                     from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth

@@ -155,6 +155,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 'scene_video.mp4','native_registered_visual_evidence.json','native_visual_evidence.json',
                 'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','standing/standing_admission.json','acoustic_placement_admission.json']
             if inputs.get('render_backend')=='ue_spear':required.append('native_registered_assets.json')
+            if visual.get('native_vertical_contact_construction'):required.append('native_vertical_contact_construction.json')
             return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},required
         vc=_cpu();vw=time.perf_counter()
         from avengine.timeline.v7_native_stage_resume import compatible_static_native_recipe
