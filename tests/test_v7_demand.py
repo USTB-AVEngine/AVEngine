@@ -276,3 +276,18 @@ def test_temporary_disk_admission_floor_expires(monkeypatch):
     assert effective_minimum_free_bytes(policy)==60
     monkeypatch.setattr('avengine.timeline.v7_storage_budget.time.time',lambda:100)
     assert effective_minimum_free_bytes(policy)==100
+
+
+@pytest.mark.fast_unit
+def test_excluded_legacy_feedback_preserves_history_without_readding_on_resume(tmp_path):
+    from avengine.timeline.v7_demand import record_selected_parent,exclude_legacy_feedback,read_demand_state
+    path=tmp_path/'feedback.json'
+    def result(scene,n):return {'status':'integration_pilot_admitted','scene_id':scene,
+        'windows':[{'family_counts':{'QA-01':n},'logical_questions':n}]}
+    record_selected_parent(path,result('old_removed_body',2))
+    record_selected_parent(path,result('retained_camera_repair',3))
+    state=exclude_legacy_feedback(path,{'old_removed_body':'required body was removed'})
+    assert state['logical_questions']==3
+    assert state['excluded_legacy_parents']['old_removed_body']['logical_questions']==2
+    record_selected_parent(path,result('old_removed_body',2))
+    assert read_demand_state(path)['logical_questions']==3

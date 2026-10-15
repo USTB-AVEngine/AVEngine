@@ -200,7 +200,9 @@ def record_selected_parent(path,result):
     p=Path(path);p.parent.mkdir(parents=True,exist_ok=True)
     with p.with_suffix(p.suffix+'.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        state=read_demand_state(p);counts=Counter()
+        state=read_demand_state(p)
+        if result.get('scene_id') in state.get('excluded_parent_scene_ids',{}) or result.get('requested_scene_id') in state.get('excluded_parent_scene_ids',{}):return
+        counts=Counter()
         for w in result['windows']:
             if sum(w['family_counts'].values())!=w['logical_questions']:
                 raise ValueError('parent feedback does not match its selected logical question count')
@@ -455,3 +457,26 @@ def assign_authored_tts(row,catalog,manifest,*,rotation_index=0):
         'speaker_ids':[s['voice_reference']['speaker_id']for s in chosen],
         'whole_authored_transcripts':[s['transcript']for s in chosen]}
     return row
+
+
+def exclude_legacy_feedback(path,scene_reasons):
+    """Keep owner-rejected historical parents out of independent deficit counts.
+
+    This only updates derived task feedback. Native receipts/media/checkpoints
+    remain unchanged; camera/position repairs are not rejected.
+    """
+    import fcntl
+    p=Path(path)
+    with p.with_suffix(p.suffix+'.lock').open('a')as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX);state=read_demand_state(p)
+        state.setdefault('excluded_parent_scene_ids',{}).update(scene_reasons)
+        excluded=state.setdefault('excluded_legacy_parents',{})
+        for key,value in list(state['parents'].items()):
+            if key in scene_reasons or value.get('scene_id')in scene_reasons:
+                excluded[key]=value;del state['parents'][key]
+        counts=Counter()
+        for parent in state['parents'].values():counts.update(parent['family_counts'])
+        state.update(family_counts=dict(counts),logical_questions=sum(counts.values()))
+        demand_snapshot(state);tmp=p.with_name(p.name+f'.{os.getpid()}.tmp')
+        tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n');os.replace(tmp,p)
+    return state
