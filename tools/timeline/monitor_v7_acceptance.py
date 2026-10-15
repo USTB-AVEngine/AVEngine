@@ -97,6 +97,30 @@ def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, avai
  return ''
 
 
+def expected_family_construction_failure(receipt):
+ if receipt.get('error_type')=='ConstructionUnavailable':return True
+ if receipt.get('error_type')!='ValueError':return False
+ reason=str(receipt.get('reason',''))
+ return any(term in reason for term in ('no fully qualified new-house walking route',
+     'no strict native floor placement','no strict native table placement','no strict native wall placement',
+     'no strict native ceiling placement','bounded native NavMesh','requested registered occlusion',
+     'final registered scene occludes','room cannot supply requested count'))
+
+
+def hold_failed_family(manifest_path,family,reason):
+ """Quarantine only future dispatch, leaving all active native work untouched."""
+ with(manifest_path.parent/'plan.lock').open('a')as lock:
+  fcntl.flock(lock,fcntl.LOCK_EX);m=load(manifest_path);root=Path(m['output_root']);held=[]
+  for task in m['parents']:
+   if task.get('target_family')==family and not(root/'evidence/launches'/f"{task['slot']:03d}.json").exists():
+    task.update(launch_disabled=True,dispatch_hold_reason=reason);held.append(task['slot'])
+  write(manifest_path,m)
+  path=root/'evidence/FAMILY_CONSTRUCTION_HOLDS.json';observed=load(path)if path.exists()else{}
+  observed[family]={'reason':reason,'future_slots':held,'active_processes_signalled':False,
+      'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()};write(path,observed)
+ return held
+
+
 def append_progress(o,m,now,active):
  report_path=o/'PILOT_SUMMARY.json';report=load(report_path)if report_path.exists()else{}
  scenes=[m['parents'][slot]['row']['scene_id']for slot in active]
@@ -117,7 +141,7 @@ def construction_priority(task,observed,gaps,visual_gap,active_families,focus_fa
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--smoke-only',action='store_true');a=p.parse_args();m=load(a.manifest);o=Path(m['output_root']);w=Path(m['worktree'])
- pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;last_progress=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={};finalizer=None;last_finalize=0.
+ pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;last_progress=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={};family_failures={};finalizer=None;last_finalize=0.
  (o/'logs').mkdir(exist_ok=True)
  if m.get('live_resource_guard_enabled',True):
   end=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T07:00:00+00:00'))+datetime.timedelta(minutes=30)
@@ -175,6 +199,18 @@ def main():
     if retry is not None:
      with(o/'PROGRESS.md').open('a')as f:f.write(now.isoformat()+' AUTO_CONSTRUCTION_RETRY failed_slot='+str(slot)+' next_slot='+str(retry)+'；保留人数/题族/基本种子，自动改初始朝向或同房其他合法区域，不动真值门禁。\n')
      continue
+    if m.get('isolate_expected_family_construction_failures') and expected_family_construction_failure(d):
+     family=m['parents'][slot].get('target_family')
+     if family:
+      family_failures[family]=family_failures.get(family,0)+1
+      if family_failures[family]>=int(m.get('family_construction_failure_hold_count',2)):
+       held=hold_failed_family(a.manifest,family,str(d.get('reason')))
+       line=now.isoformat()+' FAMILY_CONSTRUCTION_HOLD '+family+' failed='+str(family_failures[family])+' future_slots='+str(held)+' reason='+str(d.get('reason'))+'; active native work untouched; other families continue.\n'
+       with(o/'PROGRESS.md').open('a')as f:f.write(line)
+       status=m.get('coordination_status_root')
+       if status:
+        with(Path(status)/'integrator.md').open('a')as f:f.write(line)
+      continue
     from tools.timeline.generate_v7_demand_scenes import failure_signature
     reason=failure_signature(d);failed_reasons[reason]=failed_reasons.get(reason,0)+1
     if failed_reasons[reason]>=2:pause='repeated_failure_needs_review';write(o/'REPEATED_FAILURE.json',{'reason':reason,'count':failed_reasons[reason]})
