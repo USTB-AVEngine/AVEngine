@@ -184,7 +184,7 @@ def qualify_scene(video,directory,human_checks):
         for index,view in enumerate(placement['camera_candidates'][:24]):
             views.append(probe.view(row,view,placement,vertices,directory/endpoint,index,24))
             if sum(x['status']=='pass' for x in views)>=3:break
-        if sum(x['status']=='pass' for x in views)<3:raise ValueError('current joint scene lacks three complete native views at <=2% highlights: '+endpoint)
+        if sum(x['status']=='pass' for x in views)<3:raise ValueError('current joint scene lacks three complete native visibility views: '+endpoint)
         node['current_scene_native_vertices']=vertices
         node['current_scene_contact']={'status':'pass','gap_m':max(map(abs,gaps)),'surface':row['attachment_surface'],
             'contact_deltas_m':gaps,'tolerance_m':tolerance,'collision':collision,'native_bounds_error_m':bounds_error}
@@ -228,7 +228,7 @@ def capture_frame(video,index,bgr,normal,semantic,targets,ids,pose_id):
         targets[sid]=[np.ascontiguousarray(target[::getattr(video,'capture_scale',2),::getattr(video,'capture_scale',2)])];ids[sid]=semantic_id
         semantic[visible]=semantic_id
         count=int(mask.sum());pixels=int(visible.sum());highlight=float(np.mean(np.all(bgr[visible]>247,axis=1))) if pixels else None
-        if highlight is not None and highlight>.02:raise ValueError('current UE physical asset highlights exceed 2%: '+endpoint)
+        highlight_warning=highlight is not None and highlight>.02  # record only, per owner 2026-10-15 10:4x
         body=Capture.body_mask(probe,row,visible,target,view,vertices,placement)
         color=measure(bgr[:,:,::-1],body,COLOR_THRESHOLDS) if index%15==0 else None
         contact=node['current_scene_contact']
@@ -245,7 +245,7 @@ def capture_frame(video,index,bgr,normal,semantic,targets,ids,pose_id):
         records.append({'endpoint_id':endpoint,'source_id':node['source_id'],'asset_id':row['asset_id'],'frame_index':index,
             'physical_mesh_count':len(node['runtimes']),'source_geometry_present':True,'emitter_position_m':point,'root_error_m':root_error,
             'target_pixels':count,'visible_pixels':pixels,'visible_fraction':float(pixels/count) if count else None,
-            'highlight_ratio':highlight,'color':color,'registered_color_label':row.get('label_color')})
+            'highlight_ratio':highlight,'highlight_previous_limit_exceeded':highlight_warning,'highlight_gate_enforced':False,'color':color,'registered_color_label':row.get('label_color')})
     video.current_environment_frames.append({'frame_index':index,'entities':records})
     return rows
 
