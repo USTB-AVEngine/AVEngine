@@ -1,7 +1,7 @@
 {
   "schema": "v7-kujiale-ue-native-measurements-v1",
   "revision": "20261015-native-measured-v1",
-  "updated_utc": "2026-10-15T08:24:47.498040+00:00",
+  "updated_utc": "2026-10-15T08:25:00.937085+00:00",
   "original_registrations_modified": false,
   "runtime_authority": "production reads these measured native bases and original package hashes; world matrices remain measured per new frame",
   "scope": {
@@ -282,7 +282,7 @@
       "house": "kujiale_0003",
       "room_id": "R3",
       "measurement_status": "pass",
-      "smoke_status": "running",
+      "smoke_status": "pass",
       "measurements": [
         {
           "scene_id": "v7_kujiale_fixed_v2_kujiale_0003_R3_a00",
@@ -629,8 +629,8 @@
           }
         }
       ],
-      "independent_questions": 0,
-      "reason": "current complete parent pending",
+      "independent_questions": 76,
+      "reason": "",
       "native_floor_surface": {
         "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0003/native_editor_audit.json",
         "native_editor_audit_sha256": "55d6e3344a1597af1d281dcc6c34594805eef0b59b80a835f82e6954060fbe38",
@@ -642,7 +642,44 @@
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
       "scene_id": "v7_kujiale_fixed_v2_kujiale_0003_R3_a00",
-      "fix": "按原生日志定位并自动重构同房下一条件；未通过不计能用"
+      "families": {
+        "QA-02": 8,
+        "QA-12": 8,
+        "QA-26": 8,
+        "QA-14": 2,
+        "QA-28": 2,
+        "QA-25": 2,
+        "STARSS-FRUSTUM": 1,
+        "STARSS-CLASS13": 1,
+        "QA-27": 8,
+        "QA-04": 2,
+        "QA-05": 1,
+        "QA-01": 2,
+        "QA-03": 2,
+        "STARSS-SPEAKERS": 1,
+        "V7-CONTENT-BIND": 12,
+        "QA-19": 8,
+        "QA-23": 2,
+        "QA-22": 1,
+        "QA-20": 1,
+        "QA-18": 2,
+        "QA-13": 2
+      },
+      "parent_receipt": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/evidence/jobs/002.json",
+        "sha256": "b7e5a5b5f78d6f6b3e942b17f0972d99d631d09028e988050334b1ce16cbaa4f"
+      },
+      "reader": {
+        "status": "pass",
+        "hostname": "cw-SYS-4029GP-TRT3",
+        "actual_decoded_windows": 20,
+        "unique_windows": 20,
+        "errors": [],
+        "GPU_started": false,
+        "method": "ffprobe all frames + ffmpeg actual first RGB frame + soundfile complete FOA and W-mono read"
+      },
+      "english_status": "pass",
+      "fix": "完整门禁已过"
     },
     {
       "house": "kujiale_0009",
