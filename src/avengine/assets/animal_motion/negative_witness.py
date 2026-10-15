@@ -10,9 +10,11 @@ import numpy as np
 
 
 def construct_negative_companion(context, camera, standing, body, animal_actor, *,
-                                  entity_id, animal_call_s, animal_duration_s):
+                                  entity_id, animal_call_s, animal_duration_s, admitted_asset):
     from avengine.construction.joint.routes import construct_route,ConstructionError
     from shapely.geometry import LineString
+    if admitted_asset.get('kind')!='human'or admitted_asset.get('walk_allowed')is not True:
+        raise ConstructionError('animal_negative_comparator_requires_admitted_human_walk')
     start=float(animal_call_s)-.5
     end=float(animal_call_s)+float(animal_duration_s)+.8
     speed=.85
@@ -38,6 +40,15 @@ def construct_negative_companion(context, camera, standing, body, animal_actor, 
             actor.positions_m[:,1]=floor
             actor.metadata['waypoints_m']=[[float(p[0]),floor,float(p[2])]for p in(origin,finish)]
             actor.metadata['original_scan_root_floor_m']=floor
+        sound_ray=getattr(context,'raycaster',None)
+        if sound_ray is not None:
+            from avengine.construction.joint.native import native_yaw
+            from avengine.capture.v7_visible_attachment import rotation
+            local=np.asarray(admitted_asset.get('mouth_local_glb_m',admitted_asset.get('emitter_local_m',[0.,body.height_m*.8,0.])),float)
+            mouths=np.asarray(actor.positions_m)[[0,-1]]+rotation(native_yaw(actor,admitted_asset))@local
+            rays=mouths-camera.position_m
+            hit,_=sound_ray.first_hit(camera.position_m,rays)
+            if np.isnan(hit).any()or np.any(np.asarray(hit)<np.linalg.norm(rays,axis=1)-.04):continue
         actor.metadata['animal_static_negative_comparator']={
             'animal_call_s':float(animal_call_s),'animal_duration_s':float(animal_duration_s),
             'minimum_abs_root_azimuth_deg':float(np.min(np.abs(bearings))),

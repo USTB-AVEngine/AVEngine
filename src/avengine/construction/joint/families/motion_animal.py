@@ -254,10 +254,13 @@ class MotionAnimalPlugin:
                         if request.options.get('require_static_negative_comparator'):
                             from avengine.assets.animal_motion.negative_witness import construct_negative_companion
                             speaker=construct_negative_companion(context,camera,standing,human,actor,
-                                entity_id=companion,animal_call_s=21.3,animal_duration_s=duration)
+                                entity_id=companion,animal_call_s=21.3,animal_duration_s=duration,admitted_asset=d['companion'])
                         preliminary=ScenePlan(camera,{mover:actor,companion:speaker})
                         if not certify_plan(context,preliminary).passed:continue
-                    except ConstructionError:continue
+                    except ConstructionError as error:
+                        if request.options.get('require_static_negative_comparator'):
+                            self.rejections[str(error)]=self.rejections.get(str(error),0)+1
+                        continue
                     target_starts=[offset+1.3 for offset in offsets]+[21.3]
                     silence=((4.2,6.6),(14.2,16.6),(24.2,26.6))
                     requirements=[]
