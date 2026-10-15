@@ -239,3 +239,13 @@ def test_authored_epochs_keep_roles_and_real_voice_identity():
     sounds[-1]['voice_reference']['speaker_id']='changed_voice'
     with pytest.raises(ValueError,match='fixed physical voices'):
         authored_epoch_sound_rows(plan,{'sounds':sounds},[0,10,20],bodies)
+
+
+@pytest.mark.fast_unit
+def test_temporary_disk_admission_floor_expires(monkeypatch):
+    from avengine.timeline.v7_storage_budget import effective_minimum_free_bytes
+    policy={'minimum_free_bytes':100,'temporary_minimum_free_bytes':60,'temporary_minimum_free_until_unix':100}
+    monkeypatch.setattr('avengine.timeline.v7_storage_budget.time.time',lambda:99)
+    assert effective_minimum_free_bytes(policy)==60
+    monkeypatch.setattr('avengine.timeline.v7_storage_budget.time.time',lambda:100)
+    assert effective_minimum_free_bytes(policy)==100

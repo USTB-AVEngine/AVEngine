@@ -60,6 +60,12 @@ def configure_local_review(output,budget_root,*,parents,workers):
     return policy
 
 
+
+def effective_minimum_free_bytes(policy):
+    if time.time()<float(policy.get('temporary_minimum_free_until_unix',0)):
+        return int(policy.get('temporary_minimum_free_bytes',policy['minimum_free_bytes']))
+    return int(policy['minimum_free_bytes'])
+
 def check_write(path,*,expected_bytes=0):
     raw=os.environ.get(ENV_KEY)
     if not raw:return None
@@ -75,8 +81,9 @@ def check_write(path,*,expected_bytes=0):
         return {"free_bytes":free,"own_allocated_bytes":allocated_bytes(root),
                 "expected_write_bytes":requested,"checked_unix":time.time(),
                 "policy":policy,"resource_limits_enforced_at":"parent_admission"}
-    if free-requested-margin<policy["minimum_free_bytes"]:
-        raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={policy['minimum_free_bytes']}")
+    minimum=effective_minimum_free_bytes(policy)
+    if free-requested-margin<minimum:
+        raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={minimum}")
     used=allocated_bytes(root)
     if used+requested+margin>policy["maximum_task_bytes"]:
         raise StorageBudgetExceeded(f"own output budget stop: allocated={used}, expected={requested}, limit={policy['maximum_task_bytes']}")
