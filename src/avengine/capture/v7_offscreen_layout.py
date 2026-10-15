@@ -68,10 +68,24 @@ def coverage_errors(scene,assets,visual,visible_frame_counts):
     errors=[];byid={a['asset_id']:a for a in assets};proofs={a['asset_id']:a.get('intentional_offscreen_proof')for a in visual.get('visible_attachment_checks',[])}
     for aid,count in visible_frame_counts.items():
         role=offscreen_role(scene,aid)
+        proof=proofs.get(aid)
+        if not role and not count and aid not in scene.get('native_view_roles',{}):
+            # Placement runs in a fresh native process. Its approved static
+            # offscreen fallback is measured in the returned evidence even
+            # when the caller's original scene has no such role yet.
+            asset=byid.get(aid,{})
+            requests=scene.get('production_scenario',{}).get('motion_requests',{})
+            moving=aid in requests or asset.get('endpoint_id')in requests
+            if (not moving and proof and proof.get('status')=='pass'
+                    and proof.get('source_is_real_drawable')
+                    and proof.get('all_vertices_outside_native_frustum_plane')
+                    and proof.get('native_object_id')is not None
+                    and proof.get('native_visible_pixels')==0
+                    and proof.get('QA_visibility_overridden')is False):
+                role={'view':'outside','static':True,'authority':'actual returned native drawable/projection proof'}
         if not role:
             if not count:errors.append('registered entity never reached 100 native visible pixels')
             continue
-        proof=proofs.get(aid)
         if (aid not in byid or not proof or proof.get('status')!='pass'or not proof.get('source_is_real_drawable')
                 or not proof.get('all_vertices_outside_native_frustum_plane')or proof.get('native_object_id')is None):
             errors.append('intentional offscreen body lacks actual native drawable/projection proof')
