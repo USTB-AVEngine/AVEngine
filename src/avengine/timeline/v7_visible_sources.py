@@ -341,14 +341,20 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
             crop=0 if whole else max(0,min(int(activity[0][0]),record['header']['sample_count']-ticks*1600))
             if measured_program is not None:
                 crop=int(measured_program.get('crop_start_sample',0))
-                required=measured_program.get('required_activity_intervals_samples',activity)
-                if measured_program.get('selected_activity_index')is not None and required!=[activity[int(measured_program['selected_activity_index'])]]:raise ValueError('selected activity must match the original measured complete call')
-                if any(int(lo)<crop or int(hi)>crop+ticks*1600 for lo,hi in required):
-                    raise ValueError('measured animal program would remove observed animal activity')
+                if measured_program.get('tail_muted'):
+                    from .v7_tail_muting import read_tail_muted_program
+                    _,processed_activity=read_tail_muted_program(record,measured_program)
+                    if not processed_activity['activity_intervals_samples']:raise ValueError('tail-muted program has no actual activity')
+                else:
+                    required=measured_program.get('required_activity_intervals_samples',activity)
+                    if measured_program.get('selected_activity_index')is not None and required!=[activity[int(measured_program['selected_activity_index'])]]:raise ValueError('selected activity must match the original measured complete call')
+                    if any(int(lo)<crop or int(hi)>crop+ticks*1600 for lo,hi in required):
+                        raise ValueError('measured animal program would remove observed animal activity')
             eid=f'event_{len(scene["events"]):04d}';cid=source['class_id'] if human_speech else STRICT_CLASS13.get(cls)
             scene['events'].append({'event_id':eid,'endpoint_id':ep,'source_id':i+1,'class_id':cid,'sound_class':cls,'start_tick':lo,'end_tick':hi,'mechanism':mechanism})
             program['events'].append({'event_id':eid,'sound_asset_id':record['sound_asset_id'],'crop_start_sample':crop,
-                **({'preserve_full_recorded_clip':True} if whole and record.get('source_type')!='author_tts' else {})})
+                **({'preserve_full_recorded_clip':True} if whole and record.get('source_type')!='author_tts' else {}),
+                **({'tail_muting':deepcopy(measured_program)} if measured_program is not None and measured_program.get('tail_muted') else {})})
             used[record['sound_asset_id']]=record
     program['records']=list(used.values());working['room']['placement']={**working['room']['placement'],'camera_m':listener}
     validate_scene_bindings(scene,assets)

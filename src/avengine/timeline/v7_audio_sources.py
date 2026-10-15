@@ -199,7 +199,13 @@ def assemble_recorded_buses(scene, program):
             raise ValueError("recorded clip is too short; looping/synthesis fallback is forbidden")
         take = min(length, len(clip))
         segment = np.zeros(length); segment[:take] = clip[:take]
-        if not authored and not whole_recording:
+        tail_profile=binding.get('tail_muting')
+        if tail_profile is not None:
+            from .v7_tail_muting import tail_muted_segment,SPEECH_CLASSES
+            if authored or whole_recording or record.get('sound_class')in SPEECH_CLASSES:
+                raise ValueError('human utterances and whole recordings cannot use tail muting')
+            segment=tail_muted_segment(clip,tail_profile,output_sample_count=length,sample_rate_hz=sr)
+        if not authored and not whole_recording and tail_profile is None:
             fade = min(80, take // 2)
             if fade:
                 ramp = np.linspace(0, 1, fade)
@@ -223,6 +229,12 @@ def assemble_recorded_buses(scene, program):
                          "semantic_content_complete": authored or whole_recording,
                          "preserved_full_recorded_clip": whole_recording,
                          "trailing_padding_samples": length - take, "repeat_or_time_stretch": False})
+        if tail_profile is not None:
+            from .v7_tail_muting import measure_processed_activity,REASON
+            evidence[-1].update(tail_muted=True,reason=REASON,
+                fade_out_samples=int(tail_profile.get('fade_out_samples',960)),
+                processed_activity=measure_processed_activity(segment,sr),
+                wet_support_authority='actual native rendered event waveform, not original recording annotations')
     return buses, {"audio_source_revision": AUDIO_SOURCE_REVISION,
                    "status": "recorded_inputs_assembled", "admitted_records": admitted,
                    "events": evidence, "endpoint_speaker_ids": speakers,
