@@ -333,3 +333,12 @@ def test_explicit_playback_class_keeps_three_actual_capable_distinct_bodies():
         target_options(room, catalog, records, {}, {}, asset_class_choices={'speaker': 'cat_meow'})
     with pytest.raises(ValueError, match='not an admitted source'):
         target_options(room, catalog, records[:-1], {}, {}, asset_class_choices={'speaker': 'speech_playback'})
+
+
+def test_family_preflight_keeps_only_appearance_while_core_owns_acoustic_gate(monkeypatch):
+    import avengine.construction.joint.families.qa21 as module
+    monkeypatch.setattr(module, 'native_candidate_check', lambda *args: {'status': 'pass', 'actual_pixels': 500})
+    video = NS(_native_pair_pixels=lambda scene, entries: {'target': 500})
+    checks = list(module.native_family_obligations(video, {}, []))
+    assert len(checks) == 1 and checks[0].name == 'native:qa21:appearance_and_pixels'
+    assert checks[0].status == 'pass' and checks[0].evidence['actual_pixels'] == 500
