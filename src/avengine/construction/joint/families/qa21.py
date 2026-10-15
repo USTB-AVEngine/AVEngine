@@ -34,7 +34,7 @@ def emission_mechanism(asset, sound_class):
 
 
 def target_options(room, catalog, records, contract, state, *, requested_class=None,
-                   floor_only=True):
+                   floor_only=True, preferred_asset_ids=()):
     """Enumerate admitted class/body pairs before choosing any camera or route."""
     from avengine.timeline.continuous_scene import QA21_CLASSES
     from avengine.timeline.v7_production_inputs import asset_category
@@ -70,7 +70,8 @@ def target_options(room, catalog, records, contract, state, *, requested_class=N
     positives = state.get('qa21_positive_counts', state.get('class34_positive_counts', {}))
     if any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in positives.values()):
         raise ValueError('positive class feedback must be nonnegative delivered counts')
-    result.sort(key=lambda t: (positives.get(t[1], 0),
+    preferred={aid:index for index,aid in enumerate(preferred_asset_ids)}
+    result.sort(key=lambda t: (positives.get(t[1], 0), preferred.get(t[0]['asset_id'],len(preferred)),
         state.get('source_entity_usage_counts', {}).get(t[0]['asset_id'], 0), t[1], t[0]['asset_id']))
     return result
 
@@ -126,20 +127,47 @@ class _StaticDomainContext:
 
 
 class Qa21Plugin:
-    def __init__(self, bodies, roles, target_id, sound_class, *, sounds=(), maximum=256, targets=None, assets=None):
+    def __init__(self, bodies, roles, target_id, sound_class, *, sounds=(), maximum=256, targets=None, assets=None, seed=0, room=None):
         self.bodies, self.roles = bodies, roles
         self.target_id, self.sound_class = target_id, sound_class
         self.sounds, self.maximum = tuple(sounds), maximum
         self.targets = targets or {target_id: sound_class}
         self.assets = assets or {}
         self._mesh_raycasters = {}
+        self.seed, self.room = seed, room
 
     def candidates(self, context, request):
         from avengine.construction.joint import enumerate_static_layouts
-        domain_context = _StaticDomainContext(context, lambda camera, body, point: self.point_visible(context, camera, body, point))
-        for plan in enumerate_static_layouts(domain_context, self.bodies, self.roles, max_candidates=self.maximum):
+        # Core v3 owns NavMesh/actual-width point filtering and fair combinations.
+        for plan in enumerate_static_layouts(context, self.bodies, self.roles, max_candidates=self.maximum):
+            for aid,actor in plan.actors.items():
+                if aid in self.assets:actor.metadata['native_yaw_rad']=self.planned_yaw(context,plan,aid)
             yield replace(plan, sounds=self.sounds, metadata={**plan.metadata,
                 'qa21_target_id': self.target_id, 'qa21_sound_class': self.sound_class})
+
+    def planned_yaw(self, context, plan, aid):
+        asset=self.assets[aid];actor=plan.actors[aid]
+        if 'native_yaw_rad' in actor.metadata:return float(actor.metadata['native_yaw_rad'])
+        root=np.asarray(actor.positions_m)[0];delta=np.asarray(plan.camera.position_m)-root
+        if asset.get('kind') in {'human','performer'} and self.room is not None:
+            from shapely.geometry import shape
+            from avengine.timeline.v7_natural_orientation import sample_initial_orientation
+            centre=shape(self.room['floor_polygon']).representative_point()
+            result=sample_initial_orientation(asset,int(self.seed),root,plan.camera.position_m,
+                [centre.x,float(self.room['measured_floor_y_m']),centre.y],[],[])
+            return float(result['yaw_rad'])
+        return math.atan2(-delta[0],-delta[2]) if asset.get('kind') in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
+
+    def emitter_path_clear(self, context, plan, aid):
+        if not getattr(context,'raycaster',None):return None
+        local=self.assets[aid].get('emitter_local_m')
+        if local is None:return False
+        from avengine.capture.v7_visible_attachment import rotation
+        root=np.asarray(plan.actors[aid].positions_m)[0]
+        source=root+rotation(self.planned_yaw(context,plan,aid))@np.asarray(local)
+        origin=np.asarray(plan.camera.position_m);delta=source-origin;distance=float(np.linalg.norm(delta))
+        hits,_=context.raycaster.first_hit(origin,delta[None,:])
+        return bool(float(hits[0])>=distance+.02)
 
     def point_visible(self, context, camera, body, point):
         """Choose a visible source domain before combining independent emitters."""
@@ -170,7 +198,7 @@ class Qa21Plugin:
                     evidence={'asset_id': aid, 'source': 'original admitted static mesh'})
             root = np.asarray(actor.positions_m, float)[0]
             delta = np.asarray(plan.camera.position_m)-root
-            yaw = math.atan2(-delta[0], -delta[2]) if asset.get('kind') in {'human', 'performer', 'animal'} else math.atan2(-delta[2], delta[0])
+            yaw = self.planned_yaw(context,plan,aid)
             c, s = math.cos(yaw), math.sin(yaw)
             transform = np.eye(4);transform[:3, :3] = [[c, 0., s], [0., 1., 0.], [-s, 0., c]]
             transform[:3, 3] = root
@@ -193,6 +221,12 @@ class Qa21Plugin:
             yield CheckResult('qa21_spacing_'+aid+'_'+bid, 'pass' if distance >= required else 'fail',
                 margin=distance-required, evidence={'actual_planned_m': distance, 'required_m': required})
         if not spacing_ok:return
+        for aid in {event.entity_id for event in plan.sounds}:
+            if aid in self.assets:
+                clear=self.emitter_path_clear(context,plan,aid)
+                yield CheckResult('qa21_emitter_stage_path_'+aid, 'unknown' if clear is None else 'pass' if clear else 'fail',
+                    'original_visual_stage_line_of_sight; actual unchanged RIR gate still required')
+                if clear is False:return
         for target_id, cls in self.targets.items():
             actor = plan.actors.get(target_id)
             if actor is None:
@@ -390,7 +424,7 @@ def prepare_qa21_sources(room, house, state, catalog, records, semantic, contrac
     requested = runtime.get('qa21_requested_class') or state.get('qa21_requested_class')
     maximum = 1 if requested else int(runtime.get('qa21_targets_per_parent', 3))
     if not 1 <= maximum <= 3:raise ValueError('QA21 supports one to three distinct planned targets')
-    options = target_options(room, catalog, records, contract, state, requested_class=requested)
+    options = target_options(room, catalog, records, contract, state, requested_class=requested, preferred_asset_ids=runtime.get('qa21_preferred_asset_ids',()))
     selected = select_target_set(options, maximum)
     if not selected:raise ConstructionUnavailable('no admitted floor emitter can make the requested QA21 class in this legal room')
     # Only the human required by this question plan is introduced. Its whole
@@ -440,74 +474,97 @@ def solved_native_supports(plan, assets, seed, room):
     """Translate the solved original mesh roots to the existing native support
     contract. The original native support/contact checks still run at this pin.
     """
-    from avengine.capture.v7_visible_native import attachment_template
-    from avengine.capture.v7_visible_attachment import rotation, support_points
-    from avengine.capture.v7_visible_mesh import indexed_static_mesh
-    from avengine.timeline.v7_natural_orientation import sample_initial_orientation
-    from shapely.geometry import shape
-    polygon = shape(room['floor_polygon']);centre=polygon.representative_point()
-    room_center=[centre.x,float(room['measured_floor_y_m']),centre.y]
-    furniture=[np.asarray(actor.positions_m)[0].tolist() for aid,actor in plan.actors.items() if assets[aid].get('kind')=='object']
-    supports={}
-    for aid, actor in plan.actors.items():
-        asset=assets[aid];root=np.asarray(actor.positions_m,float)[0];delta=np.asarray(plan.camera.position_m)-root
-        if asset.get('kind') in {'human','performer'}:
-            orientation=sample_initial_orientation(asset,int(seed),root,plan.camera.position_m,room_center,[],furniture)
-            yaw=float(orientation['yaw_rad'])
-        else:
-            orientation=None
-            yaw=math.atan2(-delta[0],-delta[2]) if asset.get('kind')=='animal' else math.atan2(-delta[2],delta[0])
-        mesh=indexed_static_mesh(asset['habitat_glb'])
-        template=attachment_template(np.asarray(mesh.vertices),asset['attachment_surface'],asset['kind'],asset.get('landmarks_local_m'),mesh)
-        meta={**asset,'_attachment_template':template}
-        support={'surface':asset['attachment_surface'],'point':[0.,0.,0.],'normal':[0.,1.,0.],'yaw_rad':yaw}
-        origin_root,_,_,_=support_points(meta,support)
-        point=root-np.asarray(origin_root)
-        support.update(point=point.tolist(),original_surface_point_m=point.tolist(),joint_solved_pose=True,
-            _outward_clearance_m=0.,qa21_expected_root_m=root.tolist())
-        if orientation is not None:support['_natural_orientation']=orientation
-        replay,_,_,_=support_points(meta,support)
-        if np.linalg.norm(replay-root)>1.e-8:raise ValueError('QA21 native support translation changed the solved root')
-        supports[aid]=support
-    return supports
+    from avengine.construction.joint import strict_native_bindings
+    helper=Qa21Plugin({aid:a.body for aid,a in plan.actors.items()}, {}, '', '', assets=assets, seed=seed, room=room)
+    for aid,actor in plan.actors.items():
+        actor.metadata['native_yaw_rad']=helper.planned_yaw(None,plan,aid)
+    result=strict_native_bindings(plan,assets,floor_y=room['measured_floor_y_m'])
+    # Compatibility aliases are descriptive only; execution uses the core keys.
+    for support in result['native_attachment_supports'].values():
+        support['point']=list(support['original_surface_point_m'])
+        support['qa21_expected_root_m']=list(support['joint_expected_root_m'])
+    return result['native_attachment_supports']
+
+
+def native_family_obligations(video, scene, entries, *, runtime, output_root):
+    """QA21 appearance and the unchanged actual native 5-degree RIR gate."""
+    from avengine.construction.joint import CheckResult
+    from avengine.timeline.v7_position_admission import PositionAdmission
+    from pathlib import Path
+    import os, tempfile
+    observed = native_candidate_check(video,scene,entries,video._native_pair_pixels(scene,entries))
+    yield CheckResult('native:qa21:appearance_and_pixels', 'pass' if observed['status']=='pass' else 'fail',
+        evidence=observed)
+    if observed['status']!='pass':return
+    folder=Path(tempfile.mkdtemp(prefix='family_rir_',dir=output_root))
+    acoustic=dict(runtime)
+    acoustic['fresh_rir_cpu_ids']=list(runtime.get('fresh_rir_cpu_ids') or sorted(os.sched_getaffinity(0)))
+    acoustic['fresh_rir_workers']=min(int(runtime.get('fresh_rir_workers',1)),max(1,len(acoustic['fresh_rir_cpu_ids'])-1))
+    gate=PositionAdmission(scene,video.motion_house,acoustic,folder/'rir_cache',folder/'admission.json')
+    try:
+        for entry in entries:
+            asset=entry['declaration']
+            if asset.get('silent_decor'):continue
+            point=video._apply_entry(entry,scene)['emitter_position_m']
+            result=gate.check(entry['endpoint_id'],np.asarray(point))
+            yield CheckResult('native:qa21:rir:'+asset['asset_id'], 'pass' if result['status']=='pass' else 'fail',
+                'unchanged_native_5deg_position_admission', evidence=result)
+    finally:gate.close()
 
 
 def construct_qa21_scene(room, house, state, catalog, records, semantic, contract, runtime,
                          *, scene_id, seed, family='QA-21', attempt=0):
-    from avengine.timeline.v7_family_constructors import ConstructionUnavailable, _request
-    from avengine.timeline.v7_production_inputs import validate_recipe
-    from avengine.construction.joint import build_room_context, FamilyRequest, solve
-    row, selected, person, sounds, ctx = prepare_qa21_sources(room, house, state, catalog,
-        records, semantic, contract, runtime, scene_id=scene_id, seed=seed, family=family, attempt=attempt)
-    target_ids = row['automatic_construction']['qa21_target_asset_ids']
-    targets = row['automatic_construction']['qa21_target_classes']
-    companion = person['asset_id']
-    bodies = {a['asset_id']: body_spec(a) for a in [*(a for a, _, _ in selected), person]}
-    roles = {**{aid: 'inside' for aid in target_ids}, companion: 'outside'}
-    context = build_room_context(ctx['original_room'], house=house, runtime=runtime,
-        cache_dir=runtime.get('qa21_joint_cache_dir'), camera_limit=24, width=1280, height=720)
-    try:
-        request = FamilyRequest('QA-21', '|'.join(targets.values()), tuple(target_ids))
-        plugin = Qa21Plugin(bodies, roles, target_ids[0], targets[target_ids[0]], sounds=sounds, targets=targets, assets={a['asset_id']: a for a in [*(a for a, _, _ in selected), person]})
-        solved = solve(context, request, plugin, budget_s=float(runtime.get('qa21_joint_budget_s', 300.)), max_candidates=256)
-    finally:
-        close = getattr(context, 'close', None)
-        if close:close()
-    status = solved.status if hasattr(solved, 'status') else solved.get('status')
-    if status != 'certified':raise ConstructionUnavailable('QA21 core did not certify the chosen classes/bodies: '+str(solved))
-    plan = solved.plan if hasattr(solved, 'plan') else solved['plan'];camera = plan.camera
-    row.update(listener_m=list(camera.position_m), camera_yaw_deg=camera.yaw_deg,
-        camera_yaw_knots=[{'time_s': 0., 'yaw_deg': camera.yaw_deg}, {'time_s': 30., 'yaw_deg': camera.yaw_deg}],
-        native_placement_preferences_m={aid: np.asarray(actor.positions_m)[0].tolist() for aid, actor in plan.actors.items()})
+    from avengine.timeline.v7_family_constructors import ConstructionUnavailable
+    from avengine.timeline.v7_production_inputs import validate_recipe,attach_runtime_contract
+    from avengine.construction.joint import build_room_context, FamilyRequest, solve, prepare_static_native
     from dataclasses import asdict
+    from pathlib import Path
     import json
-    certificate = solved.certificate if hasattr(solved, 'certificate') else solved['certificate']
-    row['scene_demand']['qa21_planning_certificate'] = json.loads(json.dumps(asdict(certificate),
-        default=lambda value: value.tolist() if hasattr(value, 'tolist') else value.item()))
-    row['native_attachment_supports'] = solved_native_supports(plan, {a['asset_id']: a for a in [*(a for a, _, _ in selected), person]}, seed, ctx['original_room'])
-    row['scene_demand']['qa21_certification_authority'] = 'planning geometry and actual compiled source clock; original native masks and QA unchanged'
-    validate_recipe(row, catalog, contract)
-    return {'profile': 'phase2', 'row': row}
+    row,selected,person,sounds,ctx=prepare_qa21_sources(room,house,state,catalog,records,semantic,contract,runtime,
+        scene_id=scene_id,seed=seed,family=family,attempt=attempt)
+    target_ids=row['automatic_construction']['qa21_target_asset_ids'];targets=row['automatic_construction']['qa21_target_classes']
+    assets={a['asset_id']:a for a in [*(a for a,_,_ in selected),person]}
+    bodies={aid:body_spec(a)for aid,a in assets.items()};roles={**{aid:'inside'for aid in target_ids},person['asset_id']:'outside'}
+    geometry_only=bool(runtime.get('qa21_geometry_only_for_diagnostics',False))
+    output=runtime.get('qa21_native_oracle_root')
+    if not geometry_only and not output:raise ConstructionUnavailable('QA21 requires a caller-owned native oracle output directory')
+    context=build_room_context(ctx['original_room'],house=house,runtime=runtime,cache_dir=runtime.get('qa21_joint_cache_dir'),camera_limit=24,width=1280,height=720)
+    def row_factory(plan):
+        current=deepcopy(row);camera=plan.camera
+        current.update(listener_m=list(camera.position_m),camera_yaw_deg=camera.yaw_deg,
+            camera_yaw_knots=[{'time_s':0.,'yaw_deg':camera.yaw_deg},{'time_s':30.,'yaw_deg':camera.yaw_deg}],
+            native_placement_preferences_m={aid:np.asarray(actor.positions_m)[0].tolist()for aid,actor in plan.actors.items()})
+        current=attach_runtime_contract(current,runtime)
+        validate_recipe(current,catalog,contract)
+        return current
+    def oracle(context,request,plan):
+        root=Path(output)/scene_id;root.mkdir(parents=True,exist_ok=True)
+        return prepare_static_native(context,request,plan,row_factory=row_factory,house=house,catalog=catalog,
+            records=records,semantic=semantic,runtime=runtime,output_dir=root,roles=roles,
+            minimum_visible_pixels={aid:MINIMUM_TARGET_PIXELS for aid in target_ids},appearance_ids=tuple(target_ids),
+            family_check=lambda video,scene,entries:native_family_obligations(video,scene,entries,runtime=runtime,output_root=root))
+    try:
+        request=FamilyRequest('QA-21','|'.join(targets.values()),tuple(target_ids),{'require_native_preflight':not geometry_only})
+        plugin=Qa21Plugin(bodies,roles,target_ids[0],targets[target_ids[0]],sounds=sounds,targets=targets,assets=assets,seed=seed,room=ctx['original_room'])
+        solved=solve(context,request,plugin,prepare_and_verify=None if geometry_only else oracle,
+            budget_s=float(runtime.get('qa21_joint_budget_s',600.)),max_candidates=int(runtime.get('qa21_max_candidates',512)),
+            max_native_preparations=int(runtime.get('qa21_max_native_preparations',8)))
+    finally:context.close()
+    if solved.status!='certified':
+        detail={'status':solved.status,'reasons':list(solved.reasons),'diagnostics':solved.diagnostics}
+        raise ConstructionUnavailable('QA21 joint solve did not certify native appearance/physics/RIR: '+json.dumps(detail,default=str))
+    if geometry_only:
+        result=row_factory(solved.plan)
+        result['native_attachment_supports']=solved_native_supports(solved.plan,assets,seed,ctx['original_room'])
+    else:
+        if solved.prepared is None or solved.prepared.payload is None:raise RuntimeError('QA21 certified without its required live prepared world')
+        result=solved.prepared.payload.row
+        result['joint_prepared_scene_required']=True
+    result['scene_demand']['qa21_planning_certificate']=json.loads(json.dumps(asdict(solved.certificate),default=lambda value:value.tolist()if hasattr(value,'tolist')else value.item()))
+    proposal={'profile':'phase2','row':result,'joint_plan':solved.plan,'joint_solver_certificate':solved.certificate}
+    if not geometry_only:
+        proposal.update(prepared=solved.prepared.payload,prepared_native=solved.prepared.payload,prepared_candidate=solved.prepared)
+    return proposal
 
 
 def native_appearance_check(video, scene, entries):

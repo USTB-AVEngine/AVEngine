@@ -297,3 +297,19 @@ def test_native_support_contract_replays_the_solved_mesh_root(tmp_path):
     observed,yaw,_,_=support_points(meta,pin)
     assert pin['joint_solved_pose'] and np.allclose(observed,root,atol=1.e-8)
     assert pin['qa21_expected_root_m']==root.tolist()
+
+
+def test_real_stage_ray_rejects_a_hidden_emission_part():
+    import trimesh
+    from avengine.construction.joint import CameraPose,BodySpec,ActorPlan,ScenePlan
+    from avengine.construction.joint.geometry import MeshRaycaster
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    camera=CameraPose((0.,1.25,0.),0.);body=BodySpec('cat',.2,.5)
+    actor=ActorPlan('cat',np.tile([0.,0.,-3.8],(901,1)),body)
+    plan=ScenePlan(camera,{'cat':actor})
+    plugin=Qa21Plugin({'cat':body},{'cat':'inside'},'cat','cat_meow',assets={
+        'cat':{'kind':'animal','emitter_local_m':[0.,.25,0.]}})
+    wall=trimesh.creation.box(extents=[2.,2.,.1]);wall.apply_translation([0.,1.,-2.])
+    assert plugin.emitter_path_clear(NS(raycaster=MeshRaycaster(wall)),plan,'cat') is False
+    wall.apply_translation([5.,0.,0.])
+    assert plugin.emitter_path_clear(NS(raycaster=MeshRaycaster(wall)),plan,'cat') is True
