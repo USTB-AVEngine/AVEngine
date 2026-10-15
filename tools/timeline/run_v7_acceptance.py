@@ -25,10 +25,11 @@ def configure_walkable_maps(manifest):
     os.environ['AVENGINE_REQUIRE_WALKABLE_MAP']='1'
 
 
-def worker_cpu_policy(manifest,task,slot,runtime):
+def worker_cpu_policy(manifest,task,slot,runtime,*,inherited_cpu_ids=None):
     """Keep fresh SDK processes inside this parent's scheduler allocation."""
     allocated=list(task.get('cpu_ids') or manifest.get('cpu_ids') or manifest.get('cpu_affinity_ids') or sorted(os.sched_getaffinity(0)))
-    if not allocated:raise ValueError('native parent has no allocated CPU')
+    if inherited_cpu_ids is not None:allocated=[cpu for cpu in allocated if cpu in inherited_cpu_ids]
+    if not allocated:raise ValueError('native parent has no allocated CPU inside the inherited taskset')
     requested=runtime.get('fresh_rir_cpu_ids')
     rir=[int(cpu) for cpu in requested if int(cpu) in allocated] if requested else list(allocated)
     if not rir:rir=list(allocated)
@@ -43,7 +44,7 @@ def run_worker(manifest,slot):
     cpus=manifest.get('cpu_ids') or manifest.get('cpu_affinity_ids') or sorted(os.sched_getaffinity(0))
     runtime_path=task.get('runtime_input') or manifest['runtime_'+task['device']]
     runtime=load(runtime_path)
-    parent_cpu,rir_cpus,rir_workers=worker_cpu_policy(manifest,task,slot,runtime)
+    parent_cpu,rir_cpus,rir_workers=worker_cpu_policy(manifest,task,slot,runtime,inherited_cpu_ids=set(os.sched_getaffinity(0)))
     os.sched_setaffinity(0,{parent_cpu})
     import avengine
     if not Path(avengine.__file__).resolve().is_relative_to(Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()/'src'):
