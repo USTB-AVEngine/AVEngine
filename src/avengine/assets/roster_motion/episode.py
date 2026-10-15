@@ -316,7 +316,9 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             if not matches_distance_request(positions,times,scene['listener_m'],request):
                 prefilter['demand_distance_trend_rejected']=prefilter.get('demand_distance_trend_rejected',0)+1
                 continue
-            if not poly.covers(LineString(positions[:,[0,2]])):
+            # 1 um tolerance: qa07 evidence qa07_native_polygon_conflict_01.json -- a 3.32 m route failed only
+            # because 3.2e-9 m of it fell into a floating-point seam of the floor polygon (0 frames outside).
+            if not poly.buffer(1e-6).covers(LineString(positions[:,[0,2]])):
                 prefilter['polygon_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
             prefilter['full_gate_attempted']+=1
