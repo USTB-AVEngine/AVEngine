@@ -299,3 +299,39 @@ def test_declared_answer_branch_does_not_change_after_other_parent_finishes():
     assert requested_side(state, 0, declared_side="right") == "right"
     with pytest.raises(ValueError, match="declared QA-07"):
         requested_side(state, 0, declared_side="up")
+
+
+def test_visual_entry_silence_preserves_real_bodies_and_complete_companion_binding():
+    from avengine.construction.joint.families.qa07 import declare_silent_entry_target
+    row = {"asset_ids": ["moving", "static"], "silent_asset_ids": [],
+           "semantic_human_asset_ids": ["moving", "static"],
+           "semantic_sound_ids": ["utterance0", "utterance1"],
+           "semantic_start_offsets_s": [0., 2.6],
+           "source_classes": {"moving": ["speech_playback"], "static": ["speech_playback"]},
+           "phase2_authored_speech_schedule_s": {"moving": [0., 10., 20.], "static": [2.6, 12.6, 22.6]}}
+    declare_silent_entry_target(row, "moving")
+    assert row["asset_ids"] == ["moving", "static"]
+    assert row["silent_asset_ids"] == ["moving"]
+    assert row["semantic_sound_ids"] == ["utterance1"]
+    assert row["semantic_start_offsets_s"] == [2.6]
+    assert row["source_classes"] == {"static": ["speech_playback"]}
+    assert row["phase2_authored_speech_schedule_s"] == {"static": [2.6, 12.6, 22.6]}
+    row["joint_prepared_scene_required"] = True
+    with pytest.raises(ValueError, match="before native"):
+        declare_silent_entry_target(row, "moving")
+
+
+def test_silent_walker_has_no_moving_audio_negative_control_obligation():
+    from types import SimpleNamespace
+    from avengine.construction.joint.families.qa07 import native_entry_counterfactual_checks
+    actors = [{"endpoint_id": "moving", "motion_episode": {"status": "pass"}},
+              {"endpoint_id": "static"}]
+    video = SimpleNamespace(actors=actors,
+        _apply_entry=lambda *args, **kwargs: {"emitter_position_m": [0., 1.5, -3.]})
+    scene = {"listener_m": [0., 1.1, 0.], "events": [{"endpoint_id": "static"}],
+             "sources": {"moving": {}, "static": {}}}
+    assert list(native_entry_counterfactual_checks(video, scene)) == []
+    # An actually sounding mover still needs the original independent control.
+    scene["events"].append({"endpoint_id": "moving"})
+    checks = list(native_entry_counterfactual_checks(video, scene))
+    assert len(checks) == 1 and checks[0].status == "fail"

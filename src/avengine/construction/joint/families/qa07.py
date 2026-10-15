@@ -351,10 +351,11 @@ def native_entry_counterfactual_checks(video, scene):
         **scene["sources"][endpoint],
         "trajectory": [{"time_s": t, "position_m": point.tolist()} for t in (0., 30.)]}
         for endpoint, point in actual_mouths.items() if endpoint in scene["sources"]})
+    active_emitters = {event["endpoint_id"] for event in scene.get("events", ())}
     for entry in video.actors:
-        if not entry.get("motion_episode"):
-            continue
         endpoint = entry["endpoint_id"]
+        if not entry.get("motion_episode") or endpoint not in active_emitters:
+            continue
         try:
             other, position, angle = wrong_registered_pose(probe, actual_mouths[endpoint], 0.)
             evidence = {"actual_other_registered_endpoint": other,
@@ -427,7 +428,7 @@ def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, fir
 class QA07Plugin:
     """Family-specific side-plane construction using the shared room/route core."""
 
-    def __init__(self, bodies, sound_requirements=(), *, clock_source=None, assets=None, seed=0, clock_evaluator=None):
+    def __init__(self, bodies, sound_requirements=(), *, clock_source=None, assets=None, seed=0, clock_evaluator=None, silent_target=False):
         self.bodies = dict(bodies)
         self.sound_requirements = tuple(sound_requirements)
         self.clock_source = clock_source
@@ -435,6 +436,7 @@ class QA07Plugin:
         self.seed = int(seed)
         self.clock_evaluator = clock_evaluator
         self._static_meshes = {}
+        self.silent_target = bool(silent_target)
 
     def candidates(self, context, request):
         from copy import copy
@@ -544,7 +546,8 @@ class QA07Plugin:
                     opposite = SIDES[request.branch]*azimuths <= -10.
                     point_masks = {aid: opposite for aid in companions}
                     companion_selected = False
-                    for companion_view in ("outside", "inside"):
+                    companion_views = ("inside", "outside") if self.silent_target else ("outside", "inside")
+                    for companion_view in companion_views:
                         for layout in enumerate_static_layouts(view, companions,
                                 {aid: companion_view for aid in companions},
                                 max_candidates=24, floor_clearance_m=.002, point_masks=point_masks):
@@ -655,6 +658,31 @@ class QA07Plugin:
 
 
 
+def declare_silent_entry_target(row, target):
+    """Declare the visual-only moving role before any scene is prepared."""
+    if row.get("joint_prepared_scene_required") or row.get("joint_solution"):
+        raise ValueError("silent role must be declared before native preparation")
+    if target not in row["asset_ids"]:
+        raise ValueError("entry target must remain a real registered body")
+    authored = list(row.get("semantic_human_asset_ids", ()))
+    if target in authored:
+        index = authored.index(target)
+        for key in ("semantic_human_asset_ids", "semantic_sound_ids", "semantic_start_offsets_s"):
+            row[key].pop(index)
+    if not row.get("semantic_human_asset_ids"):
+        raise ValueError("QA-07 needs its real static authored-speech companion")
+    for key in ("source_classes", "proposed_sound_asset_ids", "phase2_authored_speech_schedule_s",
+                "phase2_recorded_speech_schedule_s", "phase2_recorded_sound_ids",
+                "phase2_source_event_schedule_s"):
+        row.get(key, {}).pop(target, None)
+    row["silent_asset_ids"] = list(dict.fromkeys([*row.get("silent_asset_ids", ()), target]))
+    row["qa07_sound_policy"] = {
+        "target_asset_id": target, "target_silent": True,
+        "static_authored_speech_asset_ids": list(row["semantic_human_asset_ids"]),
+        "declared_before_joint_solve": True, "real_target_body_retained": True,
+        "reason": "QA-07 original answer reads actual target pixels, not target sound"}
+
+
 def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtime=None):
     """Translate the already solved arrays; no route or timing search here."""
     from copy import deepcopy
@@ -742,7 +770,11 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     row["automatic_construction"]["required_role_count"] = len(row["asset_ids"])
     target = row["semantic_human_asset_ids"][0]
     row, target = walking_body(row, target, catalog, room, contract, state, seed)
-    whole_walking_speech(row, target, catalog, records, semantic, seed)
+    moving_target_speech = bool(runtime.get("qa07_moving_target_speech", False))
+    if moving_target_speech:
+        whole_walking_speech(row, target, catalog, records, semantic, seed)
+    else:
+        declare_silent_entry_target(row, target)
     _, sound_scene, sound_program, sound_assets = build_constructed_scene(row, house, records, catalog, semantic)
     sound_requirements = qa07_sound_requirements(sound_scene, sound_program, sound_assets)
     side = requested_side(state, seed, declared_side=runtime.get("qa07_entry_side"))
@@ -752,7 +784,8 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     actual_room = deepcopy(room_context(room, house, attempt)["original_room"])
     request = FamilyRequest("QA-07", side, (target,), {
         "speed_m_s": 1.05, "candidate_limit": 128, "require_native_preflight": True})
-    plugin = QA07Plugin(bodies, sound_requirements, clock_source=clock_source, assets=assets, seed=seed)
+    plugin = QA07Plugin(bodies, sound_requirements, clock_source=clock_source, assets=assets,
+                        seed=seed, silent_target=not moving_target_speech)
     directory = Path(runtime["joint_cache_directory"])/"qa07"/"native_preflight"/scene_id
 
     def make_row(plan):
