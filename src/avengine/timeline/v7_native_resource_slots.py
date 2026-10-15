@@ -76,10 +76,11 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
                         except (ValueError,KeyError,psutil.Error):pass
                     task_pss=0
                     if section.get('maximum_task_pss_bytes'):
+                        task_roots={str(root),*(str(Path(p).resolve()) for p in section.get('related_task_budget_roots',[]))}
                         for process in psutil.process_iter():
                             try:
                                 marker=json.loads(process.environ().get('AVENGINE_V7_STORAGE_BUDGET','{}'))
-                                if marker.get('root')==str(root):task_pss+=process.memory_full_info().pss
+                                if marker.get('root') in task_roots:task_pss+=process.memory_full_info().pss
                             except (ValueError,psutil.Error):pass
                     task_stop=bool(section.get('maximum_task_pss_bytes')and task_pss+pending+required_increment>int(section['maximum_task_pss_bytes']))
                     system_pss=0

@@ -33,6 +33,7 @@ def main():
     for key in ('contract','houses','assets','runtime','human-registry','output-root'):
         p.add_argument('--'+key,type=Path,required=True)
     p.add_argument('--resource-budget-root',type=Path)
+    p.add_argument('--related-task-resource-root',type=Path,action='append',default=[],help='Own related output roots included in the same PSS ceiling; empty by default')
     p.add_argument('--worktree',type=Path,default=Path(__file__).resolve().parents[2])
     p.add_argument('--workers',type=int,default=4)
     p.add_argument('--minimum-houses',type=int,default=10)
@@ -55,7 +56,8 @@ def main():
             'motion_capture':{'slots':4,'minimum_available_bytes':30_000_000_000,'maximum_system_pss_bytes':190_000_000_000}})
     policy=load(policy_path)
     policy['template_visual']={'slots':2,'minimum_available_bytes':30_000_000_000,
-        'expected_incremental_bytes':12_000_000_000,'maximum_task_pss_bytes':40_000_000_000,'maximum_system_pss_bytes':190_000_000_000}
+        'expected_incremental_bytes':12_000_000_000,'maximum_task_pss_bytes':40_000_000_000,'maximum_system_pss_bytes':190_000_000_000,
+        'related_task_budget_roots':[str(root.resolve()) for root in a.related_task_resource_root]}
     save(policy_path,policy)
     manifest_path=out/'inputs/motion_quartet_batch.json'
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.worktree,text=True).strip()
