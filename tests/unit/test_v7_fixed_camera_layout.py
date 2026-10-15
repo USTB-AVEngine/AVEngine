@@ -24,3 +24,13 @@ def test_explicit_legacy_review_profile_now_stays_at_one_selected_pose():
     scene={'camera_forward':[0.,0.,-1.],'camera_yaw_knots':[{'time_s':0.,'yaw_deg':0.},{'time_s':30.,'yaw_deg':360.}],'window_starts_s':[0.,5.,10.,15.,20.]};row={'members':['v0_a0'],'production_scenario':{'camera_policy':'review_sweep_360'}}
     configure_camera_evidence(scene,row,{'profile':PROFILE});before=copy.deepcopy(scene['camera_yaw_knots']);recenter_on_actual_roots(scene,[])
     assert scene['camera_yaw_knots']==before and {k['yaw_deg']for k in before}=={0.}
+
+
+def test_native_camera_standoff_checks_last_frame_and_only_registered_people():
+    from avengine.timeline.v7_fixed_camera_layout import assert_native_human_camera_clearance
+    visual={'camera_frame_readbacks':[{'position_m':[0.,1.5,0.]}for _ in range(450)],
+            'standing_admission':[{'asset_id':'human'}],
+            'frames':[{'actors':[{'asset_id':'human','position_m':[0.,0.,1.5]},{'asset_id':'dog','position_m':[0.,0.,.4]}]}for _ in range(450)]}
+    assert assert_native_human_camera_clearance(visual)['minimum_human_camera_distance_m']==1.5
+    visual['frames'][-1]['actors'][0]['position_m']=[0.,0.,1.19]
+    with pytest.raises(ValueError,match='below1.2m'):assert_native_human_camera_clearance(visual)

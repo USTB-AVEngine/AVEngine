@@ -51,7 +51,7 @@ def test_wrong_native_material_is_rejected(tmp_path):
 
 def test_ue_alpha_records_highlight_flags_but_still_rejects_bad_contact():
     from avengine.capture.v7_alpha_ue import assert_ue_alpha_visual
-    visual={'frame_count':450,'camera_frame_readbacks':[{'yaw_deg':0.,'position_m':[0.,1.5,0.]}for _ in range(450)],'frames':[{'actors':[{}]}],
+    visual={'frame_count':450,'camera_frame_readbacks':[{'yaw_deg':0.,'position_m':[0.,1.5,0.]}for _ in range(450)],'frames':[{'actors':[{'asset_id':'person','position_m':[0.,0.,2.]}]}for _ in range(450)],'standing_admission':[{'asset_id':'person'}],
         'native_body_foot_status':'pass','source_material_checks':{'status':'fail','highlight_ratio':.21},
         'native_visibility_alignment':{'status':'pass','target_only_root_max_error_m':0.,
             'target_only_animation_max_error_s':0.,'camera_position_max_error_m':0.,

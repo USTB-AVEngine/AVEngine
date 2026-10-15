@@ -19,8 +19,9 @@ ALPHA_UE_VISUAL_REVISION='v7-alpha-ue-design-whitebalance-histogram-v2'
 
 
 def assert_ue_alpha_visual(visual):
-    from avengine.timeline.v7_fixed_camera_layout import assert_fixed_native_camera
+    from avengine.timeline.v7_fixed_camera_layout import assert_fixed_native_camera,assert_native_human_camera_clearance
     visual['owner_fixed_camera_gate']=assert_fixed_native_camera(visual)
+    visual['owner_human_camera_clearance_gate']=assert_native_human_camera_clearance(visual)
     a=visual['native_visibility_alignment']
     if visual['frame_count']!=450 or len(visual['camera_frame_readbacks'])!=450:
         raise ValueError('incomplete native UE alpha world')
