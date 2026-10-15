@@ -11,10 +11,11 @@ from avengine.construction.joint.families.motion_animal import MotionAnimalPlugi
 pytestmark=pytest.mark.fast_unit
 
 
+@pytest.mark.parametrize('closer',[False,True])
 @pytest.mark.parametrize('negative',[False,True])
 @pytest.mark.parametrize('duration',[1.2,2.3])
 @pytest.mark.parametrize('kind,species,mode',[('dog_walk','dog','walk_animation'),('cat_walk','cat','walk_animation'),('animal_slide','cat','slide_no_animation')])
-def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_branch(tmp_path,kind,species,mode,duration,negative):
+def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_branch(tmp_path,kind,species,mode,duration,negative,closer):
     layers={key:np.ones((300,320),bool)for key in SPECIES_RADII_M}
     metadata={'version':'walkable-map-v1','room_id':'fixture','species_radii_m':SPECIES_RADII_M,
               'footprint_policy':'independent-radius-coverage-v2','source_identity':[]}
@@ -50,7 +51,7 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
         actor.metadata['native_yaw_rad']=0.
     plugin=MotionAnimalPlugin(data,{'scene_id':'fixture','scene_seed':1},[animal,human],[record,speech],
         contract,{'house':'fixture'}, {'joint_max_geometry_preparations':1},tmp_path/'geometry',geometry_preparer=pure_geometry_fixture)
-    request=FamilyRequest('motion_animal','nearer',('animal',),{'movement_bouts':1,'require_static_negative_comparator':negative})
+    request=FamilyRequest('motion_animal','nearer',('animal',),{'movement_bouts':1,'require_static_negative_comparator':negative,'closer_nearer_call':closer})
     if duration==1.2 and kind=='animal_slide':
         with pytest.raises(StopIteration):next(plugin.candidates(context,request))
         return
@@ -61,7 +62,7 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     assert checks and all(check.status=='pass'for check in checks),[(c.name,c.reason)for c in checks if c.status!='pass']
     assert set(plan.actors)=={'animal','speaker'}
     row=plan.metadata['row']
-    assert row['phase2_whole_source_recordings']['animal']==pytest.approx([1.3,21.3])
+    assert row['phase2_whole_source_recordings']['animal']==pytest.approx([round(max(1.3,3.3-duration),1)if closer else 1.3,21.3])
     assert row['joint_solver_only']
     from avengine.timeline.v7_full_question_delivery import current_selection_snapshot
     snapshot=current_selection_snapshot(row['scene_demand'],next_questions=70)
@@ -79,7 +80,7 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     roots=plan.actors['animal'].positions_m
     assert np.max(np.abs(roots[20*30:]-roots[20*30]))==0.
     assert all(abs(start*10-round(start*10))<1e-8 for starts in plan.metadata['source_file_starts_s'].values()for start in starts)
-    assert all(not (event.start_s<6.6 and event.wet_end_s>4.2)for event in plan.sounds)
+    assert all(not(event.start_s<end and event.wet_end_s>begin)for event in plan.sounds for begin,end in plan.metadata['planned_silent_intervals_s'])
 
     from avengine.capture.v7_offscreen_layout import proposal_view_ok
     assert proposal_view_ok({'native_view_roles':row['native_view_roles']},'speaker',
