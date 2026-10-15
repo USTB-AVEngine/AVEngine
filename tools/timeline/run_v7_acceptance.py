@@ -60,6 +60,10 @@ def run_worker(manifest,slot):
     try:
         native_root=Path(task.get('native_output_root') or root/'native').resolve()
         if not native_root.is_relative_to(root):raise ValueError('native output must remain inside this authorized task root')
+        if task.get('automatic_registered_room'):
+            from avengine.timeline.v7_kujiale_category_qualification import qualify_missing_humans
+            inputs,category=qualify_missing_humans(row,house,inputs,catalog,source,human,contract,root)
+            if category:receipt['new_current_native_category_qualification']=category
         result=generate(row,house,inputs,catalog,source,human,str(native_root))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
         if not admitted:raise ValueError('native producer did not admit the parent')

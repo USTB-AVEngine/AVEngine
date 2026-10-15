@@ -12,7 +12,7 @@ def clone_native(source,target):
     for stage in stages:
         marker=source/(stage+'_completed.json');info=load(marker);attempt=source/info['attempt']
         if any(not(attempt/name).is_file()for name in info['required_files']):raise ValueError('source native stage is incomplete')
-        shutil.copytree(attempt,target/info['attempt'],copy_function=os.link);shutil.copy2(marker,target/marker.name)
+        shutil.copytree(attempt,target/info['attempt'],copy_function=os.link,ignore=shutil.ignore_patterns('registry_namespace*.json'));shutil.copy2(marker,target/marker.name)
     cache=source/'rir_cache'
     if cache.exists():
         (target/'rir_cache').mkdir()

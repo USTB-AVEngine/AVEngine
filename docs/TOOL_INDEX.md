@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 651 个工具脚本。
+当前共 652 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -357,6 +357,7 @@
 | `tools/timeline/generate_v7_registered.py` | Restartable CPU-only formal static/recorded alpha shards |
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/inspect_v7_p19_progress.py` | Read-only v7 P19 status: actual claimant, all rank events and fresh CPU progress |
+| `tools/timeline/monitor_kujiale_room_handoff.py` | Publish each newly passed room registration and append READY_TO_MERGE |
 | `tools/timeline/monitor_v7_acceptance.py` | Bound and inspect only this acceptance batch's verified process trees |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
 | `tools/timeline/pilot_v7_kujiale_ue.py` | Run one measured Kujiale UE/SPEAR research pilot through unchanged v7 stages |
