@@ -49,3 +49,13 @@ def test_native_route_pool_exceeds_twenty_four_and_ranks_clearance(monkeypatch):
     actual=list(routes.straight_window_routes(video,None,None,None,None,{}))
     assert len(actual)==32 and actual[0].receipt['proposal']==32
     assert all(r.receipt['prequalified_candidate_count']==32 for r in actual)
+
+
+def test_post_sound_deficits_prioritize_animals_and_large_rooms_for_humans():
+    gaps={'QA-16':10,'QA-17':10,'QA-06':1,'QA-15':1}
+    state={'parents':{}}
+    for kind in ('cat_walk','animal_slide','dog_walk'):
+        assert choose_motion_source_type(state,family_deficits=gaps,room_area_m2=25)==kind
+        state['parents'][kind]={'motion_source_type':kind}
+    assert choose_motion_source_type(state,family_deficits=gaps,room_area_m2=25)=='cat_walk'
+    assert choose_motion_source_type(state,family_deficits=gaps,room_area_m2=50)=='human_speech'

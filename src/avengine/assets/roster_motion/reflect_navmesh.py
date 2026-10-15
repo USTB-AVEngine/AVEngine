@@ -44,7 +44,7 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
         for slot in slots:
             slot['start_s']=math.ceil(slot['start_s']*10-1e-8)/10
             slot['end_s']=slot['start_s']+duration
-            fits=[o for o in (0.,5.,10.,15.,20.) if 0.<=slot['start_s']-o<=7. and slot['end_s']+.2<=o+10]
+            fits=[o for o in (0.,5.,10.,15.,20.) if 0.<=slot['start_s']-o<=7. and slot['end_s']+.6<=o+10]
             if not fits:continue
             offset=max(fits,key=lambda o:min(slot['leg'][1]/30.,o+10)-slot['end_s'])
             available=min(slot['leg'][1]/30.-.1,offset+9.8)-slot['end_s']

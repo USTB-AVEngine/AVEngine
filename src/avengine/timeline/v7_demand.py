@@ -273,7 +273,10 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None,construct
         from avengine.timeline.v7_motion_source_roles import choose_motion_source_type
         from avengine.timeline.v7_motion_quartet_template import motion_quartet_template
         context=construction_context() if callable(construction_context) else construction_context
-        return motion_quartet_template(row,context['room'],catalog,context['semantic_manifest'],records,context['pathfinder'],contract=contract,source_type=choose_motion_source_type(state))
+        gaps=request.get('family_deficits',{})
+        row['motion_template_focus']='M1' if sum(gaps.get(q,0)for q in ('QA-16','QA-17'))>sum(gaps.get(q,0)for q in ('QA-06','QA-15'))else'M2'
+        role=choose_motion_source_type(state,family_deficits=gaps,room_area_m2=context['room'].get('floor_area_m2'))
+        return motion_quartet_template(row,context['room'],catalog,context['semantic_manifest'],records,context['pathfinder'],contract=contract,source_type=role)
     row['acceptance_allow_partial_families']=False
     if row.get('schema')=='v7-visible-registered-pilot-phase2-v1':
         row['trial_only']=True

@@ -65,12 +65,17 @@ def select_motion_role(source_type,human,catalog,records,contract,seed,attempt=0
         except ValueError:continue
     raise ValueError('no complete admitted moving source/call combination for '+source_type)
 
-def choose_motion_source_type(state):
+def choose_motion_source_type(state,*,family_deficits=None,room_area_m2=None):
     counts={kind:0 for kind in SOURCE_TYPES}
     for parent in state.get('parents',{}).values():
         kind=parent.get('motion_source_type')
         if kind in counts:counts[kind]+=1
-    return min(SOURCE_TYPES,key=lambda kind:(counts[kind],SOURCE_TYPES.index(kind)))
+    kinds=SOURCE_TYPES
+    gaps=family_deficits or {}
+    if sum(gaps.get(qa,0)for qa in ('QA-16','QA-17'))>sum(gaps.get(qa,0)for qa in ('QA-06','QA-15')):
+        kinds=('cat_walk','animal_slide','dog_walk')
+        if room_area_m2 is not None and room_area_m2>=40.:kinds+=('human_speech','human_other')
+    return min(kinds,key=lambda kind:(counts[kind],kinds.index(kind)))
 
 def classify_source_type(spec):
     if spec.get('species_id')=='human' or spec.get('entity_class')=='articulated_human':
