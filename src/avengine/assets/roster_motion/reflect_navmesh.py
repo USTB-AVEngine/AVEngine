@@ -22,7 +22,7 @@ def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(
 
 
 
-SHORT_WALK_LEAD_S=.7
+SHORT_WALK_LEAD_S=.5
 SHORT_WALK_RAMP_S=.3
 
 
