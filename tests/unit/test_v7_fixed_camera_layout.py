@@ -21,6 +21,6 @@ def test_conversational_pair_and_bystander_do_not_all_face_the_camera():
 
 def test_explicit_legacy_review_profile_now_stays_at_one_selected_pose():
     from avengine.timeline.v7_camera_evidence import configure_camera_evidence,recenter_on_actual_roots,PROFILE
-    scene={'camera_forward':[0.,0.,-1.],'camera_yaw_knots':[{'time_s':0.,'yaw_deg':0.},{'time_s':30.,'yaw_deg':360.}],'window_starts_s':[0.,5.,10.,15.,20.]};row={'members':['v0_a0'],'production_scenario':{'camera_policy':'review_sweep_360'}}
+    scene={'listener_m':[0.,1.3,0.],'duration_s':30.,'camera_forward':[0.,0.,-1.],'camera_yaw_knots':[{'time_s':0.,'yaw_deg':0.},{'time_s':30.,'yaw_deg':360.}],'window_starts_s':[0.,5.,10.,15.,20.]};row={'members':['v0_a0'],'production_scenario':{'camera_policy':'review_sweep_360'}}
     configure_camera_evidence(scene,row,{'profile':PROFILE});before=copy.deepcopy(scene['camera_yaw_knots']);recenter_on_actual_roots(scene,[])
     assert scene['camera_yaw_knots']==before and {k['yaw_deg']for k in before}=={0.}
