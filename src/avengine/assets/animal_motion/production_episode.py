@@ -232,7 +232,8 @@ def animal_reflected_route_proposals(video,entry,scene,local_forward,request):
         proposal_request['motion_quartet_route']['travel_yaws_rad']=(heading+angle).tolist()
         if number and request.get('_reflection_diagnostics_path'):
             path=Path(request['_reflection_diagnostics_path'])
-            proposal_request['_reflection_diagnostics_path']=str(path.parent/('fine_fit_'+str(number))/path.name)
+            fine_directory=path.parent/('fine_fit_'+str(number));fine_directory.mkdir(parents=True,exist_ok=True)
+            proposal_request['_reflection_diagnostics_path']=str(fine_directory/path.name)
         for route in reflected_route_proposals(video,entry,scene,local_forward,proposal_request):
             key=(np.asarray(route.positions).tobytes(),np.asarray(route.yaws).tobytes())
             if key in seen:continue
