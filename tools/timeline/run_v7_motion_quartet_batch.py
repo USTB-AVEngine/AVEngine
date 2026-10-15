@@ -54,6 +54,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('contract','houses','assets','runtime','human-registry','output-root'):
         p.add_argument('--'+key,type=Path,required=True)
+    p.add_argument('--walkable-map-root',type=Path,help='Shared precomputed static room maps; configured missing maps fail closed')
     p.add_argument('--resource-budget-root',type=Path)
     p.add_argument('--related-task-resource-root',type=Path,action='append',default=[],help='Own related output roots included in the same PSS ceiling; empty by default')
     p.add_argument('--worktree',type=Path,default=Path(__file__).resolve().parents[2])
@@ -98,6 +99,10 @@ def main():
                 'expires_utc':'2026-10-15T10:30:00+00:00','after_expiry_minimum_free_bytes':100_000_000_000},
             'parents':[]}
         save(manifest_path,manifest)
+    if a.walkable_map_root is not None:
+        map_root=a.walkable_map_root.expanduser().resolve()
+        if not map_root.is_dir():raise FileNotFoundError('walkable map cache root is missing: '+str(map_root))
+        manifest['walkable_map_root']=str(map_root)
     manifest['default_new_parent_code_commit']=commit;save(manifest_path,manifest)
     houses=load(a.houses)['houses'];candidates=[item for item in candidate_rooms(houses) if item[0]['family'] in a.house_families]
     asset_inventory=load(a.assets);asset_inventory=asset_inventory.get('assets',asset_inventory) if isinstance(asset_inventory,dict)else asset_inventory
