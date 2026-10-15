@@ -1,3 +1,6 @@
+import pytest
+pytestmark=pytest.mark.fast_unit
+
 from tools.timeline.probe_kujiale_automatic_request import select_ordinary_task
 
 
@@ -15,3 +18,12 @@ def test_required_categories_prefer_current_legal_witness_without_scene_override
 def test_missing_native_witness_still_gets_constructed_instead_of_skipped():
     tasks=[task(0,'a')]
     assert select_ordinary_task(tasks,{'rooms':[{'key':'a::R0','categories':[]}]},{'human.standing','animal.dog'})is tasks[0]
+
+
+def test_required_human_animal_group_uses_room_area_and_avoids_exhausted_room():
+    tasks=[task(0,'a'),task(1,'b'),task(2,'c')]
+    contract={'rooms':[{'key':h+'::R0','categories':['human.standing','animal.dog']}for h in ('a','b','c')]}
+    required={'human.standing','animal.dog'}
+    areas={'a::R0':5,'b::R0':30,'c::R0':20}
+    assert select_ordinary_task(tasks,contract,required,room_areas=areas)is tasks[1]
+    assert select_ordinary_task(tasks,contract,required,room_areas=areas,attempted_rooms={('b','R0')})is tasks[2]
