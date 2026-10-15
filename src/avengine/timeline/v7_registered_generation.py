@@ -214,43 +214,55 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         def windows(attempt):
             samples,sr=sf.read(ad/'scene_foa_full_tail.wav',dtype='float64',always_2d=True)
             required=[];records=[]
-            for wi,start in enumerate(scene['window_starts_s']):
-                check_write(attempt,expected_bytes=32_000_000)
-                wid=f'{row["scene_id"]}__{member}__w{wi:02d}';dest=attempt/wid;dest.mkdir();first=round(start*15)
-                if (v,wi) in clip_paths:os.link(clip_paths[(v,wi)],dest/'video.mp4')
-                else:
-                    subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-n','-threads','1',
-                        '-i',str(vd/'scene_video.mp4'),'-vf',f'select=between(n\\,{first}\\,{first+149}),setpts=N/(15*TB)',
-                        '-frames:v','150','-an','-c:v','libx264','-threads','1','-preset','veryfast','-crf','18',
-                        '-pix_fmt','yuv420p',str(dest/'video.mp4')],check=True)
-                    clip_paths[(v,wi)]=dest/'video.mp4'
-                lo=round(start*16000);cropped=samples[lo:lo+160000]
-                if sr!=16000 or cropped.shape!=(160000,4):raise ValueError('alpha crop lacks complete FOA history')
-                write_float32_wav(dest/'audio_foa.wav',cropped,16000,channel_axis=1)
-                write_float32_wav(dest/'audio_mono.wav',cropped[:,:1],16000,channel_axis=1)
-                media={role:str(dest/name) for role,name in [('video','video.mp4'),('audio_foa','audio_foa.wav'),('audio_mono','audio_mono.wav')]}
-                proof=source_qa_evidence(scene,program,local_receipt,visual,dest/'audio_foa.wav',ar,question_episode_id=wid,window_start_s=start)
-                if semantic:
-                    from avengine.timeline.v7_registered_semantics import dialogue_evidence
-                    proof.update(dialogue_evidence(scene,program,local_receipt,visual,semantic,start,str(vd/'native_registered_visual_evidence.json')))
-                quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+wi
-                q,a,audit=collect_native_pool(scene,start,wid,visual,media,proof,quota,row['questions_per_window'])
-                if base.get('require_current_native_environment'):
-                    from avengine.qa.kujiale_current_color import filter_current_scene_colors
-                    q,a,color_audit=filter_current_scene_colors(q,a,audit,visual,start)
-                    audit['current_scene_colour_gate']=color_audit
-                excluded=set();keep={x['question_id'] for x in q if x['qa_id'] not in excluded}
-                q=[x for x in q if x['question_id'] in keep];a=[x for x in a if x['question_id'] in keep]
-                write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',a)
-                write_json(dest/'candidate_audit.json',audit)
-                ev={'release_profile':ALPHA_RELEASE_PROFILE,'seed_row':row,'member':member,'start_s':start,
-                    'scene':scene,'native_visual_evidence':str(vd/'native_registered_visual_evidence.json'),
-                    'native_audio_evidence':str(ad/'audio_evidence.json'),'source_qa_evidence':proof,
-                    'candidate_family_counts':dict(Counter(x['qa_id'] for x in q if x['form']=='open')),
-                    'full_v7_formal_count':0,'alpha_selection':'pending'}
-                write_json(dest/'evidence.json',ev)
-                records.append({'window_id':wid,'logical_candidates':len({x['logical_question_id'] for x in q})})
-                required.extend(f'{wid}/{n}' for n in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','evidence.json','candidate_audit.json'])
+            from avengine.timeline.v7_registered_question_workers import RegisteredQuestionWorkers
+            with RegisteredQuestionWorkers(inputs) as qa:
+                for wi,start in enumerate(scene['window_starts_s']):
+                    check_write(attempt,expected_bytes=32_000_000)
+                    wid=f'{row["scene_id"]}__{member}__w{wi:02d}';dest=attempt/wid;dest.mkdir();first=round(start*15)
+                    if (v,wi) in clip_paths:os.link(clip_paths[(v,wi)],dest/'video.mp4')
+                    else:
+                        subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-n','-threads','1',
+                            '-i',str(vd/'scene_video.mp4'),'-vf',f'select=between(n\\,{first}\\,{first+149}),setpts=N/(15*TB)',
+                            '-frames:v','150','-an','-c:v','libx264','-threads','1','-preset','veryfast','-crf','18',
+                            '-pix_fmt','yuv420p',str(dest/'video.mp4')],check=True)
+                        clip_paths[(v,wi)]=dest/'video.mp4'
+                    lo=round(start*16000);cropped=samples[lo:lo+160000]
+                    if sr!=16000 or cropped.shape!=(160000,4):raise ValueError('alpha crop lacks complete FOA history')
+                    write_float32_wav(dest/'audio_foa.wav',cropped,16000,channel_axis=1)
+                    write_float32_wav(dest/'audio_mono.wav',cropped[:,:1],16000,channel_axis=1)
+                    media={role:str(dest/name) for role,name in [('video','video.mp4'),('audio_foa','audio_foa.wav'),('audio_mono','audio_mono.wav')]}
+                    proof=source_qa_evidence(scene,program,local_receipt,visual,dest/'audio_foa.wav',ar,question_episode_id=wid,window_start_s=start)
+                    if semantic:
+                        from avengine.timeline.v7_registered_semantics import dialogue_evidence
+                        proof.update(dialogue_evidence(scene,program,local_receipt,visual,semantic,start,str(vd/'native_registered_visual_evidence.json')))
+                    quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+wi
+                    if qa.enabled:
+                        ev={'release_profile':ALPHA_RELEASE_PROFILE,'seed_row':row,'member':member,'start_s':start,
+                            'scene':scene,'native_visual_evidence':str(vd/'native_registered_visual_evidence.json'),
+                            'native_audio_evidence':str(ad/'audio_evidence.json'),'source_qa_evidence':proof,
+                            'full_v7_formal_count':0,'alpha_selection':'pending'}
+                        qa.submit({'visual_path':str(vd/'native_registered_visual_evidence.json'),'evidence':ev,
+                            'proof':proof,'window_id':wid,'directory':str(dest),'media':media,'quota':quota,
+                            'count':row['questions_per_window'],'current_native_environment':bool(base.get('require_current_native_environment'))})
+                        continue
+                    q,a,audit=collect_native_pool(scene,start,wid,visual,media,proof,quota,row['questions_per_window'])
+                    if base.get('require_current_native_environment'):
+                        from avengine.qa.kujiale_current_color import filter_current_scene_colors
+                        q,a,color_audit=filter_current_scene_colors(q,a,audit,visual,start)
+                        audit['current_scene_colour_gate']=color_audit
+                    excluded=set();keep={x['question_id'] for x in q if x['qa_id'] not in excluded}
+                    q=[x for x in q if x['question_id'] in keep];a=[x for x in a if x['question_id'] in keep]
+                    write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',a)
+                    write_json(dest/'candidate_audit.json',audit)
+                    ev={'release_profile':ALPHA_RELEASE_PROFILE,'seed_row':row,'member':member,'start_s':start,
+                        'scene':scene,'native_visual_evidence':str(vd/'native_registered_visual_evidence.json'),
+                        'native_audio_evidence':str(ad/'audio_evidence.json'),'source_qa_evidence':proof,
+                        'candidate_family_counts':dict(Counter(x['qa_id'] for x in q if x['form']=='open')),
+                        'full_v7_formal_count':0,'alpha_selection':'pending'}
+                    write_json(dest/'evidence.json',ev)
+                    records.append({'window_id':wid,'logical_candidates':len({x['logical_question_id'] for x in q})})
+                    required.extend(f'{wid}/{n}' for n in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','evidence.json','candidate_audit.json'])
+                for record,files in qa.results():records.append(record);required.extend(files)
             return {'windows':records},required
         wc=_cpu();ww=time.perf_counter();wd,wr,resumed=stage(root,'windows_'+member,{'scene':scene,'source_receipt':local_receipt,
             'profile':ALPHA_RELEASE_PROFILE,'producer_qa_revision':PRODUCER_QA_REVISION,'quota_index':row['question_quota_base']},windows)

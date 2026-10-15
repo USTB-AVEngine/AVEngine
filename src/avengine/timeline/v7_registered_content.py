@@ -122,36 +122,47 @@ def augment_content_binding(row,members,root):
             required=[];windows=[]
             visual=read_json(Path(member['visual_directory'])/'native_registered_visual_evidence.json')
             visual['native_appearance_review']=read_json(Path(member['visual_directory'])/'native_appearance_review.json')['review']
-            for wi,window in enumerate(member['windows']):
-                wid=window['window_id'];old=source/wid;dest=attempt/wid;dest.mkdir()
-                ev=read_json(old/'evidence.json');proof=deepcopy(ev['source_qa_evidence'])
-                if not proof.get('native_dialogue_evidence'):raise ValueError('no actual native dialogue attachment to requalify')
-                native_shas={a['standing_pose_readback']['source_registry_sha256'] for a in proof['native_dialogue_evidence']['registered_actors']}
-                if not native_shas.issubset({original_registry_sha,mapped_sha}):raise ValueError('actual native dialogue registry version differs from retained snapshot')
-                vp=Path(member['visual_directory'])/'native_registered_visual_evidence.json'
-                _,ns=qualify_namespace(visual,registry,original_registry_sha,vp.with_name('registry_namespace_readback.json'),vp)
-                for actor in proof['native_dialogue_evidence']['registered_actors']:
-                    stand=actor['standing_pose_readback'];stand['source']=ns['source']
-                    stand['source_registry_sha256']=mapped_sha;stand['original_native_registry_sha256']=original_registry_sha
-                proof['semantic_manifest']['source_registry']=registry
-                proof['semantic_manifest']['retained_registry_sha256']=mapped_sha
-                # Partial unknown occluder IDs remain measured/private. They
-                # cannot be supplied as complete unique-occlusion evidence.
-                if proof.get('occluder_interface_status',{}).get('status')=='measured_partial':
-                    proof.pop('occluder_registry',None);proof.pop('occluder_evidence',None)
-                media={k:str(old/n) for k,n in [('video','video.mp4'),('audio_foa','audio_foa.wav'),('audio_mono','audio_mono.wav')]}
-                quota=row['question_quota_base']+row['members'].index(name)*row['window_count']+wi
-                q,g,audit=collect_native_pool(ev['scene'],ev['start_s'],wid,visual,media,proof,quota,row['questions_per_window'])
-                from avengine.qa.v7_dialogue_binding import audit_semantic_wording_exchange
-                semantic=audit.get('semantic_manifest');facts=audit.get('family_fact_overrides',{}).get('QA-26',audit['facts'])
-                wording=audit_semantic_wording_exchange(facts,semantic,seed=str(row['scene_seed']),variant_id=wid) if semantic else {'status':'blocked','reason':'no_registered_semantic_manifest'}
-                if wording['status']!='pass':raise ValueError('actual dialogue standard/alternate wording exchange failed: '+str(wording))
-                audit['native_semantic_wording_exchange']=wording;ev['source_qa_evidence']=proof
-                ev['registry_resolution']={'status':'exact_snapshot','sha256':mapped_sha,'original_native_sha256':original_registry_sha,'snapshot':registry,'original_media_and_native_facts_unchanged':True}
-                for n in ('video.mp4','audio_foa.wav','audio_mono.wav'):os.link(old/n,dest/n)
-                for n,value in [('questions.json',q),('private_answers.json',g),('candidate_audit.json',audit),('evidence.json',ev)]:write_json(dest/n,value)
-                required.extend(f'{wid}/{n}' for n in ('video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','candidate_audit.json','evidence.json'))
-                windows.append({'window_id':wid,'logical_candidates':len({x['logical_question_id'] for x in q})})
+            from avengine.timeline.v7_registered_question_workers import RegisteredQuestionWorkers
+            with RegisteredQuestionWorkers(recipe['runtime_inputs']) as qa:
+                for wi,window in enumerate(member['windows']):
+                    wid=window['window_id'];old=source/wid;dest=attempt/wid;dest.mkdir()
+                    ev=read_json(old/'evidence.json');proof=deepcopy(ev['source_qa_evidence'])
+                    if not proof.get('native_dialogue_evidence'):raise ValueError('no actual native dialogue attachment to requalify')
+                    native_shas={a['standing_pose_readback']['source_registry_sha256'] for a in proof['native_dialogue_evidence']['registered_actors']}
+                    if not native_shas.issubset({original_registry_sha,mapped_sha}):raise ValueError('actual native dialogue registry version differs from retained snapshot')
+                    vp=Path(member['visual_directory'])/'native_registered_visual_evidence.json'
+                    _,ns=qualify_namespace(visual,registry,original_registry_sha,vp.with_name('registry_namespace_readback.json'),vp)
+                    for actor in proof['native_dialogue_evidence']['registered_actors']:
+                        stand=actor['standing_pose_readback'];stand['source']=ns['source']
+                        stand['source_registry_sha256']=mapped_sha;stand['original_native_registry_sha256']=original_registry_sha
+                    proof['semantic_manifest']['source_registry']=registry
+                    proof['semantic_manifest']['retained_registry_sha256']=mapped_sha
+                    # Partial unknown occluder IDs remain measured/private. They
+                    # cannot be supplied as complete unique-occlusion evidence.
+                    if proof.get('occluder_interface_status',{}).get('status')=='measured_partial':
+                        proof.pop('occluder_registry',None);proof.pop('occluder_evidence',None)
+                    media={k:str(old/n) for k,n in [('video','video.mp4'),('audio_foa','audio_foa.wav'),('audio_mono','audio_mono.wav')]}
+                    quota=row['question_quota_base']+row['members'].index(name)*row['window_count']+wi
+                    if qa.enabled:
+                        for n in ('video.mp4','audio_foa.wav','audio_mono.wav'):os.link(old/n,dest/n)
+                        resolution={'status':'exact_snapshot','sha256':mapped_sha,'original_native_sha256':original_registry_sha,
+                            'snapshot':registry,'original_media_and_native_facts_unchanged':True}
+                        qa.submit({'visual_path':str(vp),'evidence':ev,'proof':proof,'window_id':wid,
+                            'directory':str(dest),'media':media,'quota':quota,'count':row['questions_per_window'],
+                            'frozen_dialogue':True,'scene_seed':row['scene_seed'],'registry_resolution':resolution})
+                        continue
+                    q,g,audit=collect_native_pool(ev['scene'],ev['start_s'],wid,visual,media,proof,quota,row['questions_per_window'])
+                    from avengine.qa.v7_dialogue_binding import audit_semantic_wording_exchange
+                    semantic=audit.get('semantic_manifest');facts=audit.get('family_fact_overrides',{}).get('QA-26',audit['facts'])
+                    wording=audit_semantic_wording_exchange(facts,semantic,seed=str(row['scene_seed']),variant_id=wid) if semantic else {'status':'blocked','reason':'no_registered_semantic_manifest'}
+                    if wording['status']!='pass':raise ValueError('actual dialogue standard/alternate wording exchange failed: '+str(wording))
+                    audit['native_semantic_wording_exchange']=wording;ev['source_qa_evidence']=proof
+                    ev['registry_resolution']={'status':'exact_snapshot','sha256':mapped_sha,'original_native_sha256':original_registry_sha,'snapshot':registry,'original_media_and_native_facts_unchanged':True}
+                    for n in ('video.mp4','audio_foa.wav','audio_mono.wav'):os.link(old/n,dest/n)
+                    for n,value in [('questions.json',q),('private_answers.json',g),('candidate_audit.json',audit),('evidence.json',ev)]:write_json(dest/n,value)
+                    required.extend(f'{wid}/{n}' for n in ('video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','candidate_audit.json','evidence.json'))
+                    windows.append({'window_id':wid,'logical_candidates':len({x['logical_question_id'] for x in q})})
+                for record,files in qa.results():windows.append(record);required.extend(files)
             return {'windows':windows},required
         directory,result,resumed=stage(root,'frozen_dialogue_pools_'+name,{'revision':'frozen-native-dialogue-qa-pool-v1','source_pool':str(source),'actual_registry_sha256':mapped_sha,'original_native_registry_sha256':original_registry_sha,'retained_snapshot':registry},requalify)
         qualified.append({**member,'windows_directory':str(directory),'windows':result['windows'],'frozen_dialogue_pool_resumed':resumed})
