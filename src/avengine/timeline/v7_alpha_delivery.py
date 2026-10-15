@@ -90,7 +90,10 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
             pointer=parent/'alpha_seal_completed.json'
             if pointer.is_file():candidates.append((parent,load(pointer)))
         if len(candidates)!=1:raise ValueError(f'{row["scene_id"]} has {len(candidates)} qualified seals; explicit unique input required')
-        parent,pointer=candidates[0];seal=parent/pointer['attempt'];result=pointer['result'];profiles.add(result['profile'])
+        parent,pointer=candidates[0]
+        from avengine.timeline.v7_export_scene_policy import require_parent_policy
+        scene_policy=require_parent_policy(parent/'alpha_seal_completed.json')
+        seal=parent/pointer['attempt'];result=pointer['result'];profiles.add(result['profile'])
         for asset in pointer['recipe']['input_recipe']['assets']:humans[asset['asset_id']]=asset
         if result['status']!='formal_alpha_admitted' or result['full_v7_generation_ready']:raise ValueError('wrong alpha release status')
         if pointer['recipe']['input_recipe']['seed_row']!=row:raise ValueError('qualified seed differs from the requested seed')
@@ -108,6 +111,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         measured=times[0]
         parent_rows.append({'scene_id':row['scene_id'],'split':row['split'],'house':row['house'],'room_id':row['room_id'],
             'formal_windows':result['alpha_formal_windows'],'logical_questions':result['alpha_formal_logical_questions'],
+            'scene_delivery_policy':scene_policy,
             'wall_seconds':measured['wall_seconds'],'cpu_seconds_including_children':measured['cpu_seconds_including_children'],
             'RIR_calls':result['measured_RIR_calls'],'native_visual_worlds':len({m.split('_')[0] for m in row['members']})})
         reference_cpu.append(measured['cpu_seconds_including_children'])
