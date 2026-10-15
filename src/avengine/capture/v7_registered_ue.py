@@ -64,7 +64,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             if not own_capture.exists():shutil.copy2(source_capture,own_capture)
             elif json.loads(own_capture.read_text())!=json.loads(source_capture.read_text()):raise ValueError('task native capture copy differs')
             expected_qa['inputs']['capture']=str(own_capture.parent)
-            expected_qa['prior_admission_provenance']={'qa':str(source_qa),'capture':str(source_capture)}
+            if source_qa.resolve()!=own_qa.resolve():
+                expected_qa['prior_admission_provenance']={'qa':str(source_qa),'capture':str(source_capture)}
             if not own_qa.exists():own_qa.write_text(json.dumps(expected_qa,ensure_ascii=False,indent=2)+'\n')
             elif json.loads(own_qa.read_text())!=expected_qa:raise ValueError('task room QA copy differs')
             self.ue['native_room_visual_qa']=str(own_qa)
