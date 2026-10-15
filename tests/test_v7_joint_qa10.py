@@ -81,6 +81,8 @@ def row_inputs():
         "voice_reference": {"speaker_id": "male1", "gender": "male"}}]}
     plan = SimpleNamespace(
         camera=SimpleNamespace(position_m=[0., 1.1, 0.], yaw_deg=0.),
+        sounds=tuple(SimpleNamespace(entity_id="companion", sound_id="whole", sound_class="speech_playback",
+                                     start_s=t, end_s=t+1.5, wet_end_s=t+2.) for t in (0., 10., 20.)),
         actors={aid: SimpleNamespace(positions_m=np.repeat(np.array(p)[None], 901, axis=0))
                 for aid, p in (("target", [0., 0., -4.2]), ("speaker", [0., 0., -3.1]),
                                ("companion", [1.5, 0., -3.2]))})
@@ -126,3 +128,25 @@ def test_original_production_contract_still_excludes_test_houses():
     with pytest.raises(ValueError, match="test house"):
         build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
                        assets[0], assets[2], assets[1], scene_id="bad", seed=8)
+
+
+def test_support_site_keeps_the_walkable_maps_measured_floor_height():
+    from avengine.construction.joint.families.qa10 import build_qa10_row
+    room, house, assets, semantic, contract, plan, cert = row_inputs()
+    plan.actors["target"].positions_m[:, 1] = .017
+    row = build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
+                         assets[0], assets[2], assets[1], scene_id="terrain", seed=8)["row"]
+    assert row["native_attachment_supports"]["target"]["original_surface_point_m"][1] == .017
+    assert row["native_attachment_supports"]["target"]["floor_y"] == 0.
+
+
+
+def test_native_program_uses_the_core_solved_event_times():
+    from avengine.construction.joint.families.qa10 import build_qa10_row
+    room, house, assets, semantic, contract, plan, cert = row_inputs()
+    for e in plan.sounds:
+        e.start_s += 1.; e.end_s += 1.; e.wet_end_s += 1.
+    row = build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
+                         assets[0], assets[2], assets[1], scene_id="clock", seed=8)["row"]
+    assert row["phase2_authored_speech_schedule_s"] == {"companion": [1., 11., 21.]}
+    assert row["semantic_start_offsets_s"] == [1.]

@@ -184,6 +184,15 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
     yaw = float(plan.camera.yaw_deg)
     demand = OcclusionDemand(target["asset_id"], occluder["asset_id"])
     authored = choose_authored(semantic, [companion], state, seed)[0][0]
+    speaker_events = tuple(plan.sounds)
+    if (not speaker_events
+            or any(e.entity_id != companion["asset_id"]
+                   or e.sound_id != authored["sound_asset_id"]
+                   or e.sound_class != "speech_playback" for e in speaker_events)):
+        raise ValueError("QA-10 native program must retain the solver's real whole-utterance bindings")
+    starts = [float(e.start_s) for e in speaker_events]
+    if starts != sorted(set(starts)):
+        raise ValueError("QA-10 solver event starts must be unique and ordered")
     cert = asdict(certificate) if is_dataclass(certificate) else {
         "authority": "planning_geometry_only", "passed": bool(certificate.passed)}
     row = {
@@ -201,8 +210,8 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
         "semantic_scenario_id": authored["scenario_id"],
         "semantic_sound_ids": [authored["sound_asset_id"]],
         "semantic_human_asset_ids": [companion["asset_id"]],
-        "semantic_start_offsets_s": [0.],
-        "phase2_authored_speech_schedule_s": {companion["asset_id"]: [0., 10., 20.]},
+        "semantic_start_offsets_s": [starts[0]],
+        "phase2_authored_speech_schedule_s": {companion["asset_id"]: starts},
         "native_occlusion_relations": [demand.native_request()],
         "native_view_roles": {aid: {"view": "inside", "static": True,
                                    "required_visible_sometime": True} for aid in ids},
@@ -223,7 +232,7 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
     for aid in ids:
         root = np.asarray(plan.actors[aid].positions_m[0], float)
         row["native_attachment_supports"][aid] = {
-            "surface": "floor", "original_surface_point_m": [float(root[0]), floor, float(root[2])],
+            "surface": "floor", "original_surface_point_m": root.tolist(),
             "normal": [0., 1., 0.], "floor_y": floor, "_outward_clearance_m": .002,
         }
     _request(row, state, "QA-10")
@@ -237,22 +246,29 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
 
 class QA10Plugin:
     """Family constraints over the core's shared static geometry proposals."""
-    def __init__(self, bodies, demand, *, camera_height_m=1.1):
+    def __init__(self, bodies, demand, *, sound_requirements=()):
         self.bodies = bodies
         self.demand = demand
-        self.camera_height_m = camera_height_m
+        self.sound_requirements = tuple(sound_requirements)
 
     def candidates(self, context, request):
-        from dataclasses import replace
-        from avengine.construction.joint import enumerate_static_layouts
+        from avengine.construction.joint import enumerate_static_layouts, schedule_sound_events
+        from avengine.timeline.v7_family_constructors import ConstructionUnavailable
+        schedule = schedule_sound_events(self.sound_requirements, start_grid_hz=10)
+        if schedule.status != "solved":
+            raise ConstructionUnavailable("QA-10 core sound schedule: " + str(schedule.reasons))
         roles = {aid: "inside" for aid in self.bodies}
         pair = (self.demand.target_asset_id, self.demand.occluder_asset_id,
                 self.demand.minimum_occluded_fraction, self.demand.maximum_occluded_fraction)
         for plan in enumerate_static_layouts(context, self.bodies, roles, occlusion_pair=pair):
-            floor = float(context.room["measured_floor_y_m"])
-            x, _, z = plan.camera.position_m
-            plan.camera = replace(plan.camera, position_m=(x, floor + self.camera_height_m, z),
-                                  camera_id=plan.camera.camera_id + "_qa10", width=1280, height=720)
+            plan.sounds = schedule.events
+            plan.metadata["sound_schedule"] = {
+                "status": schedule.status, "starts_s": list(schedule.starts_s),
+                "diagnostics": schedule.diagnostics,
+                "activity_authority": "conservative whole-admitted-file emission bounds; final activity measured independently"}
+            plan.actors[self.demand.occluder_asset_id].metadata.update(
+                native_entity_kind="object", motion_action="static",
+                map_profile="slide_floor_envelope_only")
             plan.metadata.update(qa10_target=self.demand.target_asset_id,
                                  qa10_occluder=self.demand.occluder_asset_id,
                                  native_mask_preflight_required=True)
@@ -286,7 +302,7 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
     from pathlib import Path
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable
     from avengine.construction.joint import (
-        BodySpec, FamilyRequest, build_room_context, solve,
+        BodySpec, FamilyRequest, SoundRequirement, build_room_context, solve,
     )
     if family != "QA-10":
         raise ConstructionUnavailable("QA-10 plugin cannot construct another family")
@@ -299,7 +315,9 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
         vertices = np.asarray(indexed_static_mesh(asset["habitat_glb"]).vertices, float)
         radius = float(np.linalg.norm(vertices[:, [0, 2]], axis=1).max())
         bodies[asset["asset_id"]] = BodySpec(
-            species="object" if asset["kind"] == "object" else "human",
+            # Core's slide profile is its existing floor-object envelope layer.
+            # Native entity kind stays object and all 901 frames stay static.
+            species="slide" if asset["kind"] == "object" else "human",
             radius_m=radius, height_m=float(np.ptp(vertices[:, 1])), margin_m=.06)
     actual = next(r for r in house["checked_rooms"]
                   if r.get("room_label", r.get("room_id")) == room["room_id"])
@@ -307,11 +325,19 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
     if not cache:
         raise ConstructionUnavailable("QA-10 needs a caller-owned joint_cache_directory")
     demand = OcclusionDemand(target["asset_id"], occluder["asset_id"])
+    from avengine.timeline.v7_family_constructors import choose_authored
+    authored = choose_authored(semantic, [companion], state, seed)[0][0]
+    duration = math.ceil(float(authored["synthesis_readback"]["duration_s"]) * 10) / 10
+    sound_requirements = tuple(SoundRequirement(
+        companion["asset_id"], authored["sound_asset_id"], "speech_playback",
+        ((0., duration),), (start, start), ((start, start + 9.),), wet_tail_s=.5)
+        for start in (0., 10., 20.))
     request = FamilyRequest("QA-10", "visible_registered_partial", (target["asset_id"],),
                             {"occluder_asset_id": occluder["asset_id"]})
     with build_room_context(actual, house=house, runtime=runtime,
-                            cache_dir=Path(cache) / "qa10") as context:
-        solved = solve(context, request, QA10Plugin(bodies, demand),
+                            cache_dir=Path(cache) / "qa10", camera_heights_m=(1.1,),
+                            width=1280, height=720) as context:
+        solved = solve(context, request, QA10Plugin(bodies, demand, sound_requirements=sound_requirements),
                        budget_s=float(runtime.get("qa10_planning_budget_s", 120.)),
                        max_candidates=int(runtime.get("qa10_max_candidates", 256)))
     if solved.status != "certified":
