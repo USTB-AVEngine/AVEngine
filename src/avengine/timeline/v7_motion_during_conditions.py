@@ -99,7 +99,22 @@ def verify_motion_during_native(row,scene,visual):
         solution=_compile_and_solve(item['config'])
         for offset in item['offsets_s']:
             positions={aid:np.asarray([position_at(source['trajectory'],float(offset)+f/15.)for f in range(150)]) for aid,source in byasset.items()}
-            report=cm.verify_motion_candidate(solution,positions_m=positions,listener_position_m=scene['listener_m'])
+            roots={}
+            admissions=visual.get('native_motion_admissions',{})
+            for ep,source in scene['sources'].items():
+                if source.get('owner_endpoint_id'):continue
+                aid=source['asset_id'];record=admissions.get(ep)
+                if record:
+                    # This same double-precision track has already passed all
+                    # 901 native root readbacks. Mouth bobbing is source motion,
+                    # not locomotion speed; v3 exposes separate root_positions_m.
+                    samples=np.asarray(record['world_roots_m'],float)
+                    source_times=np.arange(len(samples))/30.
+                    at=float(offset)+np.arange(150)/15.
+                    roots[aid]=np.column_stack([np.interp(at,source_times,samples[:,axis])for axis in range(3)])
+                else:roots[aid]=positions[aid]
+            report=cm.verify_motion_candidate(solution,positions_m=positions,
+                root_positions_m=roots if admissions else None,listener_position_m=scene['listener_m'])
             reports.append({'offset_s':offset,'qa_id':solution.qa_id,'report':report})
     return {'status':'pass' if all(x['report']['status']=='pass'for x in reports)else'fail',
         'source':'actual native attached mouth trajectories; original v3 verifier','reports':reports,'delivered_qa_gates_unchanged':True}
