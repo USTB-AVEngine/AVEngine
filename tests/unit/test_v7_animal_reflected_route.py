@@ -112,3 +112,21 @@ def test_full_native_two_mm_gate_remains_independent_of_pool_admission(tmp_path,
         animals.compile_admitted_animal(video,entry,scene,house,{},tmp_path/'output',request)
     rejection=json.loads((tmp_path/'output/motion_rejected.json').read_text())
     assert 'unchanged 2mm NavMesh drift'in rejection['failed_candidates'][0]['reason']
+
+
+def test_height_failure_refines_rigid_seed_through_the_same_native_prefilter(monkeypatch):
+    from avengine.assets.roster_motion import reflect_navmesh
+    _,base=turning_route();calls=[]
+    def provider(video,entry,scene,forward,request):
+        calls.append(request)
+        xz=np.array(request['motion_quartet_route']['positions_xz_m'])
+        yield SimpleNamespace(positions=np.column_stack((xz[:,0],np.zeros(len(xz)),xz[:,1])),yaws=base.yaws.copy(),receipt={'native_admissible_route_pool':1})
+    monkeypatch.setattr(reflect_navmesh,'reflected_route_proposals',provider)
+    original=base.positions[:,[0,2]].copy();request={'motion_quartet_route':{'positions_xz_m':original.tolist(),'travel_yaws_rad':base.yaws.tolist()}}
+    proposals=animals.animal_reflected_route_proposals(None,None,{},np.array([1.,0.,0.]),request)
+    first=next(proposals);first.report_failure('no constant rigid animal route height satisfies original skin and paw gates')
+    second=next(proposals)
+    assert len(calls)==2 and second.receipt['animal_rigid_fitting_round']==1
+    np.testing.assert_allclose(second.positions[:,[0,2]],original+[.025,0.])
+    np.testing.assert_array_equal(np.array(request['motion_quartet_route']['positions_xz_m']),original)
+    assert second.receipt['original_physical_gates_unchanged']is True
