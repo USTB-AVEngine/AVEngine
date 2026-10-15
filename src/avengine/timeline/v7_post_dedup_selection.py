@@ -11,7 +11,7 @@ REVISION='independent-parent-modality-30-25-45-family-floor-20261015-v1'
 WEIGHTS={'vision':6,'audio':5,'audiovisual':9}
 
 
-def select_independent_rows(entries, *, minimum_family=3):
+def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
     """Keep earliest crop, then 6/5/9 per 20 with family and parent coverage.
 
     An entry contains the public row plus its private physical independence key.
@@ -34,7 +34,7 @@ def select_independent_rows(entries, *, minimum_family=3):
     if not units:raise ValueError('validated independent pool cannot fill a 30/25/45 batch')
     quotas={m:units*n for m,n in WEIGHTS.items()}
     available_families=Counter(e['row']['qa_id']for e in pool)
-    floors={f:min(minimum_family,n)for f,n in available_families.items()}
+    floors={f:min(max(minimum_family,(family_minimums or {}).get(f,minimum_family)),n)for f,n in available_families.items()}
     used=set();counts=Counter();families=Counter();parents=Counter();selected=[]
     byfamily=defaultdict(list);byparent=defaultdict(list)
     for i,e in enumerate(pool):

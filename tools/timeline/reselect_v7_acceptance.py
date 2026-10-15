@@ -18,7 +18,7 @@ def main():
      if any(row.get('source_classes',{}).get(aid)!=['footsteps']for aid in row.get('phase2_include_footsteps_asset_ids',[])):continue
      if row.get('acceptance_allow_partial_families')is True:continue
      receipts.append(r)
-    rows,report=balanced_batch(receipts,a.output_root,read_only_source_roots=m.get('peer_output_roots',[]),workers=a.workers)
+    rows,report=balanced_batch(receipts,a.output_root,read_only_source_roots=m.get('peer_output_roots',[]),workers=a.workers,family_minimums={f:m['motion_quartet_final_targets']['minimum_independent_questions_per_family']for f in m.get('motion_quartet_final_targets',{}).get('qa_ids',[])})
     print(json.dumps({k:v for k,v in report.items()if k!='parents'},ensure_ascii=False))
 
 if __name__=='__main__':main()

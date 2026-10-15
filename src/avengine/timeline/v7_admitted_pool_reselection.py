@@ -1,6 +1,6 @@
 """Re-select English rows from fully admitted native pools, without rendering.
 
-Only visual supplements are added. Every supplement already passed the full
+Visual and requested motion supplements are added. Every supplement already passed the full
 original pool replay and is rechecked with the original QA and scoring code.
 Quartet supplements need separate nuisance checks, so remain in their original
 sealed selection here. Original seals and per-parent exports are immutable.
@@ -43,15 +43,17 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         raise ValueError('supplement source parent is not admitted')
     recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
     scene=row['scene_id'];root=pointer_path.parent;seal=root/pointer['attempt']
-    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v1.json')
+    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v2_motion.json')
     if cache.exists():return load(cache)
+    prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v1.json')
+    prior=load(prior_path)if prior_path.exists()else None
     base=[json.loads(s)for s in(output/'export/parent_rows'/f"{receipt['slot']:03d}.jsonl").read_text().splitlines()if s.strip()]
     bywindow=defaultdict(list)
     for r in base:bywindow[r['window_id']].append(r)
-    entries=[];proofs=[];known_ids={r['question_id']for r in base};supplemented=0
+    entries=list(prior['entries'])if prior else [];proofs=list(prior['proofs'])if prior else [];known_ids={e['row']['question_id']for e in entries}|{r['question_id']for r in base};supplemented=prior['new_visual_candidate_rows']if prior else 0;motion_supplemented=0
     for win in pointer['result']['windows']:
         wid=win['window_id'];gold={g['question_id']:g for g in load(seal/'private'/f'{wid}_answers.json')}
-        entries.extend(_entry(scene,r,gold[r['question_id']])for r in bywindow[wid])
+        if not prior:entries.extend(_entry(scene,r,gold[r['question_id']])for r in bywindow[wid])
         if len(row['members'])!=1:continue
         member=(win.get('member')or wid.rsplit('__',2)[-2]);marker=load(root/f'selected_windows_{member}_completed.json')
         pool=Path(marker['recipe']['pool_directory'])/wid;permitted(pool)
@@ -61,7 +63,7 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         pub=load(qpath);original=load(rpath)
         if original.get('status')!='pass' or original.get('checked_forms')!=len(pub) or original.get('mismatches'):
             raise ValueError('original full-pool replay is incomplete or failed')
-        candidates=[q for q in pub if q['modality']=='vision'and q['form']=='open'and q['question_id']not in known_ids]
+        candidates=[q for q in pub if (q['modality']=='vision'or q['qa_id']in {'QA-06','QA-15','QA-16','QA-17'})and q['form']=='open'and q['question_id']not in known_ids]
         if not candidates:continue
         audit=load(apath);all_gold={g['question_id']:g for g in load(pool/'private_answers.json')}
         if any(not all_gold[q['question_id']].get('authority_question_id')for q in candidates):
@@ -99,10 +101,10 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
                     'original_14_question_seal_preserved':str(pointer_path),'new_renders':0}}
             for name in('video','audio_foa','audio_mono'):
                 if not(output/'export'/training[name]).is_file():raise ValueError('supplement media missing from admitted export')
-            entries.append(_entry(scene,training,g));supplemented+=1
+            entries.append(_entry(scene,training,g));supplemented+=q['modality']=='vision';motion_supplemented+=q['qa_id']in {'QA-06','QA-15','QA-16','QA-17'}
         proofs.append({'window_id':wid,'original_replay':str(rpath),'supplements':len(candidates),
             'truth_replay':replay,'source_pool':str(pool),'CJK_and_ID_gate':'pass','invalid_answer_controls':'pass'})
-    result={'entries':entries,'new_visual_candidate_rows':supplemented,'source_seal':str(pointer_path),
+    result={'entries':entries,'new_visual_candidate_rows':supplemented,'new_motion_candidate_rows':motion_supplemented,'source_seal':str(pointer_path),
         'source_seal_sha256':sha(pointer_path),'proofs':proofs}
     save(cache,result);return result
 
@@ -112,7 +114,7 @@ def _collect_parent_job(arguments):
     return parent_entries(receipt,output,read_only_source_roots=roots)
 
 
-def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1):
+def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_minimums=None):
     entries=[];parents=[]
     if workers>1:
         import multiprocessing
@@ -122,12 +124,12 @@ def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1):
     else:results=[parent_entries(r,output,read_only_source_roots=read_only_source_roots)for r in receipts]
     for receipt,result in zip(receipts,results):
         entries.extend(result['entries']);parents.append({'scene_id':receipt['scene_id'],
-            'slot':receipt['slot'],'new_visual_candidate_rows':result['new_visual_candidate_rows'],
+            'slot':receipt['slot'],'new_visual_candidate_rows':result['new_visual_candidate_rows'],'new_motion_candidate_rows':result.get('new_motion_candidate_rows',0),
             'source_seal':result['source_seal'],'proofs':result['proofs']})
-    rows,report=select_independent_rows(entries)
+    rows,report=select_independent_rows(entries,family_minimums=family_minimums)
     report.update(original_admitted_independent_rows=sum(r['independent_questions']for r in receipts),
         time_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),parents=parents,
-        visual_supplements_actually_selected=sum('post_dedup_supplement'in r for r in rows),
+        visual_supplements_actually_selected=sum('post_dedup_supplement'in r and r['modality']=='vision'for r in rows),motion_supplements_actually_selected=sum('post_dedup_supplement'in r and r['qa_id']in {'QA-06','QA-15','QA-16','QA-17'}for r in rows),
         newly_rendered_parents=0,original_native_seals_changed=False)
     save(Path(output)/'evidence/POST_DEDUP_SELECTION.json',report)
     return rows,report

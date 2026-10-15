@@ -38,3 +38,12 @@ def test_same_wording_with_different_physical_answer_remains_independent():
     entries.append({'row':{**q['row'],'question_id':'different_answer','canonical_answer':'no'},'key':[*q['key'][:-1],'no']})
     _,audit=select_independent_rows(entries)
     assert audit['capacity_by_modality']['vision']==31
+
+
+def test_motion_batch_floor_overrides_the_ordinary_three_question_floor():
+    entries=candidates()
+    for i,e in enumerate(entries):
+        if e['row']['modality']=='audiovisual':e['row']['qa_id']='QA-15'if i%2 else'other_AV'
+    rows,audit=select_independent_rows(entries,family_minimums={'QA-15':25})
+    assert Counter(r['qa_id']for r in rows)['QA-15']==25
+    assert audit['available_family_floors']['QA-15']==25
