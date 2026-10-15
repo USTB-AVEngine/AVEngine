@@ -13,7 +13,9 @@ def write(p,data):
 def run_worker(manifest,slot):
     task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve()
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
-    cpus=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,{cpus[slot%len(cpus)]})
+    available=sorted(os.sched_getaffinity(0));cpus=manifest.get('cpu_affinity_ids',available)
+    if not cpus or not set(cpus)<=set(available):raise ValueError('requested CPU affinity is unavailable')
+    os.sched_setaffinity(0,{cpus[slot%len(cpus)]})
     import avengine
     if not Path(avengine.__file__).resolve().is_relative_to(Path(manifest['worktree']).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
