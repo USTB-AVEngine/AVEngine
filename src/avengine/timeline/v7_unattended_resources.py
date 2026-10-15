@@ -81,3 +81,25 @@ def configure_worker(root,policy,cpus,*,maximum_task_bytes=60_000_000_000):
     temp=path.with_suffix('.tmp');temp.write_text(json.dumps(value,indent=2)+'\n');temp.replace(path)
     (root/'evidence').mkdir(exist_ok=True)
     return budget
+
+
+def configure_parent_storage(manifest,output_root):
+    """Share the authorized task cache without re-admitting a running worker."""
+    from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
+    output_root=Path(output_root).resolve()
+    budget_root=Path(manifest.get('storage_budget_root',output_root)).resolve()
+    if budget_root in {Path('/'),Path('/data')}or not output_root.is_relative_to(budget_root):
+        raise ValueError('parent output escaped its declared task budget')
+    if manifest.get('storage_admission_prechecked'):
+        policy=json.loads(os.environ.get(ENV_KEY,'{}'))
+        if policy.get('root')!=str(budget_root)or policy.get('admission_only')is not True:
+            raise ValueError('prechecked storage policy does not match the admitted task')
+        return policy
+    policy={'root':str(budget_root),'filesystem':'/data','maximum_task_bytes':manifest.get('maximum_task_bytes',60_000_000_000),
+        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
+        'policy':'owner CPU acceptance only; no training merge or CCI'}
+    for key in ('temporary_minimum_free_bytes','temporary_minimum_free_until_unix'):
+        if key in manifest:policy[key]=manifest[key]
+    os.environ[ENV_KEY]=json.dumps(policy);check_write(output_root,expected_bytes=0)
+    policy['admission_only']=True;os.environ[ENV_KEY]=json.dumps(policy)
+    return policy

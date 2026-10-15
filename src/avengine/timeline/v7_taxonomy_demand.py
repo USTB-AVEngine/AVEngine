@@ -2,8 +2,8 @@
 def choose_unseen_class(asset,records,observed_class34_counts,*,emission_mechanisms=None):
     available={r['sound_class'] for r in records if r.get('sound_class')}
     classes=set(asset.get('allowed_classes',[]))&available
-    classes.discard('speech_playback')
-    if not classes:raise ValueError('no admitted non-speech recording matches the actual source capability')
+    if asset.get('kind')in {'human','performer'}:classes.discard('speech_playback')
+    if not classes:raise ValueError('no admitted recording matches the actual source capability')
     if any(not isinstance(v,int) or isinstance(v,bool) or v<0 for v in observed_class34_counts.values()):
         raise ValueError('taxonomy feedback must count actual delivered positive answers')
     # Match the existing source intake and CLASS34 predicate; neither is changed.

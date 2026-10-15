@@ -19,17 +19,8 @@ def run_worker(manifest,slot):
     import avengine
     if not Path(avengine.__file__).resolve().is_relative_to(Path(manifest['worktree']).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
-    from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
-    os.environ[ENV_KEY]=json.dumps({'root':str(root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
-        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
-        'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
-    policy=json.loads(os.environ[ENV_KEY])
-    for key in ('temporary_minimum_free_bytes','temporary_minimum_free_until_unix'):
-        if key in manifest:policy[key]=manifest[key]
-    os.environ[ENV_KEY]=json.dumps(policy)
-    check_write(root,expected_bytes=0)
-    policy['admission_only']=True
-    os.environ[ENV_KEY]=json.dumps(policy)
+    from avengine.timeline.v7_unattended_resources import configure_parent_storage
+    configure_parent_storage(manifest,root)
     inputs=load(manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])

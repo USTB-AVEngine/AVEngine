@@ -97,6 +97,31 @@ def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,exclude
     return deepcopy(ordered[:epoch_count])
 
 
+def choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,attempt):
+    """Jointly choose a legal registered source and an underproduced real class."""
+    from avengine.timeline.v7_production_inputs import asset_category
+    from avengine.timeline.v7_taxonomy_demand import choose_unseen_class
+    excluded=contract.get('policy',{}).get('temporarily_excluded_asset_ids',{})
+    available=[a for a in catalog if a.get('kind')not in {'human','performer','chair'}]
+    # The authored companion keeps exactly one speaking source. The remaining
+    # two real humans can exchange the audible/quiet role without being removed.
+    available.extend([people[0],people[2]])
+    options=[]
+    for asset in available:
+        if asset['asset_id']in excluded:continue
+        try:
+            if asset_category(asset,{},room['family'])not in room['categories']:continue
+            cls,proof=choose_unseen_class(asset,records,state.get('class34_positive_counts',{}))
+        except ValueError:continue
+        surface={'floor':0,'table':1,'wall':2,'ceiling':3}.get(asset.get('attachment_surface'),4)
+        score=(state.get('class34_positive_counts',{}).get(cls,0),0 if asset in people else 1,surface,
+            stable_seed(seed,asset['asset_id'],cls,attempt))
+        options.append((score,asset,cls,proof))
+    if not options:raise ConstructionUnavailable('no registered source in the original legal cell can emit an admitted CLASS34 candidate')
+    _,asset,cls,proof=min(options,key=lambda item:item[0])
+    return deepcopy(asset),cls,proof
+
+
 def _request(row,state,family):
     from avengine.timeline.v7_demand import demand_snapshot,FAMILY_SCENE_REQUIREMENTS
     request=demand_snapshot(state,next_questions=70)
@@ -180,40 +205,81 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         row['camera_yaw_knots']=_camera_knots(ctx['camera_yaw_deg'])
         row['scene_demand']['required_sector_boundary_margin_deg']=15.
     elif family in {'QA-21','V7-CLASS34'}:
-        from avengine.timeline.v7_taxonomy_demand import choose_unseen_class
-        cls,proof=choose_unseen_class(people[0],records,state.get('class34_positive_counts',{}))
-        row['source_classes'][ids[0]]=[cls];row['category_focus_class']=cls
-        row['automatic_taxonomy_clock']={'asset_id':ids[0],'after_authored_complete_utterance':True}
+        emitter,cls,proof=choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,attempt)
+        aid=emitter['asset_id']
+        if aid not in row['asset_ids']:row['asset_ids'].append(aid)
+        row['silent_asset_ids']=[person['asset_id']for person in people if person['asset_id']not in {ids[1],aid}]
+        row['source_classes'][aid]=[cls];row['category_focus_class']=cls
+        row['automatic_taxonomy_clock']={'asset_id':aid,'after_authored_complete_utterance':True}
         row['scene_demand']['class34_construction']=proof
+        row['scene_demand']['required_asset_ids']=list(row['asset_ids'])
+        row['automatic_construction']['required_role_count']=len(row['asset_ids'])
     elif family=='V7-CONTENT-BIND':
         return _construct_content(row,people,state,semantic,ctx,attempt)
     validate_recipe(row,catalog,contract)
     return {'profile':'phase2','row':row}
 
 
+def whole_recorded_triplet(records,gender,seed):
+    """Prefer complete short utterances; no recording is cropped or relabelled."""
+    voices=defaultdict(dict)
+    for record in records:
+        if (record.get('dataset')!='VCTK-Corpus 0.92'or record.get('source_type','recorded')!='recorded'
+                or record.get('gender')!=gender or record.get('legacy_library_split')!='train'
+                or not record.get('transcript')or record.get('duration_s',0)<=0):continue
+        previous=voices[record['speaker_id']].get(record['transcript'])
+        if previous is None or record['duration_s']<previous['duration_s']:
+            voices[record['speaker_id']][record['transcript']]=record
+    choices=[]
+    for voice,unique in voices.items():
+        if len(unique)<3:continue
+        whole=sorted(unique.values(),key=lambda r:(len(r['transcript'].split())<3,r['duration_s'],r['sound_asset_id']))[:3]
+        choices.append(whole)
+    if not choices:raise ConstructionUnavailable('no actual same-voice three-utterance recording group matches the body')
+    return min(choices,key=lambda group:(sum(len(r['transcript'].split())<3 for r in group),
+        max(r['duration_s']for r in group),sum(r['duration_s']for r in group),stable_seed(seed,group[0]['speaker_id'])))
+
+
 def _construct_post(row,people,state,catalog,records,semantic,contract,runtime,house,family):
-    from avengine.timeline.v7_demand import plan_phase2_demand
-    from avengine.timeline.v7_phase2_sources import build_phase2_scene
+    from avengine.timeline.v7_environmental_sources import recording_header
+    from avengine.timeline.v7_registered_sampling import semantic_record
     from avengine.timeline.v7_conditioned_post_motion import registered_human_motion_registry,plan_post_sound_motion
-    original_request=deepcopy(row['scene_demand']);row=plan_phase2_demand(row,state,catalog,records,contract,focus='human_motion')
-    target,companion=(a['asset_id']for a in people[:2])
-    first_record=next(r for r in records if r['sound_asset_id']==row['phase2_recorded_sound_ids'][target][0])
-    speech=choose_authored(semantic,[people[1]],state,row['scene_seed'],attempt=row['automatic_construction']['candidate_index'],excluded_voices={first_record['speaker_id']})[0][0]
-    row.update(semantic_scenario_id=speech['scenario_id'],semantic_sound_ids=[speech['sound_asset_id']],
-        semantic_human_asset_ids=[companion],semantic_start_offsets_s=[0.],motion_requests={})
-    for key in ('phase2_recorded_speech_schedule_s','phase2_recorded_sound_ids','proposed_sound_asset_ids'):
-        row.get(key,{}).pop(companion,None)
-    row['scene_demand']=original_request
+    from avengine.timeline.v7_family_clock import build_constructed_scene
+    target,companion=(a['asset_id']for a in people[:2]);gender='F'if people[0]['visual_gender']=='female'else'M'
+    from avengine.timeline.v7_visible_sources import production_audio_record_views
+    from avengine.timeline.v7_audio_sources import filter_admission
+    admitted,rejected=filter_admission(production_audio_record_views(records))
+    if rejected:raise ConstructionUnavailable('the original source admission rejects records; no source may be invented')
+    clips=whole_recorded_triplet(admitted,gender,row['scene_seed']);voice=clips[0]['speaker_id']
+    row['source_classes']={target:['speech_playback'],companion:['speech_playback']}
+    row['motion_requests']={};row['proposed_sound_asset_ids']={target:clips[0]['sound_asset_id']}
+    row['phase2_recorded_sound_ids']={target:[r['sound_asset_id']for r in clips]}
     row['scene_demand']['distance_trend']=('approaching','receding')[(len(state.get('parents',{}))+row['automatic_construction']['candidate_index'])%2]
-    _,scene,program,assets=build_phase2_scene(row,house,records,catalog,semantic)
-    lookup={r['sound_asset_id']:r for r in program['records']};bindings={e['event_id']:e for e in program['events']};by_asset={}
-    for aid in (target,companion):
-        ep=next(a['endpoint_id']for a in assets if a['asset_id']==aid)
-        events=sorted((e for e in scene['events']if e['endpoint_id']==ep),key=lambda e:e['start_tick'])
-        by_asset[aid]=[lookup[bindings[e['event_id']]['sound_asset_id']]for e in events]
     registry=registered_human_motion_registry(people[:2],runtime,house)
-    row=plan_post_sound_motion(row,qa_id=family,target=target,companion=companion,assets=assets,registry=registry,records_by_asset=by_asset)
-    return {'profile':'phase2','row':row}
+    target_records=[recording_header(r)for r in clips]
+    other_gender=people[1]['visual_gender'];usage=state.get('authored_voice_counts',{})
+    candidates=[s for s in semantic['sounds']if s['voice_reference']['gender'].lower()in {other_gender,other_gender[:1]}
+        and s['voice_reference']['speaker_id']!=voice]
+    candidates.sort(key=lambda r:(usage.get(r['voice_reference']['speaker_id'],0),r['synthesis_readback']['duration_s'],
+        stable_seed(row['scene_seed'],r['sound_asset_id'])))
+    rejected=[]
+    for speech in candidates:
+        candidate=deepcopy(row)
+        candidate.update(semantic_scenario_id=speech['scenario_id'],semantic_sound_ids=[speech['sound_asset_id']],
+            semantic_human_asset_ids=[companion],semantic_start_offsets_s=[0.])
+        try:
+            reference=semantic_record(speech,'F'if other_gender=='female'else'M')
+            candidate=plan_post_sound_motion(candidate,qa_id=family,target=target,companion=companion,
+                assets=people,registry=registry,records_by_asset={target:target_records,companion:[reference]})
+            # This is only source-program compilation. Native render and wet-tail
+            # gates still run afresh; the original solver retains its 3s reserve.
+            build_constructed_scene(candidate,house,records,catalog,semantic)
+        except ValueError as error:
+            rejected.append({'sound_asset_id':speech['sound_asset_id'],'reason':str(error)[:300]});continue
+        candidate['automatic_construction']['joint_source_timing_rejections']=rejected
+        candidate['automatic_construction']['whole_recorded_target_ids']=[r['sound_asset_id']for r in clips]
+        return {'profile':'phase2','row':candidate}
+    raise ConstructionUnavailable('no unchanged v3 joint source/timing solution for complete admitted speech: '+repr(rejected[-3:]))
 
 
 def registered_layout_proposals(ctx,people,attempt):
