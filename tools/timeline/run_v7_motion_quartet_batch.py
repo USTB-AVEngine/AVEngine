@@ -150,7 +150,7 @@ def main():
                 limits=observe(load(a.admission_manifest))
                 if limits['pause_new_parents'] or limits['own_pss_bytes']+30_000_000_000>admission_policy.get('maximum_pss_bytes',150_000_000_000) or limits['combined_pss_bytes']+30_000_000_000>admission_policy.get('maximum_combined_pss_bytes',190_000_000_000):break
             house,room,attempt=pending.pop(0);slot=len(manifest['parents'])
-            seed=int.from_bytes(hashlib.sha256((str(a.seed)+house['house']+room['room_label']).encode()).digest()[:6],'big');identity=hashlib.sha256((house['house']+room['room_label']+str(seed)).encode()).hexdigest()[:14]
+            seed=int(a.seed)if a.room_id else int.from_bytes(hashlib.sha256((str(a.seed)+house['house']+room['room_label']).encode()).digest()[:6],'big');identity=hashlib.sha256((house['house']+room['room_label']+str(seed)).encode()).hexdigest()[:14]
             if any(t['row']['house']==house['house'] and (out/'evidence/jobs'/f"{t['slot']:03d}.json").exists() and load(out/'evidence/jobs'/f"{t['slot']:03d}.json").get('status')=='passed'for t in manifest['parents']):continue
             row={'schema':'v7-visible-registered-pilot-phase2-v1','split':{'development':'dev'}.get(house['split'],house['split']),
                  'house':house['house'],'room_id':room['room_label'],'scene_seed':seed,

@@ -38,7 +38,7 @@ def authored_pairs(manifest):
 def choose_template_assets(catalog, pair, seed, attempt=0):
     rng = np.random.default_rng(seed)
     pool = [a for a in catalog if a.get('kind') == 'human' and a.get('controlled_shirt')
-            and a.get('dialogue_voice_binding_eligible') is not False and a.get('standing_registered_qualified')]
+            and a.get('dialogue_voice_binding_eligible') is not False and a.get('standing_registered_qualified') is not False]
     chosen = []
     for index, sound in enumerate(pair):
         gender = sound['voice_gender']
@@ -236,7 +236,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
             'method': 'measured exact nonzero waveform envelope; conservative full speech support'}
         measured.append(record)
     offsets=[0.] if route.get('single_pass') else [0.,10.,20.]
-    row['phase2_authored_speech_schedule_s']={a:[offset+.3 for offset in offsets],b:list(offsets)}
+    row['phase2_authored_speech_schedule_s']={a:[offset+.3 for offset in offsets],b:[0.,10.,20.]}
     requests = []
     for qa, branch in [('QA-06', 'moving'), ('QA-16', None), ('QA-17', 'yes')]:
         requests.append({'qa_id': qa, 'branch': branch, 'target_asset_id': a,
