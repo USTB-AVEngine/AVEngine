@@ -38,3 +38,12 @@ def test_refresh_proves_a_dynamic_role_on_frame_zero_pixels(monkeypatch):
     checks = [{'asset_id': 'a'}]
     layout.refresh_actual_offscreen_proofs(Video(), scene, checks)
     assert seen['pixels'] == 0 and checks[0]['intentional_offscreen_proof'] == {'status': 'pass'}
+
+
+def test_floor_cover_tolerates_a_floating_point_seam():
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
+    seam = unary_union([box(0, 0, 1, 1), box(1 + 3e-9, 0, 2, 1)])        # two parts with a 3 nm seam
+    line = LineString([(0.5, 0.5), (1.5, 0.5)])
+    assert not seam.covers(line) and seam.buffer(1e-6).covers(line)
+    assert not seam.buffer(1e-6).covers(LineString([(0.5, 0.5), (2.5, 0.5)]))   # a real exit still fails
