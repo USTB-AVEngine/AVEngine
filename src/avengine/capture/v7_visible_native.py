@@ -335,6 +335,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if relation_score is not None:return (not visible,*relation_score)
                 if target is not None:
                     return (not visible,(abs(az-float(target))/3.4)**2+(abs(float(np.linalg.norm(delta[[0,2]]))-distance_target)/.4)**2)
+                from avengine.capture.v7_social_layout import social_proposal_score
+                social_score=social_proposal_score(scene,a,rep,listener,scene['camera_forward'])
+                if social_score is not None:return (not visible,social_score)
                 separation=min((float(np.min(np.linalg.norm((root-entry_roots(other))[:,[0,2]],axis=1))) for other in placed if a['kind'] in {'human','performer','animal'} and other['declaration']['kind'] in {'human','performer','animal'}),default=1.)
                 return (not visible,-min(separation,2.),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
@@ -416,6 +419,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     reject("other_registered_entity_bounds");continue
                 if np.linalg.norm((lo+hi)/2-listener)<.5:
                     reject("listener_clearance");continue
+                from avengine.capture.v7_social_layout import spacing_violation
+                social=spacing_violation(scene,a,root,placed)
+                if social is not None:
+                    reject('owner_minimum_human_or_animal_spacing_1m');continue
                 if native_attempts>=contact_budget:
                     search_exhausted=True;reject('bounded_native_search_exhausted');break
                 native_attempts+=1

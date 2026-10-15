@@ -20,7 +20,8 @@ def facing_yaw(scene,asset,listener,point):
     base=math.atan2(-dx,-dz)if asset['kind']in {'human','performer','animal'}else math.atan2(-dz,dx)
     if not scene.get('automatic_construction'):return base
     offset=(0.,15.,-15.,30.)[candidate_index(scene)%4]
-    return base+math.radians(offset)
+    from avengine.capture.v7_social_layout import is_human,varied_human_yaw_offset
+    return base+math.radians(offset)+(varied_human_yaw_offset(asset)if is_human(asset)else 0.)
 
 
 def silent_candidate_local_point(scene,asset,vertices):

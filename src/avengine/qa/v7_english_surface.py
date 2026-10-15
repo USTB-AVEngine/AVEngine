@@ -36,7 +36,7 @@ def tidy_english(text):
 
 def protocol_question_en(family,evidence):
     if family=='QA-23':
-        return 'How many sound-activity segments occur in this 10-second clip? Count each footstep bout once: adjacent steps up to 0.6 seconds apart form one bout. For other sounds, a missing 100-ms activity frame starts a new segment. Count a segment already active at the start once; count segments, not people or actions.'
+        return 'How many stretches of sound are there in this 10-second clip? Count a sound already continuing at the start once. Count a continuous run of footsteps once when the gaps between steps are at most 0.6 seconds. For other sounds, a silent 0.1-second interval starts a new stretch. Count stretches of sound rather than people or actions.'
     if family=='STARSS-SPEAKERS':
         return 'How many different people produce live speech at any time in this 10-second clip? Count each person once, including speech already active at the start. Exclude speech played by a device.'
     anchor=float(evidence.get('anchor_s',0))
@@ -44,8 +44,8 @@ def protocol_question_en(family,evidence):
     if family=='QA-04':return f'Which of the eight horizontal directions does {subject} come from at its onset? Use the camera-facing direction as front.'
     if family=='QA-25':return f'What is the horizontal angle of {subject} at {evidence["query_s"]:g} seconds? Front is 0 degrees, left is positive and right is negative. Give an integer in [-180, 179].'
     if family=='QA-21':return f'Which sound category describes {subject}?'
-    if family=='STARSS-CLASS13':return f'Which of the 13 STARSS sound classes describes {subject}?'
-    if family=='STARSS-FRUSTUM':return f'Is the direction of {subject} inside or outside the camera frustum at its onset? Ignore occlusion.'
+    if family=='STARSS-CLASS13':return f'Which of the following sound categories best describes {subject}?'
+    if family=='STARSS-FRUSTUM':return f"Is the direction of {subject} inside or outside the camera's view at its onset? Ignore occlusion."
     raise ValueError('missing English protocol template: '+family)
 
 

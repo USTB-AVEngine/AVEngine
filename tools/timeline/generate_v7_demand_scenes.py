@@ -148,6 +148,8 @@ def worker(a,cfg,root):
 
 def cleanup_new_failed(root,result,policy_after,log):
     """Only newly created explicitly failed native attempts, after durable receipts."""
+    from avengine.timeline.v7_generation_scope import invalidation_marker
+    if invalidation_marker(root):return
     if result.get('status')not in {'failed','construction_unfulfilled'}or not policy_after:return
     started=result['automatic_started_unix']
     if started<policy_after:return
@@ -170,8 +172,9 @@ def cleanup_new_failed(root,result,policy_after,log):
     write(audit,{'status':'failed_receipt_and_log_saved_before_removal','receipt':str(receipt),'log':str(log),
         'authorized_new_attempts_after_unix':policy_after,'files':files})
     with audit.open('rb')as stream:os.fsync(stream.fileno())
-    for item in files:Path(item['path']).unlink()
-    write(audit,{**read(audit),'status':'removed_only_new_rebuildable_large_failed_copies','removed_bytes':sum(r['bytes']for r in files)})
+    # Owner 15:1x: Claude alone removes media after the replacement batch passes.
+    write(audit,{**read(audit),'status':'retained_for_owner_cleanup_after_replacement_batch','removed_bytes':0,
+        'retained_bytes':sum(r['bytes']for r in files),'deletion_authority':'Claude; this worker does not delete media'})
 
 
 
@@ -220,6 +223,15 @@ def log_attempt_failure(result):
     if result.get('traceback'):print(result['traceback'],file=sys.stderr,flush=True)
 
 
+
+def room_for_candidate(base_room,rooms,candidate):
+    """Try the next original legal room in the same capability cell."""
+    matches=[pair for pair in rooms if pair[1]['family']==base_room['family']
+        and set(pair[1]['categories'])==set(base_room['categories'])]
+    start=next(i for i,pair in enumerate(matches)if pair[1]['room_id']==base_room['room_id'])
+    return matches[(start+candidate)%len(matches)]
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--config',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--parents',type=int,default=1);p.add_argument('--families',nargs='+');p.add_argument('--room-id');p.add_argument('--unseen-houses',action='store_true')
@@ -228,6 +240,8 @@ def main():
     p.add_argument('--family');p.add_argument('--scene-id');p.add_argument('--seed',type=int);p.add_argument('--cpus');p.add_argument('--source-commit');p.add_argument('--feedback');p.add_argument('--run-root')
     a=p.parse_args();cfg=load_global(a.config);sys.path.extend(cfg.get('extra_python_paths',[]));root=a.output.resolve();allowed=Path(cfg['authorized_output_root']).resolve()
     if root==allowed or not root.is_relative_to(allowed):raise ValueError('output must be a fresh descendant of the authorized task directory')
+    from avengine.timeline.v7_generation_scope import assert_new_generation_output,generation_scene_id
+    assert_new_generation_output(root)
     os.nice(max(0,10-os.getpriority(os.PRIO_PROCESS,0)))
     if a.worker:raise SystemExit(worker(a,cfg,root))
     from avengine.timeline.v7_family_constructors import FAMILIES,REVISION,next_family,stable_seed,construct_family_scene
@@ -268,7 +282,7 @@ def main():
     for index in range(a.parents):
         if stop_requested:break
         ri,room=rooms[index%len(rooms)];family=scope[index%len(scope)]if (a.plan_only or a.exercise_all_families)else next_family(state,scope)
-        scene='auto_'+re.sub('[^A-Za-z0-9_]','_',root.name)+'_'+str(index).zfill(4);seed=stable_seed(REVISION,scene,room['key'])
+        scene=generation_scene_id(allowed,root,index);seed=stable_seed(REVISION,scene,room['key'])
         if a.plan_only:
             plan=construct_family_scene(room,houses[room['house']],state,assets,source['records'],semantic,contract,runtime,scene_id=scene,seed=seed,family=family)
             if plan['profile']=='phase2':
@@ -286,7 +300,9 @@ def main():
             write(root/'proposals'/f'{index:04d}.json',plan);outcomes.append({'scene_id':scene,'family':family,'room_id':room['room_id'],'status':'proposal_only_native_not_run'});continue
         record=root/'evidence/jobs'/f'{index:04d}.json'
         if record.exists()and read(record).get('status')=='passed':outcomes.append(read(record));continue
+        base_room=room
         for candidate in range(a.maximum_candidates):
+            ri,room=room_for_candidate(base_room,rooms,candidate)
             attempt=root/'attempts'/(scene+'__'+str(candidate).zfill(3))
             if (attempt/'automatic_result.json').exists():
                 result=read(attempt/'automatic_result.json');write(record,result)
