@@ -436,6 +436,42 @@ def prepare_qa21_sources(room, house, state, catalog, records, semantic, contrac
     return row, selected, person, sounds, ctx
 
 
+def solved_native_supports(plan, assets, seed, room):
+    """Translate the solved original mesh roots to the existing native support
+    contract. The original native support/contact checks still run at this pin.
+    """
+    from avengine.capture.v7_visible_native import attachment_template
+    from avengine.capture.v7_visible_attachment import rotation, support_points
+    from avengine.capture.v7_visible_mesh import indexed_static_mesh
+    from avengine.timeline.v7_natural_orientation import sample_initial_orientation
+    from shapely.geometry import shape
+    polygon = shape(room['floor_polygon']);centre=polygon.representative_point()
+    room_center=[centre.x,float(room['measured_floor_y_m']),centre.y]
+    furniture=[np.asarray(actor.positions_m)[0].tolist() for aid,actor in plan.actors.items() if assets[aid].get('kind')=='object']
+    supports={}
+    for aid, actor in plan.actors.items():
+        asset=assets[aid];root=np.asarray(actor.positions_m,float)[0];delta=np.asarray(plan.camera.position_m)-root
+        if asset.get('kind') in {'human','performer'}:
+            orientation=sample_initial_orientation(asset,int(seed),root,plan.camera.position_m,room_center,[],furniture)
+            yaw=float(orientation['yaw_rad'])
+        else:
+            orientation=None
+            yaw=math.atan2(-delta[0],-delta[2]) if asset.get('kind')=='animal' else math.atan2(-delta[2],delta[0])
+        mesh=indexed_static_mesh(asset['habitat_glb'])
+        template=attachment_template(np.asarray(mesh.vertices),asset['attachment_surface'],asset['kind'],asset.get('landmarks_local_m'),mesh)
+        meta={**asset,'_attachment_template':template}
+        support={'surface':asset['attachment_surface'],'point':[0.,0.,0.],'normal':[0.,1.,0.],'yaw_rad':yaw}
+        origin_root,_,_,_=support_points(meta,support)
+        point=root-np.asarray(origin_root)
+        support.update(point=point.tolist(),original_surface_point_m=point.tolist(),joint_solved_pose=True,
+            _outward_clearance_m=0.,qa21_expected_root_m=root.tolist())
+        if orientation is not None:support['_natural_orientation']=orientation
+        replay,_,_,_=support_points(meta,support)
+        if np.linalg.norm(replay-root)>1.e-8:raise ValueError('QA21 native support translation changed the solved root')
+        supports[aid]=support
+    return supports
+
+
 def construct_qa21_scene(room, house, state, catalog, records, semantic, contract, runtime,
                          *, scene_id, seed, family='QA-21', attempt=0):
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable, _request
@@ -468,6 +504,7 @@ def construct_qa21_scene(room, house, state, catalog, records, semantic, contrac
     certificate = solved.certificate if hasattr(solved, 'certificate') else solved['certificate']
     row['scene_demand']['qa21_planning_certificate'] = json.loads(json.dumps(asdict(certificate),
         default=lambda value: value.tolist() if hasattr(value, 'tolist') else value.item()))
+    row['native_attachment_supports'] = solved_native_supports(plan, {a['asset_id']: a for a in [*(a for a, _, _ in selected), person]}, seed, ctx['original_room'])
     row['scene_demand']['qa21_certification_authority'] = 'planning geometry and actual compiled source clock; original native masks and QA unchanged'
     validate_recipe(row, catalog, contract)
     return {'profile': 'phase2', 'row': row}
