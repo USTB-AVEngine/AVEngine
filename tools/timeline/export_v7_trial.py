@@ -79,7 +79,7 @@ def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
         quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+int(wid.rsplit('w',1)[1])
         partial=row.get('acceptance_allow_partial_families') is True
         evidence=load(seal/'private'/(wid+'_evidence.json'))
-        allocation=question_allocation(quota,14)
+        allocation=question_allocation(quota,14);audit_policy=None
         if partial:
             audit_policy=evidence.get('full_qa_selection',{}).get('audit',{}).get('acceptance_partial_family_policy')
             if kind!='integration_pilot_admitted' or row.get('trial_only') is not True or not audit_policy:
@@ -90,7 +90,14 @@ def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
         owner=evidence.get('full_qa_selection',{}).get('audit',{}).get('owner_available_candidate_allocation')
         if owner and owner.get('changed') is True:
             check=evidence['full_qa_selection'].get('question_check',{})
-            if (kind!='integration_pilot_admitted' or owner.get('canonical_answers_changed') is not False
+            # A partial trial window (acceptance_allow_partial_families) proves unchanged answers in its own
+            # selection policy: fewer original legal candidates are offered, nothing is re-answered.
+            partial_window=bool(partial and audit_policy and owner.get('reason')=='fewer original legal candidates; explicit partial trial window'
+                and audit_policy.get('answers_changed') is False and audit_policy.get('native_gates_changed') is False
+                and owner.get('actual')==audit_policy.get('actual_allocation')
+                and check.get('status')=='pass' and check.get('logical_questions')==sum(audit_policy['actual_allocation'].values())
+                and evidence['full_qa_selection'].get('formal_dataset_count')==0)
+            if not partial_window and (kind!='integration_pilot_admitted' or owner.get('canonical_answers_changed') is not False
                     or (owner.get('reason')!='owner: skip unavailable candidate families; keep existing legal answers'
                         and not (owner.get('reason')=='owner: modality target applies after parent dedup; retain 14 original legal questions'
                             and owner.get('target_applied_after_parent_dedup')is True
