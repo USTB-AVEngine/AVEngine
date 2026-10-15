@@ -176,7 +176,10 @@ def run_worker(manifest,slot):
             phases.enter_context(cpu_phase(root,'audio_questions_reader',estimate_bytes=2000000000))
             result=generate(row,house,inputs,catalog,source,human,str(native_root))
         elif prepared_native is not None:
-            try:result=generate(row,house,inputs,catalog,source,human,str(native_root),prepared_native=prepared_native)
+            try:
+                if task['profile']=='registered':
+                    result=generate(row,house,inputs,catalog,source,human,str(native_root),prepared_visuals=prepared_native.visuals)
+                else:result=generate(row,house,inputs,catalog,source,human,str(native_root),prepared_native=prepared_native)
             finally:prepared_native.close()
         else:result=generate(row,house,inputs,catalog,source,human,str(native_root))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}

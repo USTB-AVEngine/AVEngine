@@ -77,7 +77,7 @@ def _verify_window(folder):
     return {'video':info,'FOA':{'sample_rate_hz':sr,'samples':len(data),'channels':4,'format':'ACN_WYZX_SN3D_camera'},'mono_matches_W':True}
 
 
-def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None,prepare_native_inputs_only=False,resume_only=False):
+def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None,prepare_native_inputs_only=False,resume_only=False,prepared_visuals=None):
     if resume_only:
         from avengine.timeline.v7_native_stage_resume import require_completed_registered_media
         require_completed_registered_media(Path(output)/'parents'/row['scene_id'],row)
@@ -97,13 +97,20 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
     render_ready=all((root/('visual_'+v+'_completed.json')).is_file() for v in {m.split('_')[0] for m in row['members']})
     check_write(root,expected_bytes=0 if (root/'alpha_seal_completed.json').is_file() else (64_000_000 if render_ready else 1_000_000_000))
     root.mkdir(parents=True,exist_ok=True)
-    assets=choose_assets(assets,row)
+    if prepared_visuals is not None:
+        from avengine.timeline.v7_registered_prepared_delivery import registered_scene_inputs
+        row,working,base,program,assets=registered_scene_inputs(prepared_visuals,row)
+    else:
+        if row.get('joint_prepared_scene_required'):
+            raise ValueError('live prepared registered worlds required; solve again rather than rebuild')
+        assets=choose_assets(assets,row)
     from avengine.timeline.v7_production_inputs import validate_registered_sampling_row
     production_intake=validate_registered_sampling_row(row,assets,inputs)
     licenses=qualify_licenses(assets,human_admission)
     semantic=read_json(inputs['semantic_manifest']) if inputs.get('semantic_manifest') else None
-    from avengine.timeline.v7_visible_sources import production_audio_record_views
-    working,base,program=build_registered_scene(row,house,production_audio_record_views(source_admission['records']),assets,semantic,camera_evidence_policy=inputs.get('registered_camera_evidence_policy'))
+    if prepared_visuals is None:
+        from avengine.timeline.v7_visible_sources import production_audio_record_views
+        working,base,program=build_registered_scene(row,house,production_audio_record_views(source_admission['records']),assets,semantic,camera_evidence_policy=inputs.get('registered_camera_evidence_policy'))
     if production_intake:base['production_sampling_intake']=production_intake
     authored_ids={r['sound_asset_id'] for r in program['records'] if r.get('source_type')=='author_tts'}
     if authored_ids:
@@ -145,29 +152,40 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         if native_only_visual!='all'and native_only_visual not in visual_names:raise ValueError('requested native visual is absent from the original quartet')
         if native_only_visual!='all':visual_names=[native_only_visual]
     for v in visual_names:
-        variant=deepcopy(assets)
-        if v=='v1':
-            endpoints=[a['endpoint_id'] for a in variant[:2]];variant[:2]=variant[:2][::-1]
-            for asset,ep in zip(variant[:2],endpoints,strict=True):asset['endpoint_id']=ep
+        if prepared_visuals is not None:
+            prepared=prepared_visuals[v];variant=prepared.assets;visual_scene=prepared.scene
+        else:
+            prepared=None;variant=deepcopy(assets);visual_scene=base
+            if v=='v1':
+                endpoints=[a['endpoint_id'] for a in variant[:2]];variant[:2]=variant[:2][::-1]
+                for asset,ep in zip(variant[:2],endpoints,strict=True):asset['endpoint_id']=ep
         def render(attempt):
             if resume_only:raise ValueError('resume-only cannot render a new native visual')
             check_write(attempt,expected_bytes=200_000_000)
             from avengine.timeline.v7_native_failure_retention import mark_new_attempt,retire_failed_media
             marker=mark_new_attempt(attempt);video=position_gate=None
             try:
-                video=NativeAlphaVideo(working,base,inputs,variant,source_material_cache_directory=root/'source_material_cache')
+                if prepared is not None:
+                    from avengine.timeline.v7_registered_prepared_delivery import arm_registered_prepared
+                    video=arm_registered_prepared(prepared)
+                else:video=NativeAlphaVideo(working,base,inputs,variant,source_material_cache_directory=root/'source_material_cache')
                 from avengine.timeline.v7_position_admission import PositionAdmission
-                position_gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json')
+                position_gate=PositionAdmission(visual_scene,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json')
                 video.acoustic_position_admission=position_gate.check
-                visual=video.encode(base,attempt/'scene_video.mp4',collect_pixel_visibility=True)
+                visual=video.encode(visual_scene,attempt/'scene_video.mp4',collect_pixel_visibility=True)
             except Exception as error:
                 if position_gate is not None:position_gate.close();position_gate=None
-                if video is not None:video.close();video=None
+                if video is not None:
+                    if prepared is not None:prepared.close()
+                    else:video.close()
+                    video=None
                 retire_failed_media(attempt,marker,error)
                 raise
             finally:
                 if position_gate is not None:position_gate.close()
-                if video is not None:video.close()
+                if video is not None:
+                    if prepared is not None:prepared.close()
+                    else:video.close()
             appearance=derive_native_appearance_evidence(attempt,visual,variant)
             write_json(attempt/'native_appearance_review.json',appearance)
             required=[
@@ -186,7 +204,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         # Reconstruct the producer state also when v0 was resumed. Its actual
         # SDK standing roots originally drove the camera recentering; leaving
         # the prototype here would change the exact v1 stage recipe on restart.
-        if base.get('camera_evidence_policy'):
+        if prepared_visuals is None and base.get('camera_evidence_policy'):
             from avengine.timeline.v7_camera_evidence import recenter_on_actual_roots
             replay_entries=[]
             for admitted in visual['standing_admission']:
