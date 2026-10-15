@@ -408,7 +408,8 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
         if prepare_and_verify is None:
             from avengine.construction.joint.native import prepare_native
             def oracle(ctx,req,plan):
-                row_factory=lambda selected:deepcopy(selected.metadata['row'])
+                from avengine.timeline.v7_production_inputs import attach_runtime_contract
+                row_factory=lambda selected:attach_runtime_contract(deepcopy(selected.metadata['row']),runtime)
                 def family_check(video,scene,entries):
                     checks=animal_native_checks(video,scene,entries,plan=plan,row=plan.metadata['row'])
                     if any(check.status!='pass'for check in checks):return checks
