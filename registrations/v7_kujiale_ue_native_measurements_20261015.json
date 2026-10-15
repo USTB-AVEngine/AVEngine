@@ -1,7 +1,7 @@
 {
   "schema": "v7-kujiale-ue-native-measurements-v1",
   "revision": "20261015-native-measured-v1",
-  "updated_utc": "2026-10-15T04:57:09.478377+00:00",
+  "updated_utc": "2026-10-15T05:16:18.765433+00:00",
   "original_registrations_modified": false,
   "runtime_authority": "production reads these measured native bases and original package hashes; world matrices remain measured per new frame",
   "scope": {
@@ -1961,6 +1961,350 @@
             "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native_dog_color_references_fresh_namespace_1250/parents/v7_gap_kujiale_0003_dog_physical_class/visual_v1_attempt_d6c2376ee30c4ef8b3da9c3f5308075a/native_registered_visual_evidence.json",
             "sha256": "f074383da18fc2c4952de9acc4479180f287fbf84f03cca0fa3041d6c47f23ef"
           }
+        },
+        {
+          "scene_id": "v7_gap_kujiale_0003_dog_physical_class",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 8.886119947416683e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9975339223915116,
+                  0.0,
+                  -0.07018599346169996,
+                  -2.195676326751709
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  0.07018599346169996,
+                  0.0,
+                  0.9975339223915114,
+                  1.1295028924942017
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid956287.json",
+                "sha256": "6611981b7acf79d8625bbe482e725c7d52bb7307eecfd2b8fa8dbae0d2ea8667"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9192320065805221,
+                  0.0,
+                  0.3937162913545066,
+                  -0.1956762671470642
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -0.00638059329611762
+                ],
+                [
+                  -0.39371629135450714,
+                  0.0,
+                  0.919232006580522,
+                  4.629502773284912
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid956287.json",
+                "sha256": "e3581f8a0d7fd98c9fa5cf595c9ca039272c4a885a08e12500834b3811254708"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  0.989946316342642,
+                  0.0,
+                  0.14144359568263942,
+                  -1.445676326751709
+                ],
+                [
+                  0.0,
+                  0.9999999999999999,
+                  0.0,
+                  -0.006945044132239228
+                ],
+                [
+                  -0.14144359568263987,
+                  0.0,
+                  0.9899463163426425,
+                  4.879502773284912
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid956287.json",
+                "sha256": "13397343eaa13fe1dc7acf018bc88673fe2edb31e0167787ea51cbf238e239df"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003.umap",
+            "sha256": "c24179d2ee4ac4148cb621234c788bb844d908da560ecf9d34c0dd9b0899896d",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_47673_1792034682136745232/UnrealEditor.log",
+            "native_load_log_sha256": "82a4e3c95a63973ac251b6f431251614c8f3ec4c292dfbd211a5ffdfb4353b71",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 2,
+            "processes": [
+              {
+                "pid": 956287,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_47673_1792034682136745232/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_47673_1792034682136745232/config.yaml",
+                  ""
+                ],
+                "used_memory": "1902 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 2
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native_dog_structured_comparison_1300/parents/v7_gap_kujiale_0003_dog_physical_class/visual_v0_attempt_ebd79859e5594a3692a411f82a2e65cc/native_registered_visual_evidence.json",
+            "sha256": "e9bb5acc9dc5dfbc3c045cb368b646da88d5f0aefd13b27deb1e55d380822e9c"
+          }
+        },
+        {
+          "scene_id": "v7_gap_kujiale_0003_dog_physical_class",
+          "visual": "visual_v1_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 8.886119947416683e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9975339223915116,
+                  0.0,
+                  -0.07018599346169996,
+                  -2.195676326751709
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  0.07018599346169996,
+                  0.0,
+                  0.9975339223915114,
+                  1.1295028924942017
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1013039.json",
+                "sha256": "90bb81059b895785bfcd657a0d5a5122e7fc9d512e103fba018415947b7cce2a"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9192320065805221,
+                  0.0,
+                  0.3937162913545066,
+                  -0.1956762671470642
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -0.00638059329611762
+                ],
+                [
+                  -0.39371629135450714,
+                  0.0,
+                  0.919232006580522,
+                  4.629502773284912
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1013039.json",
+                "sha256": "3eb74721f8c06a3d7fbff4a523564148cee1c02f1d52f2cfd0d6224a0beafccc"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  0.989946316342642,
+                  0.0,
+                  0.14144359568263942,
+                  -1.445676326751709
+                ],
+                [
+                  0.0,
+                  0.9999999999999999,
+                  0.0,
+                  -0.006945044132239228
+                ],
+                [
+                  -0.14144359568263987,
+                  0.0,
+                  0.9899463163426425,
+                  4.879502773284912
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1013039.json",
+                "sha256": "ee68c35d2159ace204cb50cd518fb7ce776e00529980785e7a72069f6a2dfcc7"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003.umap",
+            "sha256": "c24179d2ee4ac4148cb621234c788bb844d908da560ecf9d34c0dd9b0899896d",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_60975_1792035364052955771/UnrealEditor.log",
+            "native_load_log_sha256": "f2bff97787b7bcfa865eb2040ce091d739019e9ac254c034313672889c2a97e5",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 2,
+            "processes": [
+              {
+                "pid": 1013039,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_60975_1792035364052955771/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_60975_1792035364052955771/config.yaml",
+                  ""
+                ],
+                "used_memory": "1901 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 2
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native_dog_structured_comparison_1300/parents/v7_gap_kujiale_0003_dog_physical_class/visual_v1_attempt_d6c2376ee30c4ef8b3da9c3f5308075a/native_registered_visual_evidence.json",
+            "sha256": "f074383da18fc2c4952de9acc4479180f287fbf84f03cca0fa3041d6c47f23ef"
+          }
         }
       ],
       "independent_questions": 85,
@@ -2009,9 +2353,182 @@
     {
       "house": "kujiale_0003",
       "room_id": "R1",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0003_R1_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 1.0175362097255202e-15,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.9798010972969475,
+                  0.0,
+                  0.1999745227165155,
+                  5.884323596954346
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  -0.1999745227165155,
+                  0.0,
+                  -0.9798010972969475,
+                  -3.870496988296509
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1298236.json",
+                "sha256": "d46636485a933379f59318934f0b466f68c3946674584c0f818e09c7a0452d20"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.9710739022188908,
+                  0.0,
+                  -0.23877913734113498,
+                  4.884323596954346
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  0.23877913734113454,
+                  0.0,
+                  -0.9710739022188912,
+                  -3.370496988296509
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1298236.json",
+                "sha256": "77d07f50bed22fdae5a08568861001c5ac33124bf0979836cd7cb512019747d2"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.8902483238229033,
+                  0.0,
+                  0.4554754899338844,
+                  5.884323596954346
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  -0.4554754899338844,
+                  0.0,
+                  -0.8902483238229029,
+                  -2.370496988296509
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1298236.json",
+                "sha256": "76916eb2e50b78d37f5ecff137b8c0d55a6ecce7fe50b705ae162287779f2730"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003.umap",
+            "sha256": "c24179d2ee4ac4148cb621234c788bb844d908da560ecf9d34c0dd9b0899896d",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_55949_1792039799861005665/UnrealEditor.log",
+            "native_load_log_sha256": "a19c042e55834a07efb5a163cb90d55d599d10b199034ba8c0fd680660a69399",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 1,
+            "processes": [
+              {
+                "pid": 1298236,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_55949_1792039799861005665/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_55949_1792039799861005665/config.yaml",
+                  ""
+                ],
+                "used_memory": "1706 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 1
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0003_R1_a00/visual_v0_attempt_25d9798cd90a454b9fb402769dc05b7c/native_registered_visual_evidence.json",
+            "sha256": "a1a30e8a2d6b04e4fa9f90bb02349848b9f4da88078d2358c3e811a90fcd83d7"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0003_R1_a00"
@@ -2019,9 +2536,354 @@
     {
       "house": "kujiale_0003",
       "room_id": "R3",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0003_R3_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 3.1401849173675503e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9591930801764432,
+                  0.0,
+                  0.28275189644214116,
+                  -5.695676326751709
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  -0.28275189644214205,
+                  0.0,
+                  0.9591930801764428,
+                  -0.8204970955848694
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1298450.json",
+                "sha256": "29b8bf26cda01c78866d3d3362783253e16d6d47360be26a99a6fa8386916acf"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9366460878907299,
+                  0.0,
+                  -0.35027718458242596,
+                  -7.195676326751709
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  0.3502771845824263,
+                  0.0,
+                  0.9366460878907299,
+                  -0.9305000305175781
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1298450.json",
+                "sha256": "8941b9e116e4c70896d11ea328abbc2bc4e34fe1dbac89893aea29c0e879fc88"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  0.8775085969739287,
+                  0.0,
+                  -0.4795609056593806,
+                  -7.0838398933410645
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  0.47956090565938103,
+                  0.0,
+                  0.8775085969739296,
+                  -1.8279528617858887
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1298450.json",
+                "sha256": "c64958e8b78241b7a59cb4edb06aff639c4efb017032e02e7112016cc7d08f5a"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003.umap",
+            "sha256": "c24179d2ee4ac4148cb621234c788bb844d908da560ecf9d34c0dd9b0899896d",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_47801_1792039810605489219/UnrealEditor.log",
+            "native_load_log_sha256": "3bf82c47233a6ac5d9fdfb13d89c64cf805cfd85b7b53635ae0f12748524ba79",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 2,
+            "processes": [
+              {
+                "pid": 1298450,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_47801_1792039810605489219/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_47801_1792039810605489219/config.yaml",
+                  ""
+                ],
+                "used_memory": "1773 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 2
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0003_R3_a00/visual_v0_attempt_7ffc243424f7417baaa9f853c842db3e/native_registered_visual_evidence.json",
+            "sha256": "4846e42fb497fcaa1ffc4c5cd5a0a02abd244dc92f108b21f219684591540cff"
+          }
+        },
+        {
+          "scene_id": "v7_gap_auto_kujiale_0003_R3_a00",
+          "visual": "visual_v1_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 3.1401849173675503e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9591930801764432,
+                  0.0,
+                  0.28275189644214116,
+                  -5.695676326751709
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  -0.28275189644214205,
+                  0.0,
+                  0.9591930801764428,
+                  -0.8204970955848694
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1316460.json",
+                "sha256": "bc31a1319dce8c8e77ab5e211be5bb52cb37e65d046a1c51c23694890045b83e"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9366460878907299,
+                  0.0,
+                  -0.35027718458242596,
+                  -7.195676326751709
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  0.3502771845824263,
+                  0.0,
+                  0.9366460878907299,
+                  -0.9305000305175781
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1316460.json",
+                "sha256": "6600ba91aca2d796ea758aecc4c44e35c43471d47859d246a71d7773c4f3a38a"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  0.8775085969739287,
+                  0.0,
+                  -0.4795609056593806,
+                  -7.0838398933410645
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0015454313158988953
+                ],
+                [
+                  0.47956090565938103,
+                  0.0,
+                  0.8775085969739296,
+                  -1.8279528617858887
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1316460.json",
+                "sha256": "84c94f0615785b0806e62d9e8f41c1dbe86fcd97b14a8e7876974634287dc379"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0003.umap",
+            "sha256": "c24179d2ee4ac4148cb621234c788bb844d908da560ecf9d34c0dd9b0899896d",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_41093_1792040290182718784/UnrealEditor.log",
+            "native_load_log_sha256": "df7c10d6353108539267e0223359eafc20dd9c60c5ede892916eb5ab2b4f9353",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 2,
+            "processes": [
+              {
+                "pid": 1316460,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_41093_1792040290182718784/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_41093_1792040290182718784/config.yaml",
+                  ""
+                ],
+                "used_memory": "1901 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 2
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0003_R3_a00/visual_v1_attempt_30a476c7aa7b483ab28733b35f0c4e43/native_registered_visual_evidence.json",
+            "sha256": "15a22fb9f77639d89a13612dcfd744524e0793593af230adca04a320dd65b842"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0003_R3_a00"
@@ -2830,9 +3692,182 @@
     {
       "house": "kujiale_0021",
       "room_id": "R0",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0021_R0_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 4.965068306494546e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.02130889840740302,
+                  0.0,
+                  -0.9997729396461295,
+                  3.9122581481933594
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.9997729396461295,
+                  0.0,
+                  0.02130889840740291,
+                  -0.572509765625
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1298974.json",
+                "sha256": "9163cfbefbc658d33457310c558c2bfdae121c5bdab6aeda9d42e932c66d1315"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.5761511433008235,
+                  0.0,
+                  -0.8173431715461708,
+                  4.3432722091674805
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.8173431715461712,
+                  0.0,
+                  -0.5761511433008235,
+                  -2.0571796894073486
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1298974.json",
+                "sha256": "559bba238abbb165ab1f2c418a616678bee5a06fcc6f48f9d352be6bc84eaabe"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.12816976624586163,
+                  0.0,
+                  -0.9917522427604997,
+                  2.9122581481933594
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.9917522427604998,
+                  0.0,
+                  -0.12816976624586185,
+                  -1.072509765625
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1298974.json",
+                "sha256": "f5f20b11ce42a40d9f14c24b41144c7f39d4413482c1f36d3ae43d898500077a"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w3_v1/kujiale_0021",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w3_v1/kujiale_0021.umap",
+            "sha256": "ea2b5f87d0c8f973a570dd8aaeb0608694b6acbfffb1a98db04cd3f6f0541839",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_43169_1792039835540989311/UnrealEditor.log",
+            "native_load_log_sha256": "5577922e2acb16b0930a5fe9bec7652c51d59392967d5fadda85dfaad43cb666",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 1,
+            "processes": [
+              {
+                "pid": 1298974,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_43169_1792039835540989311/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_43169_1792039835540989311/config.yaml",
+                  ""
+                ],
+                "used_memory": "1656 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 1
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0021_R0_a00/visual_v0_attempt_5f6df16552864d6aa829bcea360f5398/native_registered_visual_evidence.json",
+            "sha256": "39d3d7f972947d9b1ec7b644bc77e4af3d2e339d570b07367ebded0e4dd4a452"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0021_R0_a00"
@@ -2840,9 +3875,354 @@
     {
       "house": "kujiale_0021",
       "room_id": "R1",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0021_R1_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 9.930136612989092e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  0.1773579637311764,
+                  0.0,
+                  0.9841464081635056,
+                  5.912258148193359
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9841464081635061,
+                  0.0,
+                  0.1773579637311764,
+                  2.582252025604248
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1299159.json",
+                "sha256": "82e935862b93b1288a2413168a65c7964070ab9d6f7d10d6b88aa8520b5ee208"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.20917893904410523,
+                  0.0,
+                  0.9778773805853076,
+                  5.912258148193359
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9778773805853078,
+                  0.0,
+                  -0.20917893904410523,
+                  1.582252025604248
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1299159.json",
+                "sha256": "c94005c42d6f1881f012ba5b2b8767afbb38ee742519826e2ef6fecd6d3f9fb1"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.027797189380419418,
+                  0.0,
+                  0.9996135834724074,
+                  4.912258148193359
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9996135834724083,
+                  0.0,
+                  -0.027797189380419862,
+                  2.082252025604248
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1299159.json",
+                "sha256": "cc958000b23d912b6d046ba96855bdbfd843fa3bd26d68ef48fdde74ff7f63d6"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w3_v1/kujiale_0021",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w3_v1/kujiale_0021.umap",
+            "sha256": "ea2b5f87d0c8f973a570dd8aaeb0608694b6acbfffb1a98db04cd3f6f0541839",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_58755_1792039844676182953/UnrealEditor.log",
+            "native_load_log_sha256": "0e4f21e2cbd211d1a0eae5c4d13727fc169c75c5a6af15c17d6ca99646dfd308",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 2,
+            "processes": [
+              {
+                "pid": 1299159,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_58755_1792039844676182953/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_58755_1792039844676182953/config.yaml",
+                  ""
+                ],
+                "used_memory": "1831 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 2
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0021_R1_a00/visual_v0_attempt_0f1279e41ccd4971a5329397052cf7bf/native_registered_visual_evidence.json",
+            "sha256": "f254e7e497ead613523c134947310223c6482354b3b12d6195b2114705033119"
+          }
+        },
+        {
+          "scene_id": "v7_gap_auto_kujiale_0021_R1_a00",
+          "visual": "visual_v1_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 9.930136612989092e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.1773579637311764,
+                  0.0,
+                  0.9841464081635056,
+                  5.912258148193359
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9841464081635061,
+                  0.0,
+                  0.1773579637311764,
+                  2.582252025604248
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1320874.json",
+                "sha256": "53a9dea24a18a68b56021d51d4b0380484710ba1d9788d55eb430843f761fd3d"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.20917893904410523,
+                  0.0,
+                  0.9778773805853076,
+                  5.912258148193359
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9778773805853078,
+                  0.0,
+                  -0.20917893904410523,
+                  1.582252025604248
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1320874.json",
+                "sha256": "63b0de1c4eb94892a89ab1e257bf44e361f4b3eec56e87011f624e607ad1a039"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.027797189380419418,
+                  0.0,
+                  0.9996135834724074,
+                  4.912258148193359
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9996135834724083,
+                  0.0,
+                  -0.027797189380419862,
+                  2.082252025604248
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1320874.json",
+                "sha256": "1631fb6c64a2708d4dc40b12fb3f8d6ac001dac4f68c10ceaaca70518891c7d3"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w3_v1/kujiale_0021",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w3_v1/kujiale_0021.umap",
+            "sha256": "ea2b5f87d0c8f973a570dd8aaeb0608694b6acbfffb1a98db04cd3f6f0541839",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_57487_1792040428253005469/UnrealEditor.log",
+            "native_load_log_sha256": "4fb0d2468da602555e256baaddca89533a0194dd37a1644adbd22478d8e893d9",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 2,
+            "processes": [
+              {
+                "pid": 1320874,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_57487_1792040428253005469/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_57487_1792040428253005469/config.yaml",
+                  ""
+                ],
+                "used_memory": "1902 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 2
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0021_R1_a00/visual_v1_attempt_2604bd1670ca498aad1f941827906a81/native_registered_visual_evidence.json",
+            "sha256": "b005d9198c07011a63d621faf36e8556b358abf30c807f31314d3ee6ff7e3393"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0021_R1_a00"
@@ -3244,9 +4624,182 @@
     {
       "house": "kujiale_0022",
       "room_id": "R1",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0022_R1_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 3.1401849173675503e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.1660573513377468,
+                  0.0,
+                  0.9861160966471916,
+                  4.7350921630859375
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9861160966471911,
+                  0.0,
+                  0.1660573513377468,
+                  1.5224285125732422
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1299116.json",
+                "sha256": "e0a5d472f1572b34ec00d20e13c89839ce998525577ba08db68127e1fbf5fb67"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  0.43235872037481116,
+                  0.0,
+                  0.9017016895380952,
+                  5.080840110778809
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9017016895380954,
+                  0.0,
+                  0.4323587203748116,
+                  2.422428607940674
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1299116.json",
+                "sha256": "a9d3ffa453e9b97193a7de6b75bb744a86cf5f1a7dd06a8939b5649b14eb32e9"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.063576464407741,
+                  0.0,
+                  0.9979769702620453,
+                  3.9850924015045166
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.9979769702620453,
+                  0.0,
+                  -0.063576464407741,
+                  1.0224285125732422
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1299116.json",
+                "sha256": "2741507f1b50e1a47b1ea73721591cfad011f486e6efd6e14edb2e2f088bcfac"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0022",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w0_v1/kujiale_0022.umap",
+            "sha256": "db310cc775b91810dde6003861d28d5659ef40d3d43feb3d21ef4f01752bc28f",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_48819_1792039843976388794/UnrealEditor.log",
+            "native_load_log_sha256": "3f09410edaa8215d3429e19bdd19fcc46350b587c7acf697c7b602d8aed6123e",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 3,
+            "processes": [
+              {
+                "pid": 1299116,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-17e32159-1bf8-8774-3d1a-a5f49db81555",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_48819_1792039843976388794/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_48819_1792039843976388794/config.yaml",
+                  ""
+                ],
+                "used_memory": "1664 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 3
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-17e32159-1bf8-8774-3d1a-a5f49db81555",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0022_R1_a00/visual_v0_attempt_37e63ac49c64424daaa7ece710cb1d9b/native_registered_visual_evidence.json",
+            "sha256": "84003c1b79bcd06777b7086caeb01c23a45051c2ce03504d013c7b92b6bcb62b"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0022_R1_a00"
@@ -3254,9 +4807,182 @@
     {
       "house": "kujiale_0024",
       "room_id": "R0",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0024_R0_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 2.220446049250313e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9916702815254277,
+                  0.0,
+                  0.12880237862430421,
+                  -1.5654492378234863
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.1288023786243041,
+                  0.0,
+                  0.9916702815254277,
+                  0.7582812309265137
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1299862.json",
+                "sha256": "24db80d42e9aec19832e52178e14ff6d94e63697ec3e73b1ae1941cf81caf00f"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9605048192476442,
+                  0.0,
+                  -0.2782633504471086,
+                  -2.5654492378234863
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.2782633504471086,
+                  0.0,
+                  0.9605048192476442,
+                  0.7582812309265137
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1299862.json",
+                "sha256": "26cf326dafbaa5f9c0d10d86c496db196b79a2720fa52fa9e4de5c5f99ea9956"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  0.9104891574643026,
+                  0.0,
+                  0.41353294202511226,
+                  -0.5654492378234863
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  -0.41353294202511226,
+                  0.0,
+                  0.9104891574643026,
+                  1.2582812309265137
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1299862.json",
+                "sha256": "03c8a2c0b6e62caf7a74afdb3816e1b52a3a528a7a7d0d4fab8164ff759d3071"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w1_v1/kujiale_0024",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w1_v1/kujiale_0024.umap",
+            "sha256": "d556bd09cdbc944903a8f10f203d6ad6829aa358a54563be72f8ee0e24bce4e9",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_58675_1792039866606253142/UnrealEditor.log",
+            "native_load_log_sha256": "4d9adeaaacf0a6ccf0386bb558b8851599ee6971ed6098f42775f30cfe391283",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 1,
+            "processes": [
+              {
+                "pid": 1299862,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_58675_1792039866606253142/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_58675_1792039866606253142/config.yaml",
+                  ""
+                ],
+                "used_memory": "1773 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 1
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0024_R0_a00/visual_v0_attempt_56d19d5b8a1b483ea2f1a17f3618cd75/native_registered_visual_evidence.json",
+            "sha256": "38fba71680a168fd6753417872ffe6551b8afa9e385e760105f672e45750c267"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0024_R0_a00"
@@ -3264,9 +4990,182 @@
     {
       "house": "kujiale_0026",
       "room_id": "R0",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0026_R0_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 4.440892098500626e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.9815153141409785,
+                  0.0,
+                  0.19138361504249968,
+                  3.3454883098602295
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -9.376672096550465e-09
+                ],
+                [
+                  -0.19138361504249968,
+                  0.0,
+                  -0.9815153141409785,
+                  -2.537910223007202
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1300738.json",
+                "sha256": "101e53fffa886f08c4366afeca9c379f2900366820b5558bf7713e8c5e8595dc"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.8728399192408527,
+                  0.0,
+                  -0.48800663456516813,
+                  1.805487871170044
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -9.376672096550465e-09
+                ],
+                [
+                  0.48800663456516813,
+                  0.0,
+                  -0.8728399192408527,
+                  -2.037910223007202
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1300738.json",
+                "sha256": "cf093ce3839345747a5c110e004d64ed55db5af305c8dd15d105240f0a787769"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.9423306100346395,
+                  0.0,
+                  -0.3346834644731411,
+                  1.835888147354126
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -9.376672096550465e-09
+                ],
+                [
+                  0.3346834644731409,
+                  0.0,
+                  -0.9423306100346394,
+                  -3.050710439682007
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1300738.json",
+                "sha256": "9fb378f18504351bd6bfa718a178ba9879e221d619761ab6e9bcfe1f28efbd2f"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w2_v1/kujiale_0026",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w2_v1/kujiale_0026.umap",
+            "sha256": "8343ace837e4cfcff47d017253fbc11735e9dfebecb7d539f059a72ade92b852",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_50103_1792039878110130288/UnrealEditor.log",
+            "native_load_log_sha256": "4ac2c386ae714e16e758ab2fbbe29077106fc4077884f28e35de620f7d8d8b5f",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 2,
+            "processes": [
+              {
+                "pid": 1300738,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_50103_1792039878110130288/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_50103_1792039878110130288/config.yaml",
+                  ""
+                ],
+                "used_memory": "1688 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 2
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-ad6c83b2-f4b0-15c5-0b6b-6b0f6040820a",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0026_R0_a00/visual_v0_attempt_43d48353ff444eabb5a2f4283400fdd6/native_registered_visual_evidence.json",
+            "sha256": "80bff78790afdb97399fc557462b876cef15843aca4bab8abd008224cbcf5c60"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0026_R0_a00"
@@ -3274,9 +5173,182 @@
     {
       "house": "kujiale_0026",
       "room_id": "R1",
-      "measurement_status": "not_run",
+      "measurement_status": "pass",
       "smoke_status": "running",
-      "measurements": [],
+      "measurements": [
+        {
+          "scene_id": "v7_gap_auto_kujiale_0026_R1_a00",
+          "visual": "visual_v0_completed",
+          "frames_checked": 450,
+          "mouth_max_error_m": 8.881784197001252e-16,
+          "actors": [
+            {
+              "asset_id": "v7_female_adult_15_blue_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.2709377251480536,
+                  0.0,
+                  0.9625968777695046,
+                  7.1869215965271
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -9.376672096550465e-09
+                ],
+                [
+                  -0.9625968777695046,
+                  0.0,
+                  -0.27093772514805314,
+                  -1.5257259607315063
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_blue_v1_912ef0d831c7fc96_pid1300852.json",
+                "sha256": "3a65f49d1bc64123323e565eedbb8092f531b4bce215242bc79be92f4bd02477"
+              }
+            },
+            {
+              "asset_id": "v7_female_adult_15_green_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.9500548073657678,
+                  0.0,
+                  0.31208310271655826,
+                  5.586397647857666
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -9.376672096550465e-09
+                ],
+                [
+                  -0.31208310271655826,
+                  0.0,
+                  -0.9500548073657678,
+                  -3.0406627655029297
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_female_adult_15_green_v1_fe6950de33d5effa_pid1300852.json",
+                "sha256": "0e5de106afe1f6086a9069a985d3a5a128d10bab44c7718783d8d2e3f44618c7"
+              }
+            },
+            {
+              "asset_id": "v7_male_adult_02_yellow_v1",
+              "first_body_to_world_m": [
+                [
+                  -0.8678751748097717,
+                  0.0,
+                  0.4967823275328014,
+                  6.685488224029541
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  -9.376672096550465e-09
+                ],
+                [
+                  -0.4967823275328014,
+                  0.0,
+                  -0.8678751748097717,
+                  -4.037909984588623
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+              "load_receipt": {
+                "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/inputs/native_loads/v7_male_adult_02_yellow_v1_fe7f649e4006ae68_pid1300852.json",
+                "sha256": "484a894b051596fb647c645b495fe1841838730c3b55f97997a25297e20256ab"
+              }
+            }
+          ],
+          "map_package": {
+            "status": "pass",
+            "actual_map_path": "/Game/AVEngine/V7Kujiale20261003/NativeR11_full_w2_v1/kujiale_0026",
+            "original_package_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round20_assets/ue_v1/runtime/SpearSim/Content/AVEngine/V7Kujiale20261003/NativeR11_full_w2_v1/kujiale_0026.umap",
+            "sha256": "8343ace837e4cfcff47d017253fbc11735e9dfebecb7d539f059a72ade92b852",
+            "native_load_log": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_53749_1792039884309717347/UnrealEditor.log",
+            "native_load_log_sha256": "78442303d91f062da22f095c9b0ef9e106f09a9330a66f4b57edcbdc206b9672",
+            "method": "UE LogLoad final map and original mounted umap bytes"
+          },
+          "actual_graphics_gpu": {
+            "status": "pass",
+            "expected_physical_gpu": 3,
+            "processes": [
+              {
+                "pid": 1300852,
+                "nvml_visible_index": 0,
+                "uuid": "GPU-17e32159-1bf8-8774-3d1a-a5f49db81555",
+                "command": [
+                  "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+                  "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/runtime/SpearSim/SpearSim.uproject",
+                  "-game",
+                  "-resx=64",
+                  "-resy=64",
+                  "-windowed",
+                  "-nosound",
+                  "-stdout",
+                  "-fullstdoutlogoutput",
+                  "-nologtimes",
+                  "-renderoffscreen",
+                  "-graphicsadapter=0",
+                  "-ddc=KUJIALEOwnDDC",
+                  "-notraceserver",
+                  "-noexceptionhandler",
+                  "-noinnerexception",
+                  "-TraceAutoStart=0",
+                  "-corelimit=8",
+                  "-unattended",
+                  "-noautosave",
+                  "-nop4",
+                  "-userdir=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/user",
+                  "-abslog=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_53749_1792039884309717347/UnrealEditor.log",
+                  "-execcmds=r.EyeAdaptationQuality 2,r.DefaultFeature.AutoExposure 1,r.DefaultFeature.AutoExposure.Method 0,r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1,r.Lumen.DiffuseIndirect.Allow 1,r.Lumen.Reflections.Allow 1,sg.ViewDistanceQuality 3,sg.ShadowQuality 3,sg.GlobalIlluminationQuality 3,sg.ReflectionQuality 3",
+                  "-sp-config-file=/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/ue_v1/tmp/spear_53749_1792039884309717347/config.yaml",
+                  ""
+                ],
+                "used_memory": "1689 MiB",
+                "process_type": "C+G",
+                "physical_gpu": 3
+              }
+            ],
+            "vulkan_renderer": {
+              "vulkan_index": 0,
+              "gpu_uuid": "GPU-17e32159-1bf8-8774-3d1a-a5f49db81555",
+              "device_name": "NVIDIA GeForce RTX 4090 D"
+            },
+            "auxiliary_permitted_contexts": [],
+            "scope": "exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope"
+          },
+          "visual_evidence": {
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/native/parents/v7_gap_auto_kujiale_0026_R1_a00/visual_v0_attempt_c2b901d1e9b14ae08031ecd11d9ac0b8/native_registered_visual_evidence.json",
+            "sha256": "f7d500c780b9be1894e0526ffadf2b7f2c661d90fbd6a4838e94a2245f2c9c22"
+          }
+        }
+      ],
       "independent_questions": 0,
       "reason": "current complete parent pending",
       "scene_id": "v7_gap_auto_kujiale_0026_R1_a00"
@@ -4024,10 +6096,11 @@
       "house": "kujiale_0030",
       "room_id": "R1",
       "measurement_status": "not_run",
-      "smoke_status": "not_run",
+      "smoke_status": "failed",
       "measurements": [],
       "independent_questions": 0,
-      "reason": "current full UE capture and parent smoke pending"
+      "reason": "render surface does not agree with nine retained native floor probes: native support face is not room floor",
+      "scene_id": "v7_gap_auto_class_kujiale_0030_R1_q48_a03"
     },
     {
       "house": "kujiale_0030",
@@ -4544,7 +6617,7 @@
       "house": "kujiale_0065",
       "room_id": "R0",
       "measurement_status": "pass",
-      "smoke_status": "running",
+      "smoke_status": "pass",
       "measurements": [
         {
           "scene_id": "v7_gap_kujiale_0065_authored_1200",
@@ -4891,9 +6964,48 @@
           }
         }
       ],
-      "independent_questions": 0,
-      "reason": "current complete parent pending",
-      "scene_id": "v7_gap_kujiale_0065_authored_1200"
+      "independent_questions": 92,
+      "reason": "",
+      "scene_id": "v7_gap_kujiale_0065_authored_1200",
+      "families": {
+        "QA-02": 20,
+        "QA-12": 8,
+        "QA-19": 10,
+        "QA-11": 1,
+        "QA-14": 4,
+        "STARSS-FRUSTUM": 2,
+        "QA-05": 1,
+        "QA-04": 2,
+        "QA-28": 2,
+        "QA-08": 1,
+        "V7-CONTENT-BIND": 8,
+        "QA-25": 2,
+        "STARSS-SPEAKERS": 1,
+        "STARSS-CLASS13": 2,
+        "QA-03": 2,
+        "QA-20": 1,
+        "QA-23": 2,
+        "QA-26": 8,
+        "QA-27": 8,
+        "QA-01": 2,
+        "QA-22": 1,
+        "QA-18": 2,
+        "QA-13": 2
+      },
+      "parent_receipt": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/evidence/jobs/008.json",
+        "sha256": "23d0f6f7e38bf92965b6a83d0be88df341c3706ea6e1cf9205551f9d44f750fd"
+      },
+      "reader": {
+        "status": "pass",
+        "hostname": "cw-SYS-4029GP-TRT3",
+        "actual_decoded_windows": 20,
+        "unique_windows": 20,
+        "errors": [],
+        "GPU_started": false,
+        "method": "ffprobe all frames + ffmpeg actual first RGB frame + soundfile complete FOA and W-mono read"
+      },
+      "english_status": "pass"
     },
     {
       "house": "kujiale_0066",
