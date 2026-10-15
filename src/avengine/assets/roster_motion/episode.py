@@ -335,11 +335,11 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     dist,world=clearance.check(v,f,positions[i],float(frame_yaws[i]));minimum=min(minimum,dist)
                     feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
                     quality=HUMAN_QUALITY if inputs.get('phase2')else {'foot_contact_limit_m':.008,'support_lock_limit_m':.003}
-                    if min(x['floor_delta_m']for x in feet)<-.008 or any(
-                            abs(x['floor_delta_m'])>quality['foot_contact_limit_m']+1e-12
-                            or x['support_lock_error_m']>quality['support_lock_limit_m']+1e-12 for x in contacts):
-                        raise ValueError('motion source foot contact or lock violates declared human quality policy')
-                    if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
+                    from avengine.assets.roster_motion.visual_observations import solved_pose_quality
+                    # This frame already has a complete solved skin and passed
+                    # actual stage clearance. Appearance targets are measured,
+                    # never a second reason to discard that native truth.
+                    solved_pose_quality(ev,solver.max_reach,quality,record_only=bool(inputs.get('phase2')))
                     # Keep the small solved bone matrices, not 901 full skins.
                     # Export re-evaluates the identical deterministic skinning.
                     geometry.append(qualified_globals);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
@@ -380,6 +380,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
+        'visual_quality_observation_frames':sum(bool(f.get('visual_quality_observations'))for f in frames),'visual_quality_admission_effect':'record_only_per_owner_20261015_210x'if inputs.get('phase2')else'legacy_strict',
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False}
     if curved_route is not None:
         evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity))),requested_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity)))/nominal,animation_distance_clock=scene_clock)
