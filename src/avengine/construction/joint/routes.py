@@ -443,3 +443,39 @@ def repeat_bouts(actor, offsets_s=(0.,10.), *, fps=30., duration_s=30., source_w
     if context is not None:
         positions,metadata["validation"]=validate_track(context,positions,actor.body.species,camera=camera,snap=False)
     return ActorPlan(actor.entity_id,positions,actor.body,headings,metadata)
+
+
+def out_and_back(context, origin_m, tangent_xz, distance_m, turn_distance_m, *,
+                 turn_interval_s=(4.8,5.8), turn_sign=1, species="human", camera=None,
+                 entity_id="target", body=None, fps=30., ramp_s=.5):
+    """Bind a supplied two-bout clock to the same line, with an explicit paused turn.
+
+    Global clock 0..L..2L maps to spatial progress 0..L..0. The clock is never
+    scaled. A native full-pose check must still verify the stationary 180deg turn.
+    """
+    distance=np.asarray(distance_m,float);origin=np.asarray(origin_m,float);direction=np.asarray(tangent_xz,float)
+    if (distance.ndim!=1 or len(distance)<2 or not np.isfinite(distance).all()or np.any(np.diff(distance)<-1e-9)
+            or distance[0]<-1e-9 or turn_distance_m<=0 or distance[-1]>2*turn_distance_m+1e-7
+            or origin.shape!=(3,)or not np.isfinite(origin).all()or direction.shape!=(2,)
+            or not np.isfinite(direction).all()or np.linalg.norm(direction)<1e-9 or turn_sign not in {-1,1}):
+        raise ConstructionError("invalid_out_and_back_clock")
+    direction=direction/np.linalg.norm(direction);times=np.arange(len(distance))/fps
+    a,b=map(float,turn_interval_s)
+    if not 0<=a<b<=times[-1]:raise ConstructionError("invalid_stationary_turn_interval")
+    turn=(times>=a-1/fps)&(times<=b+1/fps)
+    if not turn.any()or not np.all(np.abs(distance[turn]-turn_distance_m)<=1e-7):
+        raise ConstructionError("turn_requires_stationary_shadow_anchor")
+    if np.any((distance>turn_distance_m+1e-7)&(times<b)):
+        raise ConstructionError("return_walk_precedes_completed_turn")
+    progress=np.where(distance<=turn_distance_m,distance,2*turn_distance_m-distance)
+    positions=np.repeat(origin[None],len(distance),axis=0);positions[:,[0,2]]+=progress[:,None]*direction
+    theta=math.atan2(direction[1],direction[0]);u=np.clip((times-a)/(b-a),0,1)
+    headings=theta+turn_sign*math.pi*(u*u*(3-2*u))
+    positions,validation=validate_track(context,positions,species,camera=camera,snap=False)
+    moving=np.diff(distance)>1e-8;edges=np.diff(np.r_[False,moving,False].astype(int))
+    intervals=[[x/fps,y/fps]for x,y in zip(np.flatnonzero(edges==1),np.flatnonzero(edges==-1))]
+    return ActorPlan(entity_id,positions,body or BodySpec.for_species(species),headings,
+        {"distance_clock_bound":True,"distance_clock_m":distance.tolist(),"route_length_m":float(distance[-1]-distance[0]),
+         "walk_intervals_s":intervals,"ramp_s":ramp_s,"stationary_turn_intervals_s":[[a,b]],
+         "turnaround_distance_m":turn_distance_m,"validation":validation,
+         "native_stationary_turn_physics_required":True,"clock":{"fps":fps,"duration_s":float(times[-1])}})
