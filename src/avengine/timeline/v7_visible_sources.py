@@ -225,6 +225,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
     if len(assets)>16:raise ValueError('pilot entity capacity exceeded')
     working=deepcopy(house);room=next(r for r in working['checked_rooms'] if r['room_label']==row['room_id']);working['room']=deepcopy(room)
     listener=point(row['listener_m']);yaw=float(row.get('camera_yaw_deg',0));angle=math.radians(yaw)
+    working['room'].setdefault('placement',{})['camera_m']=list(listener)
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],
         'split':'train','duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':listener,
         'camera_forward':[math.sin(angle),0.,-math.cos(angle)],
