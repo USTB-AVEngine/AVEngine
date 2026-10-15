@@ -39,8 +39,9 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         if not any(Path(path).resolve().is_relative_to(p)for p in allowed):
             raise ValueError('candidate evidence escaped authorized read-only roots')
     permitted(pointer_path)
-    from avengine.timeline.v7_export_scene_policy import require_parent_policy,REVISION as SCENE_POLICY
-    scene_policy=require_parent_policy(pointer_path)
+    from avengine.timeline.v7_export_scene_policy import cached_parent_policy,REVISION as SCENE_POLICY
+    scene_policy=cached_parent_policy(pointer_path,output/'evidence/scene_delivery_policy')
+    if scene_policy['status']!='pass':raise ValueError('supplement parent violates current native scene delivery policy')
     pointer=load(pointer_path)
     if pointer['result']['status']not in {'integration_pilot_admitted','formal_alpha_admitted'}:
         raise ValueError('supplement source parent is not admitted')
