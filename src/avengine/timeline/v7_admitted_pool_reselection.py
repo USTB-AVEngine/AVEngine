@@ -27,6 +27,22 @@ def _entry(scene,question,gold):
     return {'row':question,'key':key}
 
 
+def compatible_prior_candidates(path,pointer_path):
+    """Reuse this fresh parent's already replayed pool; recheck current scope.
+
+    Its native source is immutable and independently checked above. Earlier
+    pre-policy cache versions are deliberately never offered to this helper.
+    """
+    path=Path(path)
+    if not path.is_file():return None
+    result=load(path)
+    if result.get('source_seal_sha256')!=sha(pointer_path):return None
+    if Path(result.get('source_seal','')).resolve()!=Path(pointer_path).resolve():return None
+    from avengine.timeline.v7_english_export import validate_english_model_text
+    for entry in result.get('entries',[]):validate_english_model_text(entry['row'])
+    return result
+
+
 def parent_entries(receipt,output,*,read_only_source_roots=()):
     from avengine.qa.v7_validation import validate_v6_items
     from avengine.qa.v7_english_surface import appearance_replacements,appearance_choice_replacements,reissue_item_english,relabel_english
@@ -49,8 +65,8 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
     scene=row['scene_id'];root=pointer_path.parent;seal=root/pointer['attempt']
     cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v6_owner_count_scope.json')
     if cache.exists():return load(cache)
-    prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v1.json')
-    prior=None  # Earlier candidates predate the fixed observer and wording policy.
+    prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v5_all_legal_families.json')
+    prior=compatible_prior_candidates(prior_path,pointer_path)  # v5 already has fixed-observer, English and original full-pool replay.
     base=[json.loads(s)for s in(output/'export/parent_rows'/f"{receipt['slot']:03d}.jsonl").read_text().splitlines()if s.strip()]
     bywindow=defaultdict(list)
     for r in base:bywindow[r['window_id']].append(r)
