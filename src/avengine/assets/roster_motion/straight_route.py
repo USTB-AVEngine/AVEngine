@@ -71,8 +71,15 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
     listener = np.asarray(room['placement']['camera_m'], float); L = listener[[0, 2]]
+    walkable_map = None
     if is_free is None:
-        is_free = native_free_predicate(pathfinder, polygon, floor, listener)
+        # The per-room static walkable map (furniture, rugs, steps, other floors excluded per species radius) is
+        # consulted first, exactly as the reflected search does; native point tests still run at every sample.
+        from avengine.rooms.walkable_map import load_room_map
+        walkable_map = load_room_map(room.get('room_label', room.get('room_id')), path=room.get('walkable_map_path'),
+                                     floor_reference=floor)
+        is_free = native_free_predicate(pathfinder, polygon, floor, listener, walkable_map=walkable_map, species=species)
+    segment_is_free = getattr(is_free, 'segment_is_free', None)
     lo, hi = SPECIES_SPEED_M_S[species]
     if speed_range is None:
         speed_range = (lo + .02, hi - .02)
@@ -110,6 +117,8 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
                 if not qa15 or (families == 'all4' and not qa16):
                     rejected['radial_slot'] += 1; continue
             tested += 1
+            if segment_is_free is not None and not segment_is_free(origin, origin + total * d):
+                rejected['line_not_free'] += 1; continue
             if not all(is_free(origin + c * d) for c in samples):
                 rejected['line_not_free'] += 1; continue
             found.append((origin, h)); break
@@ -135,7 +144,11 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
               'reason': 'owner 10-15: construct deliberately; one free straight stand-walk-stand line found directly'}
     target = np.mean(positions, axis=0) - L
     return {'reflect_walk': True, 'positions_xz_m': positions.tolist(), 'travel_yaws_rad': [heading] * FRAMES,
-            'short_window_walk': window, 'speed_m_s': speed, 'speed_range_m_s': [lo, hi], 'listener_m': listener.tolist(),
+            'short_window_walk': window,
+            'walkable_map_path': getattr(walkable_map, 'path', None),
+            'walkable_map_version': walkable_map.metadata['version'] if walkable_map is not None else None,
+            'walkable_map_room_id': walkable_map.metadata['room_id'] if walkable_map is not None else None,
+            'speed_m_s': speed, 'speed_range_m_s': [lo, hi], 'listener_m': listener.tolist(),
             'camera_yaw_deg': math.degrees(math.atan2(target[0], -target[1])), 'species': species, 'template': focus,
             'emission_slot': slot, 'candidate_count': tested,
             'candidate_trials': [{'construction': 'direct_straight_line', 'found': len(found), 'rejected': rejected}],

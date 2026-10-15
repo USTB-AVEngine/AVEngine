@@ -134,8 +134,10 @@ def test_navmesh_vertical_offset_does_not_replace_the_actual_floor(tmp_path, mon
 
 def test_acceptance_manifest_configures_shared_room_cache(tmp_path, monkeypatch):
     from tools.timeline.run_v7_acceptance import configure_walkable_maps
-    monkeypatch.delenv('AVENGINE_WALKABLE_MAP_ROOT', raising=False)
-    monkeypatch.delenv('AVENGINE_REQUIRE_WALKABLE_MAP', raising=False)
+    # setenv first so monkeypatch records and restores the original state after configure_walkable_maps
+    # writes os.environ directly (otherwise the map root leaks into later tests).
+    for key in ('AVENGINE_WALKABLE_MAP_ROOT', 'AVENGINE_REQUIRE_WALKABLE_MAP'):
+        monkeypatch.setenv(key, 'unset'); monkeypatch.delenv(key)
     root = tmp_path/'maps'; target = root/'room'/'walkable_map_v1.npz'
     target.parent.mkdir(parents=True)
     m = fixture_map(tmp_path, [(5, 5)]); save(m, target)
@@ -149,8 +151,10 @@ def test_acceptance_manifest_configures_shared_room_cache(tmp_path, monkeypatch)
 
 def test_unconfigured_legacy_and_invalid_manifest_root(tmp_path, monkeypatch):
     from tools.timeline.run_v7_acceptance import configure_walkable_maps
-    monkeypatch.delenv('AVENGINE_WALKABLE_MAP_ROOT', raising=False)
-    monkeypatch.delenv('AVENGINE_REQUIRE_WALKABLE_MAP', raising=False)
+    # setenv first so monkeypatch records and restores the original state after configure_walkable_maps
+    # writes os.environ directly (otherwise the map root leaks into later tests).
+    for key in ('AVENGINE_WALKABLE_MAP_ROOT', 'AVENGINE_REQUIRE_WALKABLE_MAP'):
+        monkeypatch.setenv(key, 'unset'); monkeypatch.delenv(key)
     configure_walkable_maps({})
     assert load_room_map('room') is None
     with pytest.raises(FileNotFoundError, match='cache root is missing'):
