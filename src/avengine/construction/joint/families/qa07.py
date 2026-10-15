@@ -20,8 +20,12 @@ SIDES = {"left": -1, "right": 1}
 
 
 
-def requested_side(state: Mapping, scene_index: int) -> str:
-    """Balance actual exported answers before solving any geometry."""
+def requested_side(state: Mapping, scene_index: int, *, declared_side=None) -> str:
+    """Honor a declared branch, or balance actual exports before solving."""
+    if declared_side is not None:
+        if declared_side not in SIDES:
+            raise ValueError("declared QA-07 entry side must be left or right")
+        return declared_side
     tables = state.get("answer_counts", state.get("family_answer_counts", {}))
     counts = tables.get("QA-07", {})
     if not counts:
@@ -741,7 +745,7 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     whole_walking_speech(row, target, catalog, records, semantic, seed)
     _, sound_scene, sound_program, sound_assets = build_constructed_scene(row, house, records, catalog, semantic)
     sound_requirements = qa07_sound_requirements(sound_scene, sound_program, sound_assets)
-    side = requested_side(state, seed)
+    side = requested_side(state, seed, declared_side=runtime.get("qa07_entry_side"))
     assets = {a["asset_id"]: a for a in catalog if a["asset_id"] in row["asset_ids"]}
     clock_source = admitted_human_clock_source(assets[target], runtime, house)
     bodies = {aid: BodySpec("human", radius_m=.35, height_m=1.9, margin_m=.05) for aid in row["asset_ids"]}
