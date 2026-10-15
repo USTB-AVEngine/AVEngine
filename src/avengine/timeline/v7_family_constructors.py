@@ -243,9 +243,13 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         row['scene_demand']['required_asset_ids']=list(row['asset_ids'])
         row['automatic_construction']['required_role_count']=len(row['asset_ids'])
         # Audio taxonomy does not require every sounding body to occupy the
-        # foreground. Keep two silent comparison people visible and construct
-        # real offscreen placements for the voice and sound-class emitter.
-        outside=[ids[1],aid]
+        # foreground. Keep the classified body visible and construct
+        # a real offscreen placement for the separate companion voice.
+        # QA-21 is appearance-bound: its classified sounding body must appear.
+        # The companion voice can be genuinely offscreen.
+        outside=[ids[1]]
+        row.setdefault('native_view_roles',{})[aid]={'view':'inside','static':True,'required_visible_sometime':True}
+        row.setdefault('native_attachment_distance_targets_m',{})[aid]=3.2
         for index,source_id in enumerate(dict.fromkeys(outside)):
             row.setdefault('native_view_roles',{}).setdefault(source_id,{
                 'view':'outside','static':True,'minimum_abs_azimuth_deg':60.,

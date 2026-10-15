@@ -164,6 +164,10 @@ def run_worker(manifest,slot):
         from avengine.timeline.v7_acceptance_publication import publish_admitted_parent
         publish_admitted_parent(root,root/'evidence/jobs'/f'{slot:03d}.json')
         receipt=load(root/'evidence/jobs'/f'{slot:03d}.json')
+        from avengine.timeline.v7_construction_retry import queue_unmet_family_retry
+        reconstruction=queue_unmet_family_retry(root/'inputs/ACCEPTANCE_PLAN.json',receipt)
+        if reconstruction is not None:
+            receipt['unmet_target_family_reconstruction_slot']=reconstruction;write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     print(json.dumps({k:v for k,v in receipt.items()if k not in ['producer_result','export','reader','traceback']},ensure_ascii=False),flush=True)
     return 0 if receipt['status']=='passed'else 2
 

@@ -30,3 +30,39 @@ def queue_construction_retry(manifest_path,receipt):
         task['automatic_retry_reason']=receipt['reason'];task['automatic_retry_preserved_base_seed']=old['row']['scene_seed']
         m['parents'].append(task);temporary=manifest_path.with_name(manifest_path.name+f'.{os.getpid()}.tmp');temporary.write_text(json.dumps(m,ensure_ascii=False,indent=2)+'\n');temporary.replace(manifest_path)
         return task['slot']
+
+
+def queue_unmet_family_retry(manifest_path,receipt):
+    """Retain a valid parent; reconstruct only a genuinely absent target family.
+
+    Existing legal candidates belong to cumulative re-selection, not another
+    render. A new physical construction keeps the base seed and all role counts.
+    """
+    if receipt.get('status')!='passed':return None
+    manifest_path=Path(manifest_path);root=manifest_path.parent.parent
+    initial=json.loads(manifest_path.read_text());old=initial['parents'][receipt['slot']]
+    if old.get('constructor')!='automatic_family':return None
+    family=old.get('target_family')
+    if not family or receipt.get('export',{}).get('question_family_counts',{}).get(family,0):return None
+    seal=Path(receipt['export']['source_seal'])
+    if not seal.resolve().is_relative_to(root.resolve()):return None
+    pointer=json.loads(seal.read_text())
+    for window in pointer['result']['windows']:
+        wid=window['window_id'];member=window.get('member')or wid.rsplit('__',2)[-2]
+        marker=json.loads((seal.parent/f'selected_windows_{member}_completed.json').read_text())
+        pool=Path(marker['recipe']['pool_directory'])/wid/'questions.json'
+        if any(q['qa_id']==family for q in json.loads(pool.read_text())):return None
+    with(manifest_path.parent/'plan.lock').open('a')as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX);m=json.loads(manifest_path.read_text())
+        if m.get('publication_closed')or any(t.get('condition_retry_of_slot')==receipt['slot']for t in m['parents']):return None
+        state_path=root/'inputs/demand_state.json'
+        if state_path.exists()and json.loads(state_path.read_text()).get('family_counts',{}).get(family,0)>=3:return None
+        old=m['parents'][receipt['slot']];attempt=int(old.get('construction_attempt',0))+1
+        if attempt>=int(m.get('maximum_automatic_attempts_per_parent',24)):return None
+        task=deepcopy(old);base=old.get('construction_lineage_id',old['row']['scene_id'])
+        task.update(slot=len(m['parents']),construction_attempt=attempt,construction_lineage_id=base,
+            condition_retry_of_slot=receipt['slot'],snapshot_worktree=m['worktree'],snapshot_commit=m['code_commit'],
+            launch_disabled=False,automatic_retry_reason='requested family has no legal original native candidate: '+family)
+        task['row']['scene_id']=base+'__condition_'+str(attempt).zfill(2)
+        m['parents'].append(task);temporary=manifest_path.with_name(manifest_path.name+f'.{os.getpid()}.tmp');temporary.write_text(json.dumps(m,ensure_ascii=False,indent=2)+'\n');temporary.replace(manifest_path)
+        return task['slot']
