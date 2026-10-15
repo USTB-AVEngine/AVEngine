@@ -221,3 +221,16 @@ def test_branch_requests_only_registered_qa09_pipeline_conditions(answer):
     demand = ReappearanceDemand("target", "occluder", answer)
     assert set(demand.requested_conditions()) <= set(FAMILY_SCENE_REQUIREMENTS["QA-09"]["conditions"])
     assert ("later_visible_reappearance" in demand.requested_conditions()) == (answer == "yes")
+
+
+def test_pending_map_fallback_requires_explicit_native_path_and_never_hides_other_failures():
+    from avengine.construction.joint import Certificate, CheckResult
+    from avengine.construction.joint.families.qa09 import planning_admissible
+    pending = CheckResult("target:route", "unknown", "native_full_pose_required_for_map_fallback")
+    certificate = Certificate((CheckResult("camera", "pass"), pending))
+    assert not certificate.passed
+    assert not planning_admissible(certificate)
+    assert planning_admissible(certificate, native_sweep_pending=True)
+    for failure in (CheckResult("spacing", "fail"), CheckResult("floor", "unknown", "missing_mesh")):
+        assert not planning_admissible(Certificate(certificate.checks + (failure,)), native_sweep_pending=True)
+    assert not planning_admissible(Certificate(()), native_sweep_pending=True)
