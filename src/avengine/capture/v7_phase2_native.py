@@ -55,6 +55,8 @@ class NativePhase2Video(NativeVisibleVideo):
 
     def _apply_motion_entry(self,entry,index):
         import numpy as np
+        if hasattr(self,'_pose_context_configuration'):
+            self._maybe_recycle_pose_context(self._phase2_scene,index//2)
         row=super()._apply_motion_entry(entry,index)
         if not hasattr(self,'_pose_resources_in_context'):self._pose_resources_in_context=set()
         self._pose_resources_in_context.add(entry['motion_episode']['pose_glbs'][index])
@@ -134,6 +136,8 @@ class NativePhase2Video(NativeVisibleVideo):
         if not admissions:
             from avengine.capture.v7_offscreen_layout import refresh_actual_offscreen_proofs
             refresh_actual_offscreen_proofs(self,scene,checks)
+            from avengine.capture.v7_family_native_preflight import run_family_native_preflights
+            self.family_native_preflights=run_family_native_preflights(self,scene,self.actors,directory)
             return checks
         # Standing people are placed outside the reserved swept body bounds.
         # Then independently recheck every original pose against the complete
@@ -161,6 +165,9 @@ class NativePhase2Video(NativeVisibleVideo):
         write_json(directory/'phase2_motion_admission.json',{'status':'pass','admissions':admissions,'native_readback_hz':30,'thresholds_changed':any(r.get('quality_gates_changed',False) for r in admissions.values())})
         from avengine.capture.v7_offscreen_layout import refresh_actual_offscreen_proofs
         refresh_actual_offscreen_proofs(self,scene,checks)
+        from avengine.capture.v7_family_native_preflight import run_family_native_preflights
+        self.family_native_preflights=run_family_native_preflights(self,scene,self.actors,directory)
+        self.camera_frame_readbacks=[];self.environment_frame_readbacks=[]
         return checks
 
     def _on_phase2_placement_accepted(self,entry,scene,directory,supports,accepted):
