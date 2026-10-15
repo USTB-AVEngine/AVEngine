@@ -42,7 +42,7 @@ def median_reference_check(checks):
     return result
 
 
-def wrong_registered_pose(scene,position,sample_time_s):
+def wrong_registered_pose(scene,position,sample_time_s,*,current_endpoint=None):
     """Choose a real different emitter; coincident endpoint poses are no error."""
     listener=np.asarray(scene['listener_m']);wanted=np.asarray(position)-listener
     if np.linalg.norm(wanted)==0:raise ValueError('expected source coincides with listener')
@@ -54,6 +54,16 @@ def wrong_registered_pose(scene,position,sample_time_s):
         if np.linalg.norm(delta)==0:continue
         angle=float(np.degrees(np.arccos(np.clip(np.dot(wanted,delta)/(np.linalg.norm(wanted)*np.linalg.norm(delta)),-1,1))))
         if angle>=20:options.append((angle,endpoint,other))
+    if not options:
+        # A different real emitter's other measured pose is still a known-wrong
+        # binding. It is an engineering probe only, never an added scene source.
+        for endpoint,spec in scene['sources'].items():
+            if endpoint==current_endpoint or spec.get('native_visual_kind')=='audio_only':continue
+            for knot in spec['trajectory']:
+                other=np.asarray(knot['position_m'],float);delta=other-listener
+                if np.linalg.norm(delta)==0:continue
+                angle=float(np.degrees(np.arccos(np.clip(np.dot(wanted,delta)/(np.linalg.norm(wanted)*np.linalg.norm(delta)),-1,1))))
+                if angle>=20:options.append((angle,endpoint,other))
     if not options:raise ValueError('no independently registered wrong emitter differs by 20deg')
     angle,endpoint,other=max(options,key=lambda x:x[0])
     return endpoint,other,angle
@@ -107,7 +117,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         directions.extend({'endpoint_id':endpoint,'emission_time_s':f['time_s'],'native_mouth_m':f['position_m'],
             'angular_error_deg':f['angle_deg'],'passed_5deg':False,'recorded_boundary_mismatch':True} for f in failing)
     reference_stats_lock=threading.Lock()
-    def independent(sample):
+    def independent_uncached(sample):
         if sample not in reference_paths:
             p=position_at(trajectory,sample/sr);paths=[];processes=[]
             checkpoint=attempt.parent/'independent_native_reference_checkpoint'/endpoint/(str(sample).zfill(8)+'.json')
@@ -143,6 +153,21 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
                     'native_process_evidence':processes[i:i+1]}for i,x in enumerate(paths)],
                 'source':'three unmodified independent native renders; resumable only at exact pose/configuration'})
             reference_paths[sample]=paths;reference_processes[sample]=processes
+        return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
+    from avengine.timeline.v7_independent_reference_memo import ExactIndependentReferenceMemo
+    reference_memo=ExactIndependentReferenceMemo(json.loads((cache.root/'configuration.json').read_text()))
+    ref_stats['reused_exact_pose_midpoints']=0
+    def independent(sample):
+        if sample in reference_paths:return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
+        point=position_at(trajectory,sample/sr)
+        checkpoint=attempt.parent/'independent_native_reference_checkpoint'/endpoint/(str(sample).zfill(8)+'.json')
+        def measure():
+            independent_uncached(sample)
+            return {'paths':list(reference_paths[sample]),'processes':list(reference_processes[sample]),'original_midpoint_sample':int(sample)}
+        value,reused=reference_memo.get(point,measure,prefer_existing=checkpoint.is_file())
+        reference_paths[sample]=list(value['paths']);reference_processes[sample]=list(value['processes'])
+        if reused:
+            with reference_stats_lock:ref_stats['reused_exact_pose_midpoints']+=1
         return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
     refinements=[];accepted=[];keys=real_keys
     refinement_passes=max(1,int(inputs.get('moving_rir_refinement_passes',12)))
@@ -188,12 +213,13 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
     delayed=np.pad(wave,((0,0),(8,0)))
     bad_delay=compare_rirs(delayed,wave,source=p,listener=listener,forward=forward,sample_rate=sr)
     controls={'gain_plus_6dB':{'check':bad_gain,'qualification':qualify_energy([bad_gain])},'delay_plus_0_5ms':{'check':bad_delay,'qualification':qualify_energy([bad_delay])}}
-    wrong_endpoint,wrong_position,separation=wrong_registered_pose(scene,p,mid/sr)
+    wrong_endpoint,wrong_position,separation=wrong_registered_pose(scene,p,mid/sr,current_endpoint=endpoint)
     wrong_wave=cache.get(wrong_position)
     bad_pose=compare_rirs(wrong_wave,wave,source=p,listener=listener,forward=forward,sample_rate=sr)
     controls['wrong_source_pose']={'check':bad_pose,'qualification':qualify_energy([bad_pose]),
         'actual_wrong_registered_endpoint_id':wrong_endpoint,'actual_wrong_position_m':wrong_position.tolist(),
         'correct_native_emitter_position_m':p.tolist(),'true_geometry_separation_deg':separation,
+        'probe_positions_from_real_registered_trajectories':True,'probe_excluded_from_scene_program':True,
         'reason':'native RIR from another real registered emitter, never nearly coincident first/last foot poses'}
     if any(v['qualification']['status']=='pass'for v in controls.values()):
         write_json(attempt/(endpoint+'_moving_control_rejection.json'),{'status':'blocked','controls':controls})
@@ -209,6 +235,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         'every_independent_raw_reference_must_pass':True,'independent_midpoints':len(checks),'midpoint_checks':checks,'detailed_midpoint_checks':accepted,'energy_qualification':qualification,
         'refinements':refinements,'independent_reference_statistics':ref_stats,'independent_reference_files':reference_paths,'independent_reference_native_process_evidence':reference_processes,
         'known_bad_controls':controls,'known_bad_controls_excluded_from_audio':True,
+        'independent_reference_reuse_policy':'exact xyz plus native identity only; retain original three process reports; existing sample checkpoints preferred',
         'full_emission_tail':True,'thresholds_changed':False,'gains_or_RIRs_fitted_to_references':False,
         'historical_frozen_budget_source':inputs.get('moving_energy_budget'),'historical_budget_refitted':False}
     from avengine.timeline.v7_wet_support import event_wet_support
