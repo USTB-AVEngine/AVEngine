@@ -32,6 +32,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 raise ValueError('registered UE class/material source missing')
         self.house,self.scene,self.assets=deepcopy(house),scene,assets
         self.width,self.height,self.cv2=width,height,cv2
+        self.capture_scale=inputs.get('registered_ue_capture_scale',2)
+        if type(self.capture_scale) is not int or self.capture_scale not in (1,2):
+            raise ValueError('registered UE capture scale must be one or two native pixels per output dimension')
         self.source_material_cache_directory=source_material_cache_directory
         self.ue=bind_histogram_profile(self.house['input']['ue_config'],scene_seed=scene['scene_id'])
         # The camera helper imports the native client; resolve the task-owned
@@ -109,7 +112,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 from avengine.capture.kujiale_pilot_environment import verify_gpu
                 launch['actual_graphics_gpu']=verify_gpu(self.ue,launch)
             with self.instance.begin_frame():
-                self.camera,self.components=self.spawn(self.game,horizontal_fov_deg=85.,width=width*2,height=height*2)
+                self.camera,self.components=self.spawn(self.game,horizontal_fov_deg=85.,width=width*self.capture_scale,height=height*self.capture_scale)
                 self.foot_camera,self.foot_components=self.spawn(self.game,horizontal_fov_deg=85.,width=1024,height=1024)
                 # Semantic IDs are reconstructed from the complete native
                 # modal/target depth passes; this extra capture is not consumed.
@@ -138,7 +141,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 with self.instance.end_frame():self.read_rgb(self.components['rgb'])
             self.receipt={'backend':'UE/SPEAR registered native standing','graphics_adapter':self.ue['graphics_adapter'],
                 'compute_device':'GPU','launch':launch,'exposure':exposure,'lights':lights,'hfov_deg':85.,'fps':15,
-                'capture_resolution_hw':[height*2,width*2],'resolution_hw':[height,width],
+                'capture_resolution_hw':[height*self.capture_scale,width*self.capture_scale],'resolution_hw':[height,width],
                 'startup_and_warmup_seconds':time.perf_counter()-start,'original_materials':True,
                 'source_material_overrides_applied':False,'source_extra_fill_applied':False,
                 'initial_placement_preflight':self.initial_placement_preflight,

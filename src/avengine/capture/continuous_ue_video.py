@@ -231,6 +231,7 @@ class UENativeContinuousVideo:
             'status':'pass' if abs(gap)<=.02 else 'fail'}
 
     def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=True):
+        depth_stride=getattr(self,'capture_scale',2)
         path=Path(path);start=time.perf_counter();frames=[];mouths={a['endpoint_id']:[] for a in self.assets}
         command=['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-n','-f','rawvideo','-pixel_format','rgb24',
             '-video_size',f'{self.width}x{self.height}','-framerate',str(FPS),'-i','pipe:0','-an',
@@ -275,7 +276,7 @@ class UENativeContinuousVideo:
                             self.components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
                             self.components['depth'].set_property_value(property_name='ShowOnlyActors',property_value=[runtime['visual_actor']])
                         with self.instance.end_frame():target=self.read_depth(self.components['depth'])
-                        targets[str(actor['actor_id'])]=[np.ascontiguousarray(target[::2,::2])]
+                        targets[str(actor['actor_id'])]=[np.ascontiguousarray(target[::depth_stride,::depth_stride])]
                         ids[str(actor['actor_id'])]=1001+j
                         visible=(target<65504)&(np.abs(normal-target)<=.01+.002*target)
                         # Reconstruct actual visible native body surfaces; this is
@@ -316,7 +317,7 @@ class UENativeContinuousVideo:
                     common={'renderer_backend':'ue_spear','rgb_renderer_backend':'ue_spear',
                         'camera_contract_id':'v7_native_camera_listener','semantic_id_namespace':'ue_native_depth_target_only_instance_v1',
                         'resolution_hw':[self.height,self.width],'frame_indices':[index],'camera_pose_ids':[pose_id]}
-                    truth=compile_depth_pixel_visibility_truth(normal_depth_m_frames=[np.ascontiguousarray(normal[::2,::2])],
+                    truth=compile_depth_pixel_visibility_truth(normal_depth_m_frames=[np.ascontiguousarray(normal[::depth_stride,::depth_stride])],
                         target_only_depth_m_frames_by_instance=targets,semantic_ids_by_instance=ids,
                         normal_context={'pass_kind':'modal_scene',**common},
                         target_only_contexts_by_instance={aid:{'pass_kind':'target_only','target_instance_id':aid,**common} for aid in ids},
@@ -386,7 +387,7 @@ class UENativeContinuousVideo:
                 'camera_position_max_error_m':camera_position_max_error,
                 'occlusion_criterion':'retained v6 depth tolerance 0.01m + 0.002 * target depth',
                 'full_stream_qualification':'existing v6 compile_depth_pixel_visibility_truth reused; full M2 motion/contact and v7 formal blockers remain',
-                'capture_resolution_hw':[self.height*2,self.width*2],'depth_delivery_sampling':'nearest sample [::2,::2], same as native mask delivery'}}
+                'capture_resolution_hw':[self.height*depth_stride,self.width*depth_stride],'depth_delivery_sampling':f'nearest sample [::{depth_stride},::{depth_stride}], same as native mask delivery'}}
         write_json(path.parent/'source_materials.json',source_materials)
         write_json(path.parent/'source_material_checks.json',material_receipt)
         write_json(path.parent/'native_visibility_evidence.json',visibility)

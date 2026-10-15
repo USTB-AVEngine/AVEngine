@@ -225,7 +225,7 @@ def capture_frame(video,index,bgr,normal,semantic,targets,ids,pose_id):
         view=video._camera();vertices=node['current_scene_native_vertices'];world=vertices@rotation(placement['yaw_rad']).T+np.array(placement['root_m'])
         mask,visible=visibility(normal,target,far_range(world,view))
         sid=str(node['source_id']);semantic_id=2001+j
-        targets[sid]=[np.ascontiguousarray(target[::2,::2])];ids[sid]=semantic_id
+        targets[sid]=[np.ascontiguousarray(target[::getattr(video,'capture_scale',2),::getattr(video,'capture_scale',2)])];ids[sid]=semantic_id
         semantic[visible]=semantic_id
         count=int(mask.sum());pixels=int(visible.sum());highlight=float(np.mean(np.all(bgr[visible]>247,axis=1))) if pixels else None
         if highlight is not None and highlight>.02:raise ValueError('current UE physical asset highlights exceed 2%: '+endpoint)
