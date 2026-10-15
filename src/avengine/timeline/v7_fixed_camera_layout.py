@@ -58,3 +58,11 @@ def assert_native_human_camera_clearance(visual):
             minimum=min(minimum,distance)
     if minimum<1.2-1e-6:raise ValueError(f'owner human camera distance {minimum:.9f}m below1.2m')
     return {'status':'pass','measured_frames':450,'minimum_human_camera_distance_m':minimum,'minimum_required_m':1.2,'basis':'horizontal XZ native root-to-camera, every person in every frame'}
+
+
+def binding_candidate_in_fixed_view(listener,position,yaw_deg):
+    """Preserve the constructed binding view while trying another body position."""
+    ray=np.asarray(position,float)-np.asarray(listener,float)
+    if not np.isfinite(ray).all()or np.linalg.norm(ray[[0,2]])<1e-9:return False
+    bearing=math.degrees(math.atan2(ray[0],-ray[2]));offset=(bearing-float(yaw_deg)+180.)%360.-180.
+    return abs(offset)<=85./2.+1e-9
