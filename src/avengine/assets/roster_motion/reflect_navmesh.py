@@ -142,13 +142,15 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
     _,walk,slot,selected=best
     positions,yaws,window=_short_window_walk(walk,slot)
     target=np.mean(positions,axis=0)-listener[[0,2]]
-    return {'reflect_walk':True,'positions_xz_m':positions.tolist(),'travel_yaws_rad':yaws.tolist(),
+    from .straight_route import frame_rest_poses
+    camera_yaw,framing=frame_rest_poses([positions[0],positions[-1]],listener[[0,2]],math.degrees(math.atan2(target[0],-target[1])))
+    return {'reflect_walk':True,'positions_xz_m':positions.tolist(),'travel_yaws_rad':yaws.tolist(),'rest_pose_framing':framing,
         'short_window_walk':window,
         'walkable_map_path':getattr(walkable_map,'path',None),
         'walkable_map_version':walkable_map.metadata['version']if walkable_map is not None else None,
         'walkable_map_room_id':walkable_map.metadata['room_id']if walkable_map is not None else None,
         'speed_m_s':speed,'speed_range_m_s':[lo,hi],'listener_m':listener.tolist(),
-        'camera_yaw_deg':math.degrees(math.atan2(target[0],-target[1])),
+        'camera_yaw_deg':camera_yaw,
         'species':species,'template':focus,'emission_slot':slot,'candidate_count':len(trials),
         'candidate_trials':trials,'selected_attempt':selected,'candidate_native_root_samples':901,
         'geometry_status':'native NavMesh proposal only; original pose/contact/collision/readback gates pending'}

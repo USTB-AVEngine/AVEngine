@@ -27,6 +27,52 @@ CORNER_TURNS_DEG = (60., 90., 120., -60., -90., -120.)
 CORNER_RADII_M = (.8, 1.2)      # flat-floor replays 10-15: radius 0.6-2 m and a 180 deg turn all passed the gait gates
 
 
+NATIVE_HFOV_DEG = 85.          # continuous_native_video / continuous_ue_video render hfov
+BODY_HALF_WIDTH_M = .3         # shoulders and arms
+EDGE_MARGIN_DEG = 3.
+MAX_YAW_SHIFT_DEG = 35.
+
+
+def _bearing_deg(point, listener_xz):
+    d = np.asarray(point, float) - np.asarray(listener_xz, float)
+    return math.degrees(math.atan2(d[0], -d[1]))
+
+
+def rest_framing(point, listener_xz, yaw_deg, hfov_deg=NATIVE_HFOV_DEG):
+    """'inside' / 'outside' when the whole standing body is clearly in or out of the frame, else 'edge'."""
+    d = float(np.linalg.norm(np.asarray(point, float) - np.asarray(listener_xz, float)))
+    w = math.degrees(math.atan2(BODY_HALF_WIDTH_M, max(d, 1e-6)))
+    off = abs((_bearing_deg(point, listener_xz) - yaw_deg + 180.) % 360. - 180.)
+    if off <= hfov_deg / 2 - w - EDGE_MARGIN_DEG:
+        return 'inside'
+    if off >= hfov_deg / 2 + w + EDGE_MARGIN_DEG:
+        return 'outside'
+    return 'edge'
+
+
+def frame_rest_poses(rest_points, listener_xz, nominal_yaw_deg):
+    """Camera yaw near the nominal one where no standing pose sits on the frame edge (owner 10-16 review).
+
+    hm3d 00022: the walker stood ~10 s at the left edge 1.5 m from the camera, only a shoulder visible.  Yaws within
+    MAX_YAW_SHIFT_DEG of the nominal (which looks at the walk) are tried nearest first; more poses fully inside is
+    better.  Returns (yaw, record); the nominal yaw is kept and recorded when no yaw clears every pose.
+    """
+    best = None
+    for shift in sorted(np.arange(-MAX_YAW_SHIFT_DEG, MAX_YAW_SHIFT_DEG + 1e-9, 1.), key=abs):
+        yaw = nominal_yaw_deg + float(shift)
+        states = [rest_framing(p, listener_xz, yaw) for p in rest_points]
+        if 'edge' in states:
+            continue
+        key = (states.count('inside'), -abs(shift))
+        if best is None or key > best[0]:
+            best = (key, yaw, states)
+    if best is None:
+        states = [rest_framing(p, listener_xz, nominal_yaw_deg) for p in rest_points]
+        return nominal_yaw_deg, {'status': 'unresolved_kept_nominal', 'nominal_yaw_deg': nominal_yaw_deg, 'states': states}
+    return best[1], {'status': 'pass', 'nominal_yaw_deg': nominal_yaw_deg, 'yaw_shift_deg': best[1] - nominal_yaw_deg,
+                     'states': best[2], 'hfov_deg': NATIVE_HFOV_DEG, 'body_half_width_m': BODY_HALF_WIDTH_M}
+
+
 def stand_walk_stand_distance(w0, w1, speed, ramp):
     """Arc length per 30 Hz frame: stand, smoothstep ramp up, constant speed, ramp down, stand."""
     t = np.arange(FRAMES) / FPS
@@ -250,14 +296,16 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
                                                    'maximum_yaw_rate_deg_s': math.degrees(speed / corner[1])},
               'reason': 'owner 10-15: construct deliberately; one free straight stand-walk-stand line found directly'}
     target = np.mean(positions, axis=0) - L
+    camera_yaw, framing = frame_rest_poses([positions[0], positions[-1]], L, math.degrees(math.atan2(target[0], -target[1])))
     return {'reflect_walk': True, 'positions_xz_m': positions.tolist(), 'travel_yaws_rad': np.unwrap(yaws).tolist(),
+            'rest_pose_framing': framing,
             'short_window_walk': window,
             'walkable_map_path': getattr(walkable_map, 'path', None),
             'walkable_map_version': walkable_map.metadata['version'] if walkable_map is not None else None,
             'walkable_map_room_id': walkable_map.metadata['room_id'] if walkable_map is not None else None,
             'walkable_map_bypassed': walkable_map is None,
             'speed_m_s': speed, 'speed_range_m_s': [lo, hi], 'listener_m': listener.tolist(),
-            'camera_yaw_deg': math.degrees(math.atan2(target[0], -target[1])), 'species': species, 'template': focus,
+            'camera_yaw_deg': camera_yaw, 'species': species, 'template': focus,
             'emission_slot': slot, 'candidate_count': tested,
             'candidate_trials': [{'construction': 'direct_straight_line', 'found': len(found), 'rejected': rejected}],
             'selected_attempt': 'straight-%d-%d' % (int(seed), int(attempt)), 'candidate_native_root_samples': FRAMES,

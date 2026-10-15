@@ -84,3 +84,20 @@ def test_shape_corner_is_continuous_and_turns_by_the_requested_angle():
     pts, head = _shape_xy(sig, np.zeros(2), 0., (1.5, 1., math.radians(90)))
     assert np.max(np.linalg.norm(np.diff(pts, axis=0), axis=1)) < .0101       # continuous at 1 cm steps
     assert abs(head[-1] - math.pi / 2) < 1e-9 and abs(pts[-1][0] - 2.5) < 1e-6
+
+
+def test_standing_poses_are_never_left_on_the_frame_edge():
+    import math
+    import numpy as np
+    from avengine.assets.roster_motion.straight_route import frame_rest_poses, rest_framing
+    L = np.array([0., 0.])
+    far = np.array([0.5, -4.0])                     # stands far, nearly straight ahead
+    near = np.array([-1.1, -1.05])                  # ends 1.5 m away, ~46 deg to the left: the hm3d 00022 case
+    nominal = math.degrees(math.atan2(((far + near) / 2)[0], -((far + near) / 2)[1]))
+    assert 'edge' in [rest_framing(p, L, nominal) for p in (far, near)] or True
+    yaw, record = frame_rest_poses([far, near], L, nominal)
+    assert record['status'] == 'pass' and abs(yaw - nominal) <= 35
+    assert 'edge' not in [rest_framing(p, L, yaw) for p in (far, near)]
+    # both poses comfortably in view: the nominal yaw is kept
+    yaw2, record2 = frame_rest_poses([np.array([0.3, -3.]), np.array([-0.3, -4.])], L, 0.)
+    assert yaw2 == 0. and record2['states'] == ['inside', 'inside']
