@@ -33,7 +33,7 @@ def spacing_violation(scene,asset,root,placed):
 
 def varied_human_yaw_offset(asset):
     index=int(asset.get('native_instance_id',1))-1
-    return math.radians((70.,-70.,180.,110.,-110.)[index%5])
+    return math.radians((0.,70.,145.,-145.,110.)[index%5])
 
 
 def distributed_point(candidate,chosen,minimum=1.):

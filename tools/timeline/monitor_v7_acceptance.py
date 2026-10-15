@@ -148,6 +148,8 @@ def main():
    if rc is None:continue
    v['stream'].close();receipt=o/'evidence/jobs'/f'{slot:03d}.json';d=load(receipt)if receipt.exists()else{'slot':slot,'status':'failed','reason':'worker exited before producer receipt','exit_code':rc}
    completed.append(d);del active[slot]
+   if d['status']=='passed':
+    with(o/'PROGRESS.md').open('a')as f:f.write(now.isoformat()+' FRESH_PARENT_EXPORTED '+d['scene_id']+' 独立题='+str(d['independent_questions'])+' 房子='+d['house']+' 表='+str(o/'export/parent_rows'/f'{slot:03d}.jsonl')+'；四项原生导出门禁和reader通过。\n')
    if d['status']!='passed':
     reason=d.get('reason','unknown');failed_reasons[reason]=failed_reasons.get(reason,0)+1
     if failed_reasons[reason]>=2:pause='repeated_failure_needs_review';write(o/'REPEATED_FAILURE.json',{'reason':reason,'count':failed_reasons[reason]})
@@ -160,7 +162,7 @@ def main():
    with (o/'WATCH_LOG.md').open('a')as f:f.write(now.isoformat()+' '+json.dumps(snap,ensure_ascii=False)+'\n')
    write(o/'evidence/WATCH_CURRENT.json',snap);print('WATCH',json.dumps(snap),flush=True);last_watch=time.monotonic()
   peaks['pss_bytes']=max(peaks['pss_bytes'],pss);peaks['concurrent_parents']=max(peaks['concurrent_parents'],len(active))
-  smoke=(o/'SMOKE_PASSED.json').exists()
+  smoke=(o/'SMOKE_PASSED.json').exists() or not m.get('require_single_parent_smoke',True)
   if not pause and not resource_pause:
    from avengine.timeline.v7_demand import read_demand_state,demand_snapshot
    state=read_demand_state(o/'inputs/demand_state.json');gaps=demand_snapshot(state,next_questions=70)['family_deficits']
@@ -172,7 +174,7 @@ def main():
     if task.get('launch_disabled'):continue
     w=Path(task.get('snapshot_worktree',m['worktree']))
     moving=task.get('focus')in {'human_motion','animal_motion','motion_quartet_template'};ue=task['device']=='ue'
-    if not smoke and (slot!=0 or active or completed):continue
+    if not smoke and m.get('require_single_parent_smoke',True) and (slot!=0 or active or completed):continue
     if a.smoke_only and slot!=0:continue
     if len(active)>=limits["maximum_parents"] or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
     reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion','motion_quartet_template'}else 7_000_000_000 for s in active)
@@ -188,10 +190,10 @@ def main():
      for n in ['nvidiactl','nvidia2','nvidia-uvm','nvidia-uvm-tools']:
       if Path('/dev/'+n).exists():prefix+=['--dev-bind','/dev/'+n,'/dev/'+n]
      cmd=prefix+['--chdir',str(w)]+cmd
-    stream=(o/'logs'/f'parent_{slot:03d}.log').open('w');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
+    stream=(o/'logs'/f'parent_{slot:03d}.log').open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
     active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(o/'logs'/f'parent_{slot:03d}.log'),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
-    if not smoke:break
-  if not smoke and completed:
+    if not smoke and m.get('require_single_parent_smoke',True):break
+  if not smoke and completed and m.get('require_single_parent_smoke',True):
    if completed[0]['status']=='passed':write(o/'SMOKE_PASSED.json',completed[0]);smoke=True
    else:pause='smoke_failed';pending=[]
   if a.smoke_only and completed and not active:pending=[]
