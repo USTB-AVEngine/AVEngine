@@ -11,4 +11,4 @@ def test_half_metre_construction_allows_the_original_five_cm_retreat():
 
 def test_distance_condition_reads_only_its_declared_sound_window():
     from avengine.assets.roster_motion.demand import matches_distance_request
-    assert matches_distance_request([[2.,0.,0.],[1.7,0.,0.],[1.4,0.,0.],[1.9,0.,0.]],[0.,1.,2.,3.],[0.,0.,0.],{'distance_trend':'approaching','distance_trend_intervals_s':[[0.,2.]],'minimum_distance_change_m':.5})
+    assert matches_distance_request([[3.,0.,0.],[2.7,0.,0.],[2.4,0.,0.],[2.9,0.,0.]],[0.,1.,2.,3.],[0.,0.,0.],{'distance_trend':'approaching','distance_trend_intervals_s':[[0.,2.]],'minimum_distance_change_m':.5})

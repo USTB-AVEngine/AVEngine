@@ -182,7 +182,11 @@ def main():
    state=read_demand_state(o/'inputs/demand_state.json');gaps=demand_snapshot(state,next_questions=70)['family_deficits']
    families={'binding':['QA-01','QA-02','QA-03','QA-08','QA-09','QA-20'],'human_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18','QA-19'],'animal_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18'],'count':['QA-22','QA-23','STARSS-SPEAKERS'],'occlusion':['QA-10','QA-03','QA-12'],'taxonomy':['QA-21','V7-CLASS34','STARSS-CLASS13'],'content_binding':['QA-26','QA-27','QA-28','V7-CONTENT-BIND']}
    def demand_order(slot):
-    target=families.get(m['parents'][slot]['focus'],['QA-06','QA-15','QA-16','QA-17']);return (-sum(max(0.,gaps.get(f,0.))for f in target)/len(target),slot)
+    task=m['parents'][slot];explicit=task.get('target_family')
+    target=[explicit]if explicit else families.get(task['focus'],['QA-06','QA-15','QA-16','QA-17'])
+    observed=state.get('family_counts',{})
+    floor=max((max(0,3-observed.get(f,0))for f in target),default=0)
+    return (-floor,-sum(max(0.,gaps.get(f,0.))for f in target)/len(target),slot)
    for slot in sorted(pending,key=demand_order):
     task=m['parents'][slot]
     if task.get('launch_disabled'):continue
