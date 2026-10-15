@@ -20,10 +20,12 @@ def alternate_survey_origins(polygon,floor_y,original):
 
 
 def retry_same_surface(scene,asset,key,supports,polygon,floor_y,original,survey_at):
-    if asset.get('kind')!='object':return None
+    floor_body=asset.get('kind')in {'human','performer','animal'}and key=='floor'and asset.get('attachment_surface')=='floor'
+    if asset.get('kind')!='object'and not floor_body:return None
+    if floor_body and not supports.get('_native_geometric_candidates',{}).get('floor'):return None
     aid=asset['asset_id'];state=scene.setdefault('_support_reconstruction',{}).setdefault(aid,{'next':0})
     origins=alternate_survey_origins(polygon,floor_y,original)
-    stages=[None,*origins]
+    stages=[None]if floor_body else[None,*origins]
     while state['next']<len(stages):
         index=state['next'];state['next']+=1;origin=stages[index]
         candidates=(supports.get('_native_geometric_candidates',{}).get(key,[])if origin is None else survey_at(origin).get(key,[]))

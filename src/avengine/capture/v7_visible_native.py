@@ -508,8 +508,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                           'attachment_worst_error_m':max(abs(v) for v in placement['contact_deltas_m']),
                           'contact_tolerance_m':.015,'placement':placement,**native_contacts,
                           'resolved_body_root_world_m':entry['applied_root_input'][:3,3].tolist(),
-                          'floor_type_authority':'native navmesh + all native support rays within 80mm of measured room floor/free polygon + original floor or ground-covering triangles <=15mm; contact itself <=15mm',
-                          'table_type_authority':'actual native horizontal patch + original scan table/desk/counter-labelled triangles within <=15mm',
+                          'floor_type_authority':'native navmesh + all native support rays within 80mm of measured room floor/free polygon; actual contact <=15mm; scan semantic labels recorded separately',
+                          'table_type_authority':'actual native horizontal support patch; scan semantic labels recorded separately',
+                          'scan_support_label_status':placement.get('semantic_label_observation',{}).get('status','pass'),
                           'motion_admission':'original static complete mesh; no new walking/sitting motion'}
                 if relation_witness['relations']:accepted['requested_occlusion_witness']=relation_witness
                 if offscreen_proof is not None:accepted['intentional_offscreen_proof']=offscreen_proof

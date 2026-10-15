@@ -30,3 +30,14 @@ def test_reconstruction_is_bounded_and_stays_on_same_room_level():
     assert len(calls)<=4
     assert retry_same_surface(scene,asset,'wall',{},box(0,0,5,5),0,[1,0,1],survey)is None
     assert len(calls)<=4
+
+
+@pytest.mark.parametrize('kind',['human','animal'])
+def test_real_native_floor_support_does_not_require_a_scan_semantic_label(kind):
+    asset={'asset_id':'required_body','kind':kind,'attachment_surface':'floor'};scene={}
+    native={'surface':'floor','floor_y':0.,'point':[2.,0.,2.],'normal':[0,1,0]}
+    supports={'_native_geometric_candidates':{'floor':[native]}}
+    result=retry_same_surface(scene,asset,'floor',supports,box(0,0,5,5),0,[1,0,1],lambda p:pytest.fail('floor body must reuse actual floor probes, not move to another mount'))
+    assert result['actual_support_contacts_and_acoustics_required']
+    assert supports['floor']==[native]and asset['asset_id']=='required_body'
+    assert retry_same_surface(scene,asset,'floor',supports,box(0,0,5,5),0,[1,0,1],lambda p:{})is None
