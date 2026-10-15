@@ -249,6 +249,22 @@ def animal_reflected_route_proposals(video,entry,scene,local_forward,request):
             yield route
 
 
+
+def follow_measured_route_floor(roots,floor,reference_y):
+    """Construct root height from the same actual floor used by paw/skin gates.
+
+    This moves the complete admitted body rigidly with the terrain. It changes
+    no joint, paw vertex, support target, or local pose; the subsequent original
+    rigid-height, full-skin and contact checks independently reject bad terrain.
+    """
+    roots=np.asarray(roots,float).copy();heights=np.asarray(floor.many(roots),float)
+    if heights.shape!=(len(roots),) or not np.isfinite(heights).all():raise ValueError('animal route needs a measured native floor at every root')
+    roots[:,1]+=heights-float(reference_y)
+    return roots,{'method':'root follows measured original-stage floor; admitted local joint/paw poses unchanged',
+        'floor_heights_m':heights.tolist(),'minimum_floor_y_m':float(heights.min()),'maximum_floor_y_m':float(heights.max()),
+        'floor_sample_count':len(heights),'per_paw_or_joint_correction':False,'contact_and_skin_gates_unchanged':True}
+
+
 def animal_route_samples(times, origin, yaw, direction, speed, curved_route=None):
     """Execute a supplied native route and drive its gait by translated distance.
 
@@ -413,12 +429,14 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             actual_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(p0)
             p0[1] = actual_floor + qualified_initial_root_offset
             roots[:,1]+=p0[1]-roots[0,1]
+            floor = PhysicalFloor(video, actual_floor, ignore)
+            terrain_placement=None
+            if reflected_motion:roots,terrain_placement=follow_measured_route_floor(roots,floor,actual_floor)
             roots[:, 1] += [source[int(i)]['root_world_m'][1] - old_origin[1] for i in indices]
             snaps = np.asarray([video.pathfinder.snap_point(p) for p in roots])
             nav = float(np.max(np.linalg.norm((snaps - roots)[:, [0, 2]], axis=1)))
             if not math.isfinite(nav) or nav > .002:
                 raise ValueError('admitted animal route exceeds unchanged 2mm NavMesh drift')
-            floor = PhysicalFloor(video, actual_floor, ignore)
             roots, rigid_placement = rigid_route_placement(
                 poses, meshes, roots, source, indices, frame_yaws, floor, entry['declaration']['species_id'])
             p0 = roots[0].copy()
@@ -481,7 +499,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'world_roots_m': roots.tolist(), 'yaw_rad': yaw, 'physical_ground_y_m': actual_floor,
                         'original_full_skin_floor_collision': clearance.floor_certificate(),
                         'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
-                        'rigid_route_placement': rigid_placement,
+                        'rigid_route_placement': rigid_placement, 'terrain_route_placement': terrain_placement,
                         'requested_speed_m_s': speed, 'actual_speed_m_s': float(np.median(velocity[velocity>1e-8])) if np.any(velocity>1e-8) else 0.,
                         'requested_motion_mode': requested_mode,
                         'motion_degradation': None,
