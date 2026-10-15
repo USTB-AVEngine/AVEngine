@@ -46,3 +46,18 @@ def test_historical_recipe_conditions_are_preserved_during_resume():
     row={'scene_demand':{'requested_conditions':['authored_native_quartet']*3}}
     add_required_condition(row,'authored_native_quartet')
     assert len(row['scene_demand']['requested_conditions'])==3
+
+
+def test_forecast_includes_peer_workers_before_admitting_another_parent():
+    from tools.timeline.monitor_v7_acceptance import combined_peak_budget
+    gb=1_000_000_000
+    assert combined_peak_budget(90*gb,80*gb,7*gb,36*gb)<=135*gb
+    assert combined_peak_budget(97*gb,83*gb,7*gb,36*gb)>135*gb
+
+
+def test_actual_cpu_counter_keeps_time_of_waited_native_children():
+    import os,subprocess,sys
+    from tools.timeline.monitor_v7_acceptance import proc
+    before=proc(os.getpid())['cpu_s']
+    subprocess.run([sys.executable,'-c','sum(range(5_000_000))'],check=True)
+    assert proc(os.getpid())['cpu_s']-before>.02

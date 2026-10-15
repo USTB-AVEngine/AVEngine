@@ -10,7 +10,7 @@ def write(p,d):
 def proc(pid):
  try:
   s=(Path('/proc')/str(pid)/'stat').read_text().rsplit(')',1)[1].split();cmd=(Path('/proc')/str(pid)/'cmdline').read_bytes().replace(b'\0',b' ').decode(errors='replace')
-  return {'pid':pid,'ppid':int(s[1]),'cpu_s':(int(s[11])+int(s[12]))/os.sysconf('SC_CLK_TCK'),'start_ticks':s[19],'cmd':cmd,'state':s[0]}
+  return {'pid':pid,'ppid':int(s[1]),'cpu_s':sum(int(s[i])for i in (11,12,13,14))/os.sysconf('SC_CLK_TCK'),'start_ticks':s[19],'cmd':cmd,'state':s[0]}
  except (OSError,ValueError,IndexError):return None
 
 def processes(roots):
@@ -47,6 +47,22 @@ class AdoptedProcess:
   live=proc(self.pid)
   return None if live and live['start_ticks']==self.record['start_ticks']and live['cmd']==self.record['cmd']and live['state']!='Z' else 0
 
+def combined_peak_budget(active_reserve,local_pss,requested_reserve,peer_pss):
+ return max(active_reserve+requested_reserve,local_pss+requested_reserve)+peer_pss
+
+
+def peer_processes(m):
+ roots=[]
+ for output in m.get('peer_output_roots',[]):
+  output=Path(output)
+  for receipt in (output/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
+   d=load(receipt);pid=d.get('pid')
+   if d.get('status')!='running'or not pid:continue
+   live=proc(pid)
+   if live and live['state']!='Z'and str(output)in live['cmd']and 'run_v7_acceptance.py'in live['cmd']:roots.append(pid)
+ return processes(roots)
+
+
 def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory):
  if now >= deadline:return 'delivery_deadline_no_new_jobs'
  if pss >= limit:return 'PSS_limit_no_new_jobs'
@@ -82,11 +98,12 @@ def main():
  for n in ['ue_tmp','ue_shm','ue_config']:(o/n).mkdir(exist_ok=True)
  while pending or active:
   m=load(a.manifest)
+  pending=sorted(set(pending)|{slot for slot in range(len(m['parents']))if slot not in active and not (o/'evidence/jobs'/f'{slot:03d}.json').exists()})
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
-  records=processes([v['process'].pid for v in active.values()]);pss=sum(v['pss_bytes']for v in records);limit=120_000_000_000 if sg.hour<4 else 140_000_000_000
+  records=processes([v['process'].pid for v in active.values()]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limit=120_000_000_000 if sg.hour<4 else 140_000_000_000
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
-  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem)
+  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss+peer_pss,limit=limit,free=free,allocated_size=size,available_memory=mem)
   if resource_pause=='delivery_deadline_no_new_jobs':pending=[]
   if time.monotonic()-last_progress>=900 or not last_progress:
    append_progress(o,m,now,active);last_progress=time.monotonic()
@@ -103,10 +120,10 @@ def main():
    for slot,v in active.items():
     tree=processes([v['process'].pid]);cpu=sum(r['cpu_s']for r in tree);old=previous.get(slot,{});log=o/'logs'/f'parent_{slot:03d}.log';mtime=log.stat().st_mtime if log.exists()else 0
     entry={'slot':slot,'pid':v['process'].pid,'cpu_s':cpu,'cpu_growth_s':cpu-old.get('cpu_s',0),'log_mtime':mtime,'log_updated':mtime>old.get('log_mtime',0),'pipe_write_pids':[r['pid']for r in tree if 'pipe_write'in r['wchan']]};rows.append(entry);previous[slot]=entry
-   snap={'time_utc':now.isoformat(),'active':rows,'PSS_bytes':pss,'MemAvailable_bytes':mem,'data_free_bytes':free,'allocated_task_bytes':size,'completed':len(completed),'pause':pause or resource_pause}
+   snap={'time_utc':now.isoformat(),'active':rows,'PSS_bytes':pss,'peer_PSS_bytes':peer_pss,'combined_PSS_bytes':pss+peer_pss,'MemAvailable_bytes':mem,'data_free_bytes':free,'allocated_task_bytes':size,'completed':len(completed),'pause':pause or resource_pause}
    with (o/'WATCH_LOG.md').open('a')as f:f.write(now.isoformat()+' '+json.dumps(snap,ensure_ascii=False)+'\n')
    write(o/'evidence/WATCH_CURRENT.json',snap);print('WATCH',json.dumps(snap),flush=True);last_watch=time.monotonic()
-  peaks['pss_bytes']=max(peaks['pss_bytes'],pss);peaks['concurrent_parents']=max(peaks['concurrent_parents'],len(active))
+  peaks['pss_bytes']=max(peaks['pss_bytes'],pss+peer_pss);peaks['concurrent_parents']=max(peaks['concurrent_parents'],len(active))
   smoke=(o/'SMOKE_PASSED.json').exists()
   if not pause and not resource_pause:
    from avengine.timeline.v7_demand import read_demand_state,demand_snapshot
@@ -122,8 +139,10 @@ def main():
     if not smoke and (slot!=0 or active or completed):continue
     if a.smoke_only and slot!=0:continue
     if len(active)>=16 or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
-    reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion'}else 7_000_000_000 for s in active)+ (30_000_000_000 if moving else 7_000_000_000)
-    if max(reserve,pss+(30_000_000_000 if moving else 7_000_000_000))>limit-5_000_000_000:continue
+    reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion'}else 7_000_000_000 for s in active)
+    requested=30_000_000_000 if moving else 7_000_000_000
+    if combined_peak_budget(reserve,pss,requested,peer_pss)>limit-5_000_000_000:continue
+    if len(records)+len(peers)+4>80:continue
     env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
     if ue:
      for k in ['LD_PRELOAD','LIBGL_ALWAYS_SOFTWARE','MESA_LOADER_DRIVER_OVERRIDE','EGL_PLATFORM','__EGL_VENDOR_LIBRARY_FILENAMES']:env.pop(k,None)
