@@ -163,7 +163,7 @@ def test_geometry_preflight_accounts_for_other_actual_body_plans():
                 visible_pixels_lower=0 if occluders else 1000, edge_margin_px=20.)
     body = NS(radius_m=.3)
     actors = {'cat': NS(positions_m=np.tile([0., 0., -4.], (901, 1)), body=body),
-              'dog': NS(positions_m=np.tile([0., 0., -3.], (901, 1)), body=body)}
+              'dog': NS(positions_m=np.tile([0., 0., -2.8], (901, 1)), body=body)}
     plugin = Qa21Plugin({'cat': body, 'dog': body}, {}, 'cat', 'cat_meow',
         sounds=[NS(entity_id='cat', sound_class='cat_meow')])
     checks = list(plugin.verify(Context(), NS(branch='cat_meow', target_ids=('cat',)),
@@ -229,3 +229,26 @@ def test_actual_core_proxy_is_not_an_actual_pixel_lower_bound_and_exact_mesh_is_
     assert visible.evidence['prediction_confidence'] == 'exact_mesh_prediction'
     assert visible.evidence['mesh_prepared']
     assert visible.evidence['visible_pixels_lower'] >= 300
+
+
+def test_static_domain_precheck_delegates_to_core_and_does_not_mutate_shared_grid(monkeypatch):
+    from avengine.construction.joint import CameraPose, BodySpec, Certificate, CheckResult
+    from avengine.construction.joint.context import CandidateGrid
+    from avengine.construction.joint.families.qa21 import _StaticDomainContext
+    import avengine.construction.joint.certification as core
+    points = np.array([[-1., 0., -3.], [1., 0., -3.]])
+    camera = CameraPose((0., 1.25, 0.), 0.);body = BodySpec('cat', .2, .5)
+    grid = CandidateGrid(points, np.ones(2), np.zeros(2), np.array(['inside', 'outside']),
+        np.ones(2), np.zeros(2, bool), np.array(['', '']), {'shared': True})
+    calls = []
+    def check(context, plan):
+        actor = plan.actors['qa21_static_point'];calls.append(actor.positions_m.copy())
+        return Certificate((CheckResult('core_clearance', 'pass' if actor.positions_m[0, 0] > 0 else 'fail'),))
+    monkeypatch.setattr(core, 'certify_plan', check)
+    base = NS(points_m=points, grid=lambda camera, body: grid)
+    wrapped = _StaticDomainContext(base)
+    filtered = wrapped.grid(camera, body)
+    assert filtered.frustum_state.tolist() == ['edge', 'outside']
+    assert grid.frustum_state.tolist() == ['inside', 'outside'] and grid.evidence == {'shared': True}
+    assert all(p.shape == (2, 3) and np.array_equal(p[0], p[1]) for p in calls)
+    assert wrapped.grid(camera, body) is filtered and len(calls) == 2

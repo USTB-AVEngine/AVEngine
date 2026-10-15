@@ -89,6 +89,41 @@ def body_spec(asset):
     return BodySpec(species=species, radius_m=max(.04, radius), height_m=max(.05, height), margin_m=.06)
 
 
+class _StaticDomainContext:
+    """QA21 composes the core certifier before a static Cartesian product.
+
+    Two identical samples have exactly the same point clearance as 901 static
+    samples. This is only a domain precheck; solve still certifies all 901 frames.
+    Base grids and their shared cache are never modified.
+    """
+    def __init__(self, base):
+        self.base = base
+        self._domains = {}
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def grid(self, camera, body):
+        from avengine.construction.joint.certification import certify_plan
+        from avengine.construction.joint.routes import static_actor
+        from avengine.construction.joint.types import ScenePlan
+        key = (camera, body)
+        if key in self._domains:return self._domains[key]
+        grid = self.base.grid(camera, body)
+        accepted = np.zeros(len(self.points_m), dtype=bool)
+        for index, point in enumerate(self.points_m):
+            actor = static_actor('qa21_static_point', point, body, duration_s=1./30., fps=30.)
+            certificate = certify_plan(self.base, ScenePlan(camera, {'qa21_static_point': actor}, duration_s=1./30.))
+            accepted[index] = certificate.passed
+        result = replace(grid, frustum_state=np.where(accepted, grid.frustum_state, 'edge'),
+            evidence={**grid.evidence, 'qa21_static_common_domain_filter': {
+                'points': len(accepted), 'accepted': int(accepted.sum()),
+                'certifier': 'unchanged joint_core.certify_plan', 'static_probe_frames': 2,
+                'full_parent_independent_certification_required': True}})
+        self._domains[key] = result
+        return result
+
+
 class Qa21Plugin:
     def __init__(self, bodies, roles, target_id, sound_class, *, sounds=(), maximum=256, targets=None, assets=None):
         self.bodies, self.roles = bodies, roles
@@ -100,7 +135,8 @@ class Qa21Plugin:
 
     def candidates(self, context, request):
         from avengine.construction.joint import enumerate_static_layouts
-        for plan in enumerate_static_layouts(context, self.bodies, self.roles, max_candidates=self.maximum):
+        domain_context = _StaticDomainContext(context)
+        for plan in enumerate_static_layouts(domain_context, self.bodies, self.roles, max_candidates=self.maximum):
             yield replace(plan, sounds=self.sounds, metadata={**plan.metadata,
                 'qa21_target_id': self.target_id, 'qa21_sound_class': self.sound_class})
 
@@ -134,11 +170,14 @@ class Qa21Plugin:
             yield CheckResult('qa21_requested_classes', 'fail', 'plan changed requested classes or bodies')
             return
         from itertools import combinations
+        spacing_ok = True
         for (aid, actor), (bid, other) in combinations(plan.actors.items(), 2):
             distance = float(np.linalg.norm((np.asarray(actor.positions_m)[0]-np.asarray(other.positions_m)[0])[[0, 2]]))
             required = max(1.1, actor.body.radius_m+other.body.radius_m+.1)
+            spacing_ok &= distance >= required
             yield CheckResult('qa21_spacing_'+aid+'_'+bid, 'pass' if distance >= required else 'fail',
                 margin=distance-required, evidence={'actual_planned_m': distance, 'required_m': required})
+        if not spacing_ok:return
         for target_id, cls in self.targets.items():
             actor = plan.actors.get(target_id)
             if actor is None:
