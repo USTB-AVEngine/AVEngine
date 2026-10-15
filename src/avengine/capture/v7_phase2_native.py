@@ -18,6 +18,7 @@ class NativePhase2Video(NativeVisibleVideo):
         from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
         visual_cpu_policy=configure_cpu_visual(inputs)
         super().__init__(house,scene,inputs,assets,**kwargs)
+        visual_cpu_policy=configure_cpu_visual(inputs)
         self.receipt['visual_cpu_policy']=visual_cpu_policy
         self._pose_context_configuration={'arguments':(house,scene,inputs,assets),'keywords':kwargs}
         self._pose_resources_in_context=set();self._last_primary_frame=None

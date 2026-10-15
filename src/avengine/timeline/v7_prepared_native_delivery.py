@@ -40,4 +40,7 @@ def consume_prepared_qualification(video,scene,directory):
             actual=video._apply_entry(entry,scene,frame_index=0)['emitter_position_m']
             result=admission(entry['endpoint_id'],np.asarray(actual))
             if result.get('status')=='blocked':raise ValueError('prepared exact emitter fails original native RIR direction gate')
+    from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
+    policy=configure_cpu_visual(getattr(video,'_prepared_cpu_visual_inputs',getattr(video,'motion_inputs',{})))
+    if hasattr(video,'receipt'):video.receipt['visual_cpu_policy_after_RIR']=policy
     return checks
