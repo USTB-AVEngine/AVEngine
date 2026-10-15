@@ -137,3 +137,37 @@ def certify_plan(context, plan):
                 check("motion_witness_selection", False, "unknown_required_motion_witness")
             checks.extend(chosen)
     return Certificate(tuple(checks))
+
+
+def track_framing_check(camera, actor, *, required="outside", frame_indices=None):
+    """Check every selected planned body envelope, including moving frames.
+
+    This is conditional on BodySpec enclosing the actual poses. It is not
+    native mask truth or a certificate of the supplied mesh envelope itself.
+    """
+    from collections import Counter
+    if required not in {"inside","outside"}:
+        raise ValueError("track framing requires inside or outside")
+    p=np.asarray(actor.positions_m,float)
+    name=actor.entity_id+":track_framing"
+    if p.ndim!=2 or p.shape[1:]!=(3,)or not len(p)or not np.isfinite(p).all():
+        return CheckResult(name,"fail","invalid_framing_root_clock")
+    indices=np.arange(len(p))if frame_indices is None else np.asarray(frame_indices)
+    if not indices.size:
+        return CheckResult(name,"unknown","no_framing_frames_selected")
+    if (indices.ndim!=1 or indices.dtype.kind not in "iu"
+            or np.any(indices<0)or np.any(indices>=len(p))):
+        return CheckResult(name,"fail","invalid_framing_frame_indices")
+    indices=np.unique(indices)
+    roots,inverse=np.unique(p[indices],axis=0,return_inverse=True)
+    views=[framing(camera,point,actor.body)for point in roots]
+    states=np.asarray([state for state,_ in views])[inverse]
+    failed=indices[states!=required]
+    margins=[margin for state,margin in views if state=="inside"]
+    return CheckResult(name,"fail"if len(failed)else"pass","expanded_planned_body_envelope_all_selected_frames",
+        evidence={"required_state":required,"checked_frames":len(indices),"total_track_frames":len(p),
+            "unique_roots_checked":len(roots),"state_counts":dict(Counter(states.tolist())),
+            "failed_frame_count":len(failed),"first_failed_frame_indices":failed[:12].tolist(),
+            "minimum_inside_margin_px":min(margins)if margins else None,
+            "authority":"planning_geometry_only","native_pixels_verified":False,
+            "actual_posed_mesh_envelope_verified":False})
