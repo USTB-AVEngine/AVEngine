@@ -14,15 +14,34 @@ def save(path,data):
     temp=path.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n');temp.replace(path)
 def now():return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-def candidate_rooms(houses,contract=None,excluded_houses=(),room_id=None):
+def motion_floor_score(room,body_margin=.35,minimum_short_side=2.4):
+    """Area of the largest contiguous floor part after the body margin, 0 if it is too narrow for a walk.
+
+    Total floor area is misleading: many scanned rooms are fragmented, and a 3-4 m walk must fit in one part.
+    """
+    import math
+    from shapely.geometry import shape
+    g=room.get('floor_polygon')
+    if not g:return 0.
+    s=shape(g);parts=list(getattr(s,'geoms',[s]))
+    if not parts:return 0.
+    big=max(parts,key=lambda p:p.area);eroded=big.buffer(-body_margin)
+    if eroded.is_empty:return 0.
+    mrr=big.minimum_rotated_rectangle;xs,ys=mrr.exterior.coords.xy
+    short=min(math.dist((xs[i],ys[i]),(xs[i+1],ys[i+1]))for i in range(4))
+    return float(eroded.area) if short>=minimum_short_side else 0.
+
+
+def candidate_rooms(houses,contract=None,excluded_houses=(),room_id=None,*,minimum_motion_area=6.):
     eligible=[h for h in houses if h['split']=='train' and h['acoustic_status']=='pass' and h['house']not in excluded_houses and h['house']not in (contract or {}).get('test_houses',[])]
     legal=None if contract is None else {(r['house'],r['room_id'])for r in contract['rooms']if 'standing_human'in r['categories']}
     groups={family:[] for family in ('hm3d','mp3d')}
     for h in eligible:
         if h['family'] not in groups:continue
-        rooms=sorted((r for r in h['checked_rooms']if (legal is None or (h['house'],r['room_label'])in legal)and (room_id is None or r['room_label']==room_id)),key=lambda r:-r.get('floor_area_m2',0))
+        rooms=sorted((r for r in h['checked_rooms']if (legal is None or (h['house'],r['room_label'])in legal)and (room_id is None or r['room_label']==room_id)),key=lambda r:-motion_floor_score(r))
+        if room_id is None:rooms=[r for r in rooms if motion_floor_score(r)>=minimum_motion_area]
         if rooms:groups[h['family']].append((h,rooms))
-    for group in groups.values():group.sort(key=lambda pair:(-max(r.get('floor_area_m2',0)for r in pair[1]),pair[0]['house']))
+    for group in groups.values():group.sort(key=lambda pair:(-motion_floor_score(pair[1][0]),pair[0]['house']))
     ordered=[]
     while any(groups.values()):
         for family in ('hm3d','mp3d'):
