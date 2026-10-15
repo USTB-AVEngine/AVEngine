@@ -144,3 +144,13 @@ def placement_construction_fallback(scene,declaration,surface,target,require_pai
         log.append({'asset_id':aid,'stage':'offscreen','policy':'owner-20261015-construct-not-fail'})
         return 'offscreen'
     return None
+
+
+def record_placement_rejection(directory,asset_id,record,stage=None):
+    """Preserve every fallback receipt without replacing immutable evidence."""
+    from pathlib import Path
+    from avengine.timeline.continuous_pilot import write_json
+    name=('attachment_rejection_before_'+stage+'_'+asset_id+'.json') if stage else 'attachment_rejection.json'
+    target=Path(directory)/name
+    write_json(target,{**record,'status':'retry_with_construction_fallback' if stage else 'fail',**({'stage':stage} if stage else {})})
+    return target

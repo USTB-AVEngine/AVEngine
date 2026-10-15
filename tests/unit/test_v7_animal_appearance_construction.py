@@ -133,3 +133,30 @@ def test_real_moving_animal_can_start_outside_view_without_fabricating_visibilit
     assert placement_construction_fallback(scene,animal,'floor',None,False) is None
     explicit={'production_scenario':{'motion_requests':{'voice1':{}}},'native_view_roles':{'cat':{'view':'inside'}}}
     assert placement_construction_fallback(explicit,animal,'floor',None,False) is None
+
+
+def test_retry_receipts_are_distinct_and_preserve_the_final_real_failure(tmp_path):
+    from avengine.capture.v7_offscreen_layout import record_placement_rejection
+    record={'failed_asset_id':'cat','rejection_counts':{'outside_observed_camera_path':1280}}
+    first=record_placement_rejection(tmp_path,'cat',record,'moving_view_construction')
+    second=record_placement_rejection(tmp_path,'person',record,'camera_1_2m')
+    third=record_placement_rejection(tmp_path,'person',record,'offscreen')
+    assert not(tmp_path/'attachment_rejection.json').exists()
+    final=record_placement_rejection(tmp_path,'person',record)
+    assert len({first,second,third,final})==4
+    assert json.loads(first.read_text())['status']=='retry_with_construction_fallback'
+    assert json.loads(final.read_text())['status']=='fail'
+    assert json.loads(first.read_text())['rejection_counts']==record['rejection_counts']
+
+
+def test_derived_stationary_pose_resolves_the_actual_exported_texture_uri(tmp_path):
+    from avengine.assets.animal_motion.production_grounding import stationary_pose_path
+    from avengine.assets.roster_motion.episode import externalize_unchanged_images
+    root=tmp_path/'stationary_ik';target=stationary_pose_path(root,0)
+    content=b'hermetic unchanged embedded texture'
+    source={'images':[{'bufferView':0,'mimeType':'image/png'}],
+            'bufferViews':[{'buffer':0,'byteOffset':0,'byteLength':len(content)}]}
+    exported=externalize_unchanged_images(source,content,root/'textures')
+    texture=(target.parent/exported['images'][0]['uri']).resolve()
+    assert texture.is_relative_to(root.resolve()) and texture.read_bytes()==content
+    assert target.parent.name=='frames'

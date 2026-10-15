@@ -514,11 +514,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 else:bounds.append((lo,hi))
                 checks.append(accepted);placed.append(entry);break
             if accepted is None:
-                write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})
-                from avengine.capture.v7_offscreen_layout import placement_construction_fallback
+                from avengine.capture.v7_offscreen_layout import placement_construction_fallback,record_placement_rejection
                 stage=placement_construction_fallback(scene,a,key,target,require_pair)
+                record_placement_rejection(directory,a['asset_id'],{'failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections},stage)
                 if stage is not None:
-                    write_json(directory/('attachment_rejection_before_'+stage+'_'+a['asset_id']+'.json'),{'status':'retry_with_construction_fallback','stage':stage,'failed_asset_id':a['asset_id'],'surface':key,'rejection_counts':rejections})
                     placement_queue.insert(0,entry);continue
                 raise ValueError('no strict native '+key+' placement for '+a['asset_id'])
         if require_pair:
