@@ -9,6 +9,8 @@ def from_passed_exports(roots):
     pending=list(map(Path,roots));visited=set()
     while pending:
         root=pending.pop(0).resolve()
+        from avengine.timeline.v7_generation_scope import invalidation_marker
+        if invalidation_marker(root):continue
         if root in visited:continue
         visited.add(root)
         for marker in root.glob('*/AUTOMATION_RUN.json'):

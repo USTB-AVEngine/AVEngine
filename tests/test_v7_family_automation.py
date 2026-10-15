@@ -125,8 +125,8 @@ def test_new_failed_copy_cleanup_preserves_old_files_all_receipts_and_sealed_che
     log=tmp_path/'worker.log';log.write_text('explicit failure saved')
     result={'status':'failed','automatic_started_unix':now-1}
     cleanup_new_failed(tmp_path,result,now-2,log)
-    assert not recent.exists()and old.exists()and receipt.exists()and log.exists()
-    audit=json.loads((tmp_path/'failed_large_copy_cleanup.json').read_text());assert audit['removed_bytes']==1_000_001
+    assert recent.exists()and old.exists()and receipt.exists()and log.exists()
+    audit=json.loads((tmp_path/'failed_large_copy_cleanup.json').read_text());assert audit['removed_bytes']==0 and audit['retained_bytes']==1_000_001
     recent.write_bytes(bytes(1_000_001));(native/'integration_seal_completed.json').write_text('{}')
     cleanup_new_failed(tmp_path,result,now-2,log);assert recent.exists()
 
@@ -462,3 +462,69 @@ def test_real_native_program_schema_drives_actual_authored_voice_rotation(key):
         {'source_type':'author_tts','voice_reference':{'speaker_id':'p225'}}]},
         'seed_row':{'requested_voice':'never_count_a_request'}}
     assert authored_voice_ids(recipe)==['p225','p234']
+
+
+def test_owner_layout_keeps_three_people_one_metre_apart_distributed_and_with_varied_facing(inputs):
+    import math
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    row=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},
+        scene_id='new',seed=10,family='V7-CONTENT-BIND')['row']
+    valid=row['measured_static_layout']['valid'];points=[v['position_m']for v in valid]
+    assert len(points)==3 and len(row['members'])==4
+    for i,p in enumerate(points):
+        for q in points[i+1:]:assert math.hypot(p[0]-q[0],p[2]-q[2])>=1.
+    assert len({round(v['body_yaw_deg'],2)for v in valid})>=2
+    assert row['production_scenario']['camera_policy']=='hold'
+
+
+def test_owner_spacing_checks_reserved_motion_track_and_human_animal_pairs():
+    from avengine.capture.v7_social_layout import spacing_violation
+    scene={'automatic_construction':{'family':'QA-16'}}
+    human={'kind':'human','asset_id':'person'};animal={'kind':'animal','asset_id':'cat'}
+    placed=[{'declaration':human,'motion_episode':{'world_roots_m':[[0,0,0],[1,0,0],[2,0,0]]}}]
+    assert spacing_violation(scene,animal,[1,0,.8],placed)['required_m']==1.
+    assert spacing_violation(scene,human,[1,0,1.1],placed)is None
+
+
+def test_owner_direction_constructor_has_no_end_of_clip_camera_sweep(inputs):
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    row=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},
+        scene_id='new',seed=10,family='QA-28')['row']
+    assert len({k['yaw_deg']for k in row['camera_yaw_knots']})==1
+    assert row['camera_yaw_knots'][-1]['time_s']==30.
+
+
+def test_owner_invalidated_roots_never_supply_coverage_or_receive_new_jobs(tmp_path):
+    from avengine.timeline.v7_automatic_feedback import from_passed_exports
+    from avengine.timeline.v7_generation_scope import assert_new_generation_output
+    old=tmp_path/'old';(old/'evidence/jobs').mkdir(parents=True)
+    (old/'INVALID_20261015.md').write_text('owner: all old exports void')
+    (old/'evidence/jobs/000.json').write_text('{"status":"passed","house":"old_house"}')
+    assert from_passed_exports([old])['logical_questions']==0
+    with pytest.raises(ValueError,match='owner-invalidated'):assert_new_generation_output(old/'another_attempt')
+    assert_new_generation_output(tmp_path/'new_v2/attempt')
+
+
+def test_generation_namespace_changes_both_scene_ids_and_deterministic_seeds(tmp_path):
+    from avengine.timeline.v7_generation_scope import generation_scene_id
+    from avengine.timeline.v7_family_constructors import stable_seed
+    a=generation_scene_id(tmp_path/'old',tmp_path/'old/automatic_01',0)
+    b=generation_scene_id(tmp_path/'new_v2',tmp_path/'new_v2/automatic_01',0)
+    assert a!=b and stable_seed(a,'same_room')!=stable_seed(b,'same_room')
+
+
+def test_owner_human_proposals_prefer_different_floor_regions_instead_of_one_front_row():
+    import math
+    from avengine.capture.v7_social_layout import social_proposal_score
+    scene={'automatic_construction':{'family':'QA-01'}};a={'kind':'human','native_instance_id':1}
+    target=[-2.8*math.sin(math.radians(28)),1.5,-2.8*math.cos(math.radians(28))]
+    assert social_proposal_score(scene,a,target,[0,1.5,0],[0,0,-1])<social_proposal_score(scene,a,[0,1.5,-2.8],[0,1.5,0],[0,0,-1])
+
+
+def test_layout_retry_changes_room_only_inside_the_original_legal_cell(inputs):
+    from tools.timeline.generate_v7_demand_scenes import room_for_candidate
+    rooms,*_=inputs;pairs=list(enumerate(rooms))
+    assert room_for_candidate(rooms[0],pairs,0)[1]['room_id']==rooms[0]['room_id']
+    assert room_for_candidate(rooms[0],pairs,1)[1]['room_id']==rooms[1]['room_id']
+    incompatible={**rooms[1],'room_id':'wrong_family','family':'mp3d'}
+    assert room_for_candidate(rooms[0],[pairs[0],(2,incompatible)],1)[1]['room_id']==rooms[0]['room_id']

@@ -2,6 +2,7 @@
 from copy import deepcopy
 import re
 from avengine.qa.v7_english_surface import tidy_english
+from avengine.qa.v7_question_wording import natural_question_en
 
 ENGLISH_EXPORT_REVISION='v7-English-model-text-gate-20261015-v1'
 CJK=re.compile('[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\U00020000-\U0002ebef]')
@@ -28,11 +29,11 @@ def validate_english_model_text(row):
 
 def english_public_question(question):
     row=deepcopy(question)
-    row['question_en']=tidy_english(row.get('question_en') or '')
+    row['question_en']=natural_question_en(tidy_english(row.get('question_en') or ''))
     # Internal bilingual authority fields are not supplied to a model.
     row.pop('question_zh',None)
     for choice in row.get('choices',[]):
-        if 'text' in choice:choice['text']=tidy_english(choice['text'])
+        if 'text' in choice:choice['text']=natural_question_en(tidy_english(choice['text']))
         choice.pop('text_zh',None)
     if row.get('qa_id')=='V7-CONTENT-BIND':
         from avengine.qa.v7_english_surface import content_answer_en

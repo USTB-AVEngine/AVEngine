@@ -70,7 +70,9 @@ def select_people(catalog,room,contract,seed,*,moving=False,attempt=0,speaker_ge
 def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,excluded_voices=()):
     """Whole roles, fixed distinct real voices; rotate over the admitted directory."""
     groups=defaultdict(list)
+    from avengine.qa.v7_question_wording import contains_internal_wording
     for sound in manifest['sounds']:
+        if contains_internal_wording(sound.get('transcript','')):continue
         if .65<=sound['synthesis_readback']['duration_s']<=2.8:
             groups[sound['scenario_id']].append(sound)
     usage=state.get('authored_voice_counts',{});combinations=defaultdict(dict)
@@ -132,13 +134,9 @@ def _request(row,state,family):
     row['scene_demand']=request
 
 
-def _camera_knots(yaw,*,hold=6.5,peak=80.):
-    values=[]
-    for epoch in (0.,10.,20.):
-        for time,delta in ((0.,0.),(hold,0.),(8.,peak),(9.,-peak),(10.,0.)):
-            if values and values[-1]['time_s']==epoch+time:continue
-            values.append({'time_s':epoch+time,'yaw_deg':yaw+delta})
-    return values
+def _camera_knots(yaw,**unused):
+    # Owner 15:0x: fixed camera for the whole world, including final seconds.
+    return [{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]
 
 
 def construct_family_scene(room,house,state,catalog,records,semantic,contract,runtime,
@@ -183,7 +181,9 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         'members':['v0_a0'],'trial_only':True,'window_count':5,'questions_per_window':14,
         'acceptance_window_starts_s':[0.,5.,10.,15.,20.],'question_quota_base':0,
         'automatic_construction':{'revision':REVISION,'family':family,'candidate_index':attempt,
-            'room_key':room['key'],'required_role_count':3,'scene_template_files_read':[]}}
+            'room_key':room['key'],'required_role_count':3,'scene_template_files_read':[]},
+        'owner_social_layout':{'minimum_human_center_distance_m':1.,'minimum_human_animal_distance_m':1.,
+            'human_orientation':'varied side-facing, conversational or facing away','distribution':'different floor regions; preserve every required participant'}}
     _request(row,state,family)
     if family in POST_FAMILIES:
         return _construct_post(row,people,state,catalog,records,semantic,contract,runtime,house,family)
@@ -229,7 +229,9 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
 def whole_recorded_triplet(records,gender,seed):
     """Prefer complete short utterances; no recording is cropped or relabelled."""
     voices=defaultdict(dict)
+    from avengine.qa.v7_question_wording import contains_internal_wording
     for record in records:
+        if contains_internal_wording(record.get('transcript','')):continue
         if (record.get('dataset')!='VCTK-Corpus 0.92'or record.get('source_type','recorded')!='recorded'
                 or record.get('gender')!=gender or record.get('legacy_library_split')!='train'
                 or not record.get('transcript')or record.get('duration_s',0)<=0):continue
@@ -308,10 +310,11 @@ def registered_layout_proposals(ctx,people,attempt):
     if not points:raise ConstructionUnavailable('room floor proposal enumeration is empty; original native admission remains required')
     chosen=[]
     for index,person in enumerate(people):
-        target=(-18.,18.,0.)[index];distance_target=2.6 if index<2 else 1.7
+        target=(-28.,28.,5.)[index];distance_target=2.8 if index<2 else 1.8
         ranked=sorted(points,key=lambda p:(any(math.hypot(p[0]-q[0],p[1]-q[1])<.65 for q in chosen),
             abs(p[3]-target)/15+abs(p[2]-distance_target),p[0],p[1]))
-        ranked=[p for p in ranked if not any(p[:2]==q[:2]for q in chosen)]
+        from avengine.capture.v7_social_layout import distributed_point
+        ranked=[p for p in ranked if distributed_point(p,chosen,minimum=1.)]
         if not ranked:raise ConstructionUnavailable('no distinct registered body proposal remains; no element may be dropped')
         selected=ranked[(attempt//4)%len(ranked)];chosen.append(selected)
     return [[p[0],floor_height,p[1]]for p in chosen]
@@ -324,8 +327,9 @@ def _construct_content(row,people,state,semantic,ctx,attempt):
         raise ConstructionUnavailable('registered quartet requires actual room floor and two unqualified source proposals')
     positions=registered_layout_proposals(ctx,people,attempt)
     valid=[]
-    for position in positions:
-        d=[ctx['listener_m'][i]-position[i]for i in range(3)]
+    for index,position in enumerate(positions):
+        look=positions[1-index]if index<2 else[2*position[i]-ctx['listener_m'][i]for i in range(3)]
+        d=[look[i]-position[i]for i in range(3)]
         valid.append({'position_m':list(position),'body_yaw_deg':math.degrees(math.atan2(d[0],-d[2])),
             'status':'inherited room proposal only; complete registered native body admission required'})
     row.update(schema='v7-recorded-registered-standing-v1',duration_s=30,assignment_status='admitted',
@@ -334,7 +338,7 @@ def _construct_content(row,people,state,semantic,ctx,attempt):
             'admission_status':'unqualified candidate; no body or answer truth inherited'},
         production_scenario={'speaker_count':2,'gender':people[0]['visual_gender'][0].upper(),
             'asset_ids':row['asset_ids'],'non_speech_class':None,'category_focus_class':None,
-            'camera_yaw_deg':ctx['camera_yaw_deg'],'camera_policy':'binding_sweep','camera_sweep_peak_deg':60,
+            'camera_yaw_deg':ctx['camera_yaw_deg'],'camera_policy':'hold','camera_sweep_peak_deg':0,
             'semantic_scenario_id':epoch[0][0]['scenario_id'],'semantic_sound_ids':[s['sound_asset_id']for s in epoch[0]],
             'semantic_sound_subset_ids':[s['sound_asset_id']for s in epoch[0]],
             'semantic_epoch_sound_ids':[[s['sound_asset_id']for s in sounds]for sounds in epoch],
