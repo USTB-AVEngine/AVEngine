@@ -317,6 +317,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         placement_queue=sorted(self.actors,key=layout_order)
         while placement_queue:
             entry=placement_queue.pop(0)
+            search_pass=int(entry.get('_placement_search_pass',-1))+1;entry['_placement_search_pass']=search_pass
             a=entry['declaration'];meta=entry['attachment_meta'];key=a['attachment_surface']
             if a.get('object_type')=='doorbell_chime_unit':key='doorbell_wall'
             elif a.get('object_type')=='air_conditioner' and a.get('form_factor')=='wall_split':key='high_wall'
@@ -481,7 +482,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_occlusion_demand import measure_requested_relations
                 relation_witness=measure_requested_relations(self,scene,[*placed,entry])
                 if not relation_witness['satisfies_request']:
-                    write_json(directory/('occlusion_proposal_'+a['endpoint_id']+'_'+str(proposal_index).zfill(4)+'.json'),
+                    write_json(directory/('occlusion_proposal_'+a['endpoint_id']+'_pass_'+str(search_pass)+'_'+str(proposal_index).zfill(4)+'.json'),
                         {'status':'rejected_layout_proposal','candidate_asset_id':a['asset_id'],
                          'proposed_root_m':root.tolist(),'witness':relation_witness,
                          'qa_predicates_changed':False})
@@ -525,7 +526,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 else:bounds.append((lo,hi))
                 checks.append(accepted);placed.append(entry);break
             if accepted is None:
-                write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections,'rejection_samples':rejection_samples})
+                rejection={'status':'rejected_layout_pass','failed_asset_id':a['asset_id'],'surface':key,'search_pass':search_pass,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections,'rejection_samples':rejection_samples}
+                from avengine.capture.v7_placement_diagnostics import record_placement_rejection
+                record_placement_rejection(directory,a['endpoint_id'],search_pass,rejection)
                 from avengine.capture.v7_support_construction import retry_same_surface
                 support_retry=retry_same_surface(scene,a,key,supports,poly,floor,origin,lambda point:survey(self.sim,r,{'object_position':point}))
                 if support_retry is not None:
@@ -536,6 +539,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if stage is not None:
                     write_json(directory/('attachment_rejection_before_'+stage+'_'+a['asset_id']+'.json'),{'status':'retry_with_construction_fallback','stage':stage,'failed_asset_id':a['asset_id'],'surface':key,'rejection_counts':rejections,'rejection_samples':rejection_samples})
                     placement_queue.insert(0,entry);continue
+                write_json(directory/'attachment_rejection.json',{**rejection,'status':'fail'})
                 raise ValueError('no strict native '+key+' placement for '+a['asset_id']+' [placement_cause='+max(rejections,key=rejections.get,default='no_candidates')+']')
         if require_pair:
             pixels=self._native_pair_pixels(scene,paired)

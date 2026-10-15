@@ -6,6 +6,8 @@ import fcntl,json,os
 
 def spatial_construction_failure(receipt):
     reason=str(receipt.get('reason',''))
+    evidence_collision=receipt.get('error_type')=='FileExistsError'and ('attachment_rejection.json'in reason or 'occlusion_proposal_'in reason)
+    if evidence_collision:return True
     return receipt.get('error_type')=='ValueError'and any(s in reason for s in (
         'person_camera_clearance', 'scene delivery policy failed:', 'no strict native ', 'final registered scene occludes',
         'requested registered occlusion', 'room cannot supply requested count',
