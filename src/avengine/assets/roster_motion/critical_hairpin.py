@@ -14,7 +14,7 @@ def hairpin_samples(distance,length,radius):
     return points,tangent,segments
 
 
-def find_critical_hairpin(room,pathfinder,seed,speed_range,quiet_speed):
+def find_critical_hairpin(room,pathfinder,seed,speed_range,quiet_speed,*,minimum_camera_distance_m=1.5):
     """Propose geometry only; the original complete native gates remain mandatory."""
     from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
     polygon=shape(room['floor_polygon']);free=polygon.convex_hull.buffer(-.35)
@@ -35,7 +35,7 @@ def find_critical_hairpin(room,pathfinder,seed,speed_range,quiet_speed):
                 for centre in centres:
                     tested+=1;xz=p@rotation.T+[centre.x,centre.y]
                     if not free.covers(LineString(xz)):continue
-                    camera=np.array([length/2+radius+.8,radius])@rotation.T+[centre.x,centre.y]
+                    camera=np.array([length/2+radius+max(.8,minimum_camera_distance_m+.1),radius])@rotation.T+[centre.x,centre.y]
                     if not free.covers(Point(*camera)):continue
                     listener=np.array([camera[0],floor+1.25,camera[1]])
                     camera_snap=np.asarray(pathfinder.snap_point(listener-[0,1.25,0]),float)

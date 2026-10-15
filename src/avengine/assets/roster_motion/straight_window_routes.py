@@ -50,7 +50,7 @@ def _unsorted_straight_window_routes(video,entry,scene,distance,local_forward,re
               positions=np.column_stack((xz[:,0],np.full(len(xz),start[1]),xz[:,1]));t=tangent@rotation.T;yaws=np.unwrap(base-np.arctan2(t[:,1],t[:,0]))
               from avengine.timeline.v7_spatial_layout import spacing_rejection
               if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):continue
-              if np.min(np.linalg.norm(positions[:,[0,2]]-listener[[0,2]],axis=1))<.6:continue
+              if np.min(np.linalg.norm(positions[:,[0,2]]-listener[[0,2]],axis=1))<(1.5 if entry['declaration']['kind']in {'human','performer'}else .6):continue
               if request.get('distance_trend'):
                 radial=np.linalg.norm(positions-listener,axis=1);sign=-1 if request['distance_trend']=='approaching' else 1;bad=False
                 for lo,hi in request.get('distance_trend_intervals_s',[]):

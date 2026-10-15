@@ -154,6 +154,9 @@ class NativePhase2Video(NativeVisibleVideo):
             kind='human' if a['kind']=='human' else 'slide' if record.get('motion_mode')=='slide_no_animation' else a['species_id']
             record['native_speed_admission']=certify_moving_root_speed(roots,[r['time_s'] for r in actual],
                 [f['moving'] for f in record['source_frames']],kind)
+        from avengine.timeline.v7_spatial_layout import person_camera_rejection
+        camera_rejection=person_camera_rejection(a,[np.asarray(r['body_to_world_m'],float)[:3,3]for r in actual],scene['listener_m'],minimum=1.2)
+        if camera_rejection:raise ValueError('native person/camera 1.2m clearance failed: '+str(camera_rejection))
         record['native_30Hz_readbacks']=actual
         self._apply_motion_entry(entry,0)
         self.phase2_motion_admissions=getattr(self,'phase2_motion_admissions',{})

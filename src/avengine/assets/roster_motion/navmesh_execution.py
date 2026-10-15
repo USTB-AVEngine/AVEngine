@@ -72,7 +72,7 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
                     if not free.covers(line)or any(line.intersects(o)for o in obstacles):continue
                     from avengine.timeline.v7_spatial_layout import spacing_rejection
                     if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):continue
-                    if np.min(np.linalg.norm(positions[:,[0,2]]-np.asarray(scene['listener_m'])[[0,2]],axis=1))<.6:continue
+                    if np.min(np.linalg.norm(positions[:,[0,2]]-np.asarray(scene['listener_m'])[[0,2]],axis=1))<(1.5 if entry['declaration']['kind']in {'human','performer'}else .6):continue
                     snaps=np.asarray([video.pathfinder.snap_point(p)for p in positions]);errors=np.linalg.norm((snaps-positions)[:,[0,2]],axis=1)
                     if not np.isfinite(snaps).all()or float(errors.max())>.002:continue
                     positions[:,[0,2]]=snaps[:,[0,2]]

@@ -300,7 +300,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if pinned.get('surface')!=a['attachment_surface']:raise ValueError('pinned attachment surface differs from registration')
                 candidates=[dict(pinned,point=pinned['original_surface_point_m']),*candidates]
             if key=='floor':candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
-            from avengine.timeline.v7_spatial_layout import body_yaw,spacing_rejection,noncollinear_rejection,is_person,entry_roots
+            from avengine.timeline.v7_spatial_layout import body_yaw,spacing_rejection,noncollinear_rejection,is_person,entry_roots,person_camera_rejection
             person_index=next(i for i,e in enumerate(e for e in self.actors if is_person(e['declaration'])) if e is entry) if is_person(a) else 0
             listener=np.asarray(scene['listener_m']);rejections={}
             def reject(reason):rejections[reason]=rejections.get(reason,0)+1
@@ -351,6 +351,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 # to check_support's proposed root. Every surviving candidate
                 # still runs all original rays, contacts and real native pixels.
                 proposed_root,proposed_yaw,_,_=support_points(meta,support)
+                if person_camera_rejection(a,proposed_root,listener):
+                    reject('person_too_close_to_camera');continue
                 spacing=spacing_rejection(a,proposed_root,placed)
                 if spacing:
                     reject(spacing['reason']);continue
@@ -499,6 +501,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         from avengine.timeline.v7_camera_evidence import assert_static_camera
         assert_static_camera(scene)
         result=super().encode(scene,path,**kwargs)
+        from avengine.timeline.v7_spatial_layout import native_person_camera_clearance
+        camera_clearance=native_person_camera_clearance(result,[e['declaration']for e in self.actors])
+        write_json(Path(path).parent/'native_person_camera_clearance.json',camera_clearance)
+        if camera_clearance['status']!='pass':raise ValueError('native person/camera 1.2m clearance failed: '+str(camera_clearance))
+        result['person_camera_clearance']=camera_clearance
         from avengine.assets.v7_visible_color import rebuild_appearance_review
         assets=[e['declaration'] for e in self.actors]
         review,eligibility=rebuild_appearance_review(self.color_checks,assets,

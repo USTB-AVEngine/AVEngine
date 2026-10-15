@@ -188,6 +188,10 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         return {'status':'pass','native_checks':checks},['scene_video.mp4','native_visible_visual_evidence_phase2.json','native_color_checks.json','native_checks.json','source_material_checks.json','native_visibility_evidence.json','acoustic_placement_admission.json','standing/standing_admission.json','standing/native_support_survey.json']+(['owner_material_quality_references.json']if visual.get('owner_material_quality_fallbacks')else [])
     vd,vr,_=stage(root,'visible_native',{'scene':base,'assets':assets,'inputs':inputs,'revision':VISUAL_REVISION},render)
     visual=read_json(vd/'native_visible_visual_evidence_phase2.json')
+    from avengine.timeline.v7_spatial_layout import native_person_camera_clearance
+    person_camera=native_person_camera_clearance(visual,assets)
+    if person_camera['status']!='pass':raise ValueError('completed native person/camera clearance below 1.2m: '+str(person_camera))
+    visual['person_camera_clearance']=person_camera
     if (vd/'owner_material_quality_references.json').is_file():
         visual['owner_material_quality_fallbacks']=read_json(vd/'owner_material_quality_references.json')['references']
     from avengine.assets.animal_motion.production_episode import realized_animal_motion

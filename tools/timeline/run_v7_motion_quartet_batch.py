@@ -28,6 +28,10 @@ def candidate_rooms(houses):
             if groups[family]:ordered.append(groups[family].pop(0))
     return ordered
 
+def asset_inventory_for_parent(catalog,visual):
+    actual={a['asset_id']for frame in visual.get('frames',[])for a in frame['actors']}
+    return [asset for asset in catalog if asset['asset_id']in actual]
+
 def infrastructure_retries(manifest,out,commit,houses):
     """Replay automatic requests affected by an older implementation failure."""
     by_house={house['house']:house for house in houses}
@@ -94,6 +98,7 @@ def main():
         save(manifest_path,manifest)
     manifest['default_new_parent_code_commit']=commit;save(manifest_path,manifest)
     houses=load(a.houses)['houses'];candidates=candidate_rooms(houses)
+    asset_inventory=load(a.assets);asset_inventory=asset_inventory.get('assets',asset_inventory) if isinstance(asset_inventory,dict)else asset_inventory
     pending=[]
     existing={(t['row']['house'],t['row']['room_id'],t.get('construction_attempt',0))for t in manifest['parents'] if (t.get('code_commit',manifest['code_commit'])==commit or (out/'evidence/jobs'/f'{t["slot"]:03d}.json').exists()and load(out/'evidence/jobs'/f'{t["slot"]:03d}.json')['status']=='passed')}
     for attempt in range(3):
@@ -127,6 +132,17 @@ def main():
                 attempted+=1
                 if receipt.get('started_utc'):native_attempted+=1
             if receipt['status']=='passed':
+                from avengine.timeline.v7_spatial_layout import native_person_camera_clearance
+                parent=out/'native/parents'/task['row']['scene_id'];pointer=parent/'visible_native_completed.json'
+                camera_report={'status':'fail','reason':'completed native camera evidence missing'}
+                if pointer.exists():
+                    native_path=parent/load(pointer)['attempt']/'native_visible_visual_evidence_phase2.json'
+                    if native_path.exists():camera_report=native_person_camera_clearance(load(native_path),asset_inventory_for_parent(asset_inventory,load(native_path)))
+                row['person_camera_clearance']=camera_report
+                if camera_report['status']!='pass':
+                    receipt={**receipt,'status':'invalidated','reason':'native person/camera clearance below 1.2m or missing readback'}
+                    row.update(status=receipt['status'],reason=receipt['reason'])
+            if receipt['status']=='passed':
                 exported=receipt.get('export',{});counts=exported.get('question_family_counts',{})
                 totals.update({f:counts.get(f,0)for f in FAMILIES});row['family_counts']=counts
                 row['independent_questions']=receipt.get('independent_questions',0);passed.append(task)
@@ -135,15 +151,21 @@ def main():
                 if not type_receipt.exists():save(type_receipt,question_type_counts(out/'export',out/'export/parent_rows'/f'{task["slot"]:03d}.jsonl'))
                 counted=load(type_receipt);row['question_source_type_counts']=counted
                 for kind,family_counts in counted['counts_by_actual_question_target_source_type'].items():typed.setdefault(kind,Counter()).update(family_counts)
-            elif receipt['status']=='failed':failures[(receipt.get('reason')or'unknown').split(':')[0]]+=1
+            elif receipt['status']in {'failed','invalidated'}:failures[(receipt.get('reason')or'unknown').split(':')[0]]+=1
             row['code_commit']=receipt.get('code_commit',task.get('code_commit',manifest['code_commit']))
             motion_parent=out/'native/parents'/task['row']['scene_id']
             row['native_route_trials']=[{'source':str(p),**load(p)}for p in motion_parent.glob('**/motion_route_attempt_summary.json')]
             rows.append(row)
+        eligible=out/'export/eligible_train.jsonl';temporary=eligible.with_suffix('.tmp')
+        with temporary.open('w')as stream:
+            for task in passed:
+                source=out/'export/parent_rows'/f'{task["slot"]:03d}.jsonl'
+                if source.exists():stream.write(source.read_text())
+        temporary.replace(eligible)
         distinct={t['row']['house']for t in passed};families={t['family']for t in passed}
         meets=len(distinct)>=a.minimum_houses and {'hm3d','mp3d'}<=families and all(totals[f]>=a.minimum_per_family for f in FAMILIES)
         data={'time_utc':now(),'status':'complete'if meets else'running','code_commit':commit,'execution_commits':sorted({r['code_commit']for r in rows}),
-              'independent_motion_family_counts':dict(totals),'distinct_passed_houses':len(distinct),
+              'eligible_export_path':str(eligible),'independent_motion_family_counts':dict(totals),'distinct_passed_houses':len(distinct),
               'house_families':sorted(families),'construction_attempts_completed':attempted,'native_parent_attempts_completed':native_attempted,
               'counts_by_actual_question_target_source_type':{kind:dict(c)for kind,c in typed.items()},
               'native_parent_passes':len(passed),'native_pass_rate':len(passed)/native_attempted if native_attempted else None,

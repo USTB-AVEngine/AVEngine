@@ -63,7 +63,7 @@ def _snap(pathfinder, point):
     snapped = np.asarray(pathfinder.snap_point(np.asarray(point, float)), float)
     return snapped if np.isfinite(snapped).all() and np.linalg.norm((snapped-point)[[0, 2]]) <= .002 else None
 
-def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4)):
+def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5):
     from avengine.assets.roster_motion.straight_window_routes import stadium_samples
     from avengine.assets.roster_motion.timed_straight_clock import timed_straight_clock
     rng = np.random.default_rng(seed)
@@ -97,7 +97,7 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1
                 if not free.covers(LineString(xz)):
                     continue
                 checks['floor_polygon'] += 1
-                listener_xz = np.array([length/2+radius+.65, 0.])@rotation.T + [centre.x, centre.y]
+                listener_xz = np.array([length/2+radius+max(.65,minimum_camera_distance_m+.1), 0.])@rotation.T + [centre.x, centre.y]
                 listener_point=Point(*listener_xz)
                 if not polygon.covers(listener_point) or listener_point.distance(polygon.boundary)<.25:
                     continue
@@ -155,10 +155,11 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1
         for angle in rng.permutation(np.arange(16)*math.pi/8):
             direction=np.array([math.cos(angle),math.sin(angle)])
             for centre in centres:
+                tested+=1
                 start=np.array([centre.x,centre.y])-direction*length/2
                 end=start+direction*length
                 if not free.covers(LineString([start,end])):continue
-                camera=end+direction*.7;point=Point(*camera)
+                camera=end+direction*max(.7,minimum_camera_distance_m+.1);point=Point(*camera)
                 if not polygon.covers(point) or point.distance(polygon.boundary)<.25:continue
                 listener=np.array([camera[0],floor+1.25,camera[1]])
                 if _snap(pathfinder,listener-[0,1.25,0]) is None:continue
@@ -189,7 +190,7 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1
                     'motion_template_windows_s':[0.], 'all_four_families_retained':True,
                     'geometry_status':'native NavMesh proposal; exact complete-step, full skin/contact/pixel gates still required'}
     from avengine.assets.roster_motion.critical_hairpin import find_critical_hairpin
-    compact=find_critical_hairpin(room,pathfinder,seed,speed_range,quiet_speed)
+    compact=find_critical_hairpin(room,pathfinder,seed,speed_range,quiet_speed,minimum_camera_distance_m=minimum_camera_distance_m)
     if compact is not None:
         compact['speed_range_m_s']=list(allowed_speed_range)
         return compact
@@ -217,7 +218,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     assets[0]=role['asset']
     from avengine.timeline.v7_motion_speed import SPEED_RANGES
     speed_kind='human' if source_type.startswith('human') else 'slide' if source_type=='animal_slide' else assets[0]['species_id']
-    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind])
+    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],minimum_camera_distance_m=1.5 if speed_kind=='human'else .6)
     a, b = [asset['asset_id'] for asset in assets[:2]]
     row.update(schema='v7-visible-registered-pilot-phase2-v1', members=['v0_a0'], trial_only=True,
                asset_ids=[asset['asset_id'] for asset in assets],
