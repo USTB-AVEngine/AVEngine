@@ -188,97 +188,107 @@ def augment_content_binding(row,members,root):
             if not np.array_equal(actual,expected[:,lo:lo+160000].T.astype('float32')):raise ValueError('content source/RIR reconstruction differs from delivered FOA')
             proof['FOA_reconstruction']='float32_samplewise_identical';proof['audio_gate']=audio['status']
             contexts[member,wi]={'folder':folder,'ev':ev,'scene':scene,'start':start,'proof':proof,'stems':stems,'supports':supports}
-    for wi in range(row['window_count']):
-        anchor=None
-        for t in np.arange(.05,4.,.05):
-            unique=[]
+    from avengine.timeline.v7_registered_question_workers import RegisteredQuestionWorkers
+    pending_content=[]
+    with RegisteredQuestionWorkers(recipe['runtime_inputs']) as content_workers:
+        for wi in range(row['window_count']):
+            anchor=None
+            for t in np.arange(.05,4.,.05):
+                unique=[]
+                for member in MEMBERS:
+                    c=contexts[member,wi];absolute=round((c['start']+t)*16000);active=[];causal=[]
+                    for ep,(samples,nrir) in c['supports'].items():
+                        if np.any((samples>=absolute-nrir+1)&(samples<=absolute+1)):causal.append(ep)
+                    source= c['ev']['source_qa_evidence']['events']
+                    for event in c['scene']['events']:
+                        if any(a<=absolute<b for a,b in source[event['event_id']]['activity_intervals_samples_global']):active.append(event['endpoint_id'])
+                    active=set(active)
+                    if len(active)!=1 or set(causal)!=active:break
+                    ep=next(iter(active))
+                    if ep not in {'voice1','voice2'} or abs(c['stems'][ep][0,absolute])<=64*np.finfo(float).eps*np.max(np.abs(c['stems'][ep][0])):break
+                    frame=round((c['start']+t)*15);vis=visuals[member]
+                    if any(vis['pixel_visibility_truth']['per_instance'][str(a['actor_id'])]['frames'][frame]['visible_pixels']<20 for a in vis['frames'][frame]['actors'] if a['endpoint_id'] in {'voice1','voice2'}):break
+                    unique.append(ep)
+                if len(unique)==4:anchor=float(round(t,6));break
+            if anchor is None:
+                deferrals.append({'window_index':wi,'reason':'no_measured_visible_single_emitter_causal_anchor_shared_by_actual_quartet'})
+                continue
+            scenes={};queries={};domains={};media={}
             for member in MEMBERS:
-                c=contexts[member,wi];absolute=round((c['start']+t)*16000);active=[];causal=[]
-                for ep,(samples,nrir) in c['supports'].items():
-                    if np.any((samples>=absolute-nrir+1)&(samples<=absolute+1)):causal.append(ep)
-                source= c['ev']['source_qa_evidence']['events']
+                c=contexts[member,wi];v=visuals[member];fi=round((c['start']+anchor)*15);appearance=v['native_appearance_review']['actors'] if 'native_appearance_review' in v else read_json(Path(by_member[member]['visual_directory'])/'native_appearance_review.json')['review']['actors']
+                actors=[]
+                native=v['frames'][fi]['actors'];order=sorted((a for a in native if a['visible_pixels']>0),key=lambda a:a['mask_centroid_px'][0])
+                rank={a['actor_id']:i+1 for i,a in enumerate(order)}
+                for a in native:
+                    ar=appearance.get(str(a['actor_id']));visible=a['visible_pixels']>=20
+                    if ar and ar['status']=='reviewed':descriptor=ar['label_zh']
+                    elif visible:descriptor=f'画面中从左数第{rank[a["actor_id"]]}个人'
+                    else:descriptor=f'当前不可见的第{a["actor_id"]}个人'
+                    actors.append({'actor_id':a['actor_id'],'asset_id':a['asset_id'],'pose':'stand','descriptor_zh':descriptor,'visible':visible,
+                        'capability':assets[a['asset_id']]['capability'],'body_to_world_m':a['body_to_world_m'],
+                        'standing_pose_readback':{'status':'pass','source':str(Path(by_member[member]['visual_directory'])/'registry_namespace_readback.json'),
+                            'actor_id':a['actor_id'],'asset_id':a['asset_id'],'source_registry_sha256':mapped_sha,'original_native_registry_sha256':a['source_registry_sha256']}})
+                emissions=[];activity=c['ev']['source_qa_evidence']['events'];by_actor={a['actor_id']:a for a in native};source_onsets={};listener_onsets={}
                 for event in c['scene']['events']:
-                    if any(a<=absolute<b for a,b in source[event['event_id']]['activity_intervals_samples_global']):active.append(event['endpoint_id'])
-                active=set(active)
-                if len(active)!=1 or set(causal)!=active:break
-                ep=next(iter(active))
-                if ep not in {'voice1','voice2'} or abs(c['stems'][ep][0,absolute])<=64*np.finfo(float).eps*np.max(np.abs(c['stems'][ep][0])):break
-                frame=round((c['start']+t)*15);vis=visuals[member]
-                if any(vis['pixel_visibility_truth']['per_instance'][str(a['actor_id'])]['frames'][frame]['visible_pixels']<20 for a in vis['frames'][frame]['actors'] if a['endpoint_id'] in {'voice1','voice2'}):break
-                unique.append(ep)
-            if len(unique)==4:anchor=float(round(t,6));break
-        if anchor is None:
-            deferrals.append({'window_index':wi,'reason':'no_measured_visible_single_emitter_causal_anchor_shared_by_actual_quartet'})
-            continue
-        scenes={};queries={};domains={};media={}
-        for member in MEMBERS:
-            c=contexts[member,wi];v=visuals[member];fi=round((c['start']+anchor)*15);appearance=v['native_appearance_review']['actors'] if 'native_appearance_review' in v else read_json(Path(by_member[member]['visual_directory'])/'native_appearance_review.json')['review']['actors']
-            actors=[]
-            native=v['frames'][fi]['actors'];order=sorted((a for a in native if a['visible_pixels']>0),key=lambda a:a['mask_centroid_px'][0])
-            rank={a['actor_id']:i+1 for i,a in enumerate(order)}
-            for a in native:
-                ar=appearance.get(str(a['actor_id']));visible=a['visible_pixels']>=20
-                if ar and ar['status']=='reviewed':descriptor=ar['label_zh']
-                elif visible:descriptor=f'画面中从左数第{rank[a["actor_id"]]}个人'
-                else:descriptor=f'当前不可见的第{a["actor_id"]}个人'
-                actors.append({'actor_id':a['actor_id'],'asset_id':a['asset_id'],'pose':'stand','descriptor_zh':descriptor,'visible':visible,
-                    'capability':assets[a['asset_id']]['capability'],'body_to_world_m':a['body_to_world_m'],
-                    'standing_pose_readback':{'status':'pass','source':str(Path(by_member[member]['visual_directory'])/'registry_namespace_readback.json'),
-                        'actor_id':a['actor_id'],'asset_id':a['asset_id'],'source_registry_sha256':mapped_sha,'original_native_registry_sha256':a['source_registry_sha256']}})
-            emissions=[];activity=c['ev']['source_qa_evidence']['events'];by_actor={a['actor_id']:a for a in native};source_onsets={};listener_onsets={}
-            for event in c['scene']['events']:
-                measured=[[max(0.,a/16000-c['start']),min(10.,b/16000-c['start'])] for a,b in activity[event['event_id']]['activity_intervals_samples_global'] if a<(c['start']+10)*16000 and b>c['start']*16000]
-                if not measured:continue
-                actor=event['source_id'];source_onsets[actor]=min(source_onsets.get(actor,10.),measured[0][0])
-                emissions.append({'emission_id':event['event_id'],'mechanism':'actor_live','actor_id':actor,'content_class':'speech','emitter_point_kind':'mouth',
-                    'native_emitter_world_m':by_actor[actor]['emitter_position_m'],'measured_activity_s':measured})
-            for ep,stem in c['stems'].items():
-                segment=stem[0,round(c['start']*16000):round((c['start']+10)*16000)];threshold=64*np.finfo(float).eps*np.max(np.abs(stem[0]));nz=np.flatnonzero(np.abs(segment)>threshold)
-                if len(nz):listener_onsets[c['scene']['sources'][ep]['actor_id']]=int(nz[0])/16000
-            first_source=min(source_onsets,key=source_onsets.get);first_listener=min(listener_onsets,key=listener_onsets.get)
-            order_pass=first_source==first_listener and list(source_onsets.values()).count(source_onsets[first_source])==1 and list(listener_onsets.values()).count(listener_onsets[first_listener])==1
-            receipt_path=proofroot/f'native_{member}_w{wi:02d}.json'
-            native_receipt={**c['proof'],'single_emitter_anchor_s':anchor,'causal_other_emitter_supports_empty':True,
-                'source_actor_onsets_s':source_onsets,'listener_component_onsets_s':listener_onsets,'source_order_listener_order_agree':order_pass,
-                'listener_onset_numeric_floor':'64*float64_eps*full_component_max; machine roundoff, not an audibility gate',
-                'original_QC_sources':[r['path'] for r in program['records']]}
-            retain_readback(receipt_path,native_receipt)
-            keys=['video','audio','pixel_actor_identity','measured_source_activity','asset_license_and_capability','physical_emitter_attachment','audible_emitter_uniqueness']
-            readbacks={k:{'status':'pass','source':str(receipt_path)} for k in keys}
-            readbacks['source_order_listener_order_agree']={'status':'pass' if order_pass else 'blocked','source':str(receipt_path)}
-            scenes[member]={'window_s':[0.,10.],'actors':actors,'emissions':emissions,'native_readback':readbacks}
-            blue=next(a for a in actors if assets[a['asset_id']].get('color')=='blue')
-            queries[member]=[{'kind':'same_class_actor','time_s':anchor,'public_time_s':anchor,'content_class':'speech'},
-                {'kind':'offscreen_origin','time_s':anchor,'public_time_s':anchor,'subject_actor_id':blue['actor_id'],'subject_descriptor_zh':blue['descriptor_zh']},
-                {'kind':'first_actor'}]
-            domains[member]=sorted(a['descriptor_zh'] for a in actors if a['visible']);media[member]={'video_path':str(c['folder']/'video.mp4'),'audio_path':str(c['folder']/'audio_foa.wav')}
-        group_path=proofroot/f'group_w{wi:02d}.json';records={m:[] for m in MEMBERS};pair_audits=[]
-        for qi in range(3):
+                    measured=[[max(0.,a/16000-c['start']),min(10.,b/16000-c['start'])] for a,b in activity[event['event_id']]['activity_intervals_samples_global'] if a<(c['start']+10)*16000 and b>c['start']*16000]
+                    if not measured:continue
+                    actor=event['source_id'];source_onsets[actor]=min(source_onsets.get(actor,10.),measured[0][0])
+                    emissions.append({'emission_id':event['event_id'],'mechanism':'actor_live','actor_id':actor,'content_class':'speech','emitter_point_kind':'mouth',
+                        'native_emitter_world_m':by_actor[actor]['emitter_position_m'],'measured_activity_s':measured})
+                for ep,stem in c['stems'].items():
+                    segment=stem[0,round(c['start']*16000):round((c['start']+10)*16000)];threshold=64*np.finfo(float).eps*np.max(np.abs(stem[0]));nz=np.flatnonzero(np.abs(segment)>threshold)
+                    if len(nz):listener_onsets[c['scene']['sources'][ep]['actor_id']]=int(nz[0])/16000
+                first_source=min(source_onsets,key=source_onsets.get);first_listener=min(listener_onsets,key=listener_onsets.get)
+                order_pass=first_source==first_listener and list(source_onsets.values()).count(source_onsets[first_source])==1 and list(listener_onsets.values()).count(listener_onsets[first_listener])==1
+                receipt_path=proofroot/f'native_{member}_w{wi:02d}.json'
+                native_receipt={**c['proof'],'single_emitter_anchor_s':anchor,'causal_other_emitter_supports_empty':True,
+                    'source_actor_onsets_s':source_onsets,'listener_component_onsets_s':listener_onsets,'source_order_listener_order_agree':order_pass,
+                    'listener_onset_numeric_floor':'64*float64_eps*full_component_max; machine roundoff, not an audibility gate',
+                    'original_QC_sources':[r['path'] for r in program['records']]}
+                retain_readback(receipt_path,native_receipt)
+                keys=['video','audio','pixel_actor_identity','measured_source_activity','asset_license_and_capability','physical_emitter_attachment','audible_emitter_uniqueness']
+                readbacks={k:{'status':'pass','source':str(receipt_path)} for k in keys}
+                readbacks['source_order_listener_order_agree']={'status':'pass' if order_pass else 'blocked','source':str(receipt_path)}
+                scenes[member]={'window_s':[0.,10.],'actors':actors,'emissions':emissions,'native_readback':readbacks}
+                blue=next(a for a in actors if assets[a['asset_id']].get('color')=='blue')
+                queries[member]=[{'kind':'same_class_actor','time_s':anchor,'public_time_s':anchor,'content_class':'speech'},
+                    {'kind':'offscreen_origin','time_s':anchor,'public_time_s':anchor,'subject_actor_id':blue['actor_id'],'subject_descriptor_zh':blue['descriptor_zh']},
+                    {'kind':'first_actor'}]
+                domains[member]=sorted(a['descriptor_zh'] for a in actors if a['visible']);media[member]={'video_path':str(c['folder']/'video.mp4'),'audio_path':str(c['folder']/'audio_foa.wav')}
+            group_path=proofroot/f'group_w{wi:02d}.json';records={m:[] for m in MEMBERS};pair_audits=[]
+            for qi in range(3):
+                for member in MEMBERS:
+                    v,a=member.split('_');partners={'same_V_different_A_answer_flip':v+'_'+('a1' if a=='a0' else 'a0'),
+                        'same_A_different_V_answer_flip':('v1' if v=='v0' else 'v0')+'_'+a};witness={}
+                    domain=['是','否'] if qi==1 else domains[member]
+                    for axis,other in partners.items():
+                        other_domain=['是','否'] if qi==1 else domains[other]
+                        pair={'scenes':[scenes[member],scenes[other]],'queries':[queries[member][qi],queries[other][qi]],
+                            'media':[media[member],media[other]],'answer_domains':[domain,other_domain]}
+                        check=validate_modality_witness(pair,axis);pair_audits.append({'member':member,'kind':queries[member][qi]['kind'],**check})
+                        witness[axis]={'status':check['status'],'source':str(group_path),'native_pair':pair}
+                    records[member].append({'query':queries[member][qi],'binding_witness':witness,'answer_domain':domain})
+            retain_readback(group_path,{'status':'measured','revision':CONTENT_BRIDGE_REVISION,'actual_media_pairs':pair_audits,
+                'missing_kinds':['mixed_class_actor native heterogeneous capabilities','live_or_playback native loudspeaker device']})
             for member in MEMBERS:
-                v,a=member.split('_');partners={'same_V_different_A_answer_flip':v+'_'+('a1' if a=='a0' else 'a0'),
-                    'same_A_different_V_answer_flip':('v1' if v=='v0' else 'v0')+'_'+a};witness={}
-                domain=['是','否'] if qi==1 else domains[member]
-                for axis,other in partners.items():
-                    other_domain=['是','否'] if qi==1 else domains[other]
-                    pair={'scenes':[scenes[member],scenes[other]],'queries':[queries[member][qi],queries[other][qi]],
-                        'media':[media[member],media[other]],'answer_domains':[domain,other_domain]}
-                    check=validate_modality_witness(pair,axis);pair_audits.append({'member':member,'kind':queries[member][qi]['kind'],**check})
-                    witness[axis]={'status':check['status'],'source':str(group_path),'native_pair':pair}
-                records[member].append({'query':queries[member][qi],'binding_witness':witness,'answer_domain':domain})
-        retain_readback(group_path,{'status':'measured','revision':CONTENT_BRIDGE_REVISION,'actual_media_pairs':pair_audits,
-            'missing_kinds':['mixed_class_actor native heterogeneous capabilities','live_or_playback native loudspeaker device']})
-        for member in MEMBERS:
-            c=contexts[member,wi];wid=c['folder'].name;bundle={'source_registry':registry,'scene':scenes[member],'queries':records[member],
-                'pairing_id':row['scene_id']+f'__w{wi:02d}','base_world_id':row['scene_id']}
-            pub,priv,audit=collect_content_binding(bundle,wid,read_json(c['folder']/'questions.json')[0]['media'],seed=str(row['scene_seed']))
-            alternate=deepcopy(bundle)
-            for record in alternate['queries']:record['wording_variant']='alternate'
-            ap,ag,aa=collect_content_binding(alternate,wid,pub[0]['media'] if pub else read_json(c['folder']/'questions.json')[0]['media'],seed=str(row['scene_seed']))
-            signature=lambda qs,gs:([(q['question_id'],q['qa_id'],q['form'],q.get('choices'),q['answer_type']) for q in qs],[(g['question_id'],g['canonical_answer'],g['evidence']['answer_domain']) for g in gs])
-            invariant=signature(pub,priv)==signature(ap,ag)
-            if not invariant:raise ValueError('actual content wording exchange changes IDs, answers, domains or options')
-            audit['wording_exchange']={'status':'pass','standard_logical':len(pub)//2,'alternate_logical':len(ap)//2,'facts_identical':True}
-            counts.update(audit.get('logical_counts_by_kind',{}));deferrals.extend(audit['deferred']);pools[member].append((wi,pub,priv,audit,bundle))
+                c=contexts[member,wi];wid=c['folder'].name;bundle={'source_registry':registry,'scene':scenes[member],'queries':records[member],
+                    'pairing_id':row['scene_id']+f'__w{wi:02d}','base_world_id':row['scene_id']}
+                if content_workers.enabled:
+                    future=content_workers.submit_content({'bundle':bundle,'window_id':wid,
+                        'media':read_json(c['folder']/'questions.json')[0]['media'],'seed':str(row['scene_seed'])})
+                    pending_content.append((member,wi,bundle,future))
+                    continue
+                pub,priv,audit=collect_content_binding(bundle,wid,read_json(c['folder']/'questions.json')[0]['media'],seed=str(row['scene_seed']))
+                alternate=deepcopy(bundle)
+                for record in alternate['queries']:record['wording_variant']='alternate'
+                ap,ag,aa=collect_content_binding(alternate,wid,pub[0]['media'] if pub else read_json(c['folder']/'questions.json')[0]['media'],seed=str(row['scene_seed']))
+                signature=lambda qs,gs:([(q['question_id'],q['qa_id'],q['form'],q.get('choices'),q['answer_type']) for q in qs],[(g['question_id'],g['canonical_answer'],g['evidence']['answer_domain']) for g in gs])
+                invariant=signature(pub,priv)==signature(ap,ag)
+                if not invariant:raise ValueError('actual content wording exchange changes IDs, answers, domains or options')
+                audit['wording_exchange']={'status':'pass','standard_logical':len(pub)//2,'alternate_logical':len(ap)//2,'facts_identical':True}
+                counts.update(audit.get('logical_counts_by_kind',{}));deferrals.extend(audit['deferred']);pools[member].append((wi,pub,priv,audit,bundle))
+        for member,wi,bundle,future in pending_content:
+            pub,priv,audit=future.result();counts.update(audit.get('logical_counts_by_kind',{}));deferrals.extend(audit['deferred']);pools[member].append((wi,pub,priv,audit,bundle))
     output=[]
     for member in MEMBERS:
         m=by_member[member];source=Path(m['windows_directory'])
