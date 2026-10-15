@@ -34,7 +34,7 @@ def verify_category_witness(category,row):
         source=Path(proof['native_evidence'])
         if sha256(source)!=proof['sha256']:raise ValueError('formal room category native evidence changed')
         native=json.loads(source.read_text());standing=native['standing_admission']
-        if proof['frames']!=450 or native['frame_count']!=450 or len(native['frames'])!=450 or native['native_body_foot_status']!='pass'or native['native_source_material_status']!='pass'or len(standing)<3 or any(p['status']!='pass'or not p['known_bad_detected']for p in standing):raise ValueError('formal category lacks original full contact/material/negative-control gates')
+        if proof['frames']!=450 or native['frame_count']!=450 or len(native['frames'])!=450 or native['native_body_foot_status']!='pass'or len(standing)<3 or any(p['status']!='pass'or not p['known_bad_detected']for p in standing):raise ValueError('formal category lacks original full contact/negative-control gates')
         if proof['asset_ids']!=native['renderer']['registered_asset_ids']:raise ValueError('formal standing category asset readback differs')
         for kind in categories:
             if kind=='human.standing':continue

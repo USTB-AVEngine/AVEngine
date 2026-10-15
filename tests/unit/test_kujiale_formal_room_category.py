@@ -52,3 +52,22 @@ def test_ordinary_registered_producer_enters_formal_binding_before_native_work(m
     def reached(row,inputs,output):raise RuntimeError('ordinary production reached formal category binding')
     monkeypatch.setattr(kujiale_room_categories,'bind_formal_room_category',reached)
     with pytest.raises(RuntimeError,match='ordinary production reached'):generate_registered_parent({}, {}, {}, [], {}, {}, '/no_files_written')
+
+
+def test_formal_category_highlights_remain_observations_and_raw_proofs_stay_unchanged(tmp_path):
+    source,formal,row,inputs=data(tmp_path);before=source.read_bytes();proofs=formal['rooms'][0]['current_native_category_qualification']['native_witnesses']
+    for proof in proofs:
+        path=Path(proof['native_evidence']);native=json.loads(path.read_text());native['native_source_material_status']='fail'
+        path.write_text(json.dumps(native));proof['sha256']=sha256(path)
+    _,_,binding=bind_formal_room_category(row,inputs,tmp_path/'output',registration=formal)
+    assert binding['categories_added']==['human.standing'] and source.read_bytes()==before
+    assert all(json.loads(Path(p['native_evidence']).read_text())['native_source_material_status']=='fail' for p in proofs)
+    assert all(sha256(p['native_evidence'])==p['sha256']for p in proofs)
+
+
+def test_record_only_highlights_cannot_hide_failed_native_contact(tmp_path):
+    _,formal,row,inputs=data(tmp_path);proof=formal['rooms'][0]['current_native_category_qualification']['native_witnesses'][0]
+    path=Path(proof['native_evidence']);native=json.loads(path.read_text());native['native_source_material_status']='fail';native['native_body_foot_status']='fail'
+    path.write_text(json.dumps(native));proof['sha256']=sha256(path)
+    with pytest.raises(ValueError,match='contact/negative-control'):
+        bind_formal_room_category(row,inputs,tmp_path/'must_fail',registration=formal)

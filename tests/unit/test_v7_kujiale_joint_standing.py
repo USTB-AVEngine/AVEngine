@@ -25,3 +25,24 @@ def test_partial_or_contact_failed_reference_cannot_be_reused(tmp_path):
 def test_a_moving_reference_cannot_be_used_as_one_static_counterfactual_pose(tmp_path):
     path,data,target=fixture(tmp_path);data['frames'][-1]['actors'][2]['position_m'][0]+=.1;path.write_text(json.dumps(data))
     with pytest.raises(ValueError,match='actually static'):completed_shared_standing(tmp_path,target)
+
+
+def test_highlight_observation_does_not_reject_measured_shared_geometry(tmp_path):
+    path,data,target=fixture(tmp_path)
+    data['native_source_material_status']='fail'
+    path.write_text(json.dumps(data))
+    result=completed_shared_standing(tmp_path,target)
+    observation=result['source_material_observation']
+    assert observation['native_source_material_status']=='fail'
+    assert observation['admission_effect']=='record_only_per_owner_20261015'
+    assert observation['current_original_material_paths_and_package_identity_must_pass']
+    assert result['actors']['voice1']['position_m']==[0.,0.,-3.]
+
+
+def test_ignoring_highlights_keeps_original_failed_contact_rejected(tmp_path):
+    path,data,target=fixture(tmp_path)
+    data['native_source_material_status']='fail'
+    data['native_body_foot_status']='fail'
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError,match='complete passed native geometry'):
+        completed_shared_standing(tmp_path,target)
