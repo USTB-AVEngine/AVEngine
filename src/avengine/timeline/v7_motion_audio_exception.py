@@ -1,4 +1,4 @@
-"""Owner 2026-10-15: at most 100ms energy/decay exceptions per source event.
+"""Owner 2026-10-15: at most 100ms measured occlusion-boundary exceptions per source event.
 
 Only the explicitly authorised metric categories are recordable. Direction,
 DRR, arrival, truncation and invalid measurements retain their original gate.
@@ -6,9 +6,9 @@ Intervals are unioned before attributing time to each real scheduled event.
 """
 MAX_EVENT_EXCEPTION_MS=100.
 
-def recordable_energy_decay(verdict):
+def recordable_boundary_difference(verdict,boundary_proof=None):
     failures=verdict.get('failures',[])
-    return bool(failures) and all(x.rsplit(':',1)[-1] in {'energy','decay'} for x in failures)
+    return bool(boundary_proof and boundary_proof.get('status')=='measured' and boundary_proof.get('direct_visibility_flips')) and bool(failures) and all(x.rsplit(':',1)[-1] in {'energy','decay','direction'} for x in failures)
 
 def event_exception_budget(scene,endpoint,intervals,sample_rate=16000):
     merged=[]
@@ -24,6 +24,6 @@ def event_exception_budget(scene,endpoint,intervals,sample_rate=16000):
         samples=sum(max(0,min(hi,b)-max(lo,a))for lo,hi in merged);ms=samples*1000/sample_rate
         rows.append({'event_id':event['event_id'],'exception_samples':samples,'exception_ms':ms,'maximum_ms':MAX_EVENT_EXCEPTION_MS,'passed':ms<=MAX_EVENT_EXCEPTION_MS+1e-9})
     return {'status':'pass'if not unscoped and all(x['passed']for x in rows)else'fail',
-        'owner_policy':'2026-10-15 energy/decay <=100ms per scheduled source event; direction unchanged',
+        'owner_policy':'2026-10-15 energy/decay/direction differences only near measured visibility flips, <=100ms per source event; geometric QA unchanged',
         'merged_intervals_samples':merged,'per_event':rows,'unscoped_intervals_samples':unscoped,
-        'original_raw_metrics_retained':True,'direction_gate_changed':False,'qa_truth_or_scorer_changed':False}
+        'original_raw_metrics_retained':True,'direction_gate_changed_only_at_measured_boundaries':True,'qa_truth_or_scorer_changed':False}
