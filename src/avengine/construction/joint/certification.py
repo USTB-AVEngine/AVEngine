@@ -91,7 +91,7 @@ def certify_plan(context, plan):
         check(key+":rest_framing", all(f != "edge" for f in frames), "whole_body_inside_or_outside_at_rest", states=frames)
     for a, b in combinations(valid, 2):
         ba, bb = plan.actors[a].body, plan.actors[b].body
-        required = 1. if ba.species == bb.species == "human" else ba.radius_m+bb.radius_m
+        required = 1. if "human" in {ba.species,bb.species} and {ba.species,bb.species}<={"human","dog","cat"} else ba.radius_m+bb.radius_m
         minimum = minimum_track_distance(valid[a], valid[b])
         check(a+":"+b+":separation", minimum >= required-1e-7, "continuous_piecewise_linear_distance",
               minimum-required, minimum_m=minimum, required_m=required)
