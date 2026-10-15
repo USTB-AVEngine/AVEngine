@@ -22,8 +22,10 @@ class CameraPose:
     def __post_init__(self):
         if (len(self.position_m) != 3 or not np.isfinite(self.position_m).all()
                 or not math.isfinite(self.yaw_deg) or not 0 < self.hfov_deg < 180
+                or not isinstance(self.width, int) or not isinstance(self.height, int)
                 or self.width < 1 or self.height < 1):
             raise ValueError("invalid fixed camera geometry")
+        object.__setattr__(self, "position_m", tuple(map(float, self.position_m)))
 
     @property
     def forward(self):
