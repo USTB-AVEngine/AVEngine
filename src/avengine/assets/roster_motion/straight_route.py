@@ -232,6 +232,10 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
     origin, heading, corner = found[int(rng.integers(len(found)))]
     positions, yaws = _shape_xy(s, origin, heading, corner)
     qa15, qa16, net, cosv = _radial_flags(positions, L, k, e, q)
+    if families == 'M1':
+        # A route not built as radial must not advertise the distance-trend families by chance: UwV83 claimed
+        # QA-16 from a near-radial plan and failed the post-sound trend on the render.
+        qa15 = qa16 = False
     if not post:
         qa16 = False
     frames = (int(round(w0 * FPS)), int(round(w1 * FPS)))      # the whole walk is one straight leg
