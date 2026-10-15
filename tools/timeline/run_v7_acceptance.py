@@ -39,7 +39,9 @@ def worker_cpu_policy(manifest,task,slot,runtime,*,inherited_cpu_ids=None):
 
 def run_worker(manifest,slot):
     configure_walkable_maps(manifest)
-    task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
+    task=dict(manifest['parents'][slot]);row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
+    dispatch_profile=root/'inputs/dispatch_profiles'/f'{slot:03d}.json'
+    if dispatch_profile.exists():task['profile']=load(dispatch_profile)['profile']
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
     cpus=manifest.get('cpu_ids') or manifest.get('cpu_affinity_ids') or sorted(os.sched_getaffinity(0))
     runtime_path=task.get('runtime_input') or manifest['runtime_'+task['device']]
@@ -74,7 +76,9 @@ def run_worker(manifest,slot):
             proposal=construct_requested_scene(room,house,state,catalog,source['records'],load(inputs['semantic_manifest']),contract,inputs,
                 plugin_specs=task.get('family_plugins',manifest.get('family_plugins',{})),
                 scene_id=row['scene_id'],seed=row['scene_seed'],family=task['target_family'],attempt=int(task.get('construction_attempt',0)))
-            if proposal['profile']!='phase2':raise ValueError('automatic constructor profile differs from the registered worker profile')
+            if proposal['profile']not in {'phase2','registered'}:raise ValueError('unsupported automatic constructor profile: '+str(proposal['profile']))
+            task['profile']=proposal['profile'];write(dispatch_profile,{'profile':task['profile'],'constructor':task.get('constructor'),'target_family':task.get('target_family')})
+            if task['profile']=='registered'and task['device']=='cpu':human=load(manifest['human_registered_cpu'])
             row=proposal['row']
             prepared_native=proposal.get('prepared_native',proposal.get('prepared'))
             if prepared_native is not None:row=prepared_native.row
@@ -92,10 +96,16 @@ def run_worker(manifest,slot):
         if manifest.get('require_authored_tts_per_new_parent') and not previous.exists() and row.get('scene_constructor')!='motion_quartet_template' and not row.get('automatic_construction'):
             from avengine.timeline.v7_demand import assign_authored_tts
             row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
-        inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
-        from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
-        if row.get('automatic_construction'):
-            from avengine.timeline.v7_family_clock import generate_constructed_phase2_parent as generate
+        if task['profile']=='phase2':
+            inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
+            from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
+            if row.get('automatic_construction'):
+                from avengine.timeline.v7_family_clock import generate_constructed_phase2_parent as generate
+        else:
+            row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
+            add_required_condition(row,'authored_native_quartet')
+            inputs.update(phase2=False,integration_pilot=True,render_backend='cpu_llvmpipe')
+            from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         if previous.exists():
@@ -121,7 +131,7 @@ def run_worker(manifest,slot):
     write(root/'inputs/planned'/f'{slot:03d}.json',row)
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
-        'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
+        'scene_id':row['scene_id'],'execution_profile':task['profile'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
         'visual_cpu_policy':visual_cpu_policy,'allocated_cpu_ids':task.get('cpu_ids',cpus),'fresh_rir_cpu_ids':rir_cpus,'fresh_rir_workers':rir_workers,
         'code_commit':task.get('snapshot_commit',manifest['code_commit']),
         'code_snapshot':task.get('snapshot_worktree',manifest['worktree']),
