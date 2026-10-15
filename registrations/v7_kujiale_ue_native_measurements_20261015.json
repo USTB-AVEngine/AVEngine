@@ -1,7 +1,7 @@
 {
   "schema": "v7-kujiale-ue-native-measurements-v1",
   "revision": "20261015-native-measured-v1",
-  "updated_utc": "2026-10-15T06:12:36.646590+00:00",
+  "updated_utc": "2026-10-15T06:14:48.411756+00:00",
   "original_registrations_modified": false,
   "runtime_authority": "production reads these measured native bases and original package hashes; world matrices remain measured per new frame",
   "scope": {
@@ -4375,7 +4375,7 @@
       "house": "kujiale_0021",
       "room_id": "R1",
       "measurement_status": "pass",
-      "smoke_status": "running",
+      "smoke_status": "pass",
       "measurements": [
         {
           "scene_id": "v7_gap_auto_kujiale_0021_R1_a00",
@@ -4722,8 +4722,8 @@
           }
         }
       ],
-      "independent_questions": 0,
-      "reason": "current complete parent pending",
+      "independent_questions": 86,
+      "reason": "",
       "native_floor_surface": {
         "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0021/native_editor_audit.json",
         "native_editor_audit_sha256": "04b46da366c5063ed23da627014a7ed6d38dd33f32344cb210d2bb03d221c7f7",
@@ -4735,7 +4735,45 @@
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
       "scene_id": "v7_gap_auto_kujiale_0021_R1_a00",
-      "fix": "按原生日志定位并自动重构同房下一条件；未通过不计能用"
+      "families": {
+        "QA-02": 20,
+        "QA-12": 8,
+        "QA-19": 10,
+        "QA-14": 2,
+        "STARSS-FRUSTUM": 1,
+        "QA-05": 2,
+        "QA-04": 2,
+        "QA-28": 2,
+        "QA-08": 1,
+        "V7-CONTENT-BIND": 8,
+        "QA-25": 2,
+        "STARSS-SPEAKERS": 1,
+        "STARSS-CLASS13": 1,
+        "QA-03": 2,
+        "QA-20": 2,
+        "QA-23": 1,
+        "QA-26": 8,
+        "QA-27": 8,
+        "QA-01": 1,
+        "QA-22": 1,
+        "QA-18": 2,
+        "QA-13": 1
+      },
+      "parent_receipt": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015/evidence/jobs/016.json",
+        "sha256": "ae649da57ae81b2e7c08be641f57e1254a4ead63180d45779cbb9dbebaecabf4"
+      },
+      "reader": {
+        "status": "pass",
+        "hostname": "cw-SYS-4029GP-TRT3",
+        "actual_decoded_windows": 20,
+        "unique_windows": 20,
+        "errors": [],
+        "GPU_started": false,
+        "method": "ffprobe all frames + ffmpeg actual first RGB frame + soundfile complete FOA and W-mono read"
+      },
+      "english_status": "pass",
+      "fix": "完整门禁已过"
     },
     {
       "house": "kujiale_0022",
@@ -10191,10 +10229,10 @@
       "house": "kujiale_0043",
       "room_id": "R1",
       "measurement_status": "not_run",
-      "smoke_status": "not_run",
+      "smoke_status": "running",
       "measurements": [],
       "independent_questions": 0,
-      "reason": "current full UE capture and parent smoke pending",
+      "reason": "current complete parent pending",
       "native_floor_surface": {
         "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0043/native_editor_audit.json",
         "native_editor_audit_sha256": "d4432240c40738f57614db58f889f7a232c6c5384a28d7e62bf902174dfe2fd5",
@@ -10205,6 +10243,7 @@
         "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_production_ready_20261014/inputs/authority_snapshots_final/room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
+      "scene_id": "v7_gap_auto_kujiale_0043_R1_a00",
       "fix": "按原生日志定位并自动重构同房下一条件；未通过不计能用"
     },
     {
