@@ -291,3 +291,19 @@ def test_excluded_legacy_feedback_preserves_history_without_readding_on_resume(t
     assert state['excluded_legacy_parents']['old_removed_body']['logical_questions']==2
     record_selected_parent(path,result('old_removed_body',2))
     assert read_demand_state(path)['logical_questions']==3
+
+
+@pytest.mark.fast_unit
+def test_foreground_proposal_preserves_all_requested_rear_targets():
+    from avengine.capture.v7_occlusion_demand import proposal_score
+    relations=[{'target_asset_id':a,'occluder_asset_id':'speaker','foreground_depth_fraction':.35} for a in ('left','right')]
+    scene={'listener_m':[0.,1.3,0.],'native_occlusion_relations':relations}
+    entries=[]
+    for aid,x in [('left',-.7),('right',.7)]:
+        transform=np.eye(4);transform[:3,3]=[x,0.,-3.5]
+        entries.append({'declaration':{'asset_id':aid},'applied_root_input':transform})
+    foreground={'declaration':{'asset_id':'speaker'}}
+    centered=proposal_score(scene,foreground,[0.,0.,-1.2],entries)
+    outside=proposal_score(scene,foreground,[.8,0.,-1.2],entries)
+    assert centered<outside
+    with pytest.raises(ValueError):proposal_score(scene,foreground,[0.,0.,-1.2],entries[:1])

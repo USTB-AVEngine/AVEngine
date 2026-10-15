@@ -327,7 +327,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 relation_score=proposal_score(scene,entry,root,placed)
                 if relation_score is not None:return (not visible,*relation_score)
                 if target is not None:
-                    return (not visible,abs(az-float(target)),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
+                    return (not visible,(abs(az-float(target))/3.4)**2+(abs(float(np.linalg.norm(delta[[0,2]]))-distance_target)/.4)**2)
                 return (not visible,not central if a['kind'] in {'human','performer'} or self.motion_inputs.get('independent_probe_camera_search') else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
             accepted=None;native_attempts=0;search_exhausted=False
@@ -410,6 +410,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_occlusion_demand import measure_requested_relations
                 relation_witness=measure_requested_relations(self,scene,[*placed,entry])
                 if not relation_witness['satisfies_request']:
+                    write_json(directory/('occlusion_proposal_'+a['endpoint_id']+'_'+str(proposal_index).zfill(4)+'.json'),
+                        {'status':'rejected_layout_proposal','candidate_asset_id':a['asset_id'],
+                         'proposed_root_m':root.tolist(),'witness':relation_witness,
+                         'qa_predicates_changed':False})
                     reject('requested_registered_occlusion_not_observed');continue
                 native_contacts=self._contacts(entry,directory,np.asarray(placement['normal']))
                 attempt={'asset_id':a['asset_id'],'endpoint_id':a['endpoint_id'],'placement':placement,

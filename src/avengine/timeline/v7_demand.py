@@ -412,7 +412,7 @@ def plan_registered_content_demand(row,state,catalog,semantic_manifest):
         # ordinary 7 degree offset as a physical proposal; native QA-28 still
         # checks the actual mouths, distinct sectors and unchanged dead zones.
         if not plan.get('binding_camera_yaw_offset_deg'):
-            plan['binding_camera_yaw_offset_deg']=7.
+            plan['binding_camera_yaw_offset_deg']=22.5
     row['scene_demand']['required_distinct_semantic_direction_sectors']=True
     row['scene_demand'].update(required_program_source_type='author_tts',
         required_native_members=list(row['members']),required_sound_asset_ids=list(selected),
