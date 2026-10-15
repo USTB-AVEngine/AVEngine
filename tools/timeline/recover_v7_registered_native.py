@@ -8,10 +8,12 @@ from avengine.timeline.v7_demand import SELECTION_FEEDBACK_ENV
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--manifest',type=Path,required=True);p.add_argument('--source-receipt',type=Path,required=True);p.add_argument('--output-native',type=Path,required=True);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--manifest',type=Path,required=True);p.add_argument('--source-receipt',type=Path,required=True);p.add_argument('--output-native',type=Path,required=True);p.add_argument('--source-parent',type=Path);a=p.parse_args()
     m=json.loads(a.manifest.read_text());owned=Path(m['output_root']).resolve();record=json.loads(a.source_receipt.read_text())
     if not a.source_receipt.resolve().is_relative_to(owned)or record.get('status')!='failed':raise ValueError('only a stopped, failed caller-owned attempt may resume')
-    source=owned/'native/parents'/record['scene_id'];recipe=json.loads((source/'input_recipe.json').read_text());row=recipe['seed_row'];output=a.output_native.resolve();target=output/'parents'/row['scene_id']
+    source=a.source_parent.resolve()if a.source_parent else owned/'native/parents'/record['scene_id']
+    if not source.resolve().is_relative_to(owned)or source.name!=record['scene_id']:raise ValueError('same caller-owned physical source required')
+    recipe=json.loads((source/'input_recipe.json').read_text());row=recipe['seed_row'];output=a.output_native.resolve();target=output/'parents'/row['scene_id']
     if not output.is_relative_to(owned)or target.exists():raise ValueError('fresh owned output-native directory required')
     require_completed_registered_media(source,row)
     provenance=reuse_native_parent(source.parent.parent,output,row)
@@ -20,7 +22,7 @@ def main():
     # Their original recipes still require exact matching in the producer.
     copied=[]
     for member in row['members']:
-        for prefix in ('windows_',):
+        for prefix in ('windows_','frozen_dialogue_pools_'):
             marker=source/(prefix+member+'_completed.json')
             if not marker.exists():continue
             saved=json.loads(marker.read_text());_link_tree(source/saved['attempt'],target/saved['attempt']);shutil.copyfile(marker,target/marker.name);copied.append(marker.name)

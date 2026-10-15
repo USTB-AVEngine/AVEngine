@@ -23,3 +23,12 @@ def test_registered_reconstruction_uses_actual_tail_cap_without_modifying_raw_ri
     assert np.max(stems['voice1'][:,6500:7500])>np.max(stems['voice1'][:,8000:8100])
     assert np.allclose(swapped['voice1'],2*stems['voice1'])
     assert (cache/'rir_000000.npy').read_bytes()==original
+
+
+def test_counterfactual_subject_uses_actual_registered_color_and_can_swap_actor_id():
+    from avengine.timeline.v7_registered_content import _subject_for_appearance
+    assets={'yellow':{'color':'yellow'},'black':{'color':'black'}};row={'asset_ids':['yellow','black']}
+    original=[{'actor_id':1,'asset_id':'yellow','visible':True},{'actor_id':2,'asset_id':'black','visible':True}]
+    swapped=[{'actor_id':1,'asset_id':'black','visible':True},{'actor_id':2,'asset_id':'yellow','visible':True}]
+    assert _subject_for_appearance(row,original,assets)['actor_id']==1
+    assert _subject_for_appearance(row,swapped,assets)['actor_id']==2

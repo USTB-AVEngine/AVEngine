@@ -118,3 +118,22 @@ def require_completed_registered_media(root,row):
         if Path(attempt).name!=attempt or not saved['required_files']or any(not(root/attempt/f).is_file()for f in saved['required_files']):
             raise ValueError('resume-only original native stage incomplete: '+name)
     return names
+
+
+def compatible_relocated_pool_recipe(root,name,requested):
+    """Reuse a QA pool only when relocation changed paths and every byte agrees."""
+    root=Path(root);pointer=root/(name+'_completed.json');reuse=root/'native_stage_reuse.json'
+    if not(pointer.is_file()and reuse.is_file()):return requested
+    previous=json.loads(pointer.read_text())['recipe']
+    if previous==requested:return requested
+    old=dict(previous);new=dict(requested);source=Path(old.pop('source_pool'));target=Path(new.pop('source_pool'))
+    owner=Path(json.loads(reuse.read_text())['source_parent'])
+    if old!=new or not source.resolve().is_relative_to(owner.resolve())or not target.resolve().is_relative_to(root.resolve())or source.relative_to(owner)!=target.relative_to(root):
+        raise ValueError('relocated pool changed more than its native source path')
+    a={str(p.relative_to(source)):p for p in source.rglob('*')if p.is_file()};b={str(p.relative_to(target)):p for p in target.rglob('*')if p.is_file()}
+    if not a or set(a)!=set(b):raise ValueError('relocated native QA source files differ')
+    for key,path in a.items():
+        if not os.path.samefile(path,b[key])and hashlib.sha256(path.read_bytes()).digest()!=hashlib.sha256(b[key].read_bytes()).digest():
+            raise ValueError('relocated native QA source bytes differ')
+    retain_exact_json_receipt(root/(name+'_relocation.json'),{'status':'identical_native_source_pool_relocated','original_recipe':previous,'requested_recipe':requested,'files_checked':len(a),'old_pool_answers_modified':False,'original_marker_sha256':hashlib.sha256(pointer.read_bytes()).hexdigest()})
+    return previous
