@@ -361,11 +361,33 @@ def native_entry_preflight(video, scene, entries):
     return result
 
 
+
+def qa07_sound_requirements(scene, program, assets):
+    """Declare the selected complete utterances and their measured activity."""
+    from avengine.construction.joint.scheduling import SoundRequirement
+    owners = {a["endpoint_id"]: a["asset_id"] for a in assets}
+    recordings = {r["sound_asset_id"]: r for r in program["records"]}
+    bindings = {b["event_id"]: b["sound_asset_id"] for b in program["events"]}
+    requirements = []
+    for event in scene["events"]:
+        record = recordings[bindings[event["event_id"]]]
+        intervals = (record.get("screens", {}).get("automatic_activity", {}).get("activity_intervals_samples")
+                     or record.get("source_normalization", {}).get("measured_activity", {}).get("source_activity_intervals_samples"))
+        if not intervals:
+            raise ValueError("QA-07 companion or walker speech lacks original measured activity")
+        rate = float(record["header"]["sample_rate_hz"])
+        start = event["start_tick"]/10.
+        requirements.append(SoundRequirement(owners[event["endpoint_id"]], record["sound_asset_id"],
+            record["sound_class"], tuple((lo/rate, hi/rate) for lo, hi in intervals),
+            (start, start), wet_tail_s=.5))
+    return tuple(requirements)
+
 class QA07Plugin:
     """Family-specific side-plane construction using the shared room/route core."""
 
-    def __init__(self, bodies):
+    def __init__(self, bodies, sound_requirements=()):
         self.bodies = dict(bodies)
+        self.sound_requirements = tuple(sound_requirements)
 
     def candidates(self, context, request):
         from shapely.geometry import LineString, Point
@@ -375,6 +397,10 @@ class QA07Plugin:
 
         if request.family != "QA-07" or request.branch not in SIDES or len(request.target_ids) != 1:
             raise ValueError("QA07Plugin requires a named target and a fixed left/right branch")
+        from avengine.construction.joint.scheduling import schedule_sound_events
+        schedule = schedule_sound_events(self.sound_requirements)
+        if schedule.status != "solved":
+            return
         target = request.target_ids[0]; body = self.bodies[target]
         points = np.asarray(context.points_m, float)
         points = points[context.walkable_map.contains_many(points[:, [0, 2]], "human")]
@@ -471,8 +497,10 @@ class QA07Plugin:
                                    native_gait_extension_reserve_m=reserve,
                                    speed_m_s=speed, motion_interval_s=timing["requested_interval_s"],
                                    timing=timing, native_preflight_required=True)
-                    yield ScenePlan(camera, actors, metadata={
+                    yield ScenePlan(camera, actors, sounds=schedule.events, metadata={
                         "joint_entry_route": anchors,
+                        "sound_schedule_starts_s": list(schedule.starts_s),
+                        "sound_schedule_diagnostics": schedule.diagnostics,
                         "rest_views": {aid: framing(camera, actor.positions_m[0], actor.body)[0] for aid, actor in actors.items()},
                         "native_entry_preflight_required": True,
                         "planning_prediction_is_not_pixel_truth": True})
@@ -538,7 +566,7 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     from avengine.construction.joint import BodySpec, FamilyRequest, solve
     from avengine.construction.joint.context import build_room_context
     from avengine.timeline.v7_family_constructors import construct_family_scene, room_context, ConstructionUnavailable, _request
-    from avengine.timeline.v7_visibility_construction import walking_body
+    from avengine.timeline.v7_visibility_construction import walking_body, whole_walking_speech
     from avengine.timeline.v7_production_inputs import validate_recipe
 
     if family != "QA-07":
@@ -551,6 +579,10 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     row = base["row"]
     target = row["semantic_human_asset_ids"][0]
     row, target = walking_body(row, target, catalog, room, contract, state, seed)
+    whole_walking_speech(row, target, catalog, records, semantic, seed)
+    from avengine.timeline.v7_family_clock import build_constructed_scene
+    _, sound_scene, sound_program, sound_assets = build_constructed_scene(row, house, records, catalog, semantic)
+    sound_requirements = qa07_sound_requirements(sound_scene, sound_program, sound_assets)
     side = requested_side(state, seed)
     bodies = {aid: BodySpec("human", radius_m=.35, height_m=1.9, margin_m=.05) for aid in row["asset_ids"]}
     actual_room = deepcopy(room_context(room, house, attempt)["original_room"])
@@ -559,7 +591,7 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
                             cache_dir=runtime.get("joint_cache_directory"),
                             camera_limit=72, grid_step_m=.3, camera_heights_m=[1.25],
                             width=1280, height=720) as context:
-        solved = solve(context, request, QA07Plugin(bodies), budget_s=120., max_candidates=32)
+        solved = solve(context, request, QA07Plugin(bodies, sound_requirements), budget_s=120., max_candidates=32)
     if solved.status != "certified" or solved.plan is None:
         raise ConstructionUnavailable("QA-07 joint construction " + solved.status + ": " + "; ".join(solved.reasons))
     plan = solved.plan
@@ -599,7 +631,9 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
             "final_inside_maximum_abs_deg": abs(route["final_azimuth_deg"])+.5}}}
     row["automatic_construction"].update(family="QA-07", constructor="construct_qa07_scene",
         revision=REVISION, requested_entry_side=side, core_certificate=asdict(solved.certificate),
-        core_diagnostics=solved.diagnostics, native_entry_preflight_required=True)
+        core_diagnostics=solved.diagnostics, native_entry_preflight_required=True,
+        planned_sound_events=[asdict(event) for event in plan.sounds],
+        sound_schedule_starts_s=plan.metadata["sound_schedule_starts_s"])
     _request(row, state, "QA-07")
     validate_recipe(row, catalog, contract)
     return {"profile": "phase2", "row": row}

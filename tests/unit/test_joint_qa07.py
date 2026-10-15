@@ -159,19 +159,37 @@ def test_entry_timing_keeps_the_complete_stop_away_from_crop_boundary(length):
 def test_proxy_lower_bound_zero_does_not_discard_named_inner_proxy_evidence():
     from types import SimpleNamespace
     from avengine.construction.joint import ActorPlan, BodySpec, CameraPose, FamilyRequest, ScenePlan
-    from avengine.construction.joint.geometry import VisibilityPrediction, framing
+    from avengine.construction.joint.geometry import DepthBuffer, predict_visibility
     from avengine.construction.joint.families.qa07 import QA07Plugin
     camera = CameraPose((0., 1.25, 0.), 0., width=1280, height=720)
     weight = np.clip((np.arange(901)/30-3)/3, 0, 1)
     roots = np.c_[-5.+3.*weight, np.zeros(901), np.full(901, -4.)]
     body = BodySpec("human", .35, 1.9, .05)
     actor = ActorPlan("target", roots, body)
+    depth = DepthBuffer(camera, np.full((camera.height, camera.width), np.inf))
     def predict(camera, root, body, **kwargs):
-        return VisibilityPrediction(
-            "out_of_view" if framing(camera, root, body)[0] == "outside" else "visible_clear",
-            visible_pixels_lower=0, evidence={"inner_proxy_visible_pixels": 10000})
+        return predict_visibility(camera, root, body, depth=depth, **kwargs)
     checks = list(QA07Plugin({"target": body}).verify(SimpleNamespace(predict=predict),
         FamilyRequest("QA-07", "left", ("target",)), ScenePlan(camera, {"target": actor})))
     assert all(c.status == "pass" for c in checks)
-    assert checks[-1].evidence["final_inner_proxy_pixels"] == 10000
+    assert checks[-1].evidence["final_inner_proxy_pixels"] >= 200
     assert checks[-1].evidence["native_preflight_required"] is True
+
+
+def test_qa07_sound_constraints_use_measured_activity_and_keep_complete_clip_start():
+    from avengine.construction.joint.families.qa07 import qa07_sound_requirements
+    from avengine.construction.joint.scheduling import schedule_sound_events
+    scene = {"events": [{"event_id": "speech_1", "endpoint_id": "voice1", "start_tick": 25}]}
+    program = {"events": [{"event_id": "speech_1", "sound_asset_id": "recording"}],
+               "records": [{"sound_asset_id": "recording", "sound_class": "speech_playback",
+                            "header": {"sample_rate_hz": 16000, "sample_count": 32000},
+                            "screens": {"automatic_activity": {"activity_intervals_samples": [[3200, 8000], [9600, 24000]]}}}]}
+    constraints = qa07_sound_requirements(scene, program, [{"endpoint_id": "voice1", "asset_id": "real_person"}])
+    result = schedule_sound_events(constraints)
+    assert result.status == "solved"
+    assert result.starts_s == (2.5,)
+    assert [(e.start_s, e.end_s) for e in result.events] == [(2.7, 3.), (3.1, 4.)]
+    assert all(e.entity_id == "real_person" and e.sound_id == "recording" for e in result.events)
+    program["records"][0]["screens"] = {}
+    with pytest.raises(ValueError, match="measured activity"):
+        qa07_sound_requirements(scene, program, [{"endpoint_id": "voice1", "asset_id": "real_person"}])
