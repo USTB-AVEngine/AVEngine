@@ -225,7 +225,7 @@ def _construct_post(row,people,state,catalog,records,semantic,contract,runtime,h
     request=row['motion_requests'][target]
     request['straight_motion_windows_s']=deepcopy(request['intervals_s'])
     request['distance_trend_intervals_s']=deepcopy(request.get('distance_trend_windows_s',[]))
-    request['minimum_distance_change_m']=request.get('minimum_window_distance_change_m',.2)
+    request['minimum_distance_change_m']=request.get('minimum_window_distance_change_m',.5)
     return {'profile':'phase2','row':row}
 
 

@@ -9,6 +9,7 @@ from copy import deepcopy
 import hashlib
 import math
 import numpy as np
+from avengine.assets.roster_motion.distance_constraints import matches_radial_window
 from shapely.geometry import LineString, Point, shape
 
 REVISION = 'motion-quartet-template-native-tts-v1'
@@ -124,7 +125,7 @@ def find_template_route(room, pathfinder, seed, attempt=0):
                     lo, hi = round((offset+.3)*30), round((offset+2.7)*30)
                     values = radial[lo:hi+1]
                     sign = -1 if values[-1] < values[0] else 1
-                    if abs(values[-1]-values[0]) < .4 or np.min(sign*np.diff(values)) < -.005 or np.min(radial_cosine[lo:hi+1]) < math.cos(math.radians(30)):
+                    if not matches_radial_window(values,sign,.5) or np.min(radial_cosine[lo:hi+1]) < math.cos(math.radians(30)):
                         valid = False
                         break
                     windows.append({'offset_s': offset, 'branch': 'nearer' if sign < 0 else 'farther'})
@@ -168,7 +169,7 @@ def find_template_route(room, pathfinder, seed, attempt=0):
                 if any(_snap(pathfinder,p)is None for p in positions):continue
                 radial=np.linalg.norm(positions+[0,1.5,0]-listener,axis=1)
                 lo,hi=30,102
-                if radial[lo]-radial[hi]<.4 or np.min(-np.diff(radial[lo:hi+1]))<-.005:continue
+                if not matches_radial_window(radial[lo:hi+1],-1,.5):continue
                 accepted+=1
                 if accepted<=attempt:continue
                 delta=positions[75]+[0,1.5,0]-listener
@@ -198,7 +199,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         raise MotionTemplateUnavailable('no complete reviewed 2..3s / 1..1.6s TTS pair')
     pair = pairs[(seed+attempt) % len(pairs)]
     route = find_template_route(room, pathfinder, seed, attempt)
-    suitable=[p for p in pairs if float(p[0]['synthesis_readback']['duration_s'])*route['speed_m_s']>=1.5]
+    suitable=[p for p in pairs if float(p[0]['synthesis_readback']['duration_s'])*route['speed_m_s']>=.5]
     if suitable:pair=suitable[(seed+attempt)%len(suitable)]
     assets = choose_template_assets(catalog, pair, seed, attempt)
     a, b = [asset['asset_id'] for asset in assets[:2]]
@@ -245,7 +246,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     for item in route['distance_branches']:
         requests.append({'qa_id': 'QA-15', 'branch': item['branch'], 'target_asset_id': a,
             'speed_m_s': route['speed_m_s'], 'speed_range_m_s': [.8, 1.4],
-            'minimum_distance_change_m': 1.5, 'offsets_s': [item['offset_s']]})
+            'minimum_distance_change_m': .5, 'offsets_s': [item['offset_s']]})
     demand=deepcopy(row.get('scene_demand',{}))
     demand.update(focus='motion_quartet',requested_conditions=['motion_quartet'],
                   condition_families={'motion_quartet':list(MOTION_FAMILIES)},

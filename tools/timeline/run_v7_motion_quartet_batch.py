@@ -14,13 +14,13 @@ def save(path,data):
     temp=path.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n');temp.replace(path)
 def now():return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-def candidate_rooms(houses,contract=None,excluded_houses=()):
+def candidate_rooms(houses,contract=None,excluded_houses=(),room_id=None):
     eligible=[h for h in houses if h['split']=='train' and h['acoustic_status']=='pass' and h['house']not in excluded_houses and h['house']not in (contract or {}).get('test_houses',[])]
     legal=None if contract is None else {(r['house'],r['room_id'])for r in contract['rooms']if 'standing_human'in r['categories']}
     groups={family:[] for family in ('hm3d','mp3d')}
     for h in eligible:
         if h['family'] not in groups:continue
-        rooms=sorted((r for r in h['checked_rooms']if legal is None or (h['house'],r['room_label'])in legal),key=lambda r:-r.get('floor_area_m2',0))
+        rooms=sorted((r for r in h['checked_rooms']if (legal is None or (h['house'],r['room_label'])in legal)and (room_id is None or r['room_label']==room_id)),key=lambda r:-r.get('floor_area_m2',0))
         if rooms:groups[h['family']].append((h,rooms))
     for group in groups.values():group.sort(key=lambda pair:(-max(r.get('floor_area_m2',0)for r in pair[1]),pair[0]['house']))
     ordered=[]
@@ -44,6 +44,7 @@ def main():
     p.add_argument('--admission-manifest',type=Path)
     p.add_argument('--exclude-evidence-roots',type=Path,nargs='*',default=[])
     p.add_argument('--launch-until-utc')
+    p.add_argument('--room-id')
     a=p.parse_args()
     if not 1<=a.workers<=6:raise ValueError('parent workers must be <=6; shared native SDK queue reserves <=10')
     out=a.output_root.resolve();out.mkdir(parents=True,exist_ok=True);budget=(a.resource_budget_root or out).resolve()
@@ -73,7 +74,7 @@ def main():
             'human_cpu':str(a.human_registry.resolve()),'human_registered_cpu':str(a.human_registry.resolve()),
             'cpu_ids':sorted(os.sched_getaffinity(0))[:16],
             'launch_disk_policy':admission_policy.get('launch_disk_policy',{}),
-            'parents':[]}
+            'explicit_retry_room_id':a.room_id,'parents':[]}
         save(manifest_path,manifest)
     feedback=out/'inputs/demand_state.json'
     if not feedback.exists() and a.admission_manifest:
@@ -82,7 +83,7 @@ def main():
     houses=load(a.houses)['houses']
     from avengine.timeline.v7_automatic_feedback import from_passed_exports
     excluded=from_passed_exports(a.exclude_evidence_roots).get('observed_houses',[])if a.exclude_evidence_roots else []
-    candidates=candidate_rooms(houses,load(a.contract),excluded)
+    candidates=candidate_rooms(houses,load(a.contract),excluded if not a.room_id else (),a.room_id)
     if not candidates:raise ValueError('no untouched legal training house admits the requested humans')
     pending=[]
     existing={(t['row']['house'],t['row']['room_id'],t.get('construction_attempt',0))for t in manifest['parents']}

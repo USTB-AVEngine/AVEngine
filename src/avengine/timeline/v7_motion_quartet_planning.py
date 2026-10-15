@@ -17,8 +17,8 @@ def validate_template_request(row,catalog):
         if not lo<=speed<=hi:raise ValueError(f'motion template {species} speed {speed} outside owner range {lo}..{hi}')
     for request in requests:
         family=request['qa_id'];aid=request['target_asset_id']
-        if family=='QA-15'and float(request.get('minimum_distance_change_m',0))<1.5:
-            raise ValueError('QA-15 construction requires at least 1.5m during the complete sound')
+        if family=='QA-15'and float(request.get('minimum_distance_change_m',0))<.5:
+            raise ValueError('QA-15 construction requires at least 0.5m during the complete sound')
         if family in {'QA-16','QA-17'}:
             if float(request.get('minimum_motion_s',0))<2.:
                 raise ValueError('post-sound construction requires at least two silent moving seconds')

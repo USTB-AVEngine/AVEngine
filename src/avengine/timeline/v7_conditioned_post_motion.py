@@ -143,7 +143,7 @@ def plan_post_sound_motion(row,*,qa_id,target,companion,assets,registry,
         'conditioned_post_motion_revision':REVISION}
     if qa_id=='QA-16':
         request.update(distance_trend=row.get('scene_demand',{}).get('distance_trend','approaching'),
-            distance_trend_windows_s=distance_windows,minimum_window_distance_change_m=.2)
+            distance_trend_windows_s=distance_windows,minimum_window_distance_change_m=.5)
     row['motion_requests']={target:request}
     row.setdefault('phase2_recorded_speech_schedule_s',{})[target]=starts
     row.setdefault('phase2_recorded_sound_ids',{})[target]=[r['sound_asset_id'] for r in records_by_asset[target]]

@@ -274,6 +274,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     proposals=curved_route_proposals(video,entry,scene,distance,np.array([0.,0.,-1.]),request) if curved_motion else None
     candidate_stream=((route.positions[0],route)for route in proposals) if curved_motion else ((point,None)for point in candidates[:512])
     for p0,curved_route in candidate_stream:
+        if curved_motion and prefilter['full_gate_attempted']>=max(24,int(request.get('maximum_native_route_attempts',32))):break
         if inputs.get('phase2') and not curved_motion and time.process_time()-route_cpu_started>1800:
             failures.append({'reason':'bounded new-house CPU route-search budget exhausted (1800s); no gate relaxed'})
             break
@@ -363,5 +364,5 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False}
     if curved_route is not None:
-        evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=scene_clock['maximum_stable_speed_m_s'],requested_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=scene_clock['maximum_stable_speed_m_s']/nominal,animation_distance_clock=scene_clock)
+        evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity))),requested_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity)))/nominal,animation_distance_clock=scene_clock)
     write_json(directory/'motion_geometry.json',evidence);return evidence

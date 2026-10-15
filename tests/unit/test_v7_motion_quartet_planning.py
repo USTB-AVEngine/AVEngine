@@ -26,8 +26,8 @@ def test_room_constructor_gets_only_room_registries_seed_and_actual_deficits():
 def test_template_cannot_silently_lower_the_real_human_speed_or_distance():
     row,assets=fixture();row['motion_requests']['walker']['speed_m_s']=.4
     with pytest.raises(ValueError,match='outside owner range'):validate_template_request(row,assets)
-    row['motion_requests']['walker']['speed_m_s']=1.;row['motion_during_condition_requests'][1]['minimum_distance_change_m']=1.
-    with pytest.raises(ValueError,match='1.5m'):validate_template_request(row,assets)
+    row['motion_requests']['walker']['speed_m_s']=1.;row['motion_during_condition_requests'][1]['minimum_distance_change_m']=.4
+    with pytest.raises(ValueError,match='0.5m'):validate_template_request(row,assets)
 
 
 def test_post_sound_motion_speech_cannot_be_replaced_with_footsteps():

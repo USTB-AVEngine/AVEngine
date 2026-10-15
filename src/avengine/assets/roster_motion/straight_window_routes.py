@@ -2,6 +2,7 @@
 import math
 from types import SimpleNamespace
 import numpy as np
+from avengine.assets.roster_motion.distance_constraints import matches_radial_window
 from shapely.geometry import shape,Point,LineString,box
 
 def stadium_samples(distance,length,radius):
@@ -55,13 +56,13 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
                   relevant=[(lo,hi)for lo,hi in sound_windows if epoch<=lo<epoch+10]
                   lo,hi=relevant[0]if relevant else(epoch+.3,epoch+2.7)
                   values=radial[(times>=lo)&(times<=hi)];sign=-1 if branch['branch']=='nearer'else 1
-                  if len(values)<2 or sign*(values[-1]-values[0])<request.get('minimum_distance_change_m',.4)or np.min(sign*np.diff(values))<-.005:bad=True;break
+                  if not matches_radial_window(values,sign,request.get('minimum_distance_change_m',.5)):bad=True;break
                 if bad:continue
               if request.get('distance_trend'):
                 radial=np.linalg.norm(positions-listener,axis=1);sign=-1 if request['distance_trend']=='approaching' else 1;bad=False
                 for lo,hi in request.get('distance_trend_intervals_s',[]):
                   values=radial[(times>=lo)&(times<=hi)]
-                  if len(values)<2 or sign*(values[-1]-values[0])<request.get('minimum_distance_change_m',1.5)or np.min(sign*np.diff(values))<-.001:bad=True;break
+                  if not matches_radial_window(values,sign,request.get('minimum_distance_change_m',.5)):bad=True;break
                 if bad:continue
               visible=True
               for lo,hi in sound_windows:
@@ -72,9 +73,10 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
               if not visible:continue
               snaps=np.asarray([video.pathfinder.snap_point(p)for p in positions]);errors=np.linalg.norm((snaps-positions)[:,[0,2]],axis=1)
               if not np.isfinite(snaps).all()or errors.max()>.002:continue
+              minimum_native_clearance=0.
               if hasattr(video.pathfinder,'distance_to_closest_obstacle'):
-                margin_native=.35
-                if any(video.pathfinder.distance_to_closest_obstacle(snaps[i],margin_native+.01)<margin_native for i in range(len(snaps))):continue
+                minimum_native_clearance=min(video.pathfinder.distance_to_closest_obstacle(p,2.)for p in snaps)
+                if minimum_native_clearance<.35:continue
               positions[:,[0,2]]=snaps[:,[0,2]];links=[]
               for i,j in zip(np.linspace(0,len(snaps)-1,9,dtype=int)[:-1],np.linspace(0,len(snaps)-1,9,dtype=int)[1:]):
                 path=video.hs.ShortestPath();path.requested_start=snaps[i];path.requested_end=snaps[j]
@@ -82,4 +84,4 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
                 links.append({'start_frame':int(i),'end_frame':int(j),'native_geodesic_m':float(path.geodesic_distance)})
               if len(links)!=8:continue
               proposal+=1
-              yield SimpleNamespace(positions=positions,yaws=yaws,receipt={'revision':'v3-timed-straight-windows-native-stadium-v1','proposal':proposal,'route_kind':'straight critical windows with smooth turns only outside them','straight_windows_s':windows,'straight_length_m':length,'turn_radius_m':radius,'phase_distance_offset_m':float(offset),'centre_xz_m':[centre.x,centre.y],'heading_rad':float(heading),'proposal_centre_xz_m':None if not template else template['centre_xz_m'],'automatic_native_retry_preserves_camera':bool(template),'root_samples':len(times),'maximum_horizontal_snap_error_m':float(errors.max()),'native_waypoint_connections':links,'heading_follows_route_tangent':True,'native_full_pose_checks_still_required':True})
+              yield SimpleNamespace(positions=positions,yaws=yaws,receipt={'revision':'v3-timed-straight-windows-native-stadium-v1','proposal':proposal,'route_kind':'straight critical windows with smooth turns only outside them','straight_windows_s':windows,'straight_length_m':length,'turn_radius_m':radius,'phase_distance_offset_m':float(offset),'centre_xz_m':[centre.x,centre.y],'heading_rad':float(heading),'minimum_native_obstacle_clearance_m':float(minimum_native_clearance),'native_clearance_samples':len(snaps),'proposal_centre_xz_m':None if not template else template['centre_xz_m'],'automatic_native_retry_preserves_camera':bool(template),'root_samples':len(times),'maximum_horizontal_snap_error_m':float(errors.max()),'native_waypoint_connections':links,'heading_follows_route_tangent':True,'native_full_pose_checks_still_required':True})

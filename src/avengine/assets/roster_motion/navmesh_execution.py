@@ -7,6 +7,8 @@ from copy import deepcopy
 from types import SimpleNamespace
 import math
 import numpy as np
+from avengine.assets.roster_motion.distance_constraints import matches_radial_window
+from itertools import islice
 from shapely.geometry import shape,LineString,Point,box
 REVISION='species-scene-speeds-native-curved-waypoints-v1'
 SPEED_RANGES={'human':(.8,1.4),'dog':(.5,1.2),'cat':(.3,.8),'slide':(.2,.5)}
@@ -46,7 +48,11 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
     """Closed smooth waypoint routes; search alternate centres around obstacles."""
     if request.get('straight_motion_windows_s'):
         from avengine.assets.roster_motion.straight_window_routes import straight_window_routes
-        yield from straight_window_routes(video,entry,scene,distance,local_forward,request)
+        proposals=list(islice(straight_window_routes(video,entry,scene,distance,local_forward,request),max(24,int(request.get('route_ranking_candidate_budget',64)))))
+        proposals.sort(key=lambda p:p.receipt.get('minimum_native_obstacle_clearance_m',0.),reverse=True)
+        for rank,proposal in enumerate(proposals,1):
+            proposal.receipt.update(native_clearance_rank=rank,ranked_valid_route_candidates=len(proposals),maximum_full_gate_routes=max(24,int(request.get('maximum_native_route_attempts',32))))
+            yield proposal
         return
     poly=shape(scene['production_scenario']['motion_floor_polygon']);start=np.asarray(entry['applied_root_input'][:3,3],float)
     radius_body=float(request.get('route_body_margin_m',.32 if entry['declaration']['kind']=='human'else .25))
@@ -81,7 +87,7 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
                         sign=-1 if request['distance_trend']=='approaching'else 1;valid=True
                         for lo,hi in intervals:
                             values=radii[max(0,math.floor(lo*30)):min(len(radii),math.ceil(hi*30)+1)]
-                            if len(values)<2 or sign*(values[-1]-values[0])<float(request.get('minimum_distance_change_m',1.5))or np.min(sign*np.diff(values))<-.005:valid=False;break
+                            if not matches_radial_window(values,sign,float(request.get('minimum_distance_change_m',.5))):valid=False;break
                         if not valid:continue
                     # Certify native connectivity between the sampled waypoints.
                     links=[]
@@ -113,17 +119,17 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
         target=endings[0];ratio=(target-phase0)*nominal/distance[-1]
         if ratio>1.12 or speed*ratio>float(speed_range[1])+1e-9:raise ValueError('bounded complete-step clock does not fit the selected scene speed; construct another candidate')
         distance*=ratio;velocity*=ratio
-        return times,velocity>1e-8,velocity,distance,phase0+distance/nominal,{'method':'single straight pass with exact complete-step finish','complete_step_source_phase_s':target,'distance_clock_ratio':ratio,'emission_speed_m_s':speed*ratio,'maximum_clock_distance_error_s':0.}
+        return times,velocity>1e-8,velocity,distance,phase0+distance/nominal,{'method':'single straight pass with exact complete-step finish','complete_step_source_phase_s':target,'distance_clock_ratio':ratio,'emission_speed_m_s':speed*ratio,'maximum_clock_distance_error_s':0.,'maximum_stable_speed_m_s':float(np.max(velocity))}
     if timed_route is not None:
         from avengine.assets.roster_motion.timed_straight_clock import timed_straight_clock
         distance,velocity,profile=timed_straight_clock(times,speed,straight_start_s=timed_route['straight_start_s'],straight_end_s=timed_route['straight_end_s'],turn_speed_m_s=timed_route['turn_speed_m_s'])
-        return times,np.ones(len(times),bool),velocity,distance,phase0+distance/nominal,{**profile,'maximum_clock_distance_error_s':0.,'nominal_source_speed_m_s':nominal}
+        return times,np.ones(len(times),bool),velocity,distance,phase0+distance/nominal,{**profile,'maximum_clock_distance_error_s':0.,'nominal_source_speed_m_s':nominal,'maximum_stable_speed_m_s':float(np.max(velocity))}
     if intervals==[[0.,30.]] or intervals==[[0,30]]:
         edge=np.clip(times/.25,0,1);velocity=speed*edge**2*(3-2*edge)
         distance=np.r_[0.,np.cumsum((velocity[1:]+velocity[:-1])/60)]
         return times,np.ones(len(times),bool),velocity,distance,phase0+distance/nominal,{
             'method':'exact integrated root distance; continuous walking through clip end',
-            'nominal_source_speed_m_s':nominal,'maximum_stable_speed_m_s':float(speed),
+            'nominal_source_speed_m_s':nominal,'maximum_stable_speed_m_s':float(np.max(velocity)),
             'maximum_clock_distance_error_s':0.,'clip_end_requires_planted_pause':False}
     base=phase0;executed=[]
     for number,(lo,hi)in enumerate(intervals):

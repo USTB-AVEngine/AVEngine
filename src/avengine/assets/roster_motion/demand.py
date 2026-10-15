@@ -10,11 +10,12 @@ def matches_distance_request(positions,times,listener,request):
     points=np.asarray(positions);times=np.asarray(times);listener=np.asarray(listener)
     radii=np.linalg.norm(points[:,[0,2]]-listener[[0,2]],axis=1)
     sign=-1 if trend=='approaching' else 1
-    if sign*(radii[-1]-radii[0])<.2 or np.any(sign*np.diff(radii)<-1e-7):return False
-    minimum=float(request.get('minimum_window_distance_change_m',.2))
+    from avengine.assets.roster_motion.distance_constraints import matches_radial_window
+    minimum=float(request.get('minimum_window_distance_change_m',request.get('minimum_distance_change_m',.5)))
     if not np.isfinite(minimum) or minimum<.2:raise ValueError('distance proposal margin must cover the original 0.2m QA margin')
-    for lo,hi in request.get('distance_trend_windows_s',[]):
+    windows=request.get('distance_trend_windows_s')or request.get('distance_trend_intervals_s')or [[times[0],times[-1]]]
+    for lo,hi in windows:
         if not times[0]<=lo<hi<=times[-1]:raise ValueError('distance demand window outside native route')
-        net=sign*(np.interp(hi,times,radii)-np.interp(lo,times,radii))
-        if net<minimum:return False
+        selected=np.r_[np.interp(lo,times,radii),radii[(times>lo)&(times<hi)],np.interp(hi,times,radii)]
+        if not matches_radial_window(selected,sign,minimum):return False
     return True
