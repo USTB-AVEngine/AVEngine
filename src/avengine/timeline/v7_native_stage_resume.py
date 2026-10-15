@@ -105,3 +105,16 @@ def retain_exact_json_receipt(path, measured):
         return False
     write_json(path,measured)
     return True
+
+
+def require_completed_registered_media(root,row):
+    """Resume mode may consume native stages but must never start a render."""
+    root=Path(root)
+    names=['dry',*[f'visual_{v}'for v in sorted({m.split('_')[0]for m in row['members']})],*[f'audio_{m}'for m in row['members']]]
+    for name in names:
+        pointer=root/(name+'_completed.json')
+        if not pointer.is_file():raise ValueError('resume-only missing original native stage: '+name)
+        saved=json.loads(pointer.read_text());attempt=saved['attempt']
+        if Path(attempt).name!=attempt or not saved['required_files']or any(not(root/attempt/f).is_file()for f in saved['required_files']):
+            raise ValueError('resume-only original native stage incomplete: '+name)
+    return names

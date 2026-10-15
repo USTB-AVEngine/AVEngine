@@ -77,7 +77,10 @@ def _verify_window(folder):
     return {'video':info,'FOA':{'sample_rate_hz':sr,'samples':len(data),'channels':4,'format':'ACN_WYZX_SN3D_camera'},'mono_matches_W':True}
 
 
-def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None,prepare_native_inputs_only=False):
+def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None,prepare_native_inputs_only=False,resume_only=False):
+    if resume_only:
+        from avengine.timeline.v7_native_stage_resume import require_completed_registered_media
+        require_completed_registered_media(Path(output)/'parents'/row['scene_id'],row)
     from avengine.registry.kujiale_room_categories import bind_formal_room_category
     row,inputs,_=bind_formal_room_category(row,inputs,output)
     from avengine.timeline.v7_production_inputs import attach_runtime_contract
@@ -147,6 +150,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             endpoints=[a['endpoint_id'] for a in variant[:2]];variant[:2]=variant[:2][::-1]
             for asset,ep in zip(variant[:2],endpoints,strict=True):asset['endpoint_id']=ep
         def render(attempt):
+            if resume_only:raise ValueError('resume-only cannot render a new native visual')
             check_write(attempt,expected_bytes=200_000_000)
             from avengine.timeline.v7_native_failure_retention import mark_new_attempt,retire_failed_media
             marker=mark_new_attempt(attempt);video=position_gate=None
@@ -222,6 +226,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             mapping={'voice1':'voice2','voice2':'voice1'}
             local_dry={ep:dry[mapping.get(ep,ep)] for ep in dry};local_receipt=rebind_receipt(receipt,mapping)
         def audio(attempt):
+            if resume_only:raise ValueError('resume-only cannot render new native audio')
             check_write(attempt,expected_bytes=16_000_000)
             if factor in audio_factors:
                 source,result=audio_factors[factor]
