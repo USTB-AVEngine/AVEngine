@@ -142,11 +142,38 @@ def route_preview_visible(scene, start, end, yaw, mouth):
 
 
 def route_navmesh_preview(pathfinder,start,end):
-    # These are five of the exact original 901 route samples. Prune an
-    # impossible proposal before the eight expensive complete native trials.
-    points=np.asarray([np.asarray(start)*(1.-i/900.)+np.asarray(end)*(i/900.)for i in (0,225,450,675,900)])
-    snaps=np.asarray([pathfinder.snap_point(p)for p in points])
-    return bool(np.isfinite(snaps).all() and np.max(np.linalg.norm((snaps-points)[:,[0,2]],axis=1))<=.002)
+    # Reject cheaply at five exact sample indices, then check all 901 original
+    # root samples. The full native admission still repeats the same 2mm gate.
+    start=np.asarray(start);end=np.asarray(end)
+    for indices in [(0,225,450,675,900),range(901)]:
+        for index in indices:
+            p=start*(1.-index/900.)+end*(index/900.)
+            snapped=np.asarray(pathfinder.snap_point(p))
+            if not np.isfinite(snapped).all() or np.linalg.norm((snapped-p)[[0,2]])>.002:return False
+    return True
+
+
+def native_walkable_starts(video,scene,poly,start,previous,mouth,yaw):
+    """Construct at least 200 visible NavMesh proposals before full skin work."""
+    from shapely.geometry import Point
+    points={};x0,z0,x1,z1=poly.bounds;attempted=0
+    def add(raw):
+        nonlocal attempted
+        p=np.asarray(raw,float);attempted+=1;snap=np.asarray(video.pathfinder.snap_point(p))
+        if not np.isfinite(snap).all() or np.linalg.norm((snap-p)[[0,2]])>.002:return
+        p=p.copy();p[[0,2]]=snap[[0,2]]
+        if not poly.covers(Point(p[0],p[2])) or not route_preview_visible(scene,p,p,yaw,mouth):return
+        points.setdefault((float(p[0]),float(p[2])),p)
+    for p in previous:add(p)
+    for cells in (33,65,129):
+        for x in np.linspace(x0,x1,cells):
+            for z in np.linspace(z0,z1,cells):add([x,start[1],z])
+        if len(points)>=200:break
+    selected=sorted(points.values(),key=lambda p:float(np.linalg.norm((p-start)[[0,2]])))
+    return selected,{'method':'deterministic dense floor grid, visible native NavMesh starts; no RNG or seed substitution',
+        'grid_points_tested':attempted,'visible_walkable_starts':len(selected),
+        'headings_per_start':16,'complete_segment_samples':901,'maximum_horizontal_snap_error_m':.002,
+        'original_complete_native_admission_unchanged':True}
 
 
 def motion_route_attempts(route_tiers, requested_mode, stationary):
@@ -231,24 +258,30 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             continue
         vertices = np.asarray(a['original_mesh'].vertices) @ a['applied_root_input'][:3, :3].T + a['applied_root_input'][:3, 3]
         bodies.append(box(vertices[:, 0].min() - .03, vertices[:, 2].min() - .03, vertices[:, 0].max() + .03, vertices[:, 2].max() + .03))
+    candidates,construction=native_walkable_starts(video,scene,poly,start,candidates,source[0]['mouth_m'],entry['resolved_yaw_rad'])
+    headings=list(dict.fromkeys([entry['resolved_yaw_rad'],*[i*math.pi/8 for i in range(16)]]))
+    construction.update(actual_headings_per_start=len(headings),segments_tested=0,complete_navmesh_segments=0)
     routes = []
     route_tiers = []
     for route_speed in [speed, speed / 2., speed / 4., speed / 10.]:
         tier = []
         for p0 in candidates:
-            for yaw in [entry['resolved_yaw_rad'], 0., math.pi / 2, math.pi, -math.pi / 2]:
+            for yaw in headings:
                 direction = yaw_matrix(yaw) @ local_forward
                 end = p0 + times[-1] * route_speed * direction
                 line = LineString([p0[[0, 2]], end[[0, 2]]])
                 if (not poly.covers(line) or any(line.intersects(b) for b in bodies)
                         or not route_preview_visible(scene, p0, end, yaw, source[0]['mouth_m'])):
                     continue
+                construction['segments_tested']+=1
                 if not route_navmesh_preview(video.pathfinder,p0,end):continue
+                construction['complete_navmesh_segments']+=1
                 score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
                 tier.append((float(score), p0.copy(), yaw, direction, route_speed))
         tier = list({(tuple(r[1]), r[2]): r for r in tier}.values())
         tier.sort(key=lambda r: (float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]])), -r[0]))
         route_tiers.append(tier)
+    write_json(directory/'route_construction.json',construction)
     # Keep eight proposals, while giving shorter/slower motion an actual turn.
     stationary = [(0., p0.copy(), entry['resolved_yaw_rad'],
                    yaw_matrix(entry['resolved_yaw_rad']) @ local_forward, 0.) for p0 in candidates[:4]
