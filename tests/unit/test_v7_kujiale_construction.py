@@ -33,12 +33,14 @@ def test_resource_pressure_queues_only_new_parents_and_gpu0_is_excluded(tmp_path
     command=isolated_command(tmp_path/'plan.json',5,3,'python',tmp_path/'worktree',tmp_path/'out')
     assert '/dev/nvidia3'in command and '/dev/nvidia0'not in command
 
-def test_dense_same_radius_proposals_reject_before_expensive_three_body_search(monkeypatch):
+def test_sampling_distance_contrast_is_not_a_room_veto_when_a_real_group_fits(monkeypatch):
     from avengine.capture import kujiale_pilot_environment
     def unexpected(*args):raise AssertionError('third-person test called without any possible distance contrast')
     monkeypatch.setattr(kujiale_pilot_environment,'comparison_person_candidates',unexpected)
     candidates=[{'position_m':[2*np.sin(a),1.3,-2*np.cos(a)],'root_m':[2*np.sin(a),0.,-2*np.cos(a)],'body_yaw_deg':0.}for a in np.linspace(-1.,1.,500)]
-    with pytest.raises(ValueError,match='no clear separated'):select_group(candidates,[0,1.5,0])
+    result=select_group(candidates,[0,1.5,0])
+    assert len(result)==3 and all(p['group_construction_preference_fallback']['native_admission_required']for p in result)
+    assert min(np.linalg.norm((np.array(result[i]['root_m'])-result[j]['root_m'])[[0,2]])for i in range(3)for j in range(i))>=1.
 
 def test_camera_can_occupy_clear_air_above_furniture_without_inventing_a_human_floor_point():
     from shapely.geometry import box
@@ -92,3 +94,11 @@ def test_retry_budget_never_silently_drops_a_room_but_deadline_pauses_new_jobs()
     assert construction_retry_allowed({'status':'failed','construction_attempt':120},now,deadline)
     assert not construction_retry_allowed({'status':'passed'},now,deadline)
     assert not construction_retry_allowed({'status':'failed'},deadline,deadline)
+
+
+def test_camera_preference_fallback_never_goes_below_the_unchanged_1_2m_gate():
+    candidates=[{'position_m':[x,1.3,z],'root_m':[x,0.,z]}for x,z in [(-.7,-1.1),(.7,-1.1),(0.,-2.4)]]
+    group=select_group(candidates,[0.,1.5,0.])
+    assert len(group)==3
+    assert all(np.linalg.norm(np.asarray(p['root_m'])[[0,2]])>=1.2 for p in group)
+    assert any(p['group_construction_preference_fallback']['camera_minimum_m']==1.2 for p in group)
