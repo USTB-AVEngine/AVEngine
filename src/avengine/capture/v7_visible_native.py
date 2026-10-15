@@ -446,7 +446,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     if entry.get('motion_episode'):
                         motion_bounds=np.asarray(entry['motion_episode']['full_skin_bounds_m'])
                         lo,hi=motion_bounds[0]-.02,motion_bounds[1]+.02
-                bounds.append((lo,hi));checks.append(accepted);placed.append(entry);break
+                swept=entry.get('motion_episode',{}).get('native_swept_pose_bounds_m')
+                if swept:
+                    bounds.extend((np.asarray(a)-.02,np.asarray(b)+.02)for a,b in swept)
+                else:bounds.append((lo,hi))
+                checks.append(accepted);placed.append(entry);break
             if accepted is None:
                 write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})
                 raise ValueError('no strict native '+key+' placement for '+a['asset_id'])

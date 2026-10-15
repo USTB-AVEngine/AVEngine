@@ -132,7 +132,9 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             obj.motion_type=self.hs.physics.MotionType.KINEMATIC;obj.semantic_id=entry['semantic_id']
             entry['object']=RigidStandingInstance(obj);entry['motion_pose_index']=index;entry['motion_pose_path']=path
         from avengine.assets.roster_motion.contact import yaw_matrix
-        root=np.eye(4);root[:3,:3]=yaw_matrix(record['yaw_rad']);root[:3,3]=record['world_roots_m'][index]
+        from avengine.assets.roster_motion.navmesh_execution import motion_yaw
+        frame_yaw=motion_yaw(record,index);entry['resolved_yaw_rad']=frame_yaw
+        root=np.eye(4);root[:3,:3]=yaw_matrix(frame_yaw);root[:3,3]=record['world_roots_m'][index]
         _apply_root_with_habitat(entry['object'],root,qt=self.qt,mn=self.mn)
         native=np.asarray(entry['object'].root_scene_node.absolute_transformation(),float)
         child=entry['object'].root_scene_node.create_child();child.translation=self.mn.Vector3(frame['mouth_m'])

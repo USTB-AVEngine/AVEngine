@@ -226,8 +226,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     if not video.pathfinder.is_loaded:raise ValueError('explicit read-only admitted native NavMesh was not loaded')
     d,b,action,lineage=admitted_master(entry,inputs,house)
+    from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION,curved_route_proposals
+    curved_motion=request.get('motion_execution_revision')==EXECUTION_REVISION
     times=np.arange(901)/30.;speed=float(request.get('speed_m_s',.5))
-    if not .15<=speed<=1.2:raise ValueError('human walking speed outside explicit slow-to-normal production support')
+    if not .15<=speed<=(1.4 if curved_motion else 1.2):raise ValueError('human walking speed outside explicit slow-to-normal production support')
     moving=np.zeros(len(times),bool);velocity=np.zeros(len(times))
     for lo,hi in request.get('intervals_s',[[2.,6.],[16.,20.]]):
         if not 0<=lo<hi<=30:raise ValueError('motion interval outside continuous world')
@@ -264,20 +266,24 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
     import time
     route_cpu_started=time.process_time()
-    for p0 in candidates[:512]:
-        if inputs.get('phase2') and time.process_time()-route_cpu_started>1800:
+    proposals=curved_route_proposals(video,entry,scene,distance,np.array([0.,0.,-1.]),request) if curved_motion else None
+    candidate_stream=((route.positions[0],route)for route in proposals) if curved_motion else ((point,None)for point in candidates[:512])
+    for p0,curved_route in candidate_stream:
+        if inputs.get('phase2') and not curved_motion and time.process_time()-route_cpu_started>1800:
             failures.append({'reason':'bounded new-house CPU route-search budget exhausted (1800s); no gate relaxed'})
             break
         p0=np.asarray(p0,float)
-        for yaw in [0.,math.pi/2,math.pi,-math.pi/2]:
-            if inputs.get('phase2') and time.process_time()-route_cpu_started>1800:
+        for yaw in ([float(curved_route.yaws[0])] if curved_route is not None else [0.,math.pi/2,math.pi,-math.pi/2]):
+            if inputs.get('phase2') and not curved_motion and time.process_time()-route_cpu_started>1800:
                 break
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
+            if curved_route is not None:positions=curved_route.positions.copy()
+            frame_yaws=curved_route.yaws if curved_route is not None else np.full(len(times),yaw)
             from avengine.assets.roster_motion.demand import matches_distance_request
             if not matches_distance_request(positions,times,scene['listener_m'],request):
                 prefilter['demand_distance_trend_rejected']=prefilter.get('demand_distance_trend_rejected',0)+1
                 continue
-            if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):
+            if not poly.covers(LineString(positions[:,[0,2]])):
                 prefilter['polygon_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
             prefilter['full_gate_attempted']+=1
@@ -290,7 +296,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 if not hits:raise ValueError('motion route has no actual native ground')
                 floor_y=float(hits[0].point[1]);positions[:,1]=floor_y
                 floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
-                solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),[yaw]*len(times),1.,float(ts[0]),duration,floor)
+                solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),frame_yaws.tolist(),1.,float(ts[0]),duration,floor)
                 solver.times=times
                 from avengine.assets.roster_motion.animal import ground_slow_gait_support
                 support_repairs=ground_slow_gait_support(solver) if inputs.get('phase2') else 0
@@ -298,12 +304,12 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
                     qualified_globals,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
-                    if inputs.get('phase2') and moving[i] and any(p['endpoint_id']==entry['endpoint_id'] for p in scene.get('planned_footsteps',[])) and not clear_native_foot_sound_paths(
+                    if inputs.get('phase2') and not curved_motion and moving[i] and any(p['endpoint_id']==entry['endpoint_id'] for p in scene.get('planned_footsteps',[])) and not clear_native_foot_sound_paths(
                             video,scene['listener_m'],v,ev['feet'],positions[i],yaw,
                             {int(a['object'].object_id)for a in video.actors}):
                         prefilter['low_foot_sound_path_rejected']=prefilter.get('low_foot_sound_path_rejected',0)+1
                         raise ValueError('walking route proposal has a scan obstacle on its actual foot sound path')
-                    dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
+                    dist,world=clearance.check(v,f,positions[i],float(frame_yaws[i]));minimum=min(minimum,dist)
                     feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
                     quality=HUMAN_QUALITY if inputs.get('phase2')else {'foot_contact_limit_m':.008,'support_lock_limit_m':.003}
                     if min(x['floor_delta_m']for x in feet)<-.008 or any(
@@ -314,12 +320,12 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     # Keep the small solved bone matrices, not 901 full skins.
                     # Export re-evaluates the identical deterministic skinning.
                     geometry.append(qualified_globals);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
-                accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum);break
+                accepted=(positions,yaw,frame_yaws,curved_route,geometry,frames,floor_y,nav,clearance,minimum);break
             except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
         if accepted:break
     if not accepted:
         write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted human has no fully qualified new-house walking route')
-    positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum=accepted
+    positions,yaw,frame_yaws,curved_route,parts_list,frames,floor_y,nav,clearance,minimum=accepted
     folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
     for i,qualified_globals in enumerate(parts_list):
         parts,_=pose(d,b,None,frames[i]['source_phase_s'],globals_override=qualified_globals,ground=False)
@@ -332,7 +338,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         if key not in pose_cache:
             path=folder/(key+'.glb');rigid_glb(ed,b,parts,path);pose_cache[key]=str(path)
         files.append(pose_cache[key])
-        vertices,_=triangle_mesh(d,b,parts);world=vertices@yaw_matrix(yaw).T+positions[i];bounds.append([world.min(0),world.max(0)])
+        vertices,_=triangle_mesh(d,b,parts);world=vertices@yaw_matrix(float(frame_yaws[i])).T+positions[i];bounds.append([world.min(0),world.max(0)])
     evidence={'status':'pass','revision':REVISION,'lineage':lineage,'frame_count':901,'sample_rate_hz':30,
         'source_frames':frames,'world_roots_m':positions.tolist(),'yaw_rad':yaw,'pose_glbs':files,
         'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
@@ -342,4 +348,6 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False}
+    if curved_route is not None:
+        evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=speed/nominal)
     write_json(directory/'motion_geometry.json',evidence);return evidence

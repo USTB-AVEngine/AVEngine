@@ -71,14 +71,15 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
     the whole route. This never changes a saved joint pose or corrects a paw
     per frame; the ordinary native gates still check every resulting pose.
     """
-    rotation = yaw_matrix(yaw)
+    yaw_values=np.full(len(roots),float(yaw)) if np.ndim(yaw)==0 else np.asarray(yaw,float)
     lower = -math.inf
     upper = math.inf
     minimum_skin_delta = math.inf
     preferred = 0.
     paw_lower = -.00101 if species == 'cat' else -.008
     paw_limit = OWNER_PRODUCTION_QUALITY['contact_gap_m']
-    for path, root, index in zip(poses, roots, indices):
+    for frame_index,(path, root, index) in enumerate(zip(poses, roots, indices)):
+        rotation=yaw_matrix(float(yaw_values[frame_index]))
         vertices = np.asarray(meshes[path].vertices)
         low = vertices[vertices[:, 1] + root[1] <= floor.reference + .04]
         if len(low):
@@ -230,8 +231,11 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     old_origin = np.asarray(source[0]['root_world_m'], float)
     old_end = np.asarray(source[-1]['root_world_m'], float)
     source_speed = float(np.linalg.norm((old_end - old_origin)[[0, 2]]) / period)
+    from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION,curved_route_proposals
+    curved_motion=request.get('motion_execution_revision')==EXECUTION_REVISION
     speed = float(request.get('speed_m_s', source_speed))
-    if not 0 < speed <= .08 or source_speed <= 1e-6:
+    maximum_scene_speed=(.5 if mode=='slide_no_animation' else 1.2 if entry['declaration']['species_id']=='dog' else .8) if curved_motion else .08
+    if not 0 < speed <= maximum_scene_speed or source_speed <= 1e-6:
         raise ValueError('unsupported admitted animal route speed')
     # Re-time actual saved joint poses with the translated distance. No new
     # deformation, inferred skeleton, or gait is invented for a slide.
@@ -258,36 +262,41 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             continue
         vertices = np.asarray(a['original_mesh'].vertices) @ a['applied_root_input'][:3, :3].T + a['applied_root_input'][:3, 3]
         bodies.append(box(vertices[:, 0].min() - .03, vertices[:, 2].min() - .03, vertices[:, 0].max() + .03, vertices[:, 2].max() + .03))
-    candidates,construction=native_walkable_starts(video,scene,poly,start,candidates,source[0]['mouth_m'],entry['resolved_yaw_rad'])
-    headings=list(dict.fromkeys([entry['resolved_yaw_rad'],*[i*math.pi/8 for i in range(16)]]))
-    construction.update(actual_headings_per_start=len(headings),segments_tested=0,complete_navmesh_segments=0)
-    routes = []
-    route_tiers = []
-    for route_speed in [speed, speed / 2., speed / 4., speed / 10.]:
-        tier = []
-        for p0 in candidates:
-            for yaw in headings:
-                direction = yaw_matrix(yaw) @ local_forward
-                end = p0 + times[-1] * route_speed * direction
-                line = LineString([p0[[0, 2]], end[[0, 2]]])
-                if (not poly.covers(line) or any(line.intersects(b) for b in bodies)
-                        or not route_preview_visible(scene, p0, end, yaw, source[0]['mouth_m'])):
-                    continue
-                construction['segments_tested']+=1
-                if not route_navmesh_preview(video.pathfinder,p0,end):continue
-                construction['complete_navmesh_segments']+=1
-                score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
-                tier.append((float(score), p0.copy(), yaw, direction, route_speed))
-        tier = list({(tuple(r[1]), r[2]): r for r in tier}.values())
-        tier.sort(key=lambda r: (float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]])), -r[0]))
-        route_tiers.append(tier)
-    write_json(directory/'route_construction.json',construction)
-    # Keep eight proposals, while giving shorter/slower motion an actual turn.
-    stationary = [(0., p0.copy(), entry['resolved_yaw_rad'],
-                   yaw_matrix(entry['resolved_yaw_rad']) @ local_forward, 0.) for p0 in candidates[:4]
-                  if poly.covers(Point(p0[0], p0[2])) and route_preview_visible(
-                      scene, p0, p0, entry['resolved_yaw_rad'], source[0]['mouth_m'])]
-    routes = motion_route_attempts(route_tiers, requested_mode, stationary)
+    if curved_motion:
+        curve_stream=curved_route_proposals(video,entry,scene,times*speed,local_forward,request)
+        routes=(((0.,route.positions[0].copy(),float(route.yaws[0]),np.zeros(3),speed),requested_mode,route)for route in curve_stream)
+    else:
+        candidates,construction=native_walkable_starts(video,scene,poly,start,candidates,source[0]['mouth_m'],entry['resolved_yaw_rad'])
+        headings=list(dict.fromkeys([entry['resolved_yaw_rad'],*[i*math.pi/8 for i in range(16)]]))
+        construction.update(actual_headings_per_start=len(headings),segments_tested=0,complete_navmesh_segments=0)
+        routes = []
+        route_tiers = []
+        for route_speed in [speed, speed / 2., speed / 4., speed / 10.]:
+            tier = []
+            for p0 in candidates:
+                for yaw in headings:
+                    direction = yaw_matrix(yaw) @ local_forward
+                    end = p0 + times[-1] * route_speed * direction
+                    line = LineString([p0[[0, 2]], end[[0, 2]]])
+                    if (not poly.covers(line) or any(line.intersects(b) for b in bodies)
+                            or not route_preview_visible(scene, p0, end, yaw, source[0]['mouth_m'])):
+                        continue
+                    construction['segments_tested']+=1
+                    if not route_navmesh_preview(video.pathfinder,p0,end):continue
+                    construction['complete_navmesh_segments']+=1
+                    score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
+                    tier.append((float(score), p0.copy(), yaw, direction, route_speed))
+            tier = list({(tuple(r[1]), r[2]): r for r in tier}.values())
+            tier.sort(key=lambda r: (float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]])), -r[0]))
+            route_tiers.append(tier)
+        write_json(directory/'route_construction.json',construction)
+        # Keep eight proposals, while giving shorter/slower motion an actual turn.
+        stationary = [(0., p0.copy(), entry['resolved_yaw_rad'],
+                       yaw_matrix(entry['resolved_yaw_rad']) @ local_forward, 0.) for p0 in candidates[:4]
+                      if poly.covers(Point(p0[0], p0[2])) and route_preview_visible(
+                          scene, p0, p0, entry['resolved_yaw_rad'], source[0]['mouth_m'])]
+        routes = motion_route_attempts(route_tiers, requested_mode, stationary)
+        routes=[(route,mode,None)for route,mode in routes]
     failures = []
     begun = time.monotonic()
     ignore = {int(a['object'].object_id) for a in video.actors}
@@ -295,8 +304,8 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     # An old validation-house sole offset can bury the actual initial skin.
     placed_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(start)
     qualified_initial_root_offset = float(start[1] - placed_floor)
-    for (_, p0, yaw, direction, route_speed), mode in routes:
-        if time.monotonic() - begun > 1800:
+    for (_, p0, yaw, direction, route_speed), mode, curved_route in routes:
+        if not curved_motion and time.monotonic() - begun > 1800:
             break
         try:
             phase = np.mod(times * route_speed / source_speed, period)
@@ -310,6 +319,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             actual_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(p0)
             p0[1] = actual_floor + qualified_initial_root_offset
             roots = p0 + times[:, None] * route_speed * direction
+            frame_yaws=np.full(len(times),yaw)
+            if curved_route is not None:
+                roots=curved_route.positions.copy();roots[:,1]+=p0[1]-roots[0,1];frame_yaws=curved_route.yaws
             roots[:, 1] += [source[int(i)]['root_world_m'][1] - old_origin[1] for i in indices]
             snaps = np.asarray([video.pathfinder.snap_point(p) for p in roots])
             nav = float(np.max(np.linalg.norm((snaps - roots)[:, [0, 2]], axis=1)))
@@ -317,7 +329,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 raise ValueError('admitted animal route exceeds unchanged 2mm NavMesh drift')
             floor = PhysicalFloor(video, actual_floor, ignore)
             roots, rigid_placement = rigid_route_placement(
-                poses, meshes, roots, source, indices, yaw, floor, entry['declaration']['species_id'])
+                poses, meshes, roots, source, indices, frame_yaws, floor, entry['declaration']['species_id'])
             p0 = roots[0].copy()
             snaps = np.asarray([video.pathfinder.snap_point(p) for p in roots])
             nav = float(np.max(np.linalg.norm((snaps - roots)[:, [0, 2]], axis=1)))
@@ -326,16 +338,17 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             clearance = TriangleClearance(video, house, actual_floor, entry)
             frames, bounds, minimum = [], [], math.inf
             for i, (path, root) in enumerate(zip(poses, roots)):
-                if time.monotonic() - begun > 1800:
+                if not curved_motion and time.monotonic() - begun > 1800:
                     raise ValueError('bounded animal route search expired')
                 old = source[int(indices[i])]
+                frame_yaw=float(frame_yaws[i])
                 mesh = meshes[path]
-                dist, world = clearance.check(np.asarray(mesh.vertices), np.asarray(mesh.faces), root, yaw)
+                dist, world = clearance.check(np.asarray(mesh.vertices), np.asarray(mesh.faces), root, frame_yaw)
                 minimum = min(minimum, dist)
                 feet = {}
                 for side, old_foot in old['feet'].items():
                     local = local_paw(old, old_foot)
-                    sole = yaw_matrix(yaw) @ local + root
+                    sole = yaw_matrix(frame_yaw) @ local + root
                     delta = float(sole[1] - floor(sole))
                     planted = True if mode != 'walk_animation' else bool(old_foot['in_contact'])
                     foot = {'sole_local_m': local.tolist(), 'sole_world_m': sole.tolist(),
@@ -343,7 +356,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                     if mode == 'walk_animation' and planted:
                         if old_foot.get('support_world_m') is None:
                             raise ValueError('animated admission lacks its actual planted-paw target')
-                        foot.update(replay_paw_support(old, old_foot, root, yaw))
+                        foot.update(replay_paw_support(old, old_foot, root, frame_yaw))
                     elif mode != 'walk_animation':
                         foot.update(intentional_slide=mode == 'slide_no_animation', planted_gait_lock_applicable=False, static_supported_pose=mode == 'static_after_failed_route')
                     limit = OWNER_PRODUCTION_QUALITY['contact_gap_m']
@@ -397,6 +410,8 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'native_gates_changed': True, 'quality_gates_changed': True,'truth_or_scorer_changed':False,
                         'production_visual_quality_policy': dict(OWNER_PRODUCTION_QUALITY),
                         'truth_and_answer_gates_changed': False}
+            if curved_route is not None:
+                evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=bounds,scene_motion_execution=curved_route.receipt,animation_playback_multiplier=route_speed/source_speed,source_clip_root_speed_m_s=source_speed)
             write_json(directory / 'motion_geometry.json', evidence)
             return evidence
         except ValueError as error:

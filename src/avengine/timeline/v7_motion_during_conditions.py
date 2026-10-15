@@ -56,7 +56,7 @@ def prepare_motion_during_row(row,catalog,records):
         config={'query':{'qa_id':qa,'target_instance_ids':[target],'event':{'kind':'target_audible_window'}},
             'branch':branch,'instances':[{**x,'role':'anchor' if x['asset_id']==target else 'competitor'}for x in instances],
             'registry':registry,'sounds':sounds,'event_start_s':starts,
-            'budget':{'walk_speed_range_mps':[float(request['speed_m_s'])]*2,'reserve_tail_s':3.,'minimum_motion_s':float(request.get('minimum_motion_s',0.))}}
+            'budget':{'walk_speed_range_mps':request.get('speed_range_m_s',[float(request['speed_m_s'])]*2),'reserve_tail_s':3.,'minimum_motion_s':float(request.get('minimum_motion_s',0.))}}
         if qa=='QA-15':config['distance_trend_criterion']={'net_change_at_least_m':float(request.get('minimum_distance_change_m',1.5))}
         solution=_compile_and_solve(config)
         if not solution.solved:raise ValueError('conditioned_motion rejected: '+str(solution.rejections))
@@ -69,7 +69,11 @@ def prepare_motion_during_row(row,catalog,records):
             # stable sounding interval, not a change to the compiled interval.
             intervals.append([max(0.,float(offset)+lo/15.-.3),min(30.,float(offset)+hi/15.+.3)])
         motion.setdefault(target,[]).extend(intervals)
-        if qa=='QA-15':result['motion_requests'][target]['distance_trend']='approaching' if branch=='nearer' else 'receding'
+        if qa=='QA-15':
+            result['motion_requests'][target]['distance_trend']='approaching' if branch=='nearer' else 'receding'
+            placement=solution.placement_for(target)
+            result['motion_requests'][target]['distance_trend_intervals_s']=[[float(offset)+placement.start_frame/15.,float(offset)+placement.end_frame/15.]for offset in offsets]
+            result['motion_requests'][target]['minimum_distance_change_m']=float(request.get('minimum_distance_change_m',1.5))
         result['motion_requests'][target]['speed_m_s']=float(request['speed_m_s'])
         plans.append({'config':config,'solution':solution.to_dict(),'target_asset_id':target,'offsets_s':offsets,'execution_intervals_s':intervals})
     for aid,intervals in motion.items():
