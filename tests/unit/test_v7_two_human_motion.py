@@ -141,3 +141,23 @@ def test_following_people_reuse_one_narrow_corridor_with_independent_original_wi
         np.column_stack((q[:,0],np.zeros(901),q[:,1])))>=1.2
     assert layout['pair_mode']=='following'
     assert b['emission_slot']['start_s']>=a['short_window_walk']['walk_end_s']+10
+
+
+
+def test_shared_core_accepts_early_straight_candidate_without_optional_ramp():
+    from avengine.rooms.walkable_map import WalkableMap,VERSION,SPECIES_RADII_M
+    from avengine.construction.joint import RoomContext
+    from avengine.construction.joint.families.motion_human import core_corridor_proposals
+    room,pf=geometry();mask=np.ones((180,200),bool)
+    mapping=WalkableMap([0.,0.],.05,0.,{k:mask.copy()for k in SPECIES_RADII_M},
+        {'version':VERSION,'species_radii_m':SPECIES_RADII_M,'footprint_policy':'independent-radius-coverage-v2','room_id':'fixture'})
+    context=RoomContext(room,walkable_map=mapping,pathfinder=pf,camera_limit=6,grid_step_m=.5)
+    observed=[]
+    def partner(candidate):
+        observed.append('ramp_s'not in candidate['short_window_walk'])
+        return next(core_corridor_proposals(context,candidate,room,pf,first_branch='nearer',
+            second_duration_s=1.6,second_offset_s=20.),None)is not None
+    route=find_human_seed_route(room,pf,42,utterance_s=1.8,local_start_s=2.6,
+        post_motion_s=.6,candidate_validator=partner)
+    assert observed and any(observed)
+    assert route['short_window_walk']['ramp_s']==.3

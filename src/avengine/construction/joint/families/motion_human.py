@@ -65,9 +65,11 @@ def core_corridor_proposals(context, seed_route, room, pathfinder, *, first_bran
         xz=np.asarray(route['positions_xz_m'],float);w=route['short_window_walk']
         return ActorPlan(aid,np.column_stack((xz[:,0],np.full(901,room['measured_floor_y_m']),xz[:,1])),
             BodySpec.for_species('human'),np.asarray(route['travel_yaws_rad'],float),
-            metadata={'walk_intervals_s':[[w['walk_start_s'],w['walk_end_s']]],'ramp_s':w['ramp_s']})
+            metadata={'walk_intervals_s':[[w['walk_start_s'],w['walk_end_s']]],'ramp_s':w.get('ramp_s',.3)})
     a,b=actor('first',first),actor('second',second)
-    camera=CameraPose(tuple(seed_route['listener_m']),seed_route['camera_yaw_deg'],width=1280,height=720)
+    centre=np.mean(a.positions_m[[0,-1]],axis=0)-np.asarray(seed_route['listener_m'])
+    seed_yaw=seed_route.get('camera_yaw_deg',float(np.degrees(np.arctan2(centre[0],-centre[2]))))
+    camera=CameraPose(tuple(seed_route['listener_m']),seed_yaw,width=1280,height=720)
     parallel=paired_parallel_routes(context,a,b,camera=camera)if pair_mode=='opposing'else iter(())
     diagnostics={}
     independent=independent_straight_pair_routes(context,a,b,camera=camera,second_branch=second_branch,
