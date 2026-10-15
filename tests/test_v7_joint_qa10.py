@@ -2,8 +2,7 @@
 import pytest
 
 from avengine.construction.joint.families.qa10 import (
-    OcclusionDemand, certify_native_relation, full_body_in_view,
-    projected_lower_body_coverage,
+    OcclusionDemand, certify_native_relation,
 )
 
 pytestmark = pytest.mark.fast_unit
@@ -20,17 +19,26 @@ def native_probe():
 
 
 def test_near_foreground_feet_are_rejected_before_render():
-    assert not full_body_in_view([0, 1.25, 0], 0, [.2, 0, -1.8])
-    assert full_body_in_view([0, 1.10, 0], 0, [0, 0, -3.1], top_m=1.0)
-    assert full_body_in_view([0, 1.10, 0], 0, [0, 0, -4.2])
-    assert not full_body_in_view([0, 1.10, 0], 180, [0, 0, -4.2])
+    from avengine.construction.joint import CameraPose, BodySpec, framing
+    body = BodySpec("human", .4, 1.85, 0.)
+    assert framing(CameraPose((0,1.25,0),0), [.2,0,-1.8], body)[0] == "edge"
+    camera = CameraPose((0,1.1,0),0)
+    assert framing(camera, [0,0,-3.1], BodySpec("slide",.4,1.,0.))[0] == "inside"
+    assert framing(camera, [0,0,-4.2], body)[0] == "inside"
+    assert framing(CameraPose((0,1.1,0),180), [0,0,-4.2], body)[0] == "outside"
 
 
-def test_registered_low_object_hides_legs_while_torso_can_be_reviewed():
-    height = projected_lower_body_coverage(1.1, 4.2, 3.1, .95)
-    assert .85 < height < .95
-    with pytest.raises(ValueError, match="in front"):
-        projected_lower_body_coverage(1.1, 3.1, 4.2, .95)
+def test_registered_low_object_uses_shared_partial_visibility_prediction():
+    import numpy as np
+    from avengine.construction.joint import CameraPose, BodySpec, DepthBuffer, predict_visibility
+    camera = CameraPose((0,1.1,0),0,width=128,height=72)
+    depth = DepthBuffer(camera,np.full((72,128),np.inf),None,"visual_mesh",{})
+    prediction = predict_visibility(camera,[0,0,-4.2],BodySpec("human",.4,1.85,0.),
+        depth=depth,occluders=(("speaker",[0,0,-3.1],BodySpec("slide",.3,.95,0.)),))
+    assert prediction.state == "visible_occluded"
+    assert prediction.occluder_ids == ("speaker",)
+    assert .25 < prediction.occluded_fraction < .65
+    assert prediction.visible_pixels_lower == 0  # proxy is not native truth
 
 
 def test_native_identity_must_be_the_requested_unique_registered_occluder():
@@ -79,7 +87,15 @@ def row_inputs():
         "transcript": "Please put the package beside the door.",
         "synthesis_readback": {"duration_s": 1.5},
         "voice_reference": {"speaker_id": "male1", "gender": "male"}}]}
+    positions = {"target": [0.,0.,-4.2], "speaker": [0.,0.,-3.1], "companion": [1.5,0.,-3.2]}
+    pins = {aid: {"surface": "floor", "original_surface_point_m": p, "normal": [0.,1.,0.],
+                  "floor_y": 0., "_outward_clearance_m": 0., "yaw_rad": 0.,
+                  "joint_solved_pose": True, "joint_expected_root_m": p}
+            for aid, p in positions.items()}
     plan = SimpleNamespace(
+        metadata={"source_playback_starts_s": {"companion": [0., 10., 20.]},
+                  "native_bindings": {"native_attachment_supports": pins,
+                  "native_placement_preferences_m": positions, "joint_strict_placement": True}},
         camera=SimpleNamespace(position_m=[0., 1.1, 0.], yaw_deg=0.),
         sounds=tuple(SimpleNamespace(entity_id="companion", sound_id="whole", sound_class="speech_playback",
                                      start_s=t, end_s=t+1.5, wet_end_s=t+2.) for t in (0., 10., 20.)),
@@ -134,6 +150,7 @@ def test_support_site_keeps_the_walkable_maps_measured_floor_height():
     from avengine.construction.joint.families.qa10 import build_qa10_row
     room, house, assets, semantic, contract, plan, cert = row_inputs()
     plan.actors["target"].positions_m[:, 1] = .017
+    plan.metadata["native_bindings"]["native_attachment_supports"]["target"]["original_surface_point_m"][1] = .017
     row = build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
                          assets[0], assets[2], assets[1], scene_id="terrain", seed=8)["row"]
     assert row["native_attachment_supports"]["target"]["original_surface_point_m"][1] == .017
@@ -146,7 +163,30 @@ def test_native_program_uses_the_core_solved_event_times():
     room, house, assets, semantic, contract, plan, cert = row_inputs()
     for e in plan.sounds:
         e.start_s += 1.; e.end_s += 1.; e.wet_end_s += 1.
+    plan.metadata["source_playback_starts_s"]["companion"] = [1., 11., 21.]
     row = build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
                          assets[0], assets[2], assets[1], scene_id="clock", seed=8)["row"]
     assert row["phase2_authored_speech_schedule_s"] == {"companion": [1., 11., 21.]}
     assert row["semantic_start_offsets_s"] == [1.]
+
+
+
+def test_measured_activity_does_not_repeat_the_whole_utterance_at_each_syllable():
+    from types import SimpleNamespace
+    from avengine.construction.joint.families.qa10 import build_qa10_row
+    room, house, assets, semantic, contract, plan, cert = row_inputs()
+    plan.sounds = tuple(SimpleNamespace(entity_id="companion", sound_id="whole",
+        sound_class="speech_playback", start_s=t+a, end_s=t+b, wet_end_s=t+b+.5)
+        for t in (0.,10.,20.) for a,b in ((.2,.7),(.9,1.4)))
+    row = build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
+                         assets[0], assets[2], assets[1], scene_id="activity", seed=8)["row"]
+    assert row["phase2_authored_speech_schedule_s"]["companion"] == [0.,10.,20.]
+
+
+def test_native_binding_rejects_post_solver_position_changes():
+    from avengine.construction.joint.families.qa10 import build_qa10_row
+    room, house, assets, semantic, contract, plan, cert = row_inputs()
+    plan.actors["target"].positions_m[:,0] += .1
+    with pytest.raises(ValueError, match="binding poses differ"):
+        build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
+                       assets[0], assets[2], assets[1], scene_id="changed", seed=8)
