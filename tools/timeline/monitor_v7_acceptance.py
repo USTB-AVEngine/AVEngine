@@ -37,6 +37,17 @@ def stop(records):
   if actual and actual['start_ticks']==v['start_ticks']and actual['cmd']==v['cmd']:
    os.kill(v['pid'],signal.SIGTERM)
 
+def next_parent_log(root,slot):
+ path=Path(root)/'logs'/f'parent_{slot:03d}.log'
+ if path.exists():path=path.with_name(f'parent_{slot:03d}_launch_{time.time_ns()}.log')
+ return path
+
+
+def retained_parent_log(root,slot):
+ marker=Path(root)/'evidence/launches'/f'{slot:03d}.json'
+ return Path(load(marker)['log'])if marker.is_file()else Path(root)/'logs'/f'parent_{slot:03d}.log'
+
+
 def allocated(root):
  return int(subprocess.check_output(['du','-sx','-B1',str(root)],text=True).split()[0])
 
@@ -153,14 +164,14 @@ def main():
   if d.get('status')=='running':
    record=proc(d['pid'])
    if record and str(o)in record['cmd']and 'run_v7_acceptance.py'in record['cmd']:
-    active[d['slot']]={'process':AdoptedProcess(record),'stream':(o/'logs'/f"parent_{d['slot']:03d}.log").open('a')}
+    active[d['slot']]={'process':AdoptedProcess(record),'stream':retained_parent_log(o,d['slot']).open('a')}
 
  for launch in (o/'evidence/launches').glob('*.json'):
   slot=int(launch.stem)
   if slot in active:continue
   d=load(launch);live=proc(d['pid'])
   if live and str(o)in live['cmd'] and 'run_v7_acceptance.py'in live['cmd'] and ('--worker '+str(slot)+' ')in (live['cmd']+' '):
-   active[slot]={'process':AdoptedProcess(live),'stream':(o/'logs'/f'parent_{slot:03d}.log').open('a')}
+   active[slot]={'process':AdoptedProcess(live),'stream':retained_parent_log(o,slot).open('a')}
  pending=[slot for slot in pending if slot not in active]
 
  for n in ['ue_tmp','ue_shm','ue_config']:(o/n).mkdir(exist_ok=True)
@@ -220,7 +231,7 @@ def main():
   if time.monotonic()-last_watch>=300 or not last_watch:
    rows=[]
    for slot,v in active.items():
-    tree=processes([v['process'].pid]);cpu=sum(r['cpu_s']for r in tree);old=previous.get(slot,{});log=o/'logs'/f'parent_{slot:03d}.log';mtime=log.stat().st_mtime if log.exists()else 0
+    tree=processes([v['process'].pid]);cpu=sum(r['cpu_s']for r in tree);old=previous.get(slot,{});log=Path(v['stream'].name);mtime=log.stat().st_mtime if log.exists()else 0
     entry={'slot':slot,'pid':v['process'].pid,'cpu_s':cpu,'cpu_growth_s':cpu-old.get('cpu_s',0),'log_mtime':mtime,'log_updated':mtime>old.get('log_mtime',0),'pipe_write_pids':[r['pid']for r in tree if 'pipe_write'in r['wchan']]};rows.append(entry);previous[slot]=entry
    snap={'time_utc':now.isoformat(),'active':rows,'PSS_bytes':pss,'peer_PSS_bytes':peer_pss,'combined_PSS_bytes':pss+peer_pss,'MemAvailable_bytes':mem,'data_free_bytes':free,'allocated_task_bytes':size,'admission_limits':limits,'resource_limit_scope':'own acceptance workload; peers observed; host memory floor shared','completed':len(completed),'pause':pause or resource_pause}
    with (o/'WATCH_LOG.md').open('a')as f:f.write(now.isoformat()+' '+json.dumps(snap,ensure_ascii=False)+'\n')
@@ -276,8 +287,8 @@ def main():
       for n in ['nvidiactl','nvidia2','nvidia-uvm','nvidia-uvm-tools']:
        if Path('/dev/'+n).exists():prefix+=['--dev-bind','/dev/'+n,'/dev/'+n]
       cmd=prefix+['--chdir',str(w)]+cmd
-     stream=(o/'logs'/f'parent_{slot:03d}.log').open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,stdin=subprocess.DEVNULL)
-     active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(o/'logs'/f'parent_{slot:03d}.log'),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
+     log_path=next_parent_log(o,slot);stream=log_path.open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,stdin=subprocess.DEVNULL)
+     active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(log_path),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
     target=task.get('target_family')
     if target:active_families[target]+=1
     if not smoke and m.get('require_single_parent_smoke',True):break
