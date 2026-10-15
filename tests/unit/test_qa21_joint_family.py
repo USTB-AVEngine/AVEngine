@@ -268,3 +268,12 @@ def test_exact_target_visibility_is_part_of_the_single_source_domain(tmp_path):
     blocked=NS(depth=lambda _:DepthBuffer(camera,np.ones((180,320)),source='visual_mesh'))
     assert plugin.point_visible(clear,camera,body,np.array([0.,0.,-3.8]))
     assert not plugin.point_visible(blocked,camera,body,np.array([0.,0.,-3.8]))
+
+
+def test_proven_outside_target_points_do_not_launch_near_plane_full_image_rays():
+    from avengine.construction.joint import CameraPose, BodySpec
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    body=BodySpec('cat',.3,.5,.04);camera=CameraPose((0.,1.25,0.),0.,width=320,height=180)
+    plugin=Qa21Plugin({'cat':body},{'cat':'inside'},'cat','cat_meow',
+        assets={'cat':{'habitat_glb':'not_opened.glb','kind':'animal','species_id':'cat'}})
+    assert not plugin.point_visible(None,camera,body,np.array([.6,0.,0.]))
