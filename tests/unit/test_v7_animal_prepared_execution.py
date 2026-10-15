@@ -42,3 +42,19 @@ def test_changed_solved_inputs_are_rejected_before_any_native_pose_execution(tmp
     elif change=='source_mode':request['animal_motion_admission']['mode']='walk_animation'
     else:house['room']['room_label']='another_room'
     with pytest.raises(ValueError):load_prepared_geometry(entry,scene,house,request)
+
+
+def test_native_capture_receipt_directory_exists_when_prepared_geometry_is_reused(tmp_path):
+    from avengine.assets.animal_motion.production_episode import compile_admitted_animal
+    entry,scene,house,request,path,roots=prepared(tmp_path)
+    before=path.read_bytes()
+    destination=tmp_path/'standing'/'motion_voice1'
+    record=compile_admitted_animal(None,entry,scene,house,{},destination,request)
+    receipt=json.loads((destination/'motion_geometry.json').read_text())
+    assert receipt==record
+    assert receipt['pose_glbs']==json.loads(before)['record']['pose_glbs']
+    np.testing.assert_array_equal(receipt['world_roots_m'],roots)
+    assert path.read_bytes()==before
+    from avengine.timeline.continuous_pilot import write_json
+    write_json(destination/'native_motion_readbacks.json',{'frames':901})
+    assert json.loads((destination/'native_motion_readbacks.json').read_text())['frames']==901

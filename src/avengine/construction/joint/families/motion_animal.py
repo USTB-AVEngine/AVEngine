@@ -416,8 +416,9 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
     (output/'joint_solve_result.json').write_text(__import__('json').dumps(report,indent=2)+'\n')
     if result.status!='certified' or result.prepared is None:
         raise ValueError('animal joint solver did not prepare a certified scene: '+str(result.reasons))
-    row=deepcopy(result.plan.metadata['row'])
+    prepared=result.prepared.payload
+    row=prepared.row
     row['joint_solver_certificate']=report
     row['joint_prepared_scene_required']=True
-    return {'profile':'phase2','row':row,'prepared':result.prepared.payload,
+    return {'profile':'phase2','row':row,'prepared':prepared,'prepared_native':prepared,
             'joint_plan':result.plan,'joint_certificate':result.certificate}
