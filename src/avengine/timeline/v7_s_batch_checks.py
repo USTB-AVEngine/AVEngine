@@ -1,7 +1,7 @@
 """Read sealed v7-S media and coverage; never manufacture missing supervision."""
 from pathlib import Path
 from collections import Counter,defaultdict
-import json,subprocess
+import json,subprocess,hashlib
 import numpy as np
 import soundfile as sf
 
@@ -57,18 +57,26 @@ def open_delivered_media(root):
         if not manifest.is_file():continue
         for line in manifest.open():
             r=json.loads(line);media.setdefault(r['window_id'],r)
-    checked=0;errors=[]
+    checked=0;errors=[];video_proofs={};video_reuse=0
     for wid,r in media.items():
         try:
             video=root/r['video'];foa=root/r['audio_foa'];mono=root/r['audio_mono']
             # Paths must be real delivered files, not a capture identity string.
             if any(not p.is_file() or not p.resolve().is_relative_to(root.resolve()) for p in (video,foa,mono)):raise ValueError('unresolved or escaping actual media path')
-            probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=width,height,nb_read_frames,duration','-of','json',str(video)]))['streams'][0]
-            if int(probe['nb_read_frames'])!=150 or abs(float(probe['duration'])-10)>1e-6:raise ValueError('10-second native video clock')
-            frame=subprocess.check_output(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-threads','1','-i',str(video),'-frames:v','1','-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'])
-            if len(frame)!=int(probe['width'])*int(probe['height'])*3:raise ValueError('actual RGB decode failed')
+            h=hashlib.sha256()
+            with video.open('rb')as stream:
+                for block in iter(lambda:stream.read(1024*1024),b''):h.update(block)
+            video_sha=h.hexdigest()
+            if video_sha not in video_proofs:
+                probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-threads','1','-count_frames','-select_streams','v:0','-show_entries','stream=width,height,nb_read_frames,duration','-of','json',str(video)]))['streams'][0]
+                if int(probe['nb_read_frames'])!=150 or abs(float(probe['duration'])-10)>1e-6:raise ValueError('10-second native video clock')
+                frame=subprocess.check_output(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-threads','1','-i',str(video),'-frames:v','1','-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'])
+                if len(frame)!=int(probe['width'])*int(probe['height'])*3:raise ValueError('actual RGB decode failed')
+                if hashlib.sha256(video.read_bytes()).hexdigest()!=video_sha:raise ValueError('video bytes changed during actual reader')
+                video_proofs[video_sha]=probe
+            else:video_reuse+=1
             x,sr=sf.read(foa,dtype='float32',always_2d=True);y,ysr=sf.read(mono,dtype='float32',always_2d=True)
             if sr!=16000 or ysr!=sr or x.shape!=(160000,4) or not np.isfinite(x).all() or not np.array_equal(x[:,:1],y):raise ValueError('FOA, W mono or clock differs')
             checked+=1
         except Exception as error:errors.append({'window_id':wid,'error':str(error)})
-    return {'status':'pass' if checked and not errors else 'blocked','hostname':__import__('socket').gethostname(),'actual_decoded_windows':checked,'unique_windows':len(media),'errors':errors,'GPU_started':False,'method':'ffprobe all frames + ffmpeg actual first RGB frame + soundfile complete FOA and W-mono read'}
+    return {'status':'pass' if checked and not errors else 'blocked','hostname':__import__('socket').gethostname(),'actual_decoded_windows':checked,'unique_windows':len(media),'errors':errors,'GPU_started':False,'actual_unique_video_decodes':len(video_proofs),'same_video_bytes_reuse_windows':video_reuse,'method':'ffprobe all frames + ffmpeg actual first RGB frame per actual video SHA256; soundfile complete FOA and W-mono read in every window'}
