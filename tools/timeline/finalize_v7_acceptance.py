@@ -67,7 +67,10 @@ def finalize(manifest_path):
         temporary.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows));temporary.replace(index)
         reader=open_delivered_media(root/'export')
         if reader['status']!='pass':raise ValueError('final post-dedup model reader failed')
-        record_batch_selection(root/'inputs/demand_state.json',rows)
+        from avengine.timeline.v7_source_usage import for_manifest
+        source_usage=for_manifest(manifest,receipts,rows)
+        if source_usage is not None:save(root/'evidence/SOURCE_USAGE.json',source_usage)
+        record_batch_selection(root/'inputs/demand_state.json',rows,source_usage=source_usage)
         result={'status':'pass','time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'input_fingerprint':delivery_fingerprint(manifest),'dataset_role':'acceptance_only','independent_questions':len(rows),'native_admitted_parents':len(receipts),
             'houses':len({r['house']for r in rows}),'modality_counts':dict(Counter(r['modality']for r in rows)),

@@ -76,7 +76,7 @@ FAMILY_SCENE_REQUIREMENTS = {'QA-01': {'title_zh': '外观→是否发声',
            'conditions': ['moving_and_static_speaking_bodies', 'stable_native_motion_during_event']},
  'QA-07': {'title_zh': '从哪侧入画',
            'conditions': ['actual_left_or_right_entry',
-                          'camera_sweep_or_source_motion',
+                          'source_motion_with_fixed_camera',
                           'modal_target_pixel_stream']},
  'QA-08': {'title_zh': '发声时可见状态',
            'conditions': ['in_frame_and_offscreen_events', 'clear_and_occluded_pixel_states']},
@@ -151,7 +151,7 @@ FAMILY_SCENE_REQUIREMENTS = {'QA-01': {'title_zh': '外观→是否发声',
                                     'complete_live_speech_activity']},
  'STARSS-FRUSTUM': {'title_zh': '声音在画内/画外',
                     'conditions': ['in_and_out_frustum_source_slots',
-                                   'actual_camera_track',
+                                   'actual_fixed_camera_pose_readbacks',
                                    'measured_direction']},
  'STARSS-CLASS13': {'title_zh': 'STARSS13 类别',
                     'conditions': ['admitted_STARSS13_source_classes', 'correct_live_or_device_mechanism']},
@@ -182,7 +182,11 @@ def demand_snapshot(state, *, next_questions=14):
     # by one, so a large gap cannot monopolize a crop with repeated stems.
     selection={f:-min(1.,gap/max(1.,horizon*targets[f]))*(1.+.1*(priority.get(f,1)-1))
                for f,gap in deficits.items()}
-    return {'revision':DEMAND_REVISION,'observed_logical_questions':total,'observed_family_counts':dict(counts),
+    from avengine.timeline.v7_answer_branch_demand import construction_request
+    population=construction_request(state)
+    return {'offscreen_population_request':population,'answer_branch_deficits':population['answer_branch_deficits'],
+            'source_inventory_requests':deepcopy(state.get('source_inventory_requests',[])),
+            'revision':DEMAND_REVISION,'observed_logical_questions':total,'observed_family_counts':dict(counts),
             'next_question_horizon':horizon,'target_shares':dict(targets),'family_deficits':deficits,
             'selection_counts':selection,'condition_families':deepcopy(CONDITION_FAMILIES),
             'family_scene_requirements':deepcopy(FAMILY_SCENE_REQUIREMENTS)}

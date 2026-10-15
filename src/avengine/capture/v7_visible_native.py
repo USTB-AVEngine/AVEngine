@@ -367,7 +367,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 # to check_support's proposed root. Every surviving candidate
                 # still runs all original rays, contacts and real native pixels.
                 proposed_root,proposed_yaw,_,_=support_points(meta,support)
-                spacing=spacing_rejection(a,proposed_root,placed)
+                spacing=spacing_rejection(a,proposed_root,placed,camera_position=scene['listener_m'])
                 if spacing:
                     reject(spacing['reason']);continue
                 if noncollinear_rejection(a,proposed_root,placed):

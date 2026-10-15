@@ -275,7 +275,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     native_trial_limit=max(24,min(256,int(request.get('maximum_native_route_attempts',32))))
     last_route_receipt={}
     def save_route_trials(selected=None):
-        write_json(directory/'motion_route_attempt_summary.json',{'minimum_full_trials_before_exhaustion':24,'full_gate_attempted':prefilter['full_gate_attempted'],'prefilter':prefilter,'failures':failures,'selected_full_trial':selected,'last_candidate_receipt':last_route_receipt,'cpu_seconds':time.process_time()-route_cpu_started,'required_gate_unchanged':True})
+        from avengine.assets.roster_motion.diagnostics import write_route_summary
+        write_route_summary(directory/'motion_route_attempt_summary.json',{'minimum_full_trials_before_exhaustion':24,'full_gate_attempted':prefilter['full_gate_attempted'],'prefilter':prefilter,'failures':failures,'selected_full_trial':selected,'last_candidate_receipt':last_route_receipt,'cpu_seconds':time.process_time()-route_cpu_started,'required_gate_unchanged':True})
     proposals=curved_route_proposals(video,entry,scene,distance,np.array([0.,0.,-1.]),request) if curved_motion else None
     candidate_stream=((route.positions[0],route)for route in proposals) if curved_motion else ((point,None)for point in candidates[:512])
     for p0,curved_route in candidate_stream:

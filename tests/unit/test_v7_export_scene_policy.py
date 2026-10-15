@@ -79,3 +79,10 @@ def test_complete_native_parent_and_cross_window_camera_gate(tmp_path):
     last=root/'pool'/windows[-1]['window_id']/'candidate_audit.json';data=json.loads(last.read_text());data['facts']['listener']['yaw_deg']=[1]*150;put(last,data)
     result=inspect_parent_policy(seal)
     assert result['status']=='fail'and 'v0_a0:listener_moved_across_windows'in result['reasons']
+
+
+def test_person_camera_clearance_uses_horizontal_roots_and_every_frame():
+    a={'a':{'species_id':'human','root_positions_m':[[0,0,-1.4],[0,0,-1.19]]}}
+    assert 'person_camera_clearance_below_1_2m'in layout_metrics(a,listener_positions=[[0,1.3,0]]*2)['reasons']
+    a['a']['root_positions_m']=[[0,0,-1.4],[0,0,-1.2]]
+    assert layout_metrics(a,listener_positions=[[0,1.3,0]]*2)['status']=='pass'

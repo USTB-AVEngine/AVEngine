@@ -138,20 +138,28 @@ def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_
     return rows,report
 
 
-def record_batch_selection(path,rows):
+def record_batch_selection(path,rows,*,source_usage=None):
     """Feedback uses the final independent export, including modality selection."""
     from avengine.timeline.v7_demand import read_demand_state,demand_snapshot
     path=Path(path);groups=defaultdict(list)
     for row in rows:groups[row['independent_parent_scene_id']].append(row)
     with path.with_suffix(path.suffix+'.lock').open('a')as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX);state=read_demand_state(path)
+        fcntl.flock(lock,fcntl.LOCK_EX);state=read_demand_state(path);current_keys=set()
         for scene,selected in groups.items():
             key=next((k for k,v in state['parents'].items()if v.get('scene_id')==scene),scene)
+            current_keys.add(key)
             old=state['parents'].get(key,{})
             state['parents'][key]={**old,'scene_id':scene,'logical_questions':len(selected),
                 'family_counts':dict(Counter(r['qa_id']for r in selected)),
                 'modality_counts':dict(Counter(r['modality']for r in selected)),
                 'post_dedup_selection_revision':REVISION}
+        state['parents']={k:v for k,v in state['parents'].items()if k in current_keys}
+        from avengine.timeline.v7_answer_branch_demand import summarize
+        state['answer_branch_distribution']=summarize(rows)
+        if source_usage is not None:
+            state.update(source_record_usage_counts=source_usage['recording_counts'],
+                source_entity_usage_counts=source_usage['sounding_entity_counts'],source_class_usage_counts=source_usage['registered_class_counts'],
+                authored_voice_counts=source_usage['authored_voice_counts'],source_inventory_requests=source_usage.get('next_inventory_requests',[]))
         counts=Counter();modalities=Counter()
         for parent in state['parents'].values():counts.update(parent['family_counts']);modalities.update(parent.get('modality_counts',{}))
         state.update(logical_questions=sum(counts.values()),family_counts=dict(counts),modality_counts=dict(modalities),

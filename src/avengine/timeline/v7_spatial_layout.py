@@ -25,9 +25,12 @@ def entry_roots(entry):
     return np.asarray(root,float)[None,:]
 
 
-def spacing_rejection(declaration, roots, others):
+def spacing_rejection(declaration, roots, others, camera_position=None):
     """Check actual proposed centres over the full route, including parked bodies."""
     roots = np.asarray(roots, float).reshape(-1, 3)
+    if is_person(declaration)and camera_position is not None:
+        clearance=float(np.linalg.norm((roots-np.asarray(camera_position))[:,[0,2]],axis=1).min())
+        if clearance<1.5-1e-6:return {'reason':'person_camera_clearance_below_construction_1_5m','minimum_camera_distance_m':clearance,'required_distance_m':1.5}
     for other in others:
         if other.get('phase2_layout_qualified') is False:
             continue
@@ -84,6 +87,7 @@ def separated_layout(layout, count):
             return (min(separation,2.), -abs(np.linalg.norm((root-listener)[[0,2]])-3.))
         pool.sort(key=score,reverse=True)
         candidate = pool.pop(0);root=np.asarray(candidate['position_m'])
+        if np.linalg.norm((root-listener)[[0,2]])<1.5-1e-6:continue
         if any(np.linalg.norm((root-np.asarray(p['position_m']))[[0,2]])<1. for p in selected):
             continue
         if len(selected)>=2:

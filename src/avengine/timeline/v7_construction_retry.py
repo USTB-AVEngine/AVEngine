@@ -7,7 +7,7 @@ import fcntl,json,os
 def spatial_construction_failure(receipt):
     reason=str(receipt.get('reason',''))
     return receipt.get('error_type')=='ValueError'and any(s in reason for s in (
-        'no strict native ', 'final registered scene occludes',
+        'person_camera_clearance', 'scene delivery policy failed:', 'no strict native ', 'final registered scene occludes',
         'requested registered occlusion', 'room cannot supply requested count',
         'no strict native floor', 'bounded native NavMesh', 'no fully qualified new-house walking route'))
 

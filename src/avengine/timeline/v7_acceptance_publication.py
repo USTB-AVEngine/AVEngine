@@ -4,7 +4,7 @@ from collections import Counter
 import datetime,fcntl,json,os
 from avengine.timeline.v7_generation_scope import assert_new_generation_output
 from avengine.timeline.v7_english_export import validate_english_model_text
-from avengine.timeline.v7_export_scene_policy import REVISION
+from avengine.timeline.v7_export_scene_policy import REVISION,cached_parent_policy
 
 
 def publish_current_parents(root):
@@ -14,8 +14,20 @@ def publish_current_parents(root):
         for path in sorted((root/'evidence/jobs').glob('[0-9][0-9][0-9].json')):
             receipt=json.loads(path.read_text())
             if receipt.get('status')!='passed':continue
-            policy=receipt['export'].get('scene_delivery_policy',{})
-            if policy.get('status')!='pass'or policy.get('revision')!=REVISION:raise ValueError('cannot publish a parent without the current four delivery gates')
+            policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            prior=receipt['export'].get('scene_delivery_policy',{})
+            if prior.get('revision')!=REVISION or policy['status']!='pass':
+                from avengine.timeline.v7_admitted_pool_reselection import save
+                history=root/'evidence/policy_history'/(path.stem+'_'+str(prior.get('revision','unknown'))+'.json')
+                if not history.exists():save(history,receipt)
+                receipt['export']['scene_delivery_policy']=policy
+                if policy['status']!='pass':
+                    receipt.update(status='failed',error_type='ValueError',reason='scene delivery policy failed: '+';'.join(policy['reasons']),latest_owner_policy_rejected=True)
+                save(path,receipt)
+            if policy['status']!='pass':
+                from avengine.timeline.v7_construction_retry import queue_construction_retry
+                queue_construction_retry(root/'inputs/ACCEPTANCE_PLAN.json',receipt)
+                continue
             if receipt.get('reader',{}).get('status')!='pass':raise ValueError('cannot publish before actual parent media readback')
             assert_new_generation_output(receipt['export']['source_seal'])
             table=root/'export/parent_rows'/f"{receipt['slot']:03d}.jsonl"
@@ -25,6 +37,12 @@ def publish_current_parents(root):
         if len(set(ids))!=len(ids):raise ValueError('duplicate physical parent publication rows')
         table=root/'export/train.jsonl';temporary=table.with_name(table.name+f'.{os.getpid()}.tmp')
         temporary.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows));temporary.replace(table)
+        from avengine.timeline.v7_source_usage import for_manifest
+        from avengine.timeline.v7_admitted_pool_reselection import record_batch_selection,save
+        manifest=json.loads((root/'inputs/ACCEPTANCE_PLAN.json').read_text())
+        usage=for_manifest(manifest,parents,rows)
+        if usage is not None:save(root/'evidence/SOURCE_USAGE.json',usage)
+        record_batch_selection(root/'inputs/demand_state.json',rows,source_usage=usage)
         family=Counter(r['qa_id']for r in rows);modality=Counter(r['modality']for r in rows)
         result={'status':'partial_parents_individually_passed','generated_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'dataset_role':'acceptance_only','independent_questions':len(rows),'passed_parents':len(parents),'houses':len({r['house']for r in rows}),

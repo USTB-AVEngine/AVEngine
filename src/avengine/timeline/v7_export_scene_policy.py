@@ -9,7 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 import numpy as np
 
-REVISION='v7-fixed-observer-natural-layout-measured-speed-v1'
+REVISION='v7-fixed-observer-natural-layout-measured-speed-camera-clearance-v2'
 SPEED_RANGES={'human':(.8,1.4),'dog':(.5,1.2),'cat':(.3,.8),'slide':(.2,.5)}
 
 
@@ -66,6 +66,11 @@ def layout_metrics(actors,headings=None,listener_positions=None):
     # 0.8m is the construction/export spacing for mixed species; the original
     # complete mesh collision and body-envelope checks still apply separately.
     if animal_min<.8-1e-6:reasons.append('human_animal_centres_under_0_8m')
+    camera_min=None
+    if listener_positions is not None and people:
+        camera=np.unique(np.asarray(listener_positions,float)[:,[0,2]],axis=0)
+        camera_min=min(float(np.linalg.norm(positions[:,None,[0,2]]-camera[None,:,:],axis=2).min())for positions in people.values())
+        if camera_min<1.2-1e-6:reasons.append('person_camera_clearance_below_1_2m')
     natural=None
     if len(keys)>=3:
         if not headings or any(k not in headings for k in keys):reasons.append('missing_actual_human_heading_readbacks')
@@ -81,7 +86,7 @@ def layout_metrics(actors,headings=None,listener_positions=None):
                 actual=np.column_stack((np.sin(ys),np.cos(ys)));cosines=(actual*toward).sum(axis=1)/np.maximum(1e-9,np.linalg.norm(toward,axis=1))
                 if np.all(cosines>=math.cos(math.radians(25))):reasons.append('all_humans_in_row_facing_camera')
     return {'status':'fail'if reasons else'pass','minimum_human_centre_distance_m':minimum if math.isfinite(minimum)else None,
-        'minimum_human_animal_centre_distance_m':animal_min if math.isfinite(animal_min)else None,'orientation':natural,'reasons':reasons}
+        'minimum_human_animal_centre_distance_m':animal_min if math.isfinite(animal_min)else None,'minimum_person_camera_horizontal_distance_m':camera_min,'orientation':natural,'reasons':reasons}
 
 
 def _load(path):return json.loads(Path(path).read_text())

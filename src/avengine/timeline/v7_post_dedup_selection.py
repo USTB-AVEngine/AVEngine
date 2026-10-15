@@ -35,7 +35,8 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
     quotas={m:units*n for m,n in WEIGHTS.items()}
     available_families=Counter(e['row']['qa_id']for e in pool)
     floors={f:min(max(minimum_family,(family_minimums or {}).get(f,minimum_family)),n)for f,n in available_families.items()}
-    used=set();counts=Counter();families=Counter();parents=Counter();selected=[]
+    from avengine.timeline.v7_answer_branch_demand import branch,selection_priority,summarize
+    used=set();counts=Counter();families=Counter();parents=Counter();selected=[];branch_counts=Counter()
     byfamily=defaultdict(list);byparent=defaultdict(list)
     for i,e in enumerate(pool):
         byfamily[e['row']['qa_id']].append(i)
@@ -46,12 +47,14 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
         if counts[m]>=quotas[m]:return False
         used.add(i);selected.append(pool[i]);counts[m]+=1
         families[r['qa_id']]+=1;parents[r['independent_parent_scene_id']]+=1
+        branch_counts[(r['qa_id'],branch(r))]+=1
         return True
     # Reserve scarce families before common families consume a modality budget.
     for family in sorted(byfamily,key=lambda f:(len(byfamily[f]),f)):
-        for i in byfamily[family]:
-            if families[family]>=floors[family]:break
-            take(i)
+        while families[family]<floors[family]:
+            choices=[i for i in byfamily[family]if i not in used and counts[pool[i]['row']['modality']]<quotas[pool[i]['row']['modality']]]
+            if not choices:break
+            take(min(choices,key=lambda i:(selection_priority(pool[i]['row'],families,branch_counts),i)))
         if families[family]<floors[family]:
             raise ValueError('modality budget cannot preserve the available family floor: '+family)
     # All admitted parents and houses remain represented in the balanced batch.
@@ -63,7 +66,7 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
     for modality in WEIGHTS:
         candidates=[i for i,e in enumerate(pool)if e['row']['modality']==modality and i not in used]
         while counts[modality]<quotas[modality]:
-            i=min(candidates,key=lambda j:(families[pool[j]['row']['qa_id']],parents[pool[j]['row']['independent_parent_scene_id']],j))
+            i=min(candidates,key=lambda j:(families[pool[j]['row']['qa_id']],selection_priority(pool[j]['row'],families,branch_counts),parents[pool[j]['row']['independent_parent_scene_id']],j))
             candidates.remove(i);take(i)
     selected.sort(key=lambda e:(e['row']['independent_parent_scene_id'],float(e['row']['window_start_s']),e['row']['question_id']))
     report={'revision':REVISION,'input_rows':len(entries),'independent_candidate_rows':len(pool),
@@ -72,5 +75,6 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
         'selected_family_counts':dict(families),'available_family_floors':floors,
         'represented_parents':len(parents),'target_proportions':{m:w/20 for m,w in WEIGHTS.items()},
         'independent_candidates_not_selected':len(pool)-len(selected),
+        'answer_branch_distribution':summarize([e['row']for e in selected]),
         'source_candidates_and_answers_changed':False}
     return [e['row']for e in selected],report
