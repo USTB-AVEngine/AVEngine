@@ -10,7 +10,8 @@ import hashlib,math,random,itertools
 
 REVISION='v7-room-family-constructors-20261015-v1'
 FAMILIES=('QA-16','QA-17','QA-13','QA-10','QA-28','QA-21','V7-CLASS34',
-          'V7-CONTENT-BIND','QA-01','QA-03','QA-19','QA-26','QA-27')
+          'V7-CONTENT-BIND','QA-01','QA-03','QA-19','QA-26','QA-27',
+          'QA-04','QA-08','QA-20','QA-24','QA-25','STARSS-FRUSTUM')
 POST_FAMILIES={'QA-13','QA-16','QA-17'}
 
 class ConstructionUnavailable(ValueError):
@@ -145,6 +146,9 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
     from avengine.timeline.v7_production_inputs import validate_recipe
     family=family or next_family(state)
     if family not in FAMILIES:raise ConstructionUnavailable('family belongs to the separate motion/UE constructor: '+family)
+    from avengine.timeline.v7_offscreen_construction import OFFSCREEN_FAMILIES,construct_offscreen_scene
+    if family in OFFSCREEN_FAMILIES:
+        return construct_offscreen_scene(room,house,state,catalog,records,semantic,contract,runtime,scene_id=scene_id,seed=seed,family=family,attempt=attempt)
     if room['family']=='kujiale':raise ConstructionUnavailable('Kujiale automatic construction is owned by its registered UE producer')
     people=select_people(catalog,room,contract,seed,moving=family in POST_FAMILIES,attempt=attempt)
     if family=='V7-CONTENT-BIND':
@@ -183,6 +187,7 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         'automatic_construction':{'revision':REVISION,'family':family,'candidate_index':attempt,
             'room_key':room['key'],'required_role_count':3,'scene_template_files_read':[]},
         'owner_social_layout':{'minimum_human_center_distance_m':1.,'minimum_human_animal_distance_m':1.,
+            'minimum_human_camera_distance_m':1.5,
             'human_orientation':'varied side-facing, conversational or facing away','distribution':'different floor regions; preserve every required participant'}}
     _request(row,state,family)
     if family in POST_FAMILIES:

@@ -193,7 +193,8 @@ def audit_native_bindings(scene,assets,visual):
             if err>.0001:errors.append('emitter readback exceeds 0.1mm')
             if r.get('native_object_id') is None:errors.append('emitter has no drawable native object')
     invisible=sum(ep not in {r['endpoint_id'] for r in visual['frames'][0]['actors']} for ep in active)
-    if any(not n for n in appearance_counts.values()):errors.append('registered entity never reached 100 native visible pixels')
+    from avengine.capture.v7_offscreen_layout import coverage_errors
+    errors.extend(coverage_errors(scene,assets,visual,appearance_counts))
     return {'status':'pass' if not errors else 'fail','invisible_sources':invisible,'emitter_readbacks':readbacks,
             'emitter_worst_error_m':worst,'asset_visible_frame_counts':appearance_counts,'errors':sorted(set(errors))}
 
@@ -234,6 +235,8 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
         'native_placement_candidates':[], 'source_motion_policy':'stationary original registered entities',
         'sampling_limitations':['pilot only; no train-table export','walking/moving RIR/external seats deferred to stage two']}
     if row.get('native_attachment_supports'):scene['native_attachment_supports']=deepcopy(row['native_attachment_supports'])
+    for key in ('native_view_roles','native_placement_preferences_m','offscreen_construction','owner_social_layout','automatic_construction'):
+        if row.get(key):scene[key]=deepcopy(row[key])
     program={'schema':PROGRAM_SCHEMA,'records':[],'events':[]};used={};rng=np.random.default_rng(row['scene_seed']);used_speakers=set()
     authored=[]
     if row.get('semantic_scenario_id'):

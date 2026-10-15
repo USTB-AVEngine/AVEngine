@@ -288,5 +288,6 @@ def audit_phase2_bindings(scene,assets,visual,allow_pending_feet=False):
             expected=(np.asarray(r['body_to_world_m'])@np.r_[local,1.])[:3]
             err=float(np.linalg.norm(np.asarray(observed)-expected));worst=max(worst,err);count+=1
             if err>.0001:errors.append('native emitter readback exceeds unchanged 0.1mm')
-    if any(n==0 for n in visible.values()):errors.append('registered entity never reached 100 actual visible pixels')
+    from avengine.capture.v7_offscreen_layout import coverage_errors
+    errors.extend(coverage_errors(scene,assets,visual,visible))
     return {'status':'fail' if errors else 'pass','invisible_sources':sum('invisible' in e for e in errors),'emitter_readbacks':count,'emitter_worst_error_m':worst,'asset_visible_frame_counts':visible,'errors':sorted(set(errors))}

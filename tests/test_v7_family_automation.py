@@ -479,7 +479,7 @@ def test_owner_layout_keeps_three_people_one_metre_apart_distributed_and_with_va
 
 def test_owner_spacing_checks_reserved_motion_track_and_human_animal_pairs():
     from avengine.capture.v7_social_layout import spacing_violation
-    scene={'automatic_construction':{'family':'QA-16'}}
+    scene={'automatic_construction':{'family':'QA-16'},'listener_m':[0.,1.5,-3.]}
     human={'kind':'human','asset_id':'person'};animal={'kind':'animal','asset_id':'cat'}
     placed=[{'declaration':human,'motion_episode':{'world_roots_m':[[0,0,0],[1,0,0],[2,0,0]]}}]
     assert spacing_violation(scene,animal,[1,0,.8],placed)['required_m']==1.

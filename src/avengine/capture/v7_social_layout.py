@@ -18,8 +18,14 @@ def actor_root_track(entry):
 
 
 def spacing_violation(scene,asset,root,placed):
-    if not(scene.get('automatic_construction')or scene.get('owner_social_layout')):return None
     root=np.asarray(root,float)
+    if is_human(asset):
+        listener=np.asarray(scene['listener_m'],float)
+        distance=float(np.linalg.norm(root[[0,2]]-listener[[0,2]]))
+        if distance+1e-9<1.5:
+            return {'other_asset_id':'fixed_camera','distance_m':distance,'required_m':1.5,
+                'centres':'actual body root and fixed camera on horizontal floor'}
+    if not(scene.get('automatic_construction')or scene.get('owner_social_layout')):return None
     for other in placed:
         declaration=other['declaration']
         required=1.0 if (is_human(asset)and(is_human(declaration)or is_animal(declaration)))or(is_animal(asset)and is_human(declaration))else 0.

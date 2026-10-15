@@ -140,6 +140,7 @@ def plan_post_sound_motion(row,*,qa_id,target,companion,assets,registry,
             'movement_solution':solution.to_dict(),
             'requires_native_wet_tail_requery':True,'native_admission':'not_yet_measured'})
     request={'action':'walk','speed_m_s':speed_m_s,'intervals_s':intervals,
+        'minimum_listener_horizontal_distance_m':1.5,
         'conditioned_post_motion_revision':REVISION}
     if qa_id=='QA-16':
         request.update(distance_trend=row.get('scene_demand',{}).get('distance_trend','approaching'),

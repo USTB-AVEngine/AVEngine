@@ -204,7 +204,7 @@ def test_admitted_parent_keeps_running_but_output_containment_remains(tmp_path,m
 @pytest.mark.fast_unit
 def test_distance_request_checks_the_speaking_span_not_only_the_whole_route():
     from avengine.assets.roster_motion.demand import matches_distance_request
-    times=np.array([0.,1.,2.,3.]);points=np.array([[0,0,-1.],[0,0,-1.05],[0,0,-1.1],[0,0,-2.]])
+    times=np.array([0.,1.,2.,3.]);points=np.array([[0,0,-2.],[0,0,-2.05],[0,0,-2.1],[0,0,-3.]])
     request={'distance_trend':'receding','distance_trend_windows_s':[[0.,2.]],'minimum_window_distance_change_m':.26}
     assert not matches_distance_request(points,times,[0,1.3,0],request)
     request['distance_trend_windows_s']=[[2.,3.]]

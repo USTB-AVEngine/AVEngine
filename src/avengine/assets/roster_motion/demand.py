@@ -4,6 +4,13 @@ import numpy as np
 
 
 def matches_distance_request(positions,times,listener,request):
+    # Every human route sample must retain the owner construction clearance.
+    # This filters proposals; final export independently measures every frame.
+    points=np.asarray(positions);listener=np.asarray(listener)
+    clearance=float(request.get('minimum_listener_horizontal_distance_m',1.5))
+    if not np.isfinite(clearance)or clearance<1.5:raise ValueError('human camera construction clearance must be at least 1.5m')
+    radii=np.linalg.norm(points[:,[0,2]]-listener[[0,2]],axis=1)
+    if np.any(radii+1e-9<clearance):return False
     trend=request.get('distance_trend')
     if trend is None:return True
     if trend not in {'approaching','receding'}:raise ValueError('unsupported demanded distance trend')
