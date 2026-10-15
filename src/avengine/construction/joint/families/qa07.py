@@ -16,6 +16,7 @@ from avengine.construction.joint.entry import EntryEnvelope, tangent_entry_ancho
 
 REVISION = "qa07-side-first-tangent-v1"
 SIDES = {"left": -1, "right": 1}
+MAX_PREDICTED_EDGE_OCCLUSION = .8  # proposal margin; native truth remains mandatory
 
 
 
@@ -393,7 +394,7 @@ def qa07_sound_requirements(scene, program, assets):
     return tuple(requirements)
 
 def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, first_inside_frame):
-    """Reject an obstructed frustum crossing before spending a native render.
+    """Predict a visible frustum crossing before spending a native render.
 
     The body proxy is deliberately a proposal filter, never rendered truth.
     Its edge interval includes all partially framed poses and a stable pause;
@@ -416,7 +417,7 @@ def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, fir
         end = min(len(predictions), max(first_inside_frame+10, transition["entry_frame"]+18))
         edge = predictions[transition["entry_frame"]:end]
     fractions = [p.occluded_fraction for p in edge]
-    clear = bool(fractions) and all(v is not None and math.isfinite(v) and v <= .02 for v in fractions)
+    clear = bool(fractions) and all(v is not None and math.isfinite(v) and v <= MAX_PREDICTED_EDGE_OCCLUSION for v in fractions)
     if not clear:
         result["reasons"].append("predicted_entry_edge_has_occlusion_or_unknown_depth")
         result["status"] = "fail"
@@ -424,6 +425,7 @@ def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, fir
                   native_pixel_truth_verified=False,
                   first_fully_inside_proxy_frame=int(first_inside_frame),
                   edge_probe_frames=len(edge),
+                  minimum_predicted_proxy_visible_fraction=1.-MAX_PREDICTED_EDGE_OCCLUSION,
                   maximum_edge_proxy_occlusion=max((v for v in fractions if v is not None), default=None),
                   native_mask_transition_still_required=True)
     return result
@@ -457,7 +459,7 @@ def entry_stage_seed_preview(context, camera, actor, *, occluders=()):
     for index in samples:
         value = predict(index)
         if (value.state not in {"visible_clear", "visible_occluded"}
-                or value.occluded_fraction is None or value.occluded_fraction > .02):
+                or value.occluded_fraction is None or value.occluded_fraction > MAX_PREDICTED_EDGE_OCCLUSION):
             return False
     return True
 
@@ -695,8 +697,8 @@ class QA07Plugin:
                           margin=margin, evidence={"branch": request.branch, "all_projected_body_points_on_side": margin >= 8.})
         edge = entry_edge_prediction_certificate(predictions, [camera.height, camera.width],
                                                  request.branch, first_inside_frame=first_inside_frame)
-        yield CheckResult("entry_unobstructed_frustum_crossing", edge["status"],
-                          "predicted edge must lead directly from outside into visible pixels",
+        yield CheckResult("entry_visible_frustum_crossing", edge["status"],
+                          "predicted edge retains visible pixels on the requested side",
                           evidence=edge)
         outside = sum(p.state == "out_of_view" for p in predictions[:45])
         end = predictions[-1]

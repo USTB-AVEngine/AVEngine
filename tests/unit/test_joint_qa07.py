@@ -369,3 +369,18 @@ def test_registered_companion_cannot_hide_the_entry_after_stage_preview_passes()
     assert entry_stage_seed_preview(context, camera, actor)
     assert not entry_stage_seed_preview(context, camera, actor,
         occluders=(("real_companion", np.array([-1.7, 0., -3.]), body),))
+
+
+def test_partial_proxy_visibility_does_not_certify_an_actual_occlusion_to_visible_event():
+    from types import SimpleNamespace
+    from avengine.construction.joint.families.qa07 import entry_edge_prediction_certificate, original_qa07_witness
+    rows = predicted_rows()
+    predictions = [SimpleNamespace(state=r["state"], occluded_fraction=.5,
+        evidence={"target_centroid_xy_px":r["target_centroid_xy_px"],
+                  "target_proxy_pixels":0 if r["state"]=="out_of_view" else 1000})
+        for r in rows]
+    assert entry_edge_prediction_certificate(predictions, [360,640], "left", first_inside_frame=35)["status"] == "pass"
+    rows[15]["state"] = "fully_occluded"
+    assets = [{"asset_id":"real_person", "native_instance_id":7, "label_color":"blue"}]
+    review = {"7":{"status":"reviewed", "value":"blue", "frame_refs":[55]}}
+    assert original_qa07_witness(rows, review, assets, "7", [360,640], "left", "fixture")["status"] == "fail"
