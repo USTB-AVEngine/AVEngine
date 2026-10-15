@@ -190,3 +190,24 @@ def test_native_binding_rejects_post_solver_position_changes():
     with pytest.raises(ValueError, match="binding poses differ"):
         build_qa10_row(room, house, {}, assets, semantic, contract, plan, cert,
                        assets[0], assets[2], assets[1], scene_id="changed", seed=8)
+
+
+
+def test_solver_transfers_the_same_live_native_world_to_render():
+    from types import SimpleNamespace
+    from avengine.construction.joint import Certificate, CheckResult, PreparedCandidate
+    from avengine.construction.joint.families.qa10 import finalize_qa10_solution
+    provenance = {"solver_entry": "avengine.construction.joint.solve",
+                  "geometry_certificate_status": "pass", "native_preflight_status": "pass"}
+    row = {"automatic_construction": {}, "joint_solution": provenance}
+    bound = []
+    payload = SimpleNamespace(row=row, bind_solution=lambda record: bound.append(record))
+    solved = SimpleNamespace(status="certified", prepared=PreparedCandidate(payload,(CheckResult("native","pass"),)),
+                             diagnostics={"candidates":1},
+                             certificate=Certificate((CheckResult("native", "pass"),)))
+    result = finalize_qa10_solution(solved, SimpleNamespace(branch="visible_registered_partial"))
+    assert result["prepared_native"] is payload
+    assert result["row"] is row
+    assert not bound  # the core's immutable binding must not be written twice
+    assert result["row"]["joint_solution"] is provenance
+    assert row["automatic_construction"]["joint_solver"]["native_execution_must_not_replan"]

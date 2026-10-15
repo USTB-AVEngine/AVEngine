@@ -231,7 +231,9 @@ class QA10Plugin:
         roles = {aid: "inside" for aid in self.bodies}
         pair = (self.demand.target_asset_id, self.demand.occluder_asset_id,
                 self.demand.minimum_occluded_fraction, self.demand.maximum_occluded_fraction)
-        for plan in enumerate_static_layouts(context, self.bodies, roles, occlusion_pair=pair):
+        for plan in enumerate_static_layouts(
+                context, self.bodies, roles, occlusion_pair=pair,
+                floor_clearance_m=float(request.options.get("floor_clearance_m", .005))):
             plan.sounds = schedule.events
             plan.metadata["sound_schedule"] = {
                 "status": schedule.status, "starts_s": list(schedule.starts_s),
@@ -321,7 +323,8 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
         for start in (0., 10., 20.))
     request = FamilyRequest("QA-10", "visible_registered_partial", (target["asset_id"],),
                             {"occluder_asset_id": occluder["asset_id"],
-                             "require_native_preflight": True})
+                             "require_native_preflight": True,
+                             "floor_clearance_m": float(runtime.get("qa10_floor_clearance_m", .005))})
     preparations = 0
     def prepare(context, request, plan):
         nonlocal preparations
@@ -334,7 +337,7 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
             "candidate_" + str(preparations).zfill(3))
         return prepare_qa10_native_candidate(
             plan, proposal["row"], house, catalog, records, semantic, runtime,
-            demand=demand, output_dir=directory)
+            context=context, request=request, demand=demand, output_dir=directory)
     with build_room_context(actual, house=house, runtime=runtime,
                             cache_dir=Path(cache) / "qa10", camera_heights_m=(1.1,),
                             width=1280, height=720) as context:
@@ -347,113 +350,89 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
             max_native_preparations=int(runtime.get("qa10_max_native_preparations", 6)))
     if solved.status != "certified":
         raise ConstructionUnavailable("QA-10 joint construction " + solved.status + ": " + str(solved.reasons))
+    return finalize_qa10_solution(solved, request)
+
+
+def finalize_qa10_solution(solved, request):
+    """Transfer the exact accepted live world to its renderer."""
     from dataclasses import asdict
-    row = solved.prepared["row"]
+    from avengine.construction.joint import PreparedCandidate
+    prepared = solved.prepared
+    payload = prepared.payload if isinstance(prepared, PreparedCandidate) else prepared
+    row = payload.row
     row["automatic_construction"]["planning_certificate"] = asdict(solved.certificate)
     row["automatic_construction"]["joint_solver"] = {
         "status": solved.status, "diagnostics": solved.diagnostics,
         "branch": request.branch, "native_execution_must_not_replan": True}
-    return {"profile": "phase2", "row": row}
-
+    # solve() already bound the immutable core provenance to this payload.
+    provenance = row.get("joint_solution", {})
+    if (provenance.get("solver_entry") != "avengine.construction.joint.solve"
+            or provenance.get("geometry_certificate_status") != "pass"
+            or provenance.get("native_preflight_status") != "pass"):
+        raise ValueError("QA-10 prepared world lacks core-owned solution provenance")
+    return {"profile": "phase2", "row": row, "prepared_native": payload}
 
 
 def prepare_qa10_native_candidate(plan, row, house, catalog, records, semantic, runtime,
-                                  *, demand, output_dir):
-    """Family adapter for core's strict oracle, called only from solve.
-
-    The retained payload is the serialized prepared scene (exact bindings,
-    source identities and clock). The executor consumes those fields unchanged.
-    No support alternatives, yaw repair or world-position changes are allowed.
-    """
+                                  *, context, request, demand, output_dir):
+    """QA-10 native predicate adapter; the core owns preparation and geometry."""
     from pathlib import Path
+    import os, time, psutil
     from copy import deepcopy
-    from dataclasses import asdict
-    import os, time
-    import psutil
-    from avengine.construction.joint import PreparedCandidate, CheckResult
-    from avengine.construction.joint.native import native_static_checks
-    from avengine.timeline.v7_family_clock import build_constructed_scene
-    from avengine.capture.v7_phase2_native import NativePhase2Video
+    from avengine.construction.joint import CheckResult
+    from avengine.construction.joint.native import prepare_static_native
     from avengine.capture.v7_occlusion_demand import measure_requested_relations
     from avengine.timeline.v7_position_admission import PositionAdmission
     from avengine.timeline.continuous_pilot import write_json
-    from PIL import Image
-
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=False)
-    inputs = deepcopy(runtime)
-    inputs["visible_placement_max_proposals_per_asset"] = 1
-    inputs.setdefault("fresh_rir_cpu_ids", sorted(os.sched_getaffinity(0)))
-    inputs["fresh_rir_workers"] = min(5, max(1, len(inputs["fresh_rir_cpu_ids"])-1))
-    working, scene, program, assets = build_constructed_scene(row, house, records, catalog, semantic)
-    video = NativePhase2Video(working, scene, inputs, assets,
-        source_material_cache_directory=inputs["source_material_cache_directory"])
-    gate = None
-    timings = []
-    try:
-        # Reuse the same measured RIR for an unchanged camera/source point;
-        # candidate backtracking must not resample a borderline acoustic result.
-        camera_cache = directory.parent/"rir_by_camera"/plan.camera.camera_id
-        gate = PositionAdmission(scene, working, inputs, camera_cache,
-                                 directory/"acoustic_placement_admission.json")
-        def acoustic_check(endpoint, point):
-            wall, cpu = time.monotonic(), time.process_time()
-            before = psutil.Process().cpu_num()
-            cache_before = deepcopy(gate.cache.stats)
-            result = gate.check(endpoint, point)
-            timings.append({"endpoint_id": endpoint, "wall_s": time.monotonic()-wall,
-                "cpu_self_s": time.process_time()-cpu, "pid": os.getpid(),
-                "psr_before": before, "psr_after": psutil.Process().cpu_num(),
-                "cpu_affinity": sorted(os.sched_getaffinity(0)), "status": result["status"],
-                "cache_before": cache_before, "cache_after": deepcopy(gate.cache.stats)})
-            return result
-        video.acoustic_position_admission = acoustic_check
-        try:
-            attachments = video.qualify_standing(scene, directory/"standing")
-        except ValueError as exc:
-            # Only an explicit original placement-conflict report is geometric.
-            # Programming/renderer errors still propagate and stop dispatch.
-            reports = list((directory/"standing").glob("*rejection*.json"))
-            reports += list((directory/"standing").glob("*execution_conflict*.json"))
-            if not reports and not str(exc).startswith("all people face camera"):
-                raise
-            checks = (CheckResult("qa10:native_fixed_execution", "fail", str(exc),
-                                  evidence={"reports": [str(p) for p in reports]}),)
-            write_json(directory/"certificate.json", {"status": "fail", "checks": [asdict(c) for c in checks]})
-            return PreparedCandidate({"row": row, "directory": str(directory)}, checks)
-        minimum = {aid: 100 for aid in plan.actors}
-        minimum[demand.target_asset_id] = demand.minimum_visible_pixels
-        native = native_static_checks(
-            video, scene, plan, roles={aid: "inside" for aid in plan.actors},
-            minimum_visible_pixels=minimum, appearance_ids=tuple(plan.actors),
-            standing_checks=attachments)
-        witness = attachments[-1].get("requested_occlusion_witness")
+    def family_check(video, scene, entries):
+        witness = video.attachment_checks[-1].get("requested_occlusion_witness")
         if witness is None:
-            witness = measure_requested_relations(video, scene, video.actors)
-        occluder_id = next(a["native_instance_id"] for a in assets
-                           if a["asset_id"] == demand.occluder_asset_id)
+            witness = measure_requested_relations(video, scene, entries)
+        occluder_id = next(e["declaration"]["native_instance_id"] for e in entries
+                           if e["declaration"]["asset_id"] == demand.occluder_asset_id)
         relation = certify_native_relation(witness, demand, str(occluder_id))
-        check = CheckResult("qa10:native_unique_partial_occluder",
-                            relation["status"], ";".join(relation["errors"]), evidence=relation)
-        checks = native.checks + (check,)
-        passed = all(c.status == "pass" for c in checks)
-        certificate = {"status": "pass" if passed else "fail",
-                       "authority": "planning_and_native_static_preflight",
-                       "checks": [asdict(c) for c in checks],
-                       "one_frame_static_witness": True, "final_450_frames_still_required": True}
-        write_json(directory/"certificate.json", certificate)
         write_json(directory/"native_occlusion_witness.json", witness)
-        Image.fromarray(np.asarray(video.sim.get_sensor_observations()["rgb"])[:,:,:3]).save(directory/"preview.png")
-        result = deepcopy(row)
-        result["automatic_construction"]["native_preflight"] = {
-            "status": certificate["status"], "certificate_path": str(directory/"certificate.json"),
-            "formal_render_support_proposal_limit": 1, "native_execution_must_not_replan": True,
-            "prepared_payload": "exact registered assets, roots, headings, support sites and source clock"}
-        write_json(directory/"prepared_row.json", result)
-        return PreparedCandidate({"row": result, "certificate": certificate,
-                                  "directory": str(directory)}, checks)
-    finally:
-        write_json(directory/"rir_cpu_observations.json", {"measurements": timings})
-        if gate is not None:
+        yield CheckResult("qa10:native_unique_partial_occluder", relation["status"],
+                          ";".join(relation["errors"]), evidence=relation)
+        # Preserve the original native five-degree source-direction predicate.
+        cache = directory.parent/"rir_by_camera"/plan.camera.camera_id
+        gate = PositionAdmission(scene, video.motion_house, video.motion_inputs,
+                                 cache, directory/"acoustic_placement_admission.json")
+        timings = []
+        try:
+            for entry in entries:
+                endpoint = entry["endpoint_id"]
+                if endpoint not in gate.active:
+                    continue
+                point = np.asarray(video._apply_entry(entry, scene)["emitter_position_m"], float)
+                wall, cpu = time.monotonic(), time.process_time()
+                before = deepcopy(gate.cache.stats)
+                direction = gate.check(endpoint, point)
+                timings.append({"endpoint_id": endpoint, "wall_s": time.monotonic()-wall,
+                    "cpu_self_s": time.process_time()-cpu, "pid": os.getpid(),
+                    "psr": psutil.Process().cpu_num(), "cpu_affinity": sorted(os.sched_getaffinity(0)),
+                    "cache_before": before, "cache_after": deepcopy(gate.cache.stats)})
+                yield CheckResult("qa10:actual_source_direction:"+endpoint,
+                                  "pass" if direction["status"]=="pass" else "fail",
+                                  "unchanged_native_5deg_gate", evidence=direction)
+        finally:
             gate.close()
-        video.close()
+            write_json(directory/"rir_cpu_observations.json", {"measurements": timings})
+    minimum = {aid: 100 for aid in plan.actors}
+    minimum[demand.target_asset_id] = demand.minimum_visible_pixels
+    prepared = prepare_static_native(
+        context, request, plan, row_factory=lambda unused: row,
+        house=house, catalog=catalog, records=records, semantic=semantic,
+        runtime=runtime, output_dir=directory/"core",
+        family_check=family_check, roles={aid:"inside" for aid in plan.actors},
+        minimum_visible_pixels=minimum, appearance_ids=tuple(plan.actors))
+    if prepared.payload is not None:
+        payload = prepared.payload
+        payload.row["automatic_construction"]["native_preflight"] = {
+            "status": "pass", "certificate_path": str(payload.directory/"native_certificate.json"),
+            "formal_render_support_proposal_limit": 1, "native_execution_must_not_replan": True,
+            "scope": "same live prepared scene; final 450-frame stream remains required"}
+        payload.qa10_acoustic_cache_directory = str(directory.parent/"rir_by_camera"/plan.camera.camera_id)
+    return prepared
