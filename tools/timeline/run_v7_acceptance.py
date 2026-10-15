@@ -19,7 +19,8 @@ def run_worker(manifest,slot):
     if not Path(avengine.__file__).resolve().is_relative_to(Path(manifest['worktree']).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
     from avengine.timeline.v7_storage_budget import ENV_KEY,check_write,launch_minimum_free_bytes
-    os.environ[ENV_KEY]=json.dumps({'root':str(root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
+    budget_root=Path(manifest.get('resource_budget_root',str(root))).resolve()
+    os.environ[ENV_KEY]=json.dumps({'root':str(budget_root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
         'minimum_free_bytes':launch_minimum_free_bytes(manifest.get('disk_launch_policy')),'concurrent_write_margin_bytes':128_000_000,
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
     check_write(root,expected_bytes=0)
@@ -35,7 +36,17 @@ def run_worker(manifest,slot):
     state=read_demand_state(root/'inputs/demand_state.json')
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
-        row=load(previous) if previous.exists() else plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
+        if previous.exists():row=load(previous)
+        elif task.get('constructor')=='motion_quartet_template':
+            from avengine.timeline.v7_motion_quartet_template import motion_quartet_template
+            from avengine.acoustics.runtime import load_habitat_runtime
+            hs,_=load_habitat_runtime(runtime_mode='current-installed',**inputs['runtime'])
+            pf=hs.PathFinder()
+            if not pf.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('registered native NavMesh is missing')
+            room=next(r for r in house['checked_rooms'] if r['room_label']==row['room_id'])
+            row=motion_quartet_template(row,room,catalog,load(inputs['semantic_manifest']),source['records'],pf,
+                attempt=int(task.get('construction_attempt',0)))
+        else:row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
         inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:

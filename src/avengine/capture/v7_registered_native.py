@@ -52,6 +52,12 @@ def sole_regions(local,asset):
 
 class NativeRegisteredVideo(NativeAlphaVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
+        self._native_restart_arguments=(house,scene,inputs,assets,dict(kwargs))
+        self._native_pose_resource_paths=set()
+        self._native_context_generation=0
+        self._native_context_refreshing=False
+        self._native_pose_cache_limit=int(inputs.get('native_motion_pose_cache_limit',64))
+        if not 16<=self._native_pose_cache_limit<=256:raise ValueError('native pose cache limit must be 16..256')
         if inputs.get('render_backend') not in {'cpu_llvmpipe','habitat_gpu'}:raise ValueError('registered Habitat backend required')
         NativeContinuousVideo.__init__(self,house,scene,inputs,[],**kwargs)
         from avengine.assets.source_materials import prepare_source_glb
@@ -117,11 +123,64 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             super()._check_source_frame(rgb,semantic,frame_index)
         finally:self.actors=actors
 
+    def _renew_motion_native_context(self):
+        """Release native per-GLB resources, then reapply every actual actor.
+
+        Motion geometry, original textures, exact matrices, source clocks and
+        scene admission are unchanged. Every subsequent frame is independently
+        read back by the existing native root/mouth/pixel gates.
+        """
+        if self._native_context_refreshing:return
+        if getattr(self,'seat_material_entries',[]):
+            raise ValueError('chunked native motion needs a registered seat rehydration adapter')
+        import gc,time
+        started=time.monotonic()
+        house,scene,inputs,assets,kwargs=self._native_restart_arguments
+        kwargs=dict(kwargs);kwargs['source_material_cache_directory']=self.source_material_cache_directory
+        states=[(entry,entry.get('motion_pose_index',0),entry.get('motion_episode') is not None)
+                for entry in self.actors]
+        old_sim=self.sim
+        for entry,_,_ in states:entry['object']=None
+        old_sim.close()
+        self.sim=None
+        gc.collect()
+        fresh=NativeRegisteredVideo(house,scene,inputs,assets,**kwargs)
+        self.sim=fresh.sim
+        fresh.sim=None
+        self.pathfinder=fresh.pathfinder
+        self.environment_nodes=fresh.environment_nodes
+        by_endpoint={entry['endpoint_id']:entry for entry in fresh.actors}
+        for entry,_,_ in states:
+            replacement=by_endpoint[entry['endpoint_id']]
+            entry['object']=replacement['object']
+            entry.pop('motion_pose_path',None)
+            entry.pop('motion_pose_index',None)
+            entry.pop('contact_template',None)
+        self._native_pose_resource_paths=set()
+        self._native_context_generation+=1
+        self._native_context_refreshing=True
+        try:
+            for entry,index,moving in states:
+                if moving:self._apply_motion_entry(entry,index)
+                else:self._apply_entry(entry,scene)
+        finally:self._native_context_refreshing=False
+        self.receipt.setdefault('native_context_renewals',[]).append({
+            'generation':self._native_context_generation,'maximum_resident_unique_pose_assets':self._native_pose_cache_limit,
+            'actors_reinstantiated':len(states),'wall_seconds':time.monotonic()-started,
+            'same_original_house_assets_camera_and_motion_clock':True,
+            'all_following_native_readback_gates_unchanged':True})
+
     def _apply_motion_entry(self,entry,index):
         from avengine.assets.habitat_capture import _apply_root_with_habitat
         import hashlib
         record=entry['motion_episode'];frame=record['source_frames'][index]
-        path=record['pose_glbs'][index];rm=self.sim.get_rigid_object_manager()
+        path=record['pose_glbs'][index]
+        if (path not in self._native_pose_resource_paths
+                and len(self._native_pose_resource_paths)>=self._native_pose_cache_limit
+                and not self._native_context_refreshing):
+            self._renew_motion_native_context()
+        self._native_pose_resource_paths.add(path)
+        rm=self.sim.get_rigid_object_manager()
         if entry.get('motion_pose_path')!=path:
             rm.remove_object_by_id(entry['object'].object_id)
             tm=self.sim.get_object_template_manager()
@@ -151,7 +210,8 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             'joint_max_error':0.,'joint_state':'30Hz CPU skin evaluated from admitted contact clip; native rigid posed mesh',
             'source_registry_sha256':a['source_registry_sha256'],
             'loaded_artifact_sha256':hashlib.sha256(Path(path).read_bytes()).hexdigest(),
-            'motion_master_sha256':record['lineage']['master_sha256'],'native_emitter_readback_error_m':error}
+            'motion_master_sha256':record['lineage']['master_sha256'],'native_emitter_readback_error_m':error,
+            'native_context_generation':self._native_context_generation}
 
     def _apply(self,scene,frame_index):
         rows=[self._apply_entry(entry,scene,frame_index) for entry in self.actors]
