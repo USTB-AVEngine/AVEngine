@@ -226,3 +226,50 @@ def test_frozen_archive_detects_changed_code_and_has_a_stable_commit(tmp_path):
         'files':{'worker.py':hashlib.sha256(code.read_bytes()).hexdigest()}}))
     assert source_commit(tmp_path)=='a'*40 and verify_source(tmp_path)
     code.write_text('print(2)');assert not verify_source(tmp_path)
+
+
+def test_whole_recorded_triplet_keeps_one_voice_distinct_transcripts_and_complete_short_clips():
+    from avengine.timeline.v7_family_constructors import whole_recorded_triplet
+    records=[]
+    for i,duration in enumerate((1.,1.1,1.2,2.2)):
+        records.append({'dataset':'VCTK-Corpus 0.92','source_type':'recorded','gender':'F','legacy_library_split':'train',
+            'speaker_id':'actual_voice','transcript':'complete spoken sentence '+str(i),'sound_asset_id':str(i),
+            'duration_s':duration,'normalized_path':'read_only_full_source_'+str(i)+'.wav'})
+    records.append({**records[0],'sound_asset_id':'duplicate_long','duration_s':2.3})
+    selected=whole_recorded_triplet(records,'F',12)
+    assert [r['duration_s']for r in selected]==[1.,1.1,1.2]
+    assert len({r['transcript']for r in selected})==3 and len({r['speaker_id']for r in selected})==1
+    assert all(any(r is original for original in records)for r in selected)
+    assert all('crop_start_sample'not in r for r in selected)
+
+
+def test_shared_task_cache_remains_in_scope_without_rechecking_an_admitted_parent(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from avengine.timeline import v7_storage_budget as storage
+    from avengine.timeline.v7_unattended_resources import configure_worker,configure_parent_storage
+    monkeypatch.setenv(storage.ENV_KEY,'')
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=80_000_000_000))
+    root=tmp_path/'run';root.mkdir();policy=ResourcePolicy(temporary_minimum_free_until_unix=time.time()+3600)
+    configure_worker(root,policy,[0,1])
+    # A parent already admitted keeps going after another task consumes space.
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=59_000_000_000))
+    attempt=root/'attempts/one';attempt.mkdir(parents=True)
+    configured=configure_parent_storage({'storage_budget_root':str(root),'storage_admission_prechecked':True},attempt)
+    assert configured['root']==str(root)
+    assert storage.check_write(root/'cache/materials',expected_bytes=64_000_000)['resource_limits_enforced_at']=='parent_admission'
+    with pytest.raises(storage.StorageBudgetExceeded,match='escaped'):
+        storage.check_write(tmp_path/'outside_the_task',expected_bytes=0)
+
+
+def test_taxonomy_rotation_constructs_a_new_capable_entity_and_keeps_every_human(inputs):
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0];room['categories'].append('floor_object')
+    phone={'asset_id':'registered_phone','kind':'object','entity_class':'device','attachment_surface':'floor',
+        'allowed_classes':['telephone_bell_ringing']}
+    catalog=[*assets,phone];records=[{'sound_class':'laughter'},{'sound_class':'telephone_bell_ringing'}]
+    plan=construct_family_scene(room,houses[room['house']],{'class34_positive_counts':{'laughter':3}},catalog,records,
+        semantic,contract,{},scene_id='new',seed=12,family='V7-CLASS34')
+    row=plan['row'];assert len(row['asset_ids'])==4 and 'registered_phone'in row['asset_ids']
+    assert len([aid for aid in row['asset_ids']if aid!='registered_phone'])==3
+    assert row['category_focus_class']=='telephone_bell_ringing'
+    assert len(row['silent_asset_ids'])==2 and len(row['semantic_human_asset_ids'])==1
+    assert row['automatic_construction']['required_role_count']==4

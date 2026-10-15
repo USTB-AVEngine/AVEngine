@@ -44,3 +44,9 @@ def test_real_human_rotation_constructs_laughter_instead_of_unanswerable_live_co
         [{'sound_class':'coughing'},{'sound_class':'laughter'}],{})
     assert chosen=='laughter'
     assert proof['excluded_by_unchanged_class34_predicate']=={'coughing':'human_live_recorded_coughing'}
+
+
+def test_registered_loudspeaker_can_emit_actual_recorded_speech_without_relabelling_a_person():
+    cls,proof=choose_unseen_class({'asset_id':'real_device','kind':'object','entity_class':'loudspeaker',
+        'allowed_classes':['speech_playback']},[{'sound_class':'speech_playback'}],{})
+    assert cls=='speech_playback'and proof['source_mechanisms_by_class'][cls]=='loudspeaker_playback'

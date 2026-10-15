@@ -79,7 +79,7 @@ def worker(a,cfg,root):
     from avengine.timeline.v7_unattended_resources import ResourcePolicy,configure_worker,runtime_resource_view,launch_disk_policy
     from avengine.timeline.v7_native_resource_slots import acquire_native_resource
     policy=ResourcePolicy(**cfg.get('resources',{}));cpus=json.loads(a.cpus)
-    configure_worker(root,policy,cpus)
+    configure_worker(Path(a.run_root),policy,cpus)
     lease=acquire_native_resource('parent')
     contract,assets,runtime,source,semantic,houses=data(cfg)
     room=contract['rooms'][a.room_index];house=houses[room['house']]
@@ -103,6 +103,7 @@ def worker(a,cfg,root):
         write(cache,row)
         manifest={'output_root':str(root),'worktree':str(W),'code_commit':a.source_commit,
             'dataset_role':'acceptance_only','training_dataset_merge':False,'CCI_transfer':False,
+            'storage_budget_root':str(Path(a.run_root).resolve()),'storage_admission_prechecked':True,
             'cpu_affinity_ids':[cpus[0]],'fresh_rir_workers':runtime['fresh_rir_workers'],'launch_disk_policy':launch_disk_policy(policy),'concurrent_write_margin_bytes':0,'temporary_minimum_free_bytes':policy.temporary_minimum_free_bytes,
             'temporary_minimum_free_until_unix':policy.temporary_minimum_free_until_unix,
             'contract':cfg['contract'],'runtime_cpu':str(root/'inputs/runtime_cpu.json'),
@@ -271,7 +272,7 @@ def main():
             emit_progress(root,cfg,'construction result '+json.dumps({**{k:result.get(k)for k in ('scene_id','status','reason','independent_questions','target_family')},'family_counts':result.get('export',{}).get('question_family_counts',{})}))
             if result['status']=='passed':break
             cleanup_new_failed(attempt,result,cfg.get('cleanup_failed_after_unix'),log)
-            if result.get('error_type')in {'KeyError','ImportError','ModuleNotFoundError','FileExistsError','SyntaxError'}:
+            if result.get('error_type')in {'KeyError','ImportError','ModuleNotFoundError','FileExistsError','SyntaxError','StorageBudgetExceeded'}:
                 break  # Programming/input errors need a code fix, not repeated native work.
         outcomes.append(read(record));state=from_passed_exports([*cfg.get('feedback_roots',[]),root]);write(root/'feedback.json',state)
     write(root/'AUTOMATION_RESULT.json',{'source_commit':identity['source_commit'],'plan_only':a.plan_only,'outcomes':outcomes,

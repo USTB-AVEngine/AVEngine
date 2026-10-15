@@ -23,18 +23,8 @@ def run_worker(manifest,slot):
     import avengine
     if not Path(avengine.__file__).resolve().is_relative_to(Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
-    from avengine.timeline.v7_storage_budget import ENV_KEY,check_write,launch_minimum_free_bytes
-    budget_root=Path(manifest.get('resource_budget_root',str(root))).resolve()
-    if not root.is_relative_to(budget_root):raise ValueError('parent output escaped the explicit task resource root')
-    os.environ[ENV_KEY]=json.dumps({'root':str(budget_root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
-        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
-        'policy':'owner-20261015-acceptance-only-no-training-or-CCI',
-        'resource_admission_managed':True})
-    check_write(root,expected_bytes=0)
-    # Owner 2026-10-15: resource thresholds pause launches. A running parent
-    # must be allowed to finish its writes after passing the launch check.
-    active_storage=json.loads(os.environ[ENV_KEY]);active_storage['minimum_free_bytes']=0
-    os.environ[ENV_KEY]=json.dumps(active_storage)
+    from avengine.timeline.v7_unattended_resources import configure_parent_storage
+    configure_parent_storage(manifest,root)
     inputs=load(task.get('runtime_input') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     inputs['launch_disk_policy']=manifest.get('launch_disk_policy',manifest.get('disk_launch_policy',{}))
     inputs.update(fresh_rir_workers=min(16,max(1,int(task.get('fresh_rir_workers',manifest.get('fresh_rir_workers',inputs.get('fresh_rir_workers',16)))))),fresh_rir_cpu_ids=list(inputs.get('fresh_rir_cpu_ids') or cpus))
