@@ -95,7 +95,7 @@ def worker(a,cfg,root):
         plan=construct_family_scene(room,house,state,assets,source['records'],semantic,contract,runtime,
             scene_id=sid,seed=a.seed,family=a.family,attempt=a.candidate)
         row=plan['row'];row['independent_parent_scene_id']=a.scene_id
-        runtime=runtime_resource_view(runtime,policy,cpus);runtime['launch_disk_policy']=launch_disk_policy(policy);runtime['source_material_cache']=str(Path(a.run_root)/'cache/source_materials')
+        runtime=runtime_resource_view(runtime,policy,cpus);runtime['launch_disk_policy']=launch_disk_policy(policy);runtime['source_material_cache']=str(root/'cache/source_materials')
         write(root/'inputs/runtime_cpu.json',runtime);write(root/'inputs/demand_state.json',state)
         # Machine compilation cache only: no pre-existing handwritten row is consumed.
         cache=root/'inputs/planned/000.json'
