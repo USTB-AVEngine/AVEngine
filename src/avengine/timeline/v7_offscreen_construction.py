@@ -74,7 +74,7 @@ def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract
     row=plan['row'];ctx=room_context(room,house,attempt);ids=list(row['asset_ids'])
     assets={a['asset_id']:a for a in catalog};sounds={s['sound_asset_id']:s for s in semantic['sounds']}
     voices={sounds[sid]['voice_reference']['speaker_id']for sid in row['semantic_sound_ids']}
-    pool=production_audio_record_views(records);usage=state.get('recording_use_counts',{});entity_usage=state.get('entity_use_counts',{})
+    pool=production_audio_record_views(records);usage=state.get('source_record_usage_counts',state.get('recording_use_counts',{}));entity_usage=state.get('source_entity_usage_counts',state.get('entity_use_counts',{}))
     extras=[];chosen_records={};excluded=contract.get('policy',{}).get('temporarily_excluded_asset_ids',{})
     for index in range(offscreen_people):
         options=[]

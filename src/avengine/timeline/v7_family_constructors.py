@@ -94,9 +94,9 @@ def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,exclude
     if not compatible:raise ConstructionUnavailable('not enough distinct complete authored scenarios for fixed physical voices')
     voices,choices=min(compatible,key=lambda item:(sum(usage.get(v,0)for v in item[0]),
         max(usage.get(v,0)for v in item[0]),stable_seed(seed,'voice',*item[0],attempt)))
-    ordered=[choices[key]for key in sorted(choices)]
-    offset=stable_seed(seed,'scenario',attempt)%len(ordered)
-    ordered=ordered[offset:]+ordered[:offset]
+    actual_use=state.get('source_record_usage_counts',state.get('recording_use_counts',{}))
+    ordered=sorted(choices.values(),key=lambda pair:(sum(actual_use.get(r['sound_asset_id'],0)for r in pair),
+        max(actual_use.get(r['sound_asset_id'],0)for r in pair),stable_seed(seed,'scenario',attempt,*[r['sound_asset_id']for r in pair])))
     return deepcopy(ordered[:epoch_count])
 
 
@@ -117,7 +117,8 @@ def choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,atte
             cls,proof=choose_unseen_class(asset,records,state.get('class34_positive_counts',{}))
         except ValueError:continue
         surface={'floor':0,'table':1,'wall':2,'ceiling':3}.get(asset.get('attachment_surface'),4)
-        score=(state.get('class34_positive_counts',{}).get(cls,0),0 if asset in people else 1,surface,
+        score=(state.get('class34_positive_counts',{}).get(cls,0),state.get('source_entity_usage_counts',{}).get(asset['asset_id'],0),
+            state.get('source_class_usage_counts',{}).get(cls,0),0 if asset in people else 1,surface,
             stable_seed(seed,asset['asset_id'],cls,attempt))
         options.append((score,asset,cls,proof))
     if not options:raise ConstructionUnavailable('no registered source in the original legal cell can emit an admitted CLASS34 candidate')

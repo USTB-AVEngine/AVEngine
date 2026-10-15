@@ -1,7 +1,7 @@
 """Publish each newly admitted parent's English rows without waiting for a batch."""
 from pathlib import Path
 from collections import Counter
-import datetime,fcntl,json,os
+import datetime,fcntl,hashlib,json,os
 from avengine.timeline.v7_generation_scope import assert_new_generation_output
 from avengine.timeline.v7_english_export import validate_english_model_text
 from avengine.timeline.v7_export_scene_policy import REVISION,cached_parent_policy
@@ -9,6 +9,8 @@ from avengine.timeline.v7_export_scene_policy import REVISION,cached_parent_poli
 
 def publish_current_parents(root):
     root=Path(root);assert_new_generation_output(root)
+    manifest=json.loads((root/'inputs/ACCEPTANCE_PLAN.json').read_text())
+    if manifest.get('publication_closed'):return json.loads((root/'PILOT_SUMMARY.json').read_text())
     with(root/'evidence/report_build.lock').open('a')as lock:
         fcntl.flock(lock,fcntl.LOCK_EX);parents=[];rows=[]
         for path in sorted((root/'evidence/jobs').glob('[0-9][0-9][0-9].json')):
@@ -35,13 +37,22 @@ def publish_current_parents(root):
         for row in rows:validate_english_model_text(row)
         ids=[r['question_id']for r in rows]
         if len(set(ids))!=len(ids):raise ValueError('duplicate physical parent publication rows')
-        table=root/'export/train.jsonl';temporary=table.with_name(table.name+f'.{os.getpid()}.tmp')
-        temporary.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows));temporary.replace(table)
+        content=''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows);content_sha=hashlib.sha256(content.encode()).hexdigest()
+        publication=root/'evidence/PUBLICATION_CURRENT.json'
+        table=root/'export/train.jsonl'
+        if publication.exists()and table.exists():
+            cache=json.loads(publication.read_text())
+            if cache.get('revision')==REVISION and cache.get('model_table_sha256')==content_sha and hashlib.sha256(table.read_bytes()).hexdigest()==content_sha:
+                return json.loads((root/'PILOT_SUMMARY.json').read_text())
+        temporary=table.with_name(table.name+f'.{os.getpid()}.tmp')
+        temporary.write_text(content);temporary.replace(table)
         from avengine.timeline.v7_source_usage import for_manifest
         from avengine.timeline.v7_admitted_pool_reselection import record_batch_selection,save
         manifest=json.loads((root/'inputs/ACCEPTANCE_PLAN.json').read_text())
         usage=for_manifest(manifest,parents,rows)
-        if usage is not None:save(root/'evidence/SOURCE_USAGE.json',usage)
+        if usage is not None:
+            usage['model_table_sha256']=content_sha
+            save(root/'evidence/SOURCE_USAGE.json',usage)
         record_batch_selection(root/'inputs/demand_state.json',rows,source_usage=usage)
         family=Counter(r['qa_id']for r in rows);modality=Counter(r['modality']for r in rows)
         result={'status':'partial_parents_individually_passed','generated_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -51,5 +62,6 @@ def publish_current_parents(root):
             'batch_modality_selection':'pending_final_30_25_45_selection','aggregate_reader_status':'pending_final_aggregate; each native parent reader passed',
             'old_media_or_seals_reused':False,'training_dataset_merge':False,'CCI_transfer':False}
         target=root/'PILOT_SUMMARY.json';temporary=target.with_name(target.name+f'.{os.getpid()}.tmp');temporary.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n');temporary.replace(target)
+        publication.write_text(json.dumps({'revision':REVISION,'model_table_sha256':content_sha})+'\n')
         with(root/'PROGRESS.md').open('a')as stream:stream.write(result['generated_utc']+' PARTIAL_EXPORT_READY 独立题='+str(len(rows))+' 房子='+str(result['houses'])+' 达到3题族='+str(result['families_at_least_three'])+'/33；'+str(table)+'；各父四项门禁/reader通过，批次模态补选待最终汇总。\n')
         return result

@@ -156,10 +156,12 @@ def record_batch_selection(path,rows,*,source_usage=None):
         state['parents']={k:v for k,v in state['parents'].items()if k in current_keys}
         from avengine.timeline.v7_answer_branch_demand import summarize
         state['answer_branch_distribution']=summarize(rows)
+        state['answer_counts']={f:item['answers']for f,item in state['answer_branch_distribution']['families'].items()}
         if source_usage is not None:
             state.update(source_record_usage_counts=source_usage['recording_counts'],
                 source_entity_usage_counts=source_usage['sounding_entity_counts'],source_class_usage_counts=source_usage['registered_class_counts'],
-                authored_voice_counts=source_usage['authored_voice_counts'],source_inventory_requests=source_usage.get('next_inventory_requests',[]))
+                authored_voice_counts=source_usage['authored_voice_counts'],recording_use_counts=source_usage['recording_counts'],
+                entity_use_counts=source_usage['sounding_entity_counts'],source_inventory_requests=source_usage.get('next_inventory_requests',[]))
         counts=Counter();modalities=Counter()
         for parent in state['parents'].values():counts.update(parent['family_counts']);modalities.update(parent.get('modality_counts',{}))
         state.update(logical_questions=sum(counts.values()),family_counts=dict(counts),modality_counts=dict(modalities),
