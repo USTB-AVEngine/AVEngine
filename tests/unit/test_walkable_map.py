@@ -130,3 +130,28 @@ def test_navmesh_vertical_offset_does_not_replace_the_actual_floor(tmp_path, mon
     assert result.layers['human'].any()
     assert result.metadata['native_support_rays'] > 0
     assert WalkableMap.load(tmp_path/'map.npz').contains([0, 0])
+
+
+def test_acceptance_manifest_configures_shared_room_cache(tmp_path, monkeypatch):
+    from tools.timeline.run_v7_acceptance import configure_walkable_maps
+    monkeypatch.delenv('AVENGINE_WALKABLE_MAP_ROOT', raising=False)
+    monkeypatch.delenv('AVENGINE_REQUIRE_WALKABLE_MAP', raising=False)
+    root = tmp_path/'maps'; target = root/'room'/'walkable_map_v1.npz'
+    target.parent.mkdir(parents=True)
+    m = fixture_map(tmp_path, [(5, 5)]); save(m, target)
+    configure_walkable_maps({'walkable_map_root': str(root)})
+    result = load_room_map('room', floor_reference=0.)
+    assert result.path == str(target)
+    assert not result.contains([-.025, -.025])
+    with pytest.raises(FileNotFoundError):
+        load_room_map('uncomputed')
+
+
+def test_unconfigured_legacy_and_invalid_manifest_root(tmp_path, monkeypatch):
+    from tools.timeline.run_v7_acceptance import configure_walkable_maps
+    monkeypatch.delenv('AVENGINE_WALKABLE_MAP_ROOT', raising=False)
+    monkeypatch.delenv('AVENGINE_REQUIRE_WALKABLE_MAP', raising=False)
+    configure_walkable_maps({})
+    assert load_room_map('room') is None
+    with pytest.raises(FileNotFoundError, match='cache root is missing'):
+        configure_walkable_maps({'walkable_map_root': str(tmp_path/'missing')})

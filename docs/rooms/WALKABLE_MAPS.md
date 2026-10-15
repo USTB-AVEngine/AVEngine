@@ -13,6 +13,10 @@ are mandatory. A configured missing, stale or wrong-room map fails closed.
 Older unconfigured callers keep their proposal-only NavMesh behavior. Planned
 routes retain the exact map path and room ID so native fitting uses the same map.
 Changes need to be merged into the motion checkout before those workers use them.
+The motion batch CLI also accepts `--walkable-map-root PATH`, persisted as
+`walkable_map_root` in its manifest. The shared acceptance worker reads this
+field before construction and native admission, so both stages use one cache.
+A hand-authored acceptance manifest can set the same field.
 
 Example (with the runtime's CPU environment and this worktree's `src` first on
 `PYTHONPATH`):
