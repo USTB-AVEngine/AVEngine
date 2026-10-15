@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run isolated native acceptance parents under a committed resource policy."""
 from __future__ import annotations
-import argparse,datetime,json,os,resource,sys,time,traceback
+import argparse,datetime,json,os,resource,subprocess,sys,time,traceback
 from pathlib import Path
 
 
@@ -55,7 +55,7 @@ def run_worker(manifest,slot):
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
         'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
-        'code_commit':manifest['code_commit'],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        'code_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=manifest['worktree'],text=True).strip(),'planned_code_commit':manifest['code_commit'],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     try:
         native_root=Path(task.get('native_output_root') or root/'native').resolve()
