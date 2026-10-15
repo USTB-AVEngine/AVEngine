@@ -180,6 +180,7 @@ def test_public_new_room_entry_never_reads_an_agent_scene_configuration(tmp_path
     monkeypatch.setattr(Path,'read_text',guarded)
     monkeypatch.setattr(entry,'data',lambda cfg:(contract,assets,{}, {'records':[]},semantic,houses))
     monkeypatch.setattr(entry,'commit',lambda:'f'*40)
+    monkeypatch.setattr(entry,'clean_source',lambda:True)
     monkeypatch.setattr(v7_family_clock,'build_constructed_scene',lambda *args:({}, {'events':[],'sources':{}},{'records':[]},[]))
     monkeypatch.setattr(entry.os,'environ',dict(os.environ))
     monkeypatch.setattr(entry.sys,'argv',['automatic','--config',str(config),'--output',str(root),'--plan-only','--parents','2','--families','QA-10','QA-28'])
@@ -209,3 +210,19 @@ def test_production_write_guard_uses_the_same_exact_floor_and_never_aborts_admit
     record=storage.check_write(tmp_path/'actual_new_native_stage',expected_bytes=8_000_000_000)
     assert record['resource_limits_enforced_at']=='parent_admission'
     assert record['free_bytes']==59_000_000_000
+
+
+def test_automatic_resource_defaults_do_not_grant_a_dated_disk_exception():
+    from avengine.timeline.v7_unattended_resources import ResourcePolicy,launch_disk_policy
+    policy=ResourcePolicy()
+    assert policy.disk_floor()==100_000_000_000 and launch_disk_policy(policy)=={}
+
+
+def test_frozen_archive_detects_changed_code_and_has_a_stable_commit(tmp_path):
+    import hashlib
+    from avengine.timeline.v7_frozen_code import source_commit,verify_source,MARKER
+    code=tmp_path/'worker.py';code.write_text('print(1)')
+    (tmp_path/MARKER).write_text(json.dumps({'schema':'avengine-committed-source-snapshot-v1','commit':'a'*40,
+        'files':{'worker.py':hashlib.sha256(code.read_bytes()).hexdigest()}}))
+    assert source_commit(tmp_path)=='a'*40 and verify_source(tmp_path)
+    code.write_text('print(2)');assert not verify_source(tmp_path)

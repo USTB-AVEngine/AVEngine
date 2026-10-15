@@ -18,7 +18,13 @@ def write(path,data):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     tmp=path.with_suffix(path.suffix+'.tmp');tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n');tmp.replace(path)
 def utc():return datetime.datetime.now(datetime.timezone.utc).isoformat()
-def commit():return subprocess.check_output(['git','-C',str(W),'rev-parse','HEAD'],text=True).strip()
+def commit():
+    from avengine.timeline.v7_frozen_code import source_commit
+    return source_commit(W)
+
+def clean_source():
+    from avengine.timeline.v7_frozen_code import verify_source
+    return verify_source(W)
 
 
 def emit_progress(root,cfg,message):
@@ -84,7 +90,7 @@ def worker(a,cfg,root):
     try:
         frozen_inputs=read(Path(a.run_root)/'AUTOMATION_RUN.json')['input_registry_sha256']
         if global_fingerprints(cfg)!=frozen_inputs:raise ValueError('global input registry changed; preserve this attempt and use a new frozen run')
-        if commit()!=a.source_commit or subprocess.check_output(['git','-C',str(W),'status','--porcelain'],text=True).strip():
+        if commit()!=a.source_commit or not clean_source():
             raise ValueError('native rehearsal needs the exact clean frozen worktree; no mid-run code changes')
         plan=construct_family_scene(room,house,state,assets,source['records'],semantic,contract,runtime,
             scene_id=sid,seed=a.seed,family=a.family,attempt=a.candidate)
@@ -122,7 +128,7 @@ def worker(a,cfg,root):
             parent=Path(native['producer_result']['delivery_directory']).parent
             actual=read(parent/'input_recipe.json').get('program',{}).get('records',[])
             result['actual_voice_ids']=sorted({r['voice_reference']['speaker_id']for r in actual if r.get('source_type')=='author_tts'and r.get('voice_reference')})
-        if global_fingerprints(cfg)!=frozen_inputs or commit()!=a.source_commit or subprocess.check_output(['git','-C',str(W),'status','--porcelain'],text=True).strip():
+        if global_fingerprints(cfg)!=frozen_inputs or commit()!=a.source_commit or not clean_source():
             result.update(status='source_changed_not_a_frozen_rehearsal',reason='worktree or global registry changed during the unattended native attempt')
     except Exception as error:
         result={'status':'failed','scene_id':sid,'requested_scene_id':a.scene_id,'house':room['house'],
