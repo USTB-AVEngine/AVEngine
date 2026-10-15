@@ -84,6 +84,8 @@ def _worker(request_path):
     output=pathlib.Path(request['output']).resolve();report=pathlib.Path(request['report']).resolve()
     if output.parent!=path.parent or report.parent!=path.parent:raise ValueError('fresh process output escaped its own request directory')
     if request['evidence_role']not in{'primary','independent_midpoint_reference'}:raise ValueError('invalid native RIR evidence role')
+    from avengine.timeline.v7_native_resource_slots import acquire_native_resource
+    resource_lease=acquire_native_resource('rir')
     started=time.perf_counter();cpu=time.process_time()
     from avengine.acoustics.runtime import load_habitat_runtime
     load_habitat_runtime(runtime_mode='current-installed',**request['inputs']['runtime'])
@@ -100,6 +102,7 @@ def _worker(request_path):
         'native_renders_after_fresh_upload':1,'primary_cache_read':False,'estimate_read':False,
         'output_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),
         'process_cpu_seconds_total':time.process_time()-cpu,'wall_seconds_total':time.perf_counter()-started}
+    if resource_lease is not None:value['task_resource_lease']=resource_lease.receipt
     # Optional scheduling runs in a separate coordinator. In particular, an
     # independent measuring process never reads any primary kernel or estimate.
     try:

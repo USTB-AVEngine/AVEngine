@@ -168,6 +168,8 @@ class NativePhase2Video(NativeVisibleVideo):
             record=compile_seated(self,entry,scene,self.motion_house,self.motion_inputs,dest,request)
         else:raise ValueError('unsupported phase-two motion; no static fallback')
         entry['motion_episode']=record
+        from avengine.timeline.v7_native_resource_slots import acquire_native_resource
+        self._task_motion_capture_lease=acquire_native_resource('motion_capture')
         actual=[]
         for index in range(901):
             row=self._apply_motion_entry(entry,index);row.update(frame_index=index,time_s=index/30)
