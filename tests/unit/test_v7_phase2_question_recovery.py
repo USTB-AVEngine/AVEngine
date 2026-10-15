@@ -30,3 +30,17 @@ def test_recovery_preserves_native_bytes_and_only_changes_requested_condition_me
     assert original=={str(p.relative_to(source)):p.read_bytes()for p in source.rglob('*')if p.is_file()}
     with pytest.raises(FileExistsError,match='fresh attempt root'):
         regenerate_questions(source,output)
+
+
+def test_actual_delivery_entry_has_its_original_color_revision_before_stage(tmp_path,monkeypatch):
+    import avengine.timeline.v7_phase2_generation as generation
+    from avengine.assets.v7_visible_color import COLOR_EVIDENCE_REVISION
+    class StopAtWindows(Exception):pass
+    monkeypatch.setattr(generation,'native_checks',lambda *args:{'status':'pass'})
+    monkeypatch.setattr(generation,'acceptance_crop_starts',lambda *args:[0.,5.,10.,15.,20.])
+    def stage(root,name,recipe,callback):
+        assert name=='windows_v0_a0'and recipe['color_evidence_revision']==COLOR_EVIDENCE_REVISION
+        raise StopAtWindows()
+    monkeypatch.setattr(generation,'stage',stage)
+    with pytest.raises(StopAtWindows):
+        generation.finish_phase2_delivery({}, {}, {}, [], {}, None, tmp_path, 0.,0.,{}, {}, {},tmp_path,tmp_path,{}, {},{},tmp_path/'feet.json')
