@@ -39,12 +39,13 @@ def worker_cpu_policy(manifest,task,slot,runtime,*,inherited_cpu_ids=None):
 
 def run_worker(manifest,slot):
     configure_walkable_maps(manifest)
-    task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve()
+    task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
     cpus=manifest.get('cpu_ids') or manifest.get('cpu_affinity_ids') or sorted(os.sched_getaffinity(0))
     runtime_path=task.get('runtime_input') or manifest['runtime_'+task['device']]
     runtime=load(runtime_path)
-    parent_cpu,rir_cpus,rir_workers=worker_cpu_policy(manifest,task,slot,runtime,inherited_cpu_ids=set(os.sched_getaffinity(0)))
+    inherited_cpus=set(os.sched_getaffinity(0))
+    parent_cpu,rir_cpus,rir_workers=worker_cpu_policy(manifest,task,slot,runtime,inherited_cpu_ids=inherited_cpus)
     os.sched_setaffinity(0,{parent_cpu})
     import avengine
     if not Path(avengine.__file__).resolve().is_relative_to(Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()/'src'):
@@ -54,6 +55,9 @@ def run_worker(manifest,slot):
     inputs=runtime;inputs['production_input_contract']=manifest['contract']
     inputs['launch_disk_policy']=manifest.get('launch_disk_policy',manifest.get('disk_launch_policy',{}))
     inputs.update(fresh_rir_workers=rir_workers,fresh_rir_cpu_ids=rir_cpus)
+    inputs['cpu_visual_threads']=int(task.get('cpu_visual_threads',manifest.get('cpu_visual_threads',inputs.get('cpu_visual_threads',1))))
+    from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
+    visual_cpu_policy=configure_cpu_visual(inputs,cpu_ids=[cpu for cpu in(task.get('cpu_ids')or cpus)if cpu in inherited_cpus])
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
@@ -72,6 +76,8 @@ def run_worker(manifest,slot):
                 scene_id=row['scene_id'],seed=row['scene_seed'],family=task['target_family'],attempt=int(task.get('construction_attempt',0)))
             if proposal['profile']!='phase2':raise ValueError('automatic constructor profile differs from the registered worker profile')
             row=proposal['row']
+            prepared_native=proposal.get('prepared_native',proposal.get('prepared'))
+            if prepared_native is not None:row=prepared_native.row
         elif task.get('focus')=='motion_quartet_template' or task.get('constructor')=='motion_quartet_template':
             from avengine.timeline.v7_motion_quartet_planning import plan_native_room_motion_quartet
             if task.get('target_family')in {'QA-06','QA-15','QA-16','QA-17'}:row['motion_requested_families']=[task['target_family']]
@@ -103,10 +109,10 @@ def run_worker(manifest,slot):
         add_required_condition(row,'authored_native_quartet')
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
         from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
-    if task['profile']=='phase2'and task.get('focus')=='human_motion'and not previous.exists():
+    if task['profile']=='phase2'and prepared_native is None and task.get('focus')=='human_motion'and not previous.exists():
         from avengine.timeline.v7_acceptance_motion_planner import prepare_conditioned_motion_gap
         row=prepare_conditioned_motion_gap(row,state,catalog,source['records'],inputs,house,load(inputs['semantic_manifest']))
-    if task['profile']=='phase2':
+    if task['profile']=='phase2'and prepared_native is None:
         from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion,REVISION as EXECUTION_REVISION
         if not previous.exists():row['motion_execution_revision']=EXECUTION_REVISION
         if row.get('scene_constructor')!='motion_quartet_template' and not row.get('motion_quartet_template_revision'):row=prepare_scene_motion(row,catalog)
@@ -116,7 +122,7 @@ def run_worker(manifest,slot):
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
         'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
-        'allocated_cpu_ids':task.get('cpu_ids',cpus),'fresh_rir_cpu_ids':rir_cpus,'fresh_rir_workers':rir_workers,
+        'visual_cpu_policy':visual_cpu_policy,'allocated_cpu_ids':task.get('cpu_ids',cpus),'fresh_rir_cpu_ids':rir_cpus,'fresh_rir_workers':rir_workers,
         'code_commit':task.get('snapshot_commit',manifest['code_commit']),
         'code_snapshot':task.get('snapshot_worktree',manifest['worktree']),
         'selection_feedback_state':os.environ[SELECTION_FEEDBACK_ENV],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
@@ -144,6 +150,9 @@ def run_worker(manifest,slot):
             prepare_native(row,house,inputs,catalog,source,human,str(native_root),root,source_path=contract['inputs']['source_admission']['path'],human_path=manifest['human_ue'],catalog_path=manifest['assets_ue'])
             phases.enter_context(cpu_phase(root,'audio_questions_reader',estimate_bytes=2000000000))
             result=generate(row,house,inputs,catalog,source,human,str(native_root))
+        elif prepared_native is not None:
+            try:result=generate(row,house,inputs,catalog,source,human,str(native_root),prepared_native=prepared_native)
+            finally:prepared_native.close()
         else:result=generate(row,house,inputs,catalog,source,human,str(native_root))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
         if not admitted:raise ValueError('native producer did not admit the parent')

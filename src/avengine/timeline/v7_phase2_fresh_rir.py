@@ -130,6 +130,7 @@ class FreshNativeContextRenderer:
 def _worker(request_path):
     # Pin before SDK imports; threads and priority are inherited from CPU worker.
     cpus=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,{cpus[0]})
+    os.environ['LP_NUM_THREADS']='1'
     path=pathlib.Path(request_path).resolve();request=json.loads(path.read_text())
     output=pathlib.Path(request['output']).resolve();report=pathlib.Path(request['report']).resolve()
     if output.parent!=path.parent or report.parent!=path.parent:raise ValueError('fresh process output escaped its own request directory')

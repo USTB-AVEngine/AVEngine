@@ -15,7 +15,10 @@ class NativePhase2Video(NativeVisibleVideo):
         from avengine.timeline.v7_camera_evidence import set_static_camera
         set_static_camera(scene)
         self._phase2_scene=scene
+        from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
+        visual_cpu_policy=configure_cpu_visual(inputs)
         super().__init__(house,scene,inputs,assets,**kwargs)
+        self.receipt['visual_cpu_policy']=visual_cpu_policy
         self._pose_context_configuration={'arguments':(house,scene,inputs,assets),'keywords':kwargs}
         self._pose_resources_in_context=set();self._last_primary_frame=None
         for entry in self.actors:
@@ -117,6 +120,9 @@ class NativePhase2Video(NativeVisibleVideo):
         import numpy as np,math
         from pathlib import Path
         from avengine.timeline.continuous_pilot import write_json
+        if getattr(self,'_prepared_native_encode',False):
+            from avengine.timeline.v7_prepared_native_delivery import consume_prepared_qualification
+            return consume_prepared_qualification(self,scene,directory)
         checks=super().qualify_standing(scene,directory)
         camera_targets=scene.get('phase2_semantic_camera_sector_targets_deg',{})
         if camera_targets:
@@ -201,7 +207,7 @@ class NativePhase2Video(NativeVisibleVideo):
         else:raise ValueError('unsupported phase-two motion; no static fallback')
         entry['motion_episode']=record
         from avengine.timeline.v7_native_resource_slots import acquire_native_resource
-        self._task_motion_capture_lease=acquire_native_resource('motion_capture',expected_incremental_bytes=(35_000_000_000 if a['kind']=='human' else 3_000_000_000 if record.get('motion_mode')=='slide_no_animation' else 8_000_000_000 if a.get('species_id')=='cat' else 16_000_000_000))
+        self._ensure_motion_capture_lease()
         actual=[]
         for index in range(901):
             self._maybe_recycle_pose_context(scene,index)
@@ -222,6 +228,20 @@ class NativePhase2Video(NativeVisibleVideo):
         accepted['moving_frame_count']=sum(f['moving'] for f in record['source_frames'])
         write_json(dest/'native_motion_readbacks.json',{'status':'pass','frames':actual,'geometry_receipt':str(dest/('seated_geometry.json' if request['action']=='sit' else 'motion_geometry.json'))})
 
+
+    def _ensure_motion_capture_lease(self):
+        current=getattr(self,'_task_motion_capture_lease',None)
+        if current is not None and current.stream is not None:return current
+        from avengine.timeline.v7_native_resource_slots import acquire_native_resource
+        self._task_motion_capture_lease=acquire_native_resource('motion_capture',expected_incremental_bytes=int(self.motion_inputs.get('motion_capture_extra_reserve_bytes',0)))
+        return self._task_motion_capture_lease
+
+    def close(self):
+        try:return super().close()
+        finally:
+            lease=getattr(self,'_task_motion_capture_lease',None)
+            if lease is not None:lease.close()
+            self._task_motion_capture_lease=None
 
     def _check_source_frame(self,rgb,semantic,frame_index):
         import numpy as np
