@@ -149,9 +149,8 @@ def test_species_speed_floor_snap_and_parent_duration_rejected():
         construct_route(c, [[0,0,-3], [0,0,-4]], species="cat", speed_m_s=1.)
     with pytest.raises(ConstructionError, match="duration"):
         construct_route(c, [[0,0,-3], [0,0,-6]], duration_s=1.)
-    c.pathfinder = SimpleNamespace(snap_point=lambda p: np.asarray(p)+[0,3,0])
-    with pytest.raises(ConstructionError, match="snap_tolerance"):
-        validate_track(c, [[0,0,-3]])
+    with pytest.raises(ConstructionError, match="changes_floor"):
+        validate_track(c, [[0,3,-3]])
 
 
 def test_certification_rejects_missing_nav_and_multiple_human_sound_classes():
@@ -234,3 +233,77 @@ def test_exact_mesh_scaled_transform_depth_and_target_centroid():
     assert p.evidence["target_centroid_xy_px"][0] < c.width/2
     with pytest.raises(ValueError,match="own occluders"):
         predict_mesh_visibility(c,target,scene_depth=depth(c),occluders=(target,))
+
+
+def test_depth_cache_survives_new_context_and_new_registered_occluder_isolated(tmp_path):
+    import trimesh
+    c=context(tmp_path)
+    wall=trimesh.creation.box((9.,4.,.1));wall.apply_translation([0,1.,-6.])
+    c.raycaster=MeshRaycaster(wall,evidence={"fixture":"wall"})
+    c.identity["geometry"]={"fixture":"wall"};c.identity["geometry_source"]="visual_mesh"
+    d=c.depth(c.cameras[0]);assert c.cache_misses==1
+    c._depth={};c.raycaster.first_hit=lambda *a: (_ for _ in ()).throw(AssertionError("cache missed"))
+    np.testing.assert_allclose(c.depth(c.cameras[0]).depth_m,d.depth_m)
+    assert c.cache_hits==1
+    obj=trimesh.creation.box((1.,2.,.1));obj.apply_translation([0,1.,-2.])
+    oc=MeshInstance("registered",MeshRaycaster(obj,evidence={"fixture":"foreground"}))
+    c.raycaster=MeshRaycaster(wall,evidence={"fixture":"wall"})
+    altered=c.with_occluders(oc)
+    assert altered._owned_video is None
+    d2=altered.depth(c.cameras[0])
+    assert d2.depth_m[c.cameras[0].height//2,c.cameras[0].width//2] < d.depth_m[c.cameras[0].height//2,c.cameras[0].width//2]
+    assert altered._key(c.cameras[0]) != c._key(c.cameras[0])
+
+
+def test_scheduler_measured_activity_respects_silent_query_and_moving_window():
+    req=SoundRequirement("a","clip","speech",((.2,1.2),),(0.,5.),((2.,4.),))
+    r=schedule_sound_events([req],silent_intervals_s=((4.,5.),))
+    assert r.status=="solved"
+    e=r.events[0]
+    assert 2. <= e.start_s < e.end_s <= 3.5
+    assert e.wet_end_s <= 4.
+    assert e.end_s-e.start_s == pytest.approx(1.)
+
+
+def test_scheduler_backtracks_starts_and_does_not_overlap_same_voice():
+    a=SoundRequirement("a","one","speech",((0.,1.),),(0.,4.))
+    b=SoundRequirement("a","two","speech",((0.,1.),),(0.,0.))
+    r=schedule_sound_events([a,b])
+    assert r.status=="solved" and r.starts_s[0] >= 1.5 and r.starts_s[1] == 0.
+    assert len(r.events)==2
+
+
+def test_scheduler_zero_domain_and_budget_are_different():
+    a=SoundRequirement("a","one","speech",((0.,1.),),(0.,0.))
+    r=schedule_sound_events([a],silent_intervals_s=((0.,3.),))
+    assert r.status=="unavailable" and r.reasons[0].startswith("empty_start_domain")
+    b=SoundRequirement("a","two","speech",((0.,1.),),(0.,4.))
+    r=schedule_sound_events([a,b],max_nodes=1)
+    assert r.status=="budget_exhausted"
+
+
+def test_navmesh_drift_uses_original_native_two_millimetre_limit():
+    c=context()
+    c.pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p)+[.01,0,0])
+    with pytest.raises(ConstructionError,match="snap_tolerance"):
+        validate_track(c,[[0,0,-3]])
+
+
+def test_camera_search_includes_interior_when_inset_perimeter_blocked():
+    c=context()
+    for layer in c.walkable_map.layers.values():
+        layer[:]=False
+        layer[65:115,65:115]=True
+    cameras=candidate_cameras(c.room,c.walkable_map,c.pathfinder,limit=6)
+    assert cameras
+    for camera in cameras:
+        assert c.walkable_map.contains(np.asarray(camera.position_m)[[0,2]],"human")
+
+
+def test_elevated_navmesh_does_not_float_actor_or_remove_legal_camera():
+    c=context()
+    c.pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p)+[0,.166,0])
+    q,report=validate_track(c,[[0,0,-3],[0,0,-4]])
+    np.testing.assert_array_equal(q[:,1],[0,0])
+    assert report["navmesh_y_offset_range_m"] == pytest.approx([.166,.166])
+    assert candidate_cameras(c.room,c.walkable_map,c.pathfinder,limit=6)

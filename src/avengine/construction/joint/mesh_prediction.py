@@ -106,3 +106,24 @@ def predict_mesh_visibility(camera, target, *, scene_depth, occluders=(), depth_
                      "required_depth_margin_m": depth_margin_m})
     return VisibilityPrediction(state, count, robust_visible, upper, fraction, edge,
                                 margin, blocker_ids, "exact_mesh_prediction", evidence)
+
+
+class InstanceRaycaster:
+    """World-space rays into one exact local mesh, retaining its registered ID."""
+    def __init__(self, instance):
+        self.instance = instance
+        self.inverse = np.linalg.inv(instance.transform_m)
+        self.source = instance.raycaster.source
+        self.evidence = {"entity_id": instance.entity_id, "transform_m": instance.transform_m.tolist(),
+                         "mesh": instance.raycaster.evidence}
+
+    def first_hit(self, origins, directions):
+        directions = np.asarray(directions, float).reshape(-1, 3)
+        origins = np.broadcast_to(np.asarray(origins, float), directions.shape)
+        local_origin = origins@self.inverse[:3, :3].T+self.inverse[:3, 3]
+        local_direction = directions@self.inverse[:3, :3].T
+        distance, _ = self.instance.raycaster.first_hit(local_origin, local_direction)
+        distance *= np.linalg.norm(directions, axis=1)/np.linalg.norm(local_direction, axis=1)
+        ids = np.full(len(distance), "", dtype="U128")
+        ids[np.isfinite(distance)] = self.instance.entity_id
+        return distance, ids
