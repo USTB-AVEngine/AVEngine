@@ -173,6 +173,10 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         from avengine.timeline.v7_camera_evidence import review_frame_indices
         if review_frames is None:review_frames=review_frame_indices(scene)
         result=super().encode(scene,path,review_frames,collect_pixel_visibility=collect_pixel_visibility)
+        from avengine.capture.v7_offscreen_layout import coverage_errors
+        counts={a['asset_id']:sum(next(r for r in f['actors']if r['asset_id']==a['asset_id'])['visible_pixels']>=100 for f in result['frames'])for a in [e['declaration']for e in self.actors]}
+        errors=coverage_errors(scene,[e['declaration']for e in self.actors],{'visible_attachment_checks':self.standing_checks},counts)
+        if errors:raise ValueError('; '.join(errors))
         if len(self.environment_frame_readbacks)!=450:raise ValueError('incomplete native environmental source clock')
         result['environmental_emitter_readbacks']=self.environment_frame_readbacks
         result['native_motion_admissions']={e['endpoint_id']:e['motion_episode'] for e in self.actors if e.get('motion_episode')}
@@ -228,9 +232,18 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         soles=stage_sole_rays(self,points);floor_ok=all(abs(x['signed_contact_error_m'])<=tolerance for x in soles);skin_ok=all(x['contact_distance_m']>=-tolerance for x in actual);bad_detected=any(x['contact_distance_m']<-tolerance for x in bad)
         return {'status':'pass' if floor_ok and skin_ok and bad_detected else 'blocked','endpoint_id':entry['endpoint_id'],'asset_id':entry['declaration']['asset_id'],'action':'registered_stand','contact_tolerance_m':tolerance,'tolerance_changed':False,'sole_readbacks':soles,'native_skin_vertices':len(vertices),'native_triangles':len(original.faces),'full_skin_covered':True,'native_full_skin_bounds_m':[vertices.min(0).tolist(),vertices.max(0).tolist()],'compound_hulls':hulls,'compound_margin_m':.001,'contacts':actual,'known_bad_10cm_floor_contacts':bad,'known_bad_detected':bad_detected,'proxy_path':path,'source_original_glb':entry['declaration']['habitat_glb'],'motion_admission':'stand only; no walk/sit/seat qualification'}
 
+    def _native_pair_pixels(self,scene,entries,forward=None):
+        from avengine.capture.v7_visible_native import NativeVisibleVideo
+        return NativeVisibleVideo._native_pair_pixels(self,scene,entries,forward)
+
+    def _native_observed_pixels(self,scene,entries):
+        from avengine.capture.v7_visible_native import NativeVisibleVideo
+        return NativeVisibleVideo._native_observed_pixels(self,scene,entries)
+
     def qualify_standing(self,scene,directory):
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True);checks=[];bounds=[];attempts=[]
-        candidates=scene.get('native_placement_candidates',[])
+        candidates=scene.get('native_placement_candidates',[]);placed=[]
+        for entry in self.actors:entry['object'].translation=self.mn.Vector3(0.,-1000.,0.)
         for entry in self.actors:
             original=scene['sources'][entry['endpoint_id']]['trajectory'][0]['position_m']
             accepted=None
@@ -238,7 +251,16 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 entry['placement_override_m']=position;entry.pop('floor_adjustment',None)
                 try:
                     self._apply_entry(entry,scene)
+                    entry['resolved_root_m']=entry['applied_root_input'][:3,3].copy()
+                    from avengine.capture.v7_social_layout import spacing_violation
+                    if spacing_violation(scene,entry['declaration'],entry['resolved_root_m'],placed) is not None:continue
+                    from avengine.capture.v7_offscreen_layout import native_pixels_ok,native_projection_proof
+                    counts,_=self._native_observed_pixels(scene,[*placed,entry])
+                    if not native_pixels_ok(scene,[*placed,entry],counts):continue
+                    offscreen=native_projection_proof(self,scene,entry,counts[entry['declaration']['asset_id']])
+                    if offscreen is not None and offscreen['status']!='pass':continue
                     check=self._probe_entry(entry,directory)
+                    if offscreen is not None:check['intentional_offscreen_proof']=offscreen
                     lo,hi=np.asarray(check['native_full_skin_bounds_m'])
                     intersects=any(np.all(np.minimum(hi,bhi)>np.maximum(lo,blo)) for blo,bhi in bounds)
                     attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'contact_status':check['status'],'known_bad_detected':check['known_bad_detected'],'pair_envelopes_overlap':bool(intersects),'minimum_contact_m':min((c['contact_distance_m'] for c in check['contacts']),default=None)})
@@ -255,7 +277,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             if accepted is None:
                 write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts})
                 raise ValueError('registered actor has no native-qualified nonoverlapping room placement')
-            accepted['resolved_body_root_world_m']=entry['applied_root_input'][:3,3].tolist();accepted['candidate_emitter_plan_m']=entry['placement_override_m'];checks.append(accepted)
+            accepted['resolved_body_root_world_m']=entry['applied_root_input'][:3,3].tolist();accepted['candidate_emitter_plan_m']=entry['placement_override_m'];checks.append(accepted);placed.append(entry)
         for ep,item in self.environment_nodes.items():
             accepted=None
             for point in [scene['sources'][ep]['trajectory'][0]['position_m'],*candidates]:
@@ -293,4 +315,6 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         self.environment_frame_readbacks=[]
         from avengine.timeline.v7_camera_evidence import recenter_on_actual_roots
         recenter_on_actual_roots(scene,self.actors)
+        from avengine.capture.v7_offscreen_layout import refresh_actual_offscreen_proofs
+        refresh_actual_offscreen_proofs(self,scene,checks)
         self.standing_checks=checks;write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts,'original_contact_gate_preserved':True});self.camera_frame_readbacks=[];return checks
