@@ -257,3 +257,30 @@ def predict_visibility(camera, root_m, body=BodySpec(), *, depth=None, raycaster
     dmargin = float(finite.min()) if len(finite) else (math.inf if known.all() else 0.)
     return VisibilityPrediction(state, int(visible.sum()), 0, upper, fraction, edge,
                                 dmargin, blockers, confidence, evidence)
+
+
+def framing_vertices(world_vertices, world_to_camera, projection, width, height):
+    """Whole actual mesh against native clip planes: (inside/outside/edge, margin_px).
+
+    Occlusion does not affect this projection check. Different vertices outside
+    different planes do NOT prove an entirely out-of-view triangle/mesh.
+    """
+    vertices = np.asarray(world_vertices, float)
+    view, project = np.asarray(world_to_camera, float), np.asarray(projection, float)
+    if (vertices.ndim != 2 or vertices.shape[1] != 3 or not len(vertices)
+            or not np.isfinite(vertices).all() or view.shape != (4, 4) or project.shape != (4, 4)
+            or not np.isfinite(view).all() or not np.isfinite(project).all()
+            or width <= 0 or height <= 0):
+        raise ValueError("finite native vertices, matrices and image dimensions required")
+    clip = np.c_[vertices, np.ones(len(vertices))]@view.T@project.T
+    w = clip[:, 3]
+    planes = np.column_stack((w+clip[:, 0], w-clip[:, 0], w+clip[:, 1], w-clip[:, 1],
+                              w+clip[:, 2], w-clip[:, 2]))
+    if np.any(np.all(planes < 0, axis=0)):
+        return "outside", -math.inf
+    if np.any(w <= 1e-12):
+        return "edge", -math.inf
+    ndc = clip[:, :2]/w[:, None]
+    margin = float(min((1-np.abs(ndc[:, 0])).min()*width/2,
+                       (1-np.abs(ndc[:, 1])).min()*height/2))
+    return ("inside" if margin >= -1e-6 and np.all(planes[:, 4:] >= -1e-8) else "edge"), margin

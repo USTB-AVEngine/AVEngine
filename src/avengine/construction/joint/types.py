@@ -5,7 +5,7 @@ Planning certificates never replace the unchanged native QA truth.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Protocol
+from typing import Any, Callable, Iterable, Mapping, Protocol
 import math
 import numpy as np
 
@@ -128,6 +128,26 @@ class SolveResult:
     certificate: Certificate | None = None
     reasons: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    prepared: Any = None
+
+
+@dataclass
+class PreparedCandidate:
+    """A native preparation retained for the renderer, plus actual checks.
+
+    Rejected candidates are closed by solve. On success ownership transfers to
+    the caller through SolveResult.prepared; do not prepare a different scene.
+    """
+    payload: Any
+    checks: tuple[CheckResult, ...]
+    close: Callable[[], None] | None = None
+
+    def __enter__(self):
+        return self.payload
+
+    def __exit__(self, *exc):
+        if self.close is not None:
+            self.close()
 
 
 class FamilyPlugin(Protocol):
