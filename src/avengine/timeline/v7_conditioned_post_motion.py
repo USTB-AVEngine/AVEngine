@@ -208,10 +208,6 @@ def build_conditioned_post_scene(row,house,records,catalog,semantic_manifest=Non
 
 
 def generate_post_sound_parent(*args,**kwargs):
-    # One isolated parent per worker. Keep the adapter in its own file while
-    # the existing generator still owns all native admissions and QA gates.
-    from avengine.timeline import v7_phase2_generation as generation
-    original=generation.build_visible_scene
-    generation.build_visible_scene=build_conditioned_post_scene
-    try:return generation.generate_phase2_parent(*args,**kwargs)
-    finally:generation.build_visible_scene=original
+    """Compatibility entry; the producer calls the adapter directly in source."""
+    from avengine.timeline.v7_phase2_generation import generate_phase2_parent
+    return generate_phase2_parent(*args,**kwargs)

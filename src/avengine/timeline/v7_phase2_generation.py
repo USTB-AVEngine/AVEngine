@@ -116,6 +116,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     root=Path(output)/'parents'/row['scene_id'];check_write(root,expected_bytes=1_000_000_000);root.mkdir(parents=True,exist_ok=True)
     wall=time.perf_counter();cpu=cpu_seconds();semantic=read_json(inputs['semantic_manifest']) if row.get('semantic_scenario_id') else None
     working,base,program,assets=build_visible_scene(row,house,source_admission['records'],catalog,semantic)
+    if row.get('phase2_authored_speech_schedule_s'):
+        from avengine.timeline.v7_conditioned_post_motion import apply_authored_post_schedule
+        base,program=apply_authored_post_schedule(row,base,program,assets)
     from avengine.timeline.v7_production_inputs import bind_semantic_registry
     semantic=bind_semantic_registry(semantic,assets)
     # Preserve an already qualified exact native stage for audio-only resume.
@@ -207,7 +210,11 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     from avengine.timeline.v7_motion_during_conditions import verify_motion_during_native
     motion_condition_report=verify_motion_during_native(row,scene,visual)
     if motion_condition_report is not None:
-        write_json(root/'conditioned_motion_native_verification.json',motion_condition_report)
+        def publish_motion_verification(attempt):
+            write_json(attempt/'conditioned_motion_native_verification.json',motion_condition_report)
+            return motion_condition_report,['conditioned_motion_native_verification.json']
+        stage(root,'conditioned_motion_native_verification',
+            {'condition_plan':row.get('motion_during_condition_plan'),'report':motion_condition_report},publish_motion_verification)
         if motion_condition_report['status']!='pass':raise ValueError('original conditioned_motion native verification failed; see conditioned_motion_native_verification.json')
     def audio(attempt):return render_alpha_audio(scene,working,inputs,root/'rir_cache',attempt,dry,receipt,visual['camera_frame_readbacks'])
     from avengine.timeline.v7_wet_support import WET_SUPPORT_REVISION

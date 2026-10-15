@@ -49,8 +49,6 @@ def run_worker(manifest,slot):
             row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
         inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
-        if row.get('conditioned_post_motion'):
-            from avengine.timeline.v7_conditioned_post_motion import generate_post_sound_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         if previous.exists():
