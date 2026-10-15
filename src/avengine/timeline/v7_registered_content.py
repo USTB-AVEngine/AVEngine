@@ -14,7 +14,7 @@ from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_candidate_generation import read_json,stage
 from avengine.timeline.continuous_scene import partitioned_convolve
 
-CONTENT_BRIDGE_REVISION='registered-native-content-quartet-backend-readback-v3'
+CONTENT_BRIDGE_REVISION='registered-native-content-quartet-backend-readback-v4-rendered-tail-cap'
 MEMBERS=('v0_a0','v0_a1','v1_a0','v1_a1')
 
 
@@ -49,6 +49,10 @@ def _source_components(root,scene,factor):
         key=json.dumps(point,separators=(',',':'));index=poses[key]
         rir=np.load(cache/f'rir_{index:06d}.npy',allow_pickle=False)
         stems[ep]=partitioned_convolve(dry[ep],[rir],[0])
+        # Reconstruct the waveform that the registered renderer actually emits.
+        # The float32 samplewise equality predicate below remains unchanged.
+        from avengine.timeline.v7_wet_support import cap_wet_tail
+        stems[ep],_=cap_wet_tail(stems[ep],dry[ep])
         # Exact finite input/filter support proves silence without introducing
         # an audibility/SNR threshold for the other physical emitters.
         samples=np.flatnonzero(dry[ep]);supports[ep]=(samples,len(rir[0]))
