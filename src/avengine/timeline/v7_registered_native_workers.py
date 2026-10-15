@@ -1,6 +1,7 @@
 """Prepare full native visuals; waiting children receive small file references."""
 from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor
+from copy import deepcopy
 from pathlib import Path
 import fcntl,gc,json,multiprocessing,os,time
 from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase,phase_state
@@ -28,7 +29,7 @@ def _native(job):
 def prepare_native(row,house,inputs,catalog,source,human,output,task_root,*,source_path=None,human_path=None,catalog_path=None):
     from avengine.timeline.v7_registered_generation import generate_registered_parent
     with cpu_phase(task_root,'dry_inputs',estimate_bytes=1500000000):
-        generate_registered_parent(row,house,inputs,catalog,source,human,output,prepare_native_inputs_only=True)
+        generate_registered_parent(deepcopy(row),deepcopy(house),deepcopy(inputs),catalog,source,human,output,prepare_native_inputs_only=True)
     root=Path(output)/'parents'/row['scene_id'];pending=[v for v in ['v0','v1']if not(root/('visual_'+v+'_completed.json')).exists()]
     if not pending:return
     phase_state(task_root,'idle','waiting_full_native_visuals');gc.collect()

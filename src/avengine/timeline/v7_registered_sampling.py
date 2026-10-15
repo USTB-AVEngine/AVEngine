@@ -89,6 +89,8 @@ def semantic_record(sound,gender):
     return record
 
 def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,camera_evidence_policy=None):
+    # The selected per-scene room must not alias the caller's frozen house.
+    house=deepcopy(house)
     if row['schema']!=REGISTERED_INPUT_SCHEMA or house['house']!=row['house'] or house['split']=='test':raise ValueError('registered production row on train/dev house required')
     if house['acoustic_status']!='pass' or row['room_id'] not in house['checked_room_ids']:raise ValueError('unaccepted physical house/room')
     if {'development':'dev'}.get(house['split'],house['split'])!=row['split']:raise ValueError('house split crossed')
