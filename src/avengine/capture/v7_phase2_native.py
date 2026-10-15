@@ -4,6 +4,8 @@ from avengine.capture.v7_visible_native import NativeVisibleVideo
 PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v16-explicit-Habitat-EGL-device'
 class NativePhase2Video(NativeVisibleVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
+        from avengine.timeline.v7_camera_evidence import set_static_camera
+        set_static_camera(scene)
         super().__init__(house,scene,inputs,assets,**kwargs)
         for entry in self.actors:
             a=entry['declaration']
@@ -70,47 +72,17 @@ class NativePhase2Video(NativeVisibleVideo):
         checks=super().qualify_standing(scene,directory)
         camera_targets=scene.get('phase2_semantic_camera_sector_targets_deg',{})
         if camera_targets:
-            # Use read-back real mouths and a real camera turn for semantic
-            # direction diversity. No synthetic positions or QA overrides.
-            wanted={}
-            for entry in self.actors:
-                aid=entry['declaration']['asset_id']
-                if aid not in camera_targets:continue
-                observed=self._apply_entry(entry,scene)['emitter_position_m']
-                delta=np.asarray(observed)-np.asarray(scene['listener_m'])
-                wanted[entry['endpoint_id']]=math.degrees(math.atan2(delta[0],-delta[2]))-float(camera_targets[aid])
-            if len(wanted)!=len(camera_targets):raise ValueError('camera plan lacks actual registered mouth')
-            starts=[e for e in scene['events'] if e['endpoint_id'] in wanted]
-            knots={};base_yaw=float(scene['camera_yaw_knots'][0]['yaw_deg'])
-            for window_start in scene['window_starts_s']:
-                events=sorted([e for e in starts if window_start<=e['start_tick']/10<window_start+10],key=lambda e:e['start_tick'])
-                if len(events)!=len(wanted):raise ValueError('one whole utterance per authored role per crop required')
-                first=wanted[events[0]['endpoint_id']];knots[window_start]=first
-                for event in events:
-                    lo=event['start_tick']/10;hi=event['end_tick']/10
-                    knots[max(window_start,lo-.02)]=wanted[event['endpoint_id']]
-                    knots[hi]=wanted[event['endpoint_id']]
-                end=max(e['end_tick']/10 for e in events)
-                hold=max(window_start+6.8,end+.1)
-                if hold>=window_start+7.7:raise ValueError('whole dialogue leaves no observed turn/reentry interval')
-                knots[hold]=wanted[events[-1]['endpoint_id']]
-                knots[window_start+7.7]=base_yaw+80.
-                knots[window_start+8.9]=base_yaw-80.
-                # Optional real camera dwell keeps small sources in actual
-                # sampled frames. Measurement sampling and gates stay intact.
-                turn_hold=float(scene.get('phase2_camera_turn_hold_s',0.))
-                if turn_hold:
-                    knots[window_start+7.7+turn_hold]=base_yaw+80.
-                    knots[window_start+8.9+turn_hold]=base_yaw-80.
-                knots[window_start+9.9]=base_yaw
-            knots[30.]=base_yaw
-            scene['camera_yaw_knots']=[{'time_s':t,'yaw_deg':v}for t,v in sorted(knots.items())]
-            theta=math.radians(scene['camera_yaw_knots'][0]['yaw_deg'])
-            scene['camera_forward']=[math.sin(theta),0.,-math.cos(theta)]
-            self.realized_phase2_camera={'method':'real native mouth readback followed by real camera turns; physical emitter positions and QA sector gates unchanged',
-                'camera_yaw_knots':scene['camera_yaw_knots'],'camera_forward':scene['camera_forward'],
-                'requested_relative_sectors_deg':camera_targets,'native_registered_endpoint_camera_yaws_deg':wanted}
+            # Sector conditions must be realized by entity placement. The camera
+            # never follows a speaker or sweeps to manufacture visibility.
+            self.realized_phase2_camera={
+                'method':'fixed camera; entity placement supplies requested sectors',
+                'camera_yaw_knots':deepcopy(scene['camera_yaw_knots']),
+                'camera_forward':list(scene['camera_forward']),
+                'requested_relative_sectors_deg':camera_targets,
+                'camera_motion_allowed':False}
             write_json(Path(directory)/'realized_semantic_camera.json',self.realized_phase2_camera)
+        from avengine.timeline.v7_camera_evidence import assert_static_camera
+        assert_static_camera(scene)
         directory=Path(directory)
         admissions=getattr(self,'phase2_motion_admissions',{})
         if not admissions:return checks
@@ -205,6 +177,8 @@ class NativePhase2Video(NativeVisibleVideo):
     def encode(self,scene,path,**kwargs):
         from pathlib import Path
         from avengine.timeline.continuous_pilot import write_json
+        from avengine.timeline.v7_camera_evidence import assert_static_camera
+        assert_static_camera(scene)
         result=super().encode(scene,path,**kwargs)
         for ep,record in result.get('native_motion_admissions',{}).items():
             for alias in [k for k,v in scene['sources'].items() if v.get('owner_endpoint_id')==ep]:

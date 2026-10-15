@@ -40,12 +40,7 @@ def parent_appearance_assets(assets,row):
 
 
 def camera_knots(starts,yaw):
-    knots={0.:float(yaw)}
-    for start in starts:
-        for offset,delta in [(0.,100.),(.5,85.),(1.8,0.),(8.4,0.),(10.,-100.)]:
-            knots[round(start+offset,8)]=float(yaw+delta)
-    knots[30.]=float(yaw)
-    return [{'time_s':t,'yaw_deg':value} for t,value in sorted(knots.items())]
+    return [{'time_s': 0., 'yaw_deg': float(yaw)}, {'time_s': 30., 'yaw_deg': float(yaw)}]
 
 
 def build_alpha_scene(row,house,records):
