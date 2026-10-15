@@ -233,8 +233,8 @@ def test_closest_buried_original_vertex_does_not_hide_valid_foot_surface():
 
 def test_no_original_surface_vertex_above_contact_keeps_rejection():
     import pytest
-    with pytest.raises(ValueError, match='unchanged 50mm and 2mm gates'):
-        _read_original_foot_child([[0, 0.001, 0], [0, 0.051, 0]])
+    with pytest.raises(ValueError, match='within 10 cm passes the 2mm not-buried gate'):
+        _read_original_foot_child([[0, 0.001, 0], [0, 0.101, 0]])
 
 
 @pytest.mark.fast_unit

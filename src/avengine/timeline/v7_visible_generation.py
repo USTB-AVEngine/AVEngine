@@ -32,7 +32,8 @@ def native_checks(scene,assets,visual,audio=None):
     quality_warnings=[]
     if fail:quality_warnings.append('native source highlight/appearance failure')
     if missing:quality_warnings.append('source material never measured: '+','.join(missing))
-    if any(a['attachment_surface']!=a['support_type'] or a['attachment_worst_error_m']>.015 or not a['skin_pass'] for a in attachments):errors.append('attachment or collision failure')
+    from avengine.assets.animal_motion.production_grounding import attachment_has_hard_error
+    if any(attachment_has_hard_error(a) for a in attachments):errors.append('attachment or collision failure')
     if any(alignment[k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or alignment['restored_modal_RGB_depth_semantic_frames']!=450:errors.append('native mask restoration or frame alignment failed')
     directions=audio.get('directions',[]) if audio else []
     return {'status':'pass' if not errors else 'fail','errors':errors,
