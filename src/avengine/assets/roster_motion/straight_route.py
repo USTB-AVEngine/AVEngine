@@ -195,7 +195,7 @@ def _rooms_with_cameras(room, pathfinder, species, relocate=True, limit=12):
 
 def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
                          families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600,
-                         corners=False, use_map=True):
+                         corners=False, use_map=True, minimum_camera_distance_m=None, require_reverse_radial=False):
     from .reflect_navmesh import native_free_predicate, SHORT_WALK_LEAD_S, SHORT_WALK_RAMP_S
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
@@ -211,7 +211,7 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
             from avengine.rooms.walkable_map import load_room_map
             walkable_map = load_room_map(room.get('room_label', room.get('room_id')), path=room.get('walkable_map_path'),
                                          floor_reference=floor)
-        is_free = native_free_predicate(pathfinder, polygon, floor, listener, walkable_map=walkable_map, species=species)
+        is_free = native_free_predicate(pathfinder, polygon, floor, listener, walkable_map=walkable_map, species=species, camera_margin=minimum_camera_distance_m)
     segment_is_free = getattr(is_free, 'segment_is_free', None)
     lo, hi = SPECIES_SPEED_M_S[species]
     if speed_range is None:
@@ -239,7 +239,7 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
     total = float(s[-1])
     samples = np.r_[np.arange(0., total, .1), total][::-1]
     from .reflect_navmesh import CAMERA_MARGIN_M
-    camera_margin = CAMERA_MARGIN_M.get(species, 1.)
+    camera_margin = max(CAMERA_MARGIN_M.get(species, 1.), float(minimum_camera_distance_m or 0.))
     x0, z0, x1, z1 = polygon.bounds
     grid = [np.array([x, z]) for x in np.arange(x0, x1 + 1e-9, grid_m) for z in np.arange(z0, z1 + 1e-9, grid_m)]
     rng.shuffle(grid); grid = grid[:max_grid if not corners else min(max_grid, 220)]
@@ -264,8 +264,16 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
                     qa15, qa16, _, _ = _radial_flags(positions, L, k, e, q)
                     if not qa15 or (families == 'all4' and not qa16):
                         rejected['radial_slot'] += 1; continue
+                    if require_reverse_radial:
+                        reverse_qa15, reverse_qa16, _, _ = _radial_flags(positions[0] + positions[-1] - positions, L, k, e, q)
+                        if not reverse_qa15 or (families == 'all4' and not reverse_qa16):
+                            rejected['radial_slot'] += 1; continue
                 tested += 1
                 if not all(is_free(x) for x in pts):
+                    rejected['line_not_free'] += 1; continue
+                if not all(is_free(x) for x in np.unique(positions,axis=0)):
+                    rejected['line_not_free'] += 1; continue
+                if segment_is_free is not None and not all(segment_is_free(a,b) for a,b in zip(positions[:-1],positions[1:]) if np.linalg.norm(b-a)>1e-10):
                     rejected['line_not_free'] += 1; continue
                 found.append((p, h, corner)); break
             if found and found[-1][0] is p:

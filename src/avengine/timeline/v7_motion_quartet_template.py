@@ -132,7 +132,11 @@ def find_legacy_template_route(room, pathfinder, seed, attempt=0, *, speed_range
         return compact
     raise MotionTemplateUnavailable('bounded native NavMesh straight/turn search exhausted: '+str(tested)+' proposals; stages='+str(dict(checks))+'; planner must choose another legal room')
 
-def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5,species='human',utterance_s=1.5,focus='M1'):
+def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5,species='human',utterance_s=1.5,focus='M1',require_all_families=False):
+    if species == 'human' and require_all_families:
+        from avengine.assets.roster_motion.human_event_route import find_human_seed_route
+        try:return find_human_seed_route(room,pathfinder,seed,attempt,utterance_s=utterance_s,speed_range=speed_range)
+        except ValueError as error:raise MotionTemplateUnavailable(str(error)) from error
     from avengine.assets.roster_motion.reflect_navmesh import find_reflected_route
     try:return find_reflected_route(room,pathfinder,seed,attempt,species=species,utterance_s=utterance_s,focus=focus,speed_range=speed_range)
     except ValueError as error:raise MotionTemplateUnavailable(str(error)) from error
@@ -140,6 +144,9 @@ def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),q
 
 def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_records,
                             pathfinder, *, attempt=0, contract=None, source_type=None):
+    if (source_type or base_row.get('motion_source_type', 'human_speech')) == 'human_speech' and int(base_row.get('human_motion_event_count', 3)) > 1:
+        from avengine.timeline.v7_human_motion_events import human_motion_events_template
+        return human_motion_events_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract)
     from avengine.timeline.v7_registered_sampling import semantic_record
     from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
     import soundfile as sf
@@ -172,7 +179,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     focus=row.get('motion_template_focus','M2' if seed%2 else 'M1')
     # owner 10-15 approved judging distance trends on a 0.5 s smoothed mouth track, so walking animals carry the
     # distance-trend families again (v7_motion_during_conditions.smooth_track).
-    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus)
+    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus,require_all_families=bool(row.get('human_motion_require_all_families')))
     slot=route['emission_slot'];offset=slot['offset_s'];start=slot['start_s'];local_start=start-offset
 
     a, b = [asset['asset_id'] for asset in assets[:2]]
