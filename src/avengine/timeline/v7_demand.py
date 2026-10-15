@@ -189,6 +189,15 @@ def demand_snapshot(state, *, next_questions=14):
 def read_demand_state(path):
     p=Path(path)
     state=json.loads(p.read_text()) if p.exists() else {'revision':DEMAND_REVISION,'logical_questions':0,'family_counts':{},'parents':{}}
+    # An already running older producer may finish under the previous owner
+    # policy. Normalize derived counts on read without editing its artifacts.
+    excluded=state.get('excluded_parent_scene_ids',{})
+    for key,value in list(state.get('parents',{}).items()):
+        if key in excluded or value.get('scene_id')in excluded:
+            state.setdefault('excluded_legacy_parents',{})[key]=value
+            counts=Counter(state['family_counts']);counts.subtract(value['family_counts'])
+            state['family_counts']={k:v for k,v in counts.items()if v}
+            state['logical_questions']-=value['logical_questions'];del state['parents'][key]
     demand_snapshot(state)
     return state
 

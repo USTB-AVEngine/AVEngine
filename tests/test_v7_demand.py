@@ -324,3 +324,18 @@ def test_each_published_family_has_resolvable_named_scene_conditions():
     from avengine.timeline.v7_demand import FAMILY_SCENE_REQUIREMENTS,requested_question_families
     for family,request in FAMILY_SCENE_REQUIREMENTS.items():
         assert family in requested_question_families({'condition_families':{},'requested_conditions':request['conditions']})
+
+
+@pytest.mark.fast_unit
+def test_finishing_old_snapshot_cannot_reintroduce_excluded_counts_on_read(tmp_path):
+    import json
+    from avengine.timeline.v7_demand import read_demand_state
+    p=tmp_path/'feedback.json'
+    p.write_text(json.dumps({'logical_questions':5,'family_counts':{'QA-01':5},
+        'parents':{'old':{'scene_id':'old','logical_questions':2,'family_counts':{'QA-01':2}},
+                   'new':{'scene_id':'new','logical_questions':3,'family_counts':{'QA-01':3}}},
+        'excluded_parent_scene_ids':{'old':'one human had two sound sources'}}))
+    original=p.read_bytes();state=read_demand_state(p)
+    assert state['logical_questions']==3 and state['family_counts']=={'QA-01':3}
+    assert state['excluded_legacy_parents']['old']['logical_questions']==2
+    assert p.read_bytes()==original
