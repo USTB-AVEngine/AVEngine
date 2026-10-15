@@ -334,55 +334,33 @@ def native_entry_preflight(video, scene, entries):
 
 
 
-def native_entry_acoustic_checks(video, scene, runtime, output_dir):
-    """Apply the producer's original direction gate to the same initial mouths."""
-    import tempfile
-    from pathlib import Path
+def native_entry_counterfactual_checks(video, scene):
+    """Require the original real wrong-emitter witness; core owns all RIR gates."""
     from avengine.construction.joint import CheckResult
-    from avengine.timeline.v7_position_admission import PositionAdmission
-    directory = Path(output_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    run = Path(tempfile.mkdtemp(prefix="entry_acoustic_", dir=directory))
-    gate = PositionAdmission(scene, video.motion_house, runtime, directory/"rir_cache",
-                             run/"acoustic_placement_admission.json")
-    try:
-        from avengine.timeline.v7_phase2_motion_audio import wrong_registered_pose
-        actual_mouths = {entry["endpoint_id"]:
-            np.asarray(video._apply_entry(entry, scene, frame_index=0)["emitter_position_m"], float)
-            for entry in video.actors}
-        # A separate read-only predicate input, populated only by actual native
-        # registered emitters. It is never assigned back to the rendered scene.
-        probe = dict(scene, sources={endpoint: {
-            **scene["sources"][endpoint],
-            "trajectory": [{"time_s": t, "position_m": point.tolist()} for t in (0., 30.)]}
-            for endpoint, point in actual_mouths.items() if endpoint in scene["sources"]})
-        for entry in video.actors:
-            if not entry.get("motion_episode"):
-                continue
-            endpoint = entry["endpoint_id"]
-            try:
-                other, position, angle = wrong_registered_pose(probe, actual_mouths[endpoint], 0.)
-                evidence = {"actual_other_registered_endpoint": other,
-                            "actual_other_native_emitter_m": position.tolist(),
-                            "angle_deg": angle, "original_predicate": "wrong_registered_pose",
-                            "readback_frame": 0, "rendered_scene_modified": False}
-                yield CheckResult("QA-07:initial_real_wrong_emitter:"+endpoint, "pass",
-                                  evidence=evidence)
-            except ValueError as exc:
-                yield CheckResult("QA-07:initial_real_wrong_emitter:"+endpoint, "fail", str(exc))
-        for entry in video.actors:
-            if entry["declaration"].get("silent_decor"):
-                continue
-            actual = video._apply_entry(entry, scene, frame_index=0)["emitter_position_m"]
-            measured = gate.check(entry["endpoint_id"], np.asarray(actual, float))
-            ok = measured.get("status") in {"pass", "not_applicable_silent_bystander"}
-            yield CheckResult("QA-07:initial_acoustic_position:"+entry["endpoint_id"],
-                              "pass" if ok else "fail",
-                              "unchanged PositionAdmission on actual native emitter",
-                              evidence={"measurement": measured,
-                                        "receipt": str(run/"acoustic_placement_admission.json")})
-    finally:
-        gate.close()
+    from avengine.timeline.v7_phase2_motion_audio import wrong_registered_pose
+    actual_mouths = {entry["endpoint_id"]:
+        np.asarray(video._apply_entry(entry, scene, frame_index=0)["emitter_position_m"], float)
+        for entry in video.actors}
+    # A separate read-only predicate input, populated only by actual native
+    # registered emitters. It is never assigned back to the rendered scene.
+    probe = dict(scene, sources={endpoint: {
+        **scene["sources"][endpoint],
+        "trajectory": [{"time_s": t, "position_m": point.tolist()} for t in (0., 30.)]}
+        for endpoint, point in actual_mouths.items() if endpoint in scene["sources"]})
+    for entry in video.actors:
+        if not entry.get("motion_episode"):
+            continue
+        endpoint = entry["endpoint_id"]
+        try:
+            other, position, angle = wrong_registered_pose(probe, actual_mouths[endpoint], 0.)
+            evidence = {"actual_other_registered_endpoint": other,
+                        "actual_other_native_emitter_m": position.tolist(),
+                        "angle_deg": angle, "original_predicate": "wrong_registered_pose",
+                        "readback_frame": 0, "rendered_scene_modified": False}
+            yield CheckResult("QA-07:initial_real_wrong_emitter:"+endpoint, "pass",
+                              evidence=evidence)
+        except ValueError as exc:
+            yield CheckResult("QA-07:initial_real_wrong_emitter:"+endpoint, "fail", str(exc))
 
 
 def qa07_sound_requirements(scene, program, assets):
@@ -783,7 +761,7 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
                       "transitions": report.get("transitions"),
                       "peak_native_pixels": report.get("peak_actual_visible_pixels")})
         if ok:
-            yield from native_entry_acoustic_checks(video, scene, runtime, directory/"acoustics")
+            yield from native_entry_counterfactual_checks(video, scene)
 
     def oracle(context, requested, plan):
         initial_visible = {aid: 100 for aid, role in plan.metadata["roles"].items() if role == "inside"}
