@@ -288,14 +288,17 @@ def native_entry_preflight(video, scene, entries):
                 initial_mask = measured_row
                 initial_projection = native_projection_proof(video, scene, target,
                                                               counts[target["declaration"]["asset_id"]])
-            if index == temporal_indices[-1]:
+            # Match the producer's one-second colour sampling during entry,
+            # not only a fully visible endpoint. A clipped shoe/skin sample
+            # can invalidate the original aggregate appearance review.
+            if index % 15 == 0 or index == temporal_indices[-1]:
                 from avengine.assets.v7_visible_color import rebuild_appearance_review
                 lengths = {name: len(getattr(video, name, [])) for name in
                            ("color_checks", "material_checks", "phase2_chair_pixel_checks")}
                 try:
                     observation = video.sim.get_sensor_observations()
                     video._check_source_frame(observation["rgb"][:, :, :3], observation["semantic"], index)
-                    appearance_observations = list(video.color_checks[lengths["color_checks"]:])
+                    appearance_observations.extend(video.color_checks[lengths["color_checks"]:])
                     review, _ = rebuild_appearance_review(appearance_observations,
                                                             [e["declaration"] for e in entries])
                     appearance_reviews = review["actors"]
@@ -333,6 +336,7 @@ def native_entry_preflight(video, scene, entries):
                   native_probe_frame_indices=probe_indices, native_rest_framing=rest_frames,
                   native_temporal_coverage="all actual motion frames plus .6s before and 1.2s after",
                   native_appearance_review=appearance_reviews, native_appearance_observations=appearance_observations,
+                  native_colour_sampling="original producer stride 15 during actual motion, plus initial and final held poses",
                   original_qa07_witness=witness, final_complete_stream_still_required=True)
     return result
 
