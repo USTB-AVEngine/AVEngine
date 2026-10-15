@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run isolated native acceptance parents under a committed resource policy."""
 from __future__ import annotations
+from avengine.timeline.v7_acceptance_tasks import task_by_slot
 import argparse,datetime,json,os,resource,subprocess,sys,time,traceback
 from pathlib import Path
 
@@ -39,7 +40,7 @@ def worker_cpu_policy(manifest,task,slot,runtime,*,inherited_cpu_ids=None):
 
 def run_worker(manifest,slot):
     configure_walkable_maps(manifest)
-    task=dict(manifest['parents'][slot]);row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
+    task=dict(task_by_slot(manifest,slot));row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
     dispatch_profile=root/'inputs/dispatch_profiles'/f'{slot:03d}.json'
     if dispatch_profile.exists():task['profile']=load(dispatch_profile)['profile']
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
@@ -224,7 +225,7 @@ def run_worker(manifest,slot):
 def bind_worker_snapshot(manifest,slot,entry_root):
     from copy import deepcopy
     from avengine.timeline.v7_frozen_code import source_commit,verify_source
-    source=Path(entry_root).resolve();task=manifest['parents'][slot]
+    source=Path(entry_root).resolve();task=task_by_slot(manifest,slot)
     expected=Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()
     if source!=expected:raise ValueError('executing worker differs from its frozen task snapshot')
     actual=source_commit(source)
@@ -242,7 +243,7 @@ def main():
     started=datetime.datetime.now(datetime.timezone.utc).isoformat();start=time.monotonic();cpu=time.process_time()
     try:code=run_worker(m,a.worker)
     except Exception as exc:
-        write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':m['parents'][a.worker]['row']['scene_id'],'house':m['parents'][a.worker]['row']['house'],'room_id':m['parents'][a.worker]['row']['room_id'],'pid':os.getpid(),'stage':'construction_preflight','reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})
+        write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':task_by_slot(m,a.worker)['row']['scene_id'],'house':task_by_slot(m,a.worker)['row']['house'],'room_id':task_by_slot(m,a.worker)['row']['room_id'],'pid':os.getpid(),'stage':'construction_preflight','reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})
         traceback.print_exc();code=2
     raise SystemExit(code)
 

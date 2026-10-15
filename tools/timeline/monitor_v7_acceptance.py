@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Admit and inspect acceptance jobs; resource guards never terminate active work."""
+from avengine.timeline.v7_acceptance_tasks import task_by_slot
 import argparse,datetime,json,os,signal,subprocess,sys,time,shutil,fcntl
 from pathlib import Path
 
@@ -134,7 +135,7 @@ def hold_failed_family(manifest_path,family,reason):
 
 def append_progress(o,m,now,active):
  report_path=o/'PILOT_SUMMARY.json';report=load(report_path)if report_path.exists()else{}
- scenes=[m['parents'][slot]['row']['scene_id']for slot in active]
+ scenes=[task_by_slot(m,slot)['row']['scene_id']for slot in active]
  with(o/'PROGRESS.md').open('a')as f:
   f.write(now.isoformat()+' 构造/续跑场景='+','.join(scenes)+'；当前正式去重后模态平衡独立题='+str(report.get('independent_questions',0))+'；房子='+str(report.get('houses',0))+'；>=3题族='+str(report.get('families_at_least_three',0))+'；统计时间='+str(report.get('generated_utc','awaiting first final reader/report'))+'；题数只取PILOT_SUMMARY，原逐父候选/原始表不冒充最终总数。\n')
 
@@ -214,7 +215,7 @@ def main():
      with(o/'PROGRESS.md').open('a')as f:f.write(now.isoformat()+' AUTO_CONSTRUCTION_RETRY failed_slot='+str(slot)+' next_slot='+str(retry)+'；保留人数/题族/基本种子，自动改初始朝向或同房其他合法区域，不动真值门禁。\n')
      continue
     if m.get('isolate_expected_family_construction_failures') and expected_family_construction_failure(d):
-     family=m['parents'][slot].get('target_family')
+     family=task_by_slot(m,slot).get('target_family')
      if family:
       family_failures[family]=family_failures.get(family,0)+1
       if family_failures[family]>=int(m.get('family_construction_failure_hold_count',2)):
@@ -245,21 +246,21 @@ def main():
    from collections import Counter
    active_families=Counter()
    for active_slot in active:
-    active_task=m['parents'][active_slot];target=active_task.get('target_family')
+    active_task=task_by_slot(m,active_slot);target=active_task.get('target_family')
     if target:active_families[target]+=1
     elif active_task.get('constructor')=='motion_quartet_template':active_families.update(['QA-06','QA-15','QA-16','QA-17'])
    def demand_order(slot):
-    return construction_priority(m['parents'][slot],state.get('family_counts',{}),gaps,
+    return construction_priority(task_by_slot(m,slot),state.get('family_counts',{}),gaps,
         demand.get('modality_deficits',{}).get('vision',0.),active_families,families)
    for slot in sorted(pending,key=demand_order):
-    task=m['parents'][slot]
+    task=task_by_slot(m,slot)
     if task.get('launch_disabled'):continue
     w=Path(task.get('snapshot_worktree',m['worktree']))
     moving=task.get('focus')in {'human_motion','animal_motion','motion_quartet_template'}or task.get('target_family')in {'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'};ue=task['device']=='ue'
     if not smoke and m.get('require_single_parent_smoke',True) and (slot!=0 or active or completed):continue
     if a.smoke_only and slot!=0:continue
-    if len(active)>=limits["maximum_parents"] or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
-    reserve=sum(30_000_000_000 if (m['parents'][s].get('focus')in{'human_motion','animal_motion','motion_quartet_template'}or m['parents'][s].get('target_family')in{'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'})else 7_000_000_000 for s in active)
+    if len(active)>=limits["maximum_parents"] or ue and any(task_by_slot(m,s)['device']=='ue'for s in active):continue
+    reserve=sum(30_000_000_000 if (task_by_slot(m,s).get('focus')in{'human_motion','animal_motion','motion_quartet_template'}or task_by_slot(m,s).get('target_family')in{'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'})else 7_000_000_000 for s in active)
     requested=30_000_000_000 if moving else 7_000_000_000
     new_disk_reserve=int(m.get('per_parent_disk_reserve_bytes',0))
     if size+reserved_import_bytes+future_disk_growth+new_disk_reserve>int(m.get('maximum_task_bytes',60_000_000_000)):continue
@@ -269,10 +270,10 @@ def main():
     if forecast_cpu+4>limits["maximum_cpu_processes"]:continue
     with(o/'inputs/plan.lock').open('a')as launch_lock:
      fcntl.flock(launch_lock,fcntl.LOCK_EX)
-     current=load(a.manifest);task=current['parents'][slot]
+     current=load(a.manifest);task=task_by_slot(current,slot)
      if task.get('launch_disabled'):continue
      if current.get('cpu_group_size'):
-      used={cpu for active_slot in active for cpu in current['parents'][active_slot].get('cpu_ids',[])}
+      used={cpu for active_slot in active for cpu in task_by_slot(current,active_slot).get('cpu_ids',[])}
       free_cpus=[cpu for cpu in current.get('cpu_affinity_ids',[]) if cpu not in used]
       width=int(current['cpu_group_size'])
       if len(free_cpus)<width:continue
