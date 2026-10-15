@@ -276,11 +276,12 @@ def main():
                     emit_progress(root,cfg,'entire batch dispatch stopped '+json.dumps(stop_reason));break
                 continue
             while True:
-                if stop_requested:return
+                if stop_requested:break
                 snapshot=admission(policy);write(root/'ADMISSION_LATEST.json',{**snapshot,'time_utc':utc(),'scene_id':scene,'candidate':candidate})
                 if snapshot['status']=='admitted':break
                 emit_progress(root,cfg,'resource pause before new parent '+json.dumps(snapshot))
                 time.sleep(30)
+            if stop_requested:break
             cpus=idle_cpu_order()[:policy.maximum_cpu_processes]
             attempt.mkdir(parents=True);log=attempt/'worker.log'
             command=[sys.executable,str(Path(__file__).resolve()),'--worker','--config',str(a.config.resolve()),'--output',str(attempt),
@@ -308,7 +309,8 @@ def main():
             if stop_reason:
                 stop_requested=True;write(root/'AUTOMATION_STOP.json',stop_reason)
                 emit_progress(root,cfg,'entire batch dispatch stopped '+json.dumps(stop_reason));break
-        outcomes.append(read(record));state=from_passed_exports([*cfg.get('feedback_roots',[]),root]);write(root/'feedback.json',state)
+        if record.exists():outcomes.append(read(record))
+        state=from_passed_exports([*cfg.get('feedback_roots',[]),root]);write(root/'feedback.json',state)
     write(root/'AUTOMATION_RESULT.json',{'source_commit':identity['source_commit'],'plan_only':a.plan_only,'outcomes':outcomes,
         'handwritten_scene_configuration_inputs_read':[],'stop_requested':stop_requested,'stop_reason':stop_reason,'native_passed_parents':sum(r['status']=='passed'for r in outcomes),'family_counts':state['family_counts']})
     print(json.dumps({'output':str(root),'plan_only':a.plan_only,'native_passed_parents':sum(r['status']=='passed'for r in outcomes),'outcomes':[{'scene':r.get('scene_id'),'status':r['status']}for r in outcomes]},ensure_ascii=False))

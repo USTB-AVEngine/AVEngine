@@ -347,3 +347,44 @@ def test_public_coordinator_stops_the_entire_batch_instead_of_only_the_current_p
     assert result['stop_requested']is True and result['native_passed_parents']==0
     assert len(result['outcomes'])==expected_dispatches
     assert stopped['same_cause_occurrences']==expected_dispatches
+
+
+@pytest.mark.parametrize('stop_during_admission',[False,True])
+def test_graceful_stop_always_finalizes_receipts_and_never_dispatches_another_worker(tmp_path,monkeypatch,inputs,stop_during_admission):
+    from tools.timeline import generate_v7_demand_scenes as entry
+    from avengine.timeline import v7_unattended_resources as resources
+    rooms,houses,assets,semantic,contract=inputs;root=tmp_path/'stopped'
+    config=tmp_path/'global.json';config.write_text(json.dumps({'schema':'v7-global-family-runtime-v1',
+        'authorized_output_root':str(tmp_path),'feedback_roots':[]}))
+    monkeypatch.setattr(entry,'data',lambda cfg:(contract,assets,{}, {'records':[]},semantic,houses))
+    monkeypatch.setattr(entry,'commit',lambda:'f'*40)
+    monkeypatch.setattr(entry,'child_env',lambda cfg,root:dict(os.environ))
+    monkeypatch.setattr(entry.os,'environ',dict(os.environ))
+    monkeypatch.setattr(resources,'idle_cpu_order',lambda:list(range(16)))
+    handlers={};dispatched=[]
+    monkeypatch.setattr(entry.signal,'signal',lambda number,handler:handlers.update({number:handler}))
+    monkeypatch.setattr(entry.time,'sleep',lambda duration:None)
+    def admission(policy):
+        if stop_during_admission:
+            handlers[entry.signal.SIGTERM](entry.signal.SIGTERM,None)
+            return {'status':'paused_before_new_job'}
+        return {'status':'admitted'}
+    monkeypatch.setattr(resources,'admission',admission)
+    class FinishingWorker:
+        def __init__(self,command,**kwargs):
+            attempt=Path(command[command.index('--output')+1]);dispatched.append(attempt)
+            self.pid=10001;self.returncode=2
+            entry.write(attempt/'automatic_result.json',{'status':'failed','error_type':'RuntimeError',
+                'reason':'native layout rejected','automatic_attempt_root':str(attempt),
+                'scene_id':attempt.name,'automatic_started_unix':time.time()})
+        def poll(self):
+            handlers[entry.signal.SIGTERM](entry.signal.SIGTERM,None)
+            return self.returncode
+    monkeypatch.setattr(entry.subprocess,'Popen',FinishingWorker)
+    monkeypatch.setattr(entry.sys,'argv',['automatic','--config',str(config),'--output',str(root),
+        '--parents','3','--maximum-candidates','3','--families','QA-10'])
+    entry.main();result=entry.read(root/'AUTOMATION_RESULT.json')
+    assert result['stop_requested']is True
+    assert len(dispatched)==(0 if stop_during_admission else 1)
+    assert len(result['outcomes'])==len(dispatched)
+    assert result['native_passed_parents']==0
