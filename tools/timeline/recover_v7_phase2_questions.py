@@ -11,6 +11,9 @@ def main():
     if not output.is_relative_to(owned):raise ValueError('recovery output must be in the caller-owned manifest root')
     authorized=[owned,*[Path(x).resolve()for x in m.get('authorized_fresh_source_roots',[])]]
     if not any(source.is_relative_to(x)for x in authorized):raise ValueError('native predecessor outside explicitly authorized roots')
+    import os
+    from avengine.timeline.v7_demand import SELECTION_FEEDBACK_ENV
+    os.environ[SELECTION_FEEDBACK_ENV]=str(owned/'inputs/demand_state.json')
     conditions=json.loads(a.requested_conditions_json.read_text())if a.requested_conditions_json else None
     result=regenerate_questions(source,output,requested_conditions=conditions)
     print(json.dumps(result,ensure_ascii=False),flush=True)
