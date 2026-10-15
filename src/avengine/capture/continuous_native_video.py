@@ -1,4 +1,4 @@
-"""Streaming Habitat RGB/depth/semantic with native M2 people and CPU EGL.
+"""Streaming Habitat RGB/depth/semantic with an explicit EGL device and native M2.
 
 The renderer emits observed mouth trajectories before audio synthesis. It
 never substitutes planned centres or an analytic body mask for native pixels.
@@ -17,11 +17,27 @@ from avengine.timeline.continuous_scene import FPS, camera_basis, position_at
 from avengine.timeline.continuous_pilot import write_json
 
 
+def native_render_device(inputs, environment):
+    """Choose an explicit Habitat EGL device without changing scene execution."""
+    backend = inputs.get('render_backend', 'cpu_llvmpipe')
+    if backend == 'cpu_llvmpipe':
+        if environment.get('LIBGL_ALWAYS_SOFTWARE') != '1' or not environment.get('LD_PRELOAD'):
+            raise RuntimeError('CPU renderer requires the task-local software-only EGL selector')
+        return -1
+    if backend != 'habitat_gpu':
+        raise ValueError('unsupported Habitat native render backend')
+    visible = environment.get('CUDA_VISIBLE_DEVICES', '').split(',')
+    if len(visible) != 1 or not visible[0].strip() or visible[0].strip() == '-1':
+        raise RuntimeError('hardware rendering requires one explicitly visible task GPU')
+    if environment.get('LIBGL_ALWAYS_SOFTWARE') == '1' or 'libegl_cpu_only' in environment.get('LD_PRELOAD', ''):
+        raise RuntimeError('hardware rendering cannot use the CPU EGL selector')
+    return 0  # Logical ID inside the explicitly selected single visible GPU.
+
+
 class NativeContinuousVideo:
     def __init__(self, house, scene, inputs, assets, *, width=1280, height=720,
                  source_material_cache_directory=None):
-        if os.environ.get('LIBGL_ALWAYS_SOFTWARE') != '1' or not os.environ.get('LD_PRELOAD'):
-            raise RuntimeError('CPU renderer requires the task-local software-only EGL selector')
+        render_device = native_render_device(inputs, os.environ)
         os.environ.setdefault('MESA_SHADER_CACHE_DISABLE','true')
         from avengine.acoustics.runtime import load_habitat_runtime
         from avengine.assets.contracts import load_and_validate_inputs
@@ -37,7 +53,7 @@ class NativeContinuousVideo:
         self.width,self.height=width,height
         cfg=hs.SimulatorConfiguration()
         cfg.scene_id=house['input'].get('visual_source') or str(Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
-        cfg.gpu_device_id=-1
+        cfg.gpu_device_id=render_device
         cfg.enable_physics=True
         cfg.load_semantic_mesh=False
         sensors=[]
@@ -65,8 +81,11 @@ class NativeContinuousVideo:
                 'asset_contact_tolerance_changed':False,'original_render_and_collision_assets_preserved':True}
         self.sim=hs.Simulator(configuration)
         maps=Path('/proc/self/maps').read_text()
-        if not any(driver in maps for driver in ('swrast_dri.so','libgallium')) or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
-            self.sim.close();raise RuntimeError('native CPU renderer did not load only the software driver')
+        if render_device == -1:
+            if not any(driver in maps for driver in ('swrast_dri.so','libgallium')) or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
+                self.sim.close();raise RuntimeError('native CPU renderer did not load only the software driver')
+        elif 'libEGL_nvidia' not in maps:
+            self.sim.close();raise RuntimeError('explicit hardware EGL renderer did not load the NVIDIA driver')
         # The scan may itself use native PBR. Configure sources after the scan
         # has loaded so its existing drawables keep the original PBR handle.
         self.material_rendering=configure_source_pbr(configuration,hs,
@@ -116,8 +135,9 @@ class NativeContinuousVideo:
             self.actors.append({'object':obj,'binding':binding,'inputs':validated,'bundle':bundle,
                 'mouth_link':link[0],'anchor':anchor,'endpoint_id':endpoint,'floor_y':float(snap[1]),
                 'semantic_id':1001+i,'declaration':asset,'source_material':material})
-        self.receipt={'backend':'Habitat-Sim native M2','compute_device':'CPU','software_driver':'Mesa llvmpipe',
-            'gpu_device_id':-1,'hardware_EGL_devices_excluded':True,'resolution_hw':[height,width],
+        self.receipt={'backend':'Habitat-Sim native M2','compute_device':'CPU' if render_device == -1 else 'GPU',
+            'software_driver':'Mesa llvmpipe' if render_device == -1 else None,
+            'gpu_device_id':render_device,'hardware_EGL_devices_excluded':render_device == -1,'resolution_hw':[height,width],
             'hfov_deg':85.,'fps':FPS,'runtime':runtime,'stage':cfg.scene_id,
             'source_material_rendering':self.material_rendering,'stage_contact_geometry':self.stage_contact_geometry,
             'source_materials':[a['source_material'] for a in self.actors],

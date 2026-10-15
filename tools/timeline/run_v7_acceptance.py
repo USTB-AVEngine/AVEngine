@@ -29,7 +29,11 @@ def run_worker(manifest,slot):
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI',
         'resource_admission_managed':True})
     check_write(root,expected_bytes=0)
-    inputs=load(manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
+    # Owner 2026-10-15: resource thresholds pause launches. A running parent
+    # must be allowed to finish its writes after passing the launch check.
+    active_storage=json.loads(os.environ[ENV_KEY]);active_storage['minimum_free_bytes']=0
+    os.environ[ENV_KEY]=json.dumps(active_storage)
+    inputs=load(task.get('runtime_input') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
@@ -39,7 +43,7 @@ def run_worker(manifest,slot):
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         row=load(previous) if previous.exists() else plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
-        inputs.update(phase2=True,integration_pilot=True,render_backend='cpu_llvmpipe')
+        inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'

@@ -5,7 +5,8 @@ Independent native reference repeats are never used to fit a gain or kernel.
 Silence placeholders are documented and produce no emitted samples.
 """
 from pathlib import Path
-import hashlib,json,math
+import hashlib,json,math,threading
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from avengine.timeline.v7_registered_motion_audio import position_at
 from avengine.acoustics.moving_rir_acceptance import compare_rirs,qualify_energy
@@ -84,7 +85,10 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
             directions.append({'endpoint_id':endpoint,'emission_time_s':sample/sr,'native_mouth_m':p.tolist(),'distance_m':float(np.linalg.norm(p-listener)),'foa_readback':direction,'angular_error_deg':error,'passed_5deg':True,'position_source':'actual 30Hz registered attached emitter trajectory'})
             filters[sample]=wave
         return filters[sample]
+    workers=max(1,int(inputs.get('fresh_rir_workers',1)))
+    if workers>1:cache.prefetch([position_at(trajectory,k/sr)for k in real_keys])
     for k in real_keys:native(k)
+    reference_stats_lock=threading.Lock()
     def independent(sample):
         if sample not in reference_paths:
             p=position_at(trajectory,sample/sr);paths=[];processes=[]
@@ -110,8 +114,11 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
                 wave=batch.samples[0];processes.extend(getattr(batch,'native_process_evidence',[]))
                 path=refs_dir/(str(sample).zfill(8)+'_'+str(trial)+'.npy')
                 with path.open('xb')as f:np.save(f,wave,allow_pickle=False)
-                paths.append(str(path));ref_stats['new_rirs']+=1
-                ref_stats['native_cpu_seconds']+=batch.process_cpu_seconds;ref_stats['native_wall_seconds']+=batch.wall_seconds
+                paths.append(str(path))
+                with reference_stats_lock:
+                    ref_stats['new_rirs']+=1
+                    ref_stats['native_cpu_seconds']+=batch.process_cpu_seconds
+                    ref_stats['native_wall_seconds']+=batch.wall_seconds
             checkpoint.parent.mkdir(parents=True,exist_ok=True)
             write_json(checkpoint,{'actual_position_m':p.tolist(),'native_identity':identity,
                 'references':[{'path':x,'sha256':hashlib.sha256(Path(x).read_bytes()).hexdigest(),
@@ -125,6 +132,14 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         waves=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
         timeline=CorrelatedRIRTimeline(waves,timeline_keys)
         accepted=[];new=[]
+        if workers>1:
+            # Complete all fresh references before evaluating this pass. Each
+            # midpoint still has three separate native uploads and raw gates.
+            midpoints=sorted({(lo+hi)//2 for lo,hi in zip(keys[:-1],keys[1:])
+                if any(np.any(dry[max(lo,a):min(hi+1,b+1)]!=0)
+                       for a,b in bands if lo<=b and hi>=a)})
+            with ThreadPoolExecutor(max_workers=workers)as pool:
+                list(pool.map(independent,midpoints))
         for lo,hi in zip(keys[:-1],keys[1:]):
             if not any(np.any(dry[max(lo,a):min(hi+1,b+1)]!=0)for a,b in bands if lo<=b and hi>=a):
                 continue
@@ -143,6 +158,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
                 raise ValueError('moving native interval fails unchanged absolute energy/decay/direction gates after dense refinement')
             new.append(mid)
         if not new:break
+        if workers>1 and new:cache.prefetch([position_at(trajectory,k/sr)for k in new])
         keys=sorted(set(keys+new))
     else:raise ValueError('moving dense refinement budget exhausted')
     checks=[r['check']for r in accepted];qualification=qualify_energy([c for row in accepted for c in row['raw_checks']])

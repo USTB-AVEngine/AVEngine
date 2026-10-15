@@ -166,6 +166,48 @@ class PositionRIRCache:
         return a
 
 
+    def prefetch(self, positions):
+        """Batch exact primary poses, then publish each result in request order.
+
+        SQLite stays on the caller thread. The renderer may use independent
+        native child processes; primary/reference evidence is never mixed.
+        """
+        pending={}
+        for position in positions:
+            point=np.asarray(position,dtype=float)
+            if point.shape!=(3,) or not np.isfinite(point).all():
+                raise ValueError("RIR source position must be finite xyz")
+            key=json.dumps(point.tolist(),separators=(",", ":"))
+            if key in self.memory or key in pending:continue
+            self.db.execute("INSERT INTO rirs(pose) VALUES (?) ON CONFLICT(pose) DO NOTHING",(key,))
+            self.db.commit()
+            index,completed=self.db.execute("SELECT id,completed FROM rirs WHERE pose=?",(key,)).fetchone()
+            path=self.root/f"rir_{index:06d}.npy"
+            if path.exists():self.get(point);continue
+            if completed:raise ValueError("completed RIR cache record lost its file")
+            pending[key]=(point,index,path)
+        if not pending:return
+        batch=self.renderer.render([point.tolist()for point,index,path in pending.values()])
+        if len(batch.samples)!=len(pending):raise ValueError("native batch does not cover every exact RIR pose")
+        for (key,(point,index,path)),wave in zip(pending.items(),batch.samples):
+            a=np.asarray(wave)
+            if a.ndim!=2 or a.shape[0]!=4 or not np.isfinite(a).all()or not np.any(a):
+                raise ValueError("native batch RIR is invalid")
+            temp=self.root/f".rir_{index:06d}_{uuid.uuid4().hex}.partial"
+            with temp.open("xb")as f:
+                np.save(f,a,allow_pickle=False);f.flush();os.fsync(f.fileno())
+            try:os.link(temp,path)
+            except FileExistsError:
+                a=np.load(path,allow_pickle=False)
+                if a.ndim!=2 or a.shape[0]!=4 or not np.isfinite(a).all()or not np.any(a):
+                    raise ValueError("existing cached RIR is invalid")
+            self.db.execute("UPDATE rirs SET completed=1 WHERE id=?",(index,));self.db.commit()
+            self.memory[key]=a
+        self.stats["new_rirs"]+=len(pending)
+        self.stats["native_wall_seconds"]+=batch.wall_seconds
+        self.stats["native_cpu_seconds"]+=batch.process_cpu_seconds
+
+
 def make_scene(house, index, duration_s):
     p = house["room"]["placement"]
     a = np.asarray(p["source_1_m"], float)
