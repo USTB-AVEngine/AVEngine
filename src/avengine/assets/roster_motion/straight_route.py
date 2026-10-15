@@ -195,7 +195,7 @@ def _rooms_with_cameras(room, pathfinder, species, relocate=True, limit=12):
 
 def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
                          families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600,
-                         corners=False, use_map=True, minimum_camera_distance_m=None, require_reverse_radial=False, require_rest_in_frame=False):
+                         corners=False, use_map=True, minimum_camera_distance_m=None, require_reverse_radial=False, require_rest_in_frame=False, local_start_s=None):
     from .reflect_navmesh import native_free_predicate, SHORT_WALK_LEAD_S, SHORT_WALK_RAMP_S
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
@@ -228,7 +228,7 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
         # walk faster within their own band when the sound is short (never above the band).
         speed = float(min(fast, max(speed, .55 / (.6 * duration * .9))))
     offset = float(rng.choice([0., 5., 10., 15., 20.]))
-    start = offset + round(float(rng.uniform(1., 2.)), 1)
+    start = offset + (float(local_start_s) if local_start_s is not None else round(float(rng.uniform(1., 2.)), 1))
     end = start + duration
     post = families in ('all4', 'M1')
     tail = end + WET_TAIL_S + POST_S if post else end + .6

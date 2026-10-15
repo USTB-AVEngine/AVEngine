@@ -35,7 +35,7 @@ def authored_pairs(manifest):
                     pairs.append((a, b))
     return sorted(pairs, key=lambda pair: (float(pair[0]['synthesis_readback']['duration_s'])>1.8,)+tuple(s['sound_asset_id'] for s in pair))
 
-def choose_template_assets(catalog, pair, seed, attempt=0):
+def choose_template_assets(catalog, pair, seed, attempt=0, *, walking_speakers=1):
     rng = np.random.default_rng(seed)
     pool = [a for a in catalog if a.get('kind') == 'human' and a.get('controlled_shirt')
             and a.get('dialogue_voice_binding_eligible') is not False and a.get('standing_registered_qualified') is not False]
@@ -43,7 +43,7 @@ def choose_template_assets(catalog, pair, seed, attempt=0):
     for index, sound in enumerate(pair):
         gender = sound['voice_gender']
         eligible = [a for a in pool if a['visual_gender'] == gender
-                    and (index != 0 or a.get('walk_allowed'))
+                    and (index >= walking_speakers or a.get('walk_allowed'))
                     and a['color'] not in {p['color'] for p in chosen}
                     and a['asset_id'] not in {p['asset_id'] for p in chosen}]
         eligible.sort(key=lambda a: a['asset_id'])
@@ -132,10 +132,10 @@ def find_legacy_template_route(room, pathfinder, seed, attempt=0, *, speed_range
         return compact
     raise MotionTemplateUnavailable('bounded native NavMesh straight/turn search exhausted: '+str(tested)+' proposals; stages='+str(dict(checks))+'; planner must choose another legal room')
 
-def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5,species='human',utterance_s=1.5,focus='M1',require_all_families=False):
+def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5,species='human',utterance_s=1.5,focus='M1',require_all_families=False,local_start_s=None):
     if species == 'human' and require_all_families:
         from avengine.assets.roster_motion.human_event_route import find_human_seed_route
-        try:return find_human_seed_route(room,pathfinder,seed,attempt,utterance_s=utterance_s,speed_range=speed_range)
+        try:return find_human_seed_route(room,pathfinder,seed,attempt,utterance_s=utterance_s,speed_range=speed_range,local_start_s=local_start_s)
         except ValueError as error:raise MotionTemplateUnavailable(str(error)) from error
     from avengine.assets.roster_motion.reflect_navmesh import find_reflected_route
     try:return find_reflected_route(room,pathfinder,seed,attempt,species=species,utterance_s=utterance_s,focus=focus,speed_range=speed_range)
@@ -144,6 +144,9 @@ def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),q
 
 def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_records,
                             pathfinder, *, attempt=0, contract=None, source_type=None):
+    if (source_type or base_row.get('motion_source_type', 'human_speech')) == 'human_speech' and int(base_row.get('human_motion_event_count', 2)) == 2:
+        from avengine.timeline.v7_two_human_motion import two_human_motion_template
+        return two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract)
     if (source_type or base_row.get('motion_source_type', 'human_speech')) == 'human_speech' and int(base_row.get('human_motion_event_count', 3)) > 1:
         from avengine.timeline.v7_human_motion_events import human_motion_events_template
         return human_motion_events_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract)
@@ -162,11 +165,12 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         raise MotionTemplateUnavailable('no complete reviewed 2..3s / 1..1.6s TTS pair')
     shorter=[p for p in pairs if float(p[0]['synthesis_readback']['duration_s'])<=1.8]
     if shorter:pairs=shorter
-    pair = pairs[(seed+attempt) % len(pairs)]
+    declared_pair=row.get('motion_semantic_pair_ids')
+    pair = (next(p for p in pairs if [v['sound_asset_id']for v in p]==list(declared_pair)) if declared_pair else pairs[(seed+attempt) % len(pairs)])
     from avengine.timeline.v7_motion_source_roles import select_motion_role,EMISSION_SPEEDS,QUIET_SPEEDS
     from avengine.timeline.v7_visible_sources import production_audio_record_views
     source_type=source_type or row.get('motion_source_type','human_speech')
-    assets = choose_template_assets(catalog, pair, seed, attempt)
+    assets = choose_template_assets(catalog, pair, seed, attempt,walking_speakers=2 if row.get('human_motion_require_two_walkers')else 1)
     role=select_motion_role(source_type,assets[0],catalog,production_audio_record_views(source_records),contract,seed,attempt)
     assets[0]=role['asset']
     from avengine.timeline.v7_motion_speed import SPEED_RANGES
@@ -179,7 +183,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     focus=row.get('motion_template_focus','M2' if seed%2 else 'M1')
     # owner 10-15 approved judging distance trends on a 0.5 s smoothed mouth track, so walking animals carry the
     # distance-trend families again (v7_motion_during_conditions.smooth_track).
-    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus,require_all_families=bool(row.get('human_motion_require_all_families')))
+    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus,require_all_families=bool(row.get('human_motion_require_all_families')),local_start_s=row.get('human_event_start_local_s'))
     slot=route['emission_slot'];offset=slot['offset_s'];start=slot['start_s'];local_start=start-offset
 
     a, b = [asset['asset_id'] for asset in assets[:2]]
