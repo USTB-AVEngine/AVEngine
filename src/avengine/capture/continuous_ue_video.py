@@ -251,7 +251,7 @@ class UENativeContinuousVideo:
                     bgr=self.read_rgb(self.components['rgb']);normal=self.read_depth(self.components['depth'])
                 semantic=np.zeros(normal.shape,dtype=np.uint16)
                 targets={};ids={};pose_id=None
-                with (isolated_depth_capture_sensors(self) if getattr(self,'current_native_environment',False) else nullcontext()):
+                with (isolated_depth_capture_sensors(self) if (getattr(self,'current_native_environment',False) or getattr(self,'suspend_unused_capture_sensors',False)) else nullcontext()):
                     for j,actor in enumerate(actors):
                         runtime=self.runtimes[actor['native_actor_id']]
                         with self.instance.begin_frame():

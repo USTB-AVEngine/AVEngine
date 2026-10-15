@@ -79,6 +79,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.initial_placement_preflight=self._seed_initial_navigation_placements()
         self.physical_environment_bindings={}
         self.current_native_environment=bool(scene.get('require_current_native_environment'))
+        self.suspend_unused_capture_sensors=True
         if inputs.get("kujiale_ue_asset_admission"):
             from avengine.capture.kujiale_registered_environment import environment_bindings, require_binding_project
             self.physical_environment_bindings=environment_bindings(scene,house["house"],inputs["kujiale_ue_asset_admission"],{a["endpoint_id"] for a in assets})
@@ -110,6 +111,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             with self.instance.begin_frame():
                 self.camera,self.components=self.spawn(self.game,horizontal_fov_deg=85.,width=width*2,height=height*2)
                 self.foot_camera,self.foot_components=self.spawn(self.game,horizontal_fov_deg=85.,width=1024,height=1024)
+                # Semantic IDs are reconstructed from the complete native
+                # modal/target depth passes; this extra capture is not consumed.
+                self.components['object_ids'].set_property_value(property_name='bCaptureEveryFrame',property_value=False)
                 for name in ['rgb','object_ids']:self.foot_components[name].set_property_value(property_name='bCaptureEveryFrame',property_value=False)
                 apply_camera(self.camera,self._camera())
                 lights=configure_scene_lighting(self.game,self.acceptance,self.ue)
@@ -354,18 +358,17 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 self.current_camera_yaw_offset=(current-original+180)%360-180
             from avengine.capture.kujiale_pilot_environment import qualify_scene
             qualify_scene(self,directory.parent/'physical_environment',checks)
-        if self.current_native_environment:
-            # Static foot support was measured front/rear and with a negative
-            # 10-cm control. Every frame still verifies the identical rigid
-            # pose/root before reusing that reference; these captures are not
-            # read during the 450-frame static video.
-            with self.instance.begin_frame():
-                for component in self.foot_components.values():
-                    component.set_property_value(property_name='bCaptureEveryFrame',property_value=False)
-            with self.instance.end_frame():pass
-            self.receipt['static_foot_capture_policy']='qualified front/rear rigid support cache; unchanged per-frame root/pose verification'
-            self.receipt['qualified_binding_camera_yaw_offset_deg']=self.current_camera_yaw_offset
-            self.receipt['isolated_depth_capture_policy']='every native target depth frame rendered; unused RGB/object-ID sensors suspended only during isolated passes and restored'
+        # Static foot support was measured front/rear and with a negative
+        # 10-cm control. Every frame still verifies the identical rigid
+        # pose/root before reusing that reference; these captures are not
+        # read during the 450-frame static video.
+        with self.instance.begin_frame():
+            for component in self.foot_components.values():
+                component.set_property_value(property_name='bCaptureEveryFrame',property_value=False)
+        with self.instance.end_frame():pass
+        self.receipt['static_foot_capture_policy']='qualified front/rear rigid support cache; unchanged per-frame root/pose verification'
+        self.receipt['qualified_binding_camera_yaw_offset_deg']=self.current_camera_yaw_offset
+        self.receipt['isolated_depth_capture_policy']='every native target depth frame rendered; unused RGB/object-ID sensors suspended only during isolated passes and restored'
         write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts})
         self.alpha_camera_rows={};self.environment_frame_readbacks=[]
         return checks
