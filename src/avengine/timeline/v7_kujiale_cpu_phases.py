@@ -34,8 +34,15 @@ def phase_fits(actual_pss,remaining_reserved,new_estimate,leased_count,legacy_co
     return leased_count+legacy_count<max_cpu and actual_pss+remaining_reserved+new_estimate<=pss_limit and mem_available>=30000000000
 
 
+def phase_memory_estimate(stage,declared):
+    # Current-native category qualification includes the retained full room
+    # geometry and a renderer: host samples observed 8.39GB for Python alone.
+    return max(declared,12000000000 if stage=='new_native_category'else 6000000000 if 'native'in stage else 4000000000 if stage=='construct_room'else 0)
+
+
 @contextmanager
 def cpu_phase(root,stage,*,estimate_bytes=4000000000):
+    estimate_bytes=phase_memory_estimate(stage,estimate_bytes)
     root=Path(root);directory=root/'evidence/cpu_slots';directory.mkdir(parents=True,exist_ok=True);phase_state(root,'waiting',stage);last=0;prior=set(os.sched_getaffinity(0))
     while True:
         with(directory/'queue.lock').open('a+')as guard:

@@ -42,6 +42,6 @@ def prepare_native(row,house,inputs,catalog,source,human,output,task_root,*,sour
         source_path=source_path or contract['inputs']['source_admission']['path'];human_path=human_path or declared['human_ue'];catalog_path=catalog_path or declared['assets_ue']
     context=root/f'native_worker_context_{os.getpid()}_{time.time_ns()}.json';atomic_write(context,{'row':row,'house':house,'inputs':inputs,'output':output,'source_path':str(source_path),'human_path':str(human_path),'catalog_path':str(catalog_path)})
     jobs=[native_job(context,task_root,v)for v in pending]
-    with ProcessPoolExecutor(max_workers=len(jobs),mp_context=multiprocessing.get_context('spawn'))as pool:
+    with ProcessPoolExecutor(max_workers=len(jobs),mp_context=multiprocessing.get_context('spawn'),max_tasks_per_child=1)as pool:
         futures=[pool.submit(_native,job)for job in jobs]
         for result in futures:result.result()

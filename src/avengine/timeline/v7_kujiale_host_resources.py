@@ -26,7 +26,7 @@ class LegacyAdmissionBridge:
     def __init__(self,root):self.root=Path(root);self.held={}
     def update(self,sample):
         import fcntl
-        from avengine.timeline.v7_kujiale_cpu_phases import legacy_workers
+        from avengine.timeline.v7_kujiale_cpu_phases import legacy_workers,phase_memory_estimate
         directory=self.root/'evidence/cpu_slots';directory.mkdir(parents=True,exist_ok=True)
         with(directory/'queue.lock').open('a+')as guard:
             fcntl.flock(guard,fcntl.LOCK_EX);free={};busy=[]
@@ -42,7 +42,7 @@ class LegacyAdmissionBridge:
                 else:free[index]=stream
             legacy=legacy_workers(self.root,{r['pid']for r in busy});reserved=0
             for row in busy:
-                stage=row.get('stage','');expected=max(row.get('estimate_bytes',0),6000000000 if 'native'in stage else 4000000000 if stage=='construct_room'else 2000000000)
+                stage=row.get('stage','');expected=phase_memory_estimate(stage,max(row.get('estimate_bytes',0),2000000000))
                 reserved+=max(0,expected-subtree_pss(sample,row['pid']))
             for pid in legacy:reserved+=max(0,2000000000-subtree_pss(sample,pid))
             headroom=40000000000-sample['PSS_bytes']-reserved;allow=min(1,max(0,int(headroom//6000000000)))
