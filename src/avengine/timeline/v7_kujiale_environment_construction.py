@@ -46,11 +46,11 @@ def _clear_segment(origin,target,envelopes):
 
 def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=1600):
     from avengine.qa.kujiale_asset_geometry import NativeSupportGeometry,import_vertices,rotation,camera_candidates
-    from avengine.qa.kujiale_asset_paws import landmark_contacts
+    from avengine.capture.kujiale_source_floor_paws import landmark_contacts
     inventory=json.loads(Path(inputs['kujiale_ue_asset_admission']).read_text());geometry=NativeSupportGeometry(house['input']['ue_config']['native_floor_surface']);room=next(r for r in house['checked_rooms']if r['room_label']==row['room_id']);catalog,polygon=geometry.support_catalog(house,room);listener=np.asarray(row['measured_static_layout']['listener_m'],float);envelopes=[];plans=[]
     for point in row['measured_static_layout']['valid'][:3]:
         root=np.asarray(point['root_m'],float);envelopes.append((root+[-.4,0,-.4],root+[.4,1.9,.4]))
-    for cls,candidates in native_class_candidates(inventory,classes,house['input']['ue_config']['uproject'],row['scene_seed']):
+    for cls,candidates in native_class_candidates(inventory,classes,house['input']['ue_config']['uproject'],row['scene_seed']+11*int(row.get('construction_request',{}).get('construction_attempt',0))):
         accepted=None;rejections=[]
         for asset in candidates[:max_assets]:
             primary=json.loads(Path(asset['primary_native_evidence']).read_text());manifest_path=Path(primary['input_manifest']);manifest=json.loads(manifest_path.read_text());metadata=next(a for a in manifest['assets']if a['asset_id']==asset['asset_id']);import_path=manifest_path.parent.parent/'evidence/import'/manifest['revision']/(asset['asset_id']+'.json');vertices=import_vertices(json.loads(import_path.read_text()));error=np.abs(np.ptp(vertices,axis=0)-np.asarray(asset['dimensions_m']))/np.maximum(asset['dimensions_m'],1e-5)
