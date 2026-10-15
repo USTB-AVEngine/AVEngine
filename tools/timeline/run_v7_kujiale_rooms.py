@@ -7,13 +7,14 @@ Each attempt is immutable. Existing passed rooms are counted from real readers.
 from __future__ import annotations
 import argparse,copy,datetime,json,os,shlex,subprocess,time
 from pathlib import Path
+from avengine.timeline.v7_kujiale_manifest import mutation_lock,append_task,atomic_write
 from avengine.timeline.v7_kujiale_scheduler import resources,can_start,assign_gpu,isolated_command
 
 def load(path):return json.loads(Path(path).read_text())
 def write(path,value):
-    path=Path(path);tmp=path.with_name(path.name+'.tmp');tmp.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n');tmp.replace(path)
+    atomic_write(path,value)
 
-def enqueue(manifest_path,gpus):
+def _enqueue(manifest_path,gpus):
     m=load(manifest_path);root=Path(m['output_root']);houses=load(m['houses_ue'])['houses'];covered=set();counts={};slots=[]
     for task in m['parents']:
         job=root/'evidence/jobs'/f'{task["slot"]:03d}.json'
@@ -31,6 +32,10 @@ def enqueue(manifest_path,gpus):
             if (house['house'],room)in covered:continue
             slot=len(m['parents']);gpu=assign_gpu(gpus,counts);counts[gpu]=counts.get(gpu,0)+1;seed=2610157000+slot;scene=f'v7_gap_auto_{house["house"]}_{room}_a00';row={'house':house['house'],'room_id':room,'scene_id':scene,'scene_seed':seed,'construction_attempt':0,'question_quota_base':slot*20};m['parents'].append({'slot':slot,'family':'kujiale','device':'ue','profile':'registered','focus':'content_binding','automatic_registered_room':True,'ue_physical_gpu':gpu,'row':row,'runtime_inputs':str(runtime_path)});slots.append(slot)
     m['code_commit']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=m['worktree'],text=True).strip();write(manifest_path,m);return slots
+
+def enqueue(manifest_path,gpus):
+    with mutation_lock(manifest_path):return _enqueue(manifest_path,gpus)
+
 
 class AttachedChild:
     def __init__(self,pid,slot,manifest):
@@ -57,6 +62,12 @@ def run(args):
         for slot in slots:
             path=root/'evidence/jobs'/f'{slot:03d}.json'
             if path.exists()and load(path)['status']in {'passed','failed'}and slot not in children:finished.add(slot)
+    for slot in slots:
+        if slot in children or slot in finished:continue
+        job=root/'evidence/jobs'/f'{slot:03d}.json'
+        if job.exists()and load(job).get('status')=='running':
+            try:children[slot]=(AttachedChild(load(job)['pid'],slot,args.manifest),None)
+            except (OSError,ValueError):pass
     while True:
         m=load(args.manifest)
         for slot,(child,stream)in list(children.items()):
@@ -67,7 +78,7 @@ def run(args):
             if job_path.exists():
                 job=load(job_path);task=m['parents'][slot]
                 if job['status']=='failed'and task['row']['construction_attempt']+1<args.max_attempts:
-                    retry=copy.deepcopy(task);retry['slot']=len(m['parents']);retry['row']['construction_attempt']+=1;retry['row']['scene_id']=retry['row']['scene_id'].rsplit('_a',1)[0]+f'_a{retry["row"]["construction_attempt"]:02d}';m['parents'].append(retry);slots.append(retry['slot']);write(args.manifest,m)
+                    retry=copy.deepcopy(task);retry['slot']=len(m['parents']);retry['row']['construction_attempt']+=1;retry['row']['scene_id']=retry['row']['scene_id'].rsplit('_a',1)[0]+f'_a{retry["row"]["construction_attempt"]:02d}';retry=append_task(args.manifest,retry);slots.append(retry['slot']);m=load(args.manifest)
         now=datetime.datetime.now(datetime.timezone.utc);snapshot=resources(root)
         pending=[s for s in slots if s not in finished and s not in children and not(root/'evidence/jobs'/f'{s:03d}.json').exists()]
         if pending and now<deadline and can_start(snapshot,active_parents=len(children),max_parents=args.max_parents):

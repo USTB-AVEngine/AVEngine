@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse,copy,datetime,json,os,shutil
 from pathlib import Path
+from avengine.timeline.v7_kujiale_manifest import append_task
 
 def load(path):return json.loads(Path(path).read_text())
 def clone_native(source,target):
@@ -25,7 +26,7 @@ def clone_native(source,target):
 def append_retry(manifest_path,slot,native_root):
     manifest=load(manifest_path);root=Path(manifest['output_root']).resolve();task=copy.deepcopy(manifest['parents'][slot]);source=Path(task.get('native_output_root')or root/'native')/'parents'/task['row']['scene_id'];native_root=Path(native_root).resolve()
     if not native_root.is_relative_to(root):raise ValueError('QA retry escaped task root')
-    target=native_root/'parents'/task['row']['scene_id'];clone_native(source,target);task['slot']=len(manifest['parents']);task['native_output_root']=str(native_root);task['row']=load(source/'input_recipe.json')['seed_row'];manifest['parents'].append(task);Path(manifest_path).write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n');planned=root/'inputs/planned'/f'{task["slot"]:03d}.json';planned.write_text(json.dumps(task['row'],ensure_ascii=False,indent=2)+'\n');return task['slot']
+    target=native_root/'parents'/task['row']['scene_id'];clone_native(source,target);task['slot']=len(manifest['parents']);task['native_output_root']=str(native_root);task['row']=load(source/'input_recipe.json')['seed_row'];task=append_task(manifest_path,task);planned=root/'inputs/planned'/f'{task["slot"]:03d}.json';planned.write_text(json.dumps(task['row'],ensure_ascii=False,indent=2)+'\n');return task['slot']
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--slot',type=int,required=True);p.add_argument('--native-root',type=Path,required=True);a=p.parse_args();print(append_retry(a.manifest,a.slot,a.native_root))
