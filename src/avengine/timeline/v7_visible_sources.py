@@ -298,6 +298,10 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
             source['visual_gender_status']='registered' if a.get('visual_gender') in {'female','male'} else 'unknown_not_inferred_from_voice'
         schedule=[.2+.1*i+5*j for j in range(6)]
         if a['kind']=='human' and authored and a['asset_id'] in authored_ids:schedule=semantic_schedule(row.get('semantic_start_offsets_s'),human_index-1,len(authored),choices['speech_playback']['duration_s'])
+        if human_speech and not authored and a['asset_id'] in row.get('phase2_recorded_speech_schedule_s',{}):
+            schedule=[float(t)for t in row['phase2_recorded_speech_schedule_s'][a['asset_id']]]
+            if not schedule or any(not math.isfinite(t) or t<0 or t>=30 for t in schedule):
+                raise ValueError('explicit whole recorded speech schedule is invalid')
         for index,start in enumerate(schedule):
             cls=classes[index%len(classes)];record=choices[cls];whole=human_speech
             duration=float(record['duration_s']);ticks=math.ceil(duration*10) if whole else max(1,math.floor(min(2.,duration)*10))
