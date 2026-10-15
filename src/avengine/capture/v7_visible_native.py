@@ -338,10 +338,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if preference is not None:
                     return (not wanted_view,float(np.linalg.norm(root[[0,2]]-np.asarray(preference)[[0,2]])))
                 if expected_offscreen:
-                    return (not wanted_view,abs(az-float(expected_offscreen.get('preferred_azimuth_deg',90.)))/15+abs(float(np.linalg.norm(delta[[0,2]]))-2.8))
+                    return (not wanted_view,abs((az-float(expected_offscreen.get('preferred_azimuth_deg',90.))+180)%360-180)/15+abs(float(np.linalg.norm(delta[[0,2]]))-2.8))
                 if relation_score is not None:return (not visible,*relation_score)
                 if target is not None:
-                    return (not visible,(abs(az-float(target))/3.4)**2+(abs(float(np.linalg.norm(delta[[0,2]]))-distance_target)/.4)**2)
+                    return (not visible,(abs((az-float(target)+180)%360-180)/3.4)**2+(abs(float(np.linalg.norm(delta[[0,2]]))-distance_target)/.4)**2)
                 from avengine.capture.v7_social_layout import social_proposal_score
                 social_score=social_proposal_score(scene,a,rep,listener,scene['camera_forward'])
                 if social_score is not None:return (not visible,social_score)
@@ -407,7 +407,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 representative=(root+rotation(yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else root+rotation(yaw)@silent_probe
                 delta=representative-listener;forward=np.asarray(scene['camera_forward']);right=np.cross(forward,[0.,1.,0.]);depth=float(delta@forward)
                 horizontal=math.degrees(math.atan2(float(delta@right),depth));vertical=math.degrees(math.atan2(delta[1],max(1e-9,depth)))
-                if target is not None and abs(horizontal-float(target))>3.4:
+                if target is not None and abs((horizontal-float(target)+180)%360-180)>3.4:
                     reject('outside_requested_distinct_semantic_sector');continue
                 if not proposal_view_ok(scene,a['asset_id'],delta,scene['camera_forward'],visible_from_path(delta)):
                     reject("outside_observed_camera_path");continue

@@ -45,7 +45,7 @@ def test_arbitrary_room_floor_proposals_keep_real_people_separated_from_camera(o
     ctx={'room_floor_polygon':mapping(Polygon([(-8,-8),(8,-8),(8,8),(-8,8)])),
         'listener_m':[0.,1.5,0.]}
     yaw,inside,outside=plan_offscreen_floor(ctx,outside_count,487)
-    assert len(inside)==3 and len(outside)==outside_count
+    assert len(inside)==2 and len(outside)==outside_count
     assert all(np.linalg.norm([p[0],p[1]])>=1.5 for p in inside+outside)
     assert all(abs(_azimuth(p,ctx['listener_m'],yaw))>=60 for p in outside)
     assert all(abs(_azimuth(p,ctx['listener_m'],yaw))<=33 for p in inside)
@@ -93,7 +93,7 @@ def test_initial_camera_search_moves_only_the_initial_proposal_when_inherited_ca
     assert chosen['listener_m']!=ctx['listener_m']
     assert shape(ctx['room_floor_polygon']).buffer(-.35).covers(Point(chosen['listener_m'][0],chosen['listener_m'][2]))
     assert chosen['initial_camera_construction']['capture_camera_moves']is False
-    assert len(inside)==3 and len(outside)==1
+    assert len(inside)==2 and len(outside)==1
 
 
 def test_new_initial_listener_is_used_by_the_private_acoustic_room_without_mutating_authority():
@@ -105,3 +105,9 @@ def test_new_initial_listener_is_used_by_the_private_acoustic_room_without_mutat
     working,scene,program,assets=build_visible_scene(row,house,[],[])
     assert working['room']['placement']['camera_m']==scene['listener_m']==row['listener_m']
     assert house['checked_rooms'][0]['placement']['camera_m']==[0.,1.5,0.]
+
+
+def test_visible_people_count_is_family_required_not_an_extra_bystander_limit():
+    ctx={'room_floor_polygon':mapping(Polygon([(-5,-5),(5,-5),(5,5),(-5,5)])),'listener_m':[0.,1.5,0.]}
+    assert len(plan_offscreen_floor(ctx,1,17,visible_people=2)[1])==2
+    assert len(plan_offscreen_floor(ctx,1,17,visible_people=3)[1])==3

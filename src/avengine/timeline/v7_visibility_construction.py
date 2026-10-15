@@ -59,7 +59,8 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
     if family not in VISIBILITY_FAMILIES:raise ConstructionUnavailable('no explicit visibility route constructor for '+family)
     plan=construct_offscreen_scene(room,house,state,catalog,records,semantic,contract,runtime,
         scene_id=scene_id,seed=seed,family='QA-08',attempt=attempt,offscreen_people=1,
-        first_sounding_view='outside'if family in {'QA-07','QA-22'}else'inside')
+        first_sounding_view='outside'if family in {'QA-07','QA-22'}else'inside',
+        visible_people=2 if family in {'QA-07','QA-22'}else 3)
     row=plan['row'];enter=family in {'QA-07','QA-22'}
     target=row['offscreen_construction']['offscreen_asset_ids'][0]if enter else row['semantic_human_asset_ids'][0]
     row,target=walking_body(row,target,catalog,room,contract,state,seed);plan['row']=row

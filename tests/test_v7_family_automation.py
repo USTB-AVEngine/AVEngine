@@ -34,12 +34,12 @@ def inputs():
 
 @pytest.mark.parametrize('family',['QA-10','QA-28','QA-21','V7-CLASS34','QA-01','QA-03','QA-19'])
 def test_any_legal_room_retains_required_roles_and_real_source_kinds(inputs,family):
-    rooms,houses,assets,semantic,contract=inputs
+    rooms,houses,assets,semantic,contract=content_inputs(inputs)if family=='QA-28'else inputs
     for room in rooms:
         result=construct_family_scene(room,houses[room['house']],{},assets,[{'sound_class':'laughter'},{'sound_class':'coughing'}],semantic,contract,{},scene_id='new_scene',seed=43,family=family)
         row=result['row'];assert row['house']==room['house']and row['room_id']==room['room_id']
         assert len(row['asset_ids'])==3 and len(set(row['asset_ids']))==3
-        assert len(row['silent_asset_ids'])==1
+        assert len(row['silent_asset_ids'])==(0 if family=='QA-28'else 1)
         assert row['automatic_construction']['scene_template_files_read']==[]
         assert 'native_attachment_supports'not in row and 'sampler_template_source'not in row
         assert all(len(kinds)==1 for kinds in row['source_classes'].values())
@@ -61,7 +61,7 @@ def test_content_quartet_has_only_whole_authored_sources_and_fixed_real_voices(i
     result=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},scene_id='quad',seed=18,family='V7-CONTENT-BIND')
     row=result['row'];assert result['profile']=='registered'
     assert row['members']==['v0_a0','v0_a1','v1_a0','v1_a1']
-    assert len(row['production_scenario']['asset_ids'])==4
+    assert len(row['production_scenario']['asset_ids'])==3
     lookup={r['sound_asset_id']:r for r in semantic['sounds']}
     epochs=row['production_scenario']['semantic_epoch_sound_ids']
     assert len({lookup[ids[0]]['scenario_id']for ids in epochs})==3
@@ -172,7 +172,7 @@ def test_content_constructor_changes_real_body_gender_instead_of_reducing_comple
 def test_public_new_room_entry_never_reads_an_agent_scene_configuration(tmp_path,monkeypatch,inputs):
     from tools.timeline import generate_v7_demand_scenes as entry
     from avengine.timeline import v7_family_clock
-    rooms,houses,assets,semantic,contract=inputs;root=tmp_path/'unattended';hand=root/'inputs/planned/000.json'
+    rooms,houses,assets,semantic,contract=content_inputs(inputs);root=tmp_path/'unattended';hand=root/'inputs/planned/000.json'
     hand.parent.mkdir(parents=True);hand.write_text('{"native_attachment_supports":"forbidden old manual choice"}')
     config=tmp_path/'global.json';config.write_text(json.dumps({'schema':'v7-global-family-runtime-v1','authorized_output_root':str(tmp_path),'feedback_roots':[]}))
     original=Path.read_text
@@ -403,7 +403,7 @@ def test_registered_quartet_selects_colors_supported_by_its_original_reviewer_wi
         plan=construct_family_scene(room,houses[room['house']],{},catalog,[],semantic,contract,{},
             scene_id='new',seed=seed,family='V7-CONTENT-BIND')
         ids=plan['row']['production_scenario']['asset_ids']
-        assert len(ids)==4 and len(plan['row']['members'])==4
+        assert len(ids)==3 and len(plan['row']['members'])==4
         assert all(lookup[aid]['color']in COLOR_HUE_DEGREES for aid in ids[:2])
 
 
@@ -473,7 +473,7 @@ def test_owner_layout_keeps_three_people_one_metre_apart_distributed_and_with_va
     row=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},
         scene_id='new',seed=10,family='V7-CONTENT-BIND')['row']
     valid=row['measured_static_layout']['valid'];points=[v['position_m']for v in valid]
-    assert len(points)==4 and len(row['members'])==4
+    assert len(points)==3 and len(row['members'])==4
     for i,p in enumerate(points):
         for q in points[i+1:]:assert math.hypot(p[0]-q[0],p[2]-q[2])>=1.
     assert len({round(v['body_yaw_deg'],2)for v in valid})>=2
@@ -491,11 +491,12 @@ def test_owner_spacing_checks_reserved_motion_track_and_human_animal_pairs():
 
 
 def test_owner_direction_constructor_has_no_end_of_clip_camera_sweep(inputs):
-    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    rooms,houses,assets,semantic,contract=content_inputs(inputs);room=rooms[0]
     row=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},
         scene_id='new',seed=10,family='QA-28')['row']
     assert len({k['yaw_deg']for k in row['camera_yaw_knots']})==1
     assert row['camera_yaw_knots'][-1]['time_s']==30.
+
 
 
 def test_owner_invalidated_roots_never_supply_coverage_or_receive_new_jobs(tmp_path):
@@ -564,10 +565,10 @@ def test_offscreen_constructor_keeps_every_person_distinct_registered_shirts_and
         'duration_s':1.}for gender in ('M','F')for i in range(2)]
     row=construct_offscreen_scene(room,houses[room['house']],{},assets,records,semantic,contract,{},
         scene_id='new_offscreen',seed=51,offscreen_people=offscreen_people)['row']
-    assert len(row['asset_ids'])==3+offscreen_people
+    assert len(row['asset_ids'])==2+offscreen_people
     colors={a['asset_id']:a['color']for a in assets}
-    assert len({colors[aid]for aid in row['asset_ids']})==3+offscreen_people
-    assert len(row['silent_asset_ids'])==1
+    assert len({colors[aid]for aid in row['asset_ids']})==2+offscreen_people
+    assert not row['silent_asset_ids']
     assert len(row['native_view_roles'])==offscreen_people
     assert len({knot['yaw_deg']for knot in row['camera_yaw_knots']})==1
     assert row['offscreen_construction']['audio_only_points']==0

@@ -147,6 +147,9 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
     from avengine.timeline.v7_production_inputs import validate_recipe
     family=family or next_family(state)
     if family not in FAMILIES:raise ConstructionUnavailable('family belongs to the separate motion/UE constructor: '+family)
+    if family=='QA-28':
+        from avengine.timeline.v7_authored_direction_construction import construct_authored_direction_scene
+        return construct_authored_direction_scene(room,house,state,catalog,records,semantic,contract,runtime,scene_id=scene_id,seed=seed,attempt=attempt)
     from avengine.timeline.v7_specific_family_construction import SPECIFIC_FAMILIES,construct_specific_scene
     if family in SPECIFIC_FAMILIES:
         return construct_specific_scene(room,house,state,catalog,records,semantic,contract,runtime,scene_id=scene_id,seed=seed,family=family,attempt=attempt)
