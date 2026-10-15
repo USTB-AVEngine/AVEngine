@@ -631,6 +631,9 @@ def test_qa21_constructs_a_real_fixed_domain_emitter_and_retains_the_three_peopl
         assert row['category_focus_class']=='alarm_beep'
         assert len(row['silent_asset_ids'])==2
         assert row['scene_demand']['class34_construction']['required_answer_domain']
+        assert row['native_view_roles']['registered_alarm']['view']=='outside'
+        assert all(aid in row['asset_ids']for aid in row['automatic_taxonomy_clock']['real_offscreen_source_asset_ids'])
+        assert len(row['silent_asset_ids'])==2
 
 
 def test_qa21_keeps_request_when_cell_lacks_a_real_fixed_domain_source(inputs):

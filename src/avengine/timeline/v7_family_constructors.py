@@ -242,6 +242,17 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         row['scene_demand']['class34_construction']=proof
         row['scene_demand']['required_asset_ids']=list(row['asset_ids'])
         row['automatic_construction']['required_role_count']=len(row['asset_ids'])
+        # Audio taxonomy does not require every sounding body to occupy the
+        # foreground. Keep two silent comparison people visible and construct
+        # real offscreen placements for the voice and sound-class emitter.
+        outside=[ids[1],aid]
+        for index,source_id in enumerate(dict.fromkeys(outside)):
+            row.setdefault('native_view_roles',{}).setdefault(source_id,{
+                'view':'outside','static':True,'minimum_abs_azimuth_deg':60.,
+                'preferred_azimuth_deg':135. if index==0 else -90.,
+                'real_geometry_and_native_projection_required':True})
+            row.setdefault('native_placement_preferences_m',{}).pop(source_id,None)
+        row['automatic_taxonomy_clock']['real_offscreen_source_asset_ids']=list(dict.fromkeys(outside))
     elif family=='V7-CONTENT-BIND':
         from avengine.timeline.v7_content_offscreen_construction import construct_pure_tts_offscreen_quartet
         return construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,catalog,room,contract,include_silent_bystander=_content_silent_bystander)
