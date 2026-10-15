@@ -67,3 +67,14 @@ def test_registered_ue_receipt_compares_native_handles(tmp_path,monkeypatch):
     service.get_class=lambda **kw:18
     with pytest.raises(ValueError,match='class handle differs'):
         prepare_readback(video,asset,{'actor_id':'source1'},object(),object(),[component])
+
+def test_native_dialogue_camera_constructs_distinct_observable_sectors():
+    from avengine.capture.kujiale_pilot_environment import construct_dialogue_camera
+    from avengine.qa.unified_catalog import _azimuth_sector
+    # A centered 28-degree pair previously produced two front-sector answers.
+    points=[[np.sin(np.radians(a))*3,1.6,-np.cos(np.radians(a))*3]for a in [-14.,14.]]
+    plan=construct_dialogue_camera([0.,1.5,0.],points)
+    assert plan['qa_sector_gate_changed'] is False
+    assert len(set(plan['source_sectors']))==2
+    assert max(abs(a)for a in plan['source_azimuths_deg'])<42.5
+    assert all(_azimuth_sector(a)==s for a,s in zip(plan['source_azimuths_deg'],plan['source_sectors']))

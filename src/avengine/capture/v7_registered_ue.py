@@ -83,6 +83,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.physical_environment_bindings={}
         self.current_native_environment=bool(scene.get('require_current_native_environment'))
         self.suspend_unused_capture_sensors=bool(inputs.get('suspend_unused_registered_capture_sensors',False))
+        self.registered_actor_yaw_offset_deg=float(inputs.get('registered_actor_yaw_offset_deg',90.))
+        self.construct_registered_dialogue_camera=bool(inputs.get('construct_registered_dialogue_camera',False))
+        if not math.isfinite(self.registered_actor_yaw_offset_deg):raise ValueError('registered actor yaw offset must be finite')
         if inputs.get("kujiale_ue_asset_admission"):
             from avengine.capture.kujiale_registered_environment import environment_bindings, require_binding_project
             self.physical_environment_bindings=environment_bindings(scene,house["house"],inputs["kujiale_ue_asset_admission"],{a["endpoint_id"] for a in assets})
@@ -233,8 +236,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         if ep==self.alpha_lower_endpoint:root[1]-=.1
         direction=np.asarray(self.scene['listener_m'])-p
         yaw=math.degrees(math.atan2(direction[0],-direction[2]))
-        # Registered source UE actor +90 degrees corresponds to canonical -Z.
-        return root,yaw+90.
+        # Pose construction remains explicit in the recipe. The admitted GLB
+        # import faces local UE +X; -90 makes it face the actual listener.
+        return root,yaw+self.registered_actor_yaw_offset_deg
 
     def _apply(self,index):
         from avengine.backends.spear_ue.research_runtime import read_scene_component_pose
@@ -295,7 +299,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:self._navigation_foot(p)
                 except ValueError as e:
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)});continue
-                if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
+                if ((self.construct_registered_dialogue_camera or (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'))
                         and a is self.assets[1] and self.assets[0]['endpoint_id'] in self.alpha_standing_refs):
                     from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view
                     first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
@@ -362,6 +366,13 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 self.current_camera_yaw_offset=(current-original+180)%360-180
             from avengine.capture.kujiale_pilot_environment import qualify_scene
             qualify_scene(self,directory.parent/'physical_environment',checks)
+        if self.construct_registered_dialogue_camera:
+            from avengine.capture.kujiale_pilot_environment import construct_dialogue_camera
+            actual=[self.alpha_standing_refs[a['endpoint_id']]['emitter_position_m']for a in self.assets[:2]]
+            plan=construct_dialogue_camera(self.scene['listener_m'],actual)
+            original=math.degrees(math.atan2(self.scene['camera_forward'][0],-self.scene['camera_forward'][2]))
+            self.current_camera_yaw_offset=(plan['yaw_deg']-original+180.)%360.-180.
+            self.receipt['native_dialogue_camera_construction']=plan
         if self.current_native_environment or self.suspend_unused_capture_sensors:
             # Static foot support was measured front/rear and with a negative
             # 10-cm control. Every frame still verifies the identical rigid
