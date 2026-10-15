@@ -171,3 +171,36 @@ def write_native_motion_condition_report(directory,report):
     path=attempt/('conditioned_motion_native_verification_'+digest+'.json')
     write_json(path,saved)
     return path
+
+
+_SOLUTION_CACHE={}
+
+
+def _cached_solution(config):
+    import hashlib,json
+    key=hashlib.sha256(json.dumps(config,sort_keys=True,default=str).encode()).hexdigest()
+    if key not in _SOLUTION_CACHE:_SOLUTION_CACHE[key]=_compile_and_solve(config)
+    return _SOLUTION_CACHE[key]
+
+
+def verify_planned_trajectories(plan,positions_by_asset,listener_m):
+    """The judge's own verifier on planned (or natively re-placed) tracks, before any rendering (Claude 10-15).
+
+    positions_by_asset maps asset_id -> (T,3) world positions sampled at 30 Hz over the 30 s world; bodies not
+    given stand still at their first sample.  Returns {qa_id: bool} -- a family passes only if every offset passes.
+    owner 10-15: "为什么运动条件不一定成立" -- planning must use the same ruler as the judge.
+    """
+    result={}
+    for item in plan['plans']:
+        solution=_cached_solution(item['config'])
+        ok=True
+        for offset in item['offsets_s']:
+            at=float(offset)+np.arange(150)/15.
+            positions={}
+            for aid,track in positions_by_asset.items():
+                track=np.asarray(track,float);times=np.arange(len(track))/30.
+                positions[aid]=np.column_stack([np.interp(at,times,track[:,axis])for axis in range(3)])
+            report=cm.verify_motion_candidate(solution,positions_m=positions,root_positions_m=None,listener_position_m=listener_m)
+            ok=ok and report.get('status')=='pass'
+        result[solution.qa_id]=result.get(solution.qa_id,True) and ok
+    return result

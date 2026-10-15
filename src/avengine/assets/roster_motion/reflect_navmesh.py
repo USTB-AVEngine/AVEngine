@@ -186,6 +186,13 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     listener=np.asarray(scene['listener_m'],float)[[0,2]]
     rejected=Counter()
     slot=route['emission_slot'];i0=round(slot['start_s']*30);i1=round(slot['end_s']*30)
+    plan_for_fit=request.get('motion_during_condition_plan_for_fit')
+    if plan_for_fit is not None:
+        from avengine.timeline.v7_motion_during_conditions import verify_planned_trajectories
+        mover_id=entry['declaration'].get('asset_id');mouth_y=float(scene['listener_m'][1])+.3
+        ids={inst['entity_instance_id'] for item in plan_for_fit['plans'] for inst in item['config']['instances']}
+        far=np.asarray(scene['listener_m'],float)
+        static_tracks={aid:np.tile(far+[25.,0.,25.+5.*k],(2,1)) for k,aid in enumerate(sorted(ids))}
     centre=np.mean(xz,axis=0);candidates=[];tested=0
     # Place the short walk anywhere on the native floor (0.3 m grid x 16 headings), not only near where it was
     # planned: the planned room outline differs from the native motion floor, so local shifts mostly fell outside.
@@ -222,6 +229,11 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
                 if sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):rejected['radial_slot']+=1;continue
             positions=np.column_stack((points[:,0],np.full(len(points),floor),points[:,1]))
             if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):rejected['body_centre_spacing']+=1;continue
+            if plan_for_fit is not None:
+                # Same ruler as the judge after the rigid re-placement (owner 10-15): every planned family must hold.
+                track3=np.column_stack((points[:,0],np.full(len(points),mouth_y),points[:,1]))
+                verdict=verify_planned_trajectories(plan_for_fit,{**static_tracks,mover_id:track3},scene['listener_m'])
+                if not all(verdict.values()):rejected['judge_motion_conditions']+=1;continue
             unique=np.unique(points,axis=0)
             if walkable_map is not None and not all(walkable_map.segment_free(a,b,species)for a,b in zip(points[:-1],points[1:])if np.linalg.norm(b-a)>1e-10):rejected['walkable_map_crossed_cell']+=1;continue
             if not all(is_free(p) for p in unique):rejected['native_snap_clearance_or_camera']+=1;continue
