@@ -307,3 +307,156 @@ def test_elevated_navmesh_does_not_float_actor_or_remove_legal_camera():
     np.testing.assert_array_equal(q[:,1],[0,0])
     assert report["navmesh_y_offset_range_m"] == pytest.approx([.166,.166])
     assert candidate_cameras(c.room,c.walkable_map,c.pathfinder,limit=6)
+
+
+def native_projection(width=640,height=360):
+    f=1/math.tan(math.radians(42.5));near=.01;far=100.
+    return np.array([[f,0,0,0],[0,f*width/height,0,0],
+                     [0,0,-(far+near)/(far-near),-2*far*near/(far-near)],[0,0,-1,0]])
+
+
+def test_native_vertices_framing_catches_vertical_crop_and_multiplane_crossing():
+    from avengine.construction.joint.geometry import body_box
+    camera=np.eye(4);camera[:3,3]=[0,1.5,0]
+    view=np.linalg.inv(camera);p=native_projection()
+    assert framing_vertices(body_box([0,0,-4],BodySpec()),view,p,640,360)[0]=="inside"
+    assert framing_vertices(body_box([0,0,-1.6],BodySpec()),view,p,640,360)[0]=="edge"
+    assert framing_vertices(body_box([8,0,-4],BodySpec()),view,p,640,360)[0]=="outside"
+    assert framing_vertices([[-10,0,-2],[10,0,-2],[0,10,-2]],view,p,640,360)[0]=="edge"
+
+
+def test_strict_native_pin_inverts_offcentre_attachment_anchor():
+    import trimesh
+    from avengine.capture.v7_visible_native import attachment_template
+    from avengine.capture.v7_visible_attachment import support_points
+    mesh=trimesh.creation.box((.6,1.8,.4));mesh.apply_translation([.2,.9,.13])
+    actor=static_actor("a",[1.,0.,-4.],facing_rad=.3)
+    plan=ScenePlan(CameraPose((0.,1.25,0.),0.),{"a":actor})
+    asset={"asset_id":"a","kind":"human","attachment_surface":"floor"}
+    bindings=strict_native_bindings(plan,{"a":asset},meshes={"a":mesh},floor_y=0.,clearance_m=.002)
+    pin=bindings["native_attachment_supports"]["a"]
+    assert pin["joint_solved_pose"] and pin["joint_no_search"]
+    meta={**asset,"_attachment_template":attachment_template(np.asarray(mesh.vertices),"floor","human",mesh=mesh)}
+    support={**pin,"point":(np.array(pin["original_surface_point_m"])+np.array(pin["normal"])*pin["_outward_clearance_m"]).tolist()}
+    root,yaw,_,_=support_points(meta,support)
+    np.testing.assert_allclose(root,actor.positions_m[0],atol=1e-12)
+    assert yaw==pytest.approx(-.3-math.pi/2)
+
+
+def fake_native_world(plan, offset=(0,0,0), yaw=0.):
+    import trimesh
+    mesh=trimesh.creation.box((.6,1.8,.4));mesh.apply_translation([0,.9,0])
+    actor=plan.actors["a"];actor.metadata["native_yaw_rad"]=0.
+    from avengine.capture.v7_visible_attachment import rotation
+    transform=np.eye(4);transform[:3,:3]=rotation(yaw);transform[:3,3]=actor.positions_m[0]+offset
+    root_node=SimpleNamespace(absolute_transformation=lambda:transform)
+    entry={"object":SimpleNamespace(root_scene_node=root_node),"original_mesh":mesh,
+           "declaration":{"asset_id":"a","kind":"human"}}
+    camera=np.eye(4);camera[:3,3]=plan.camera.position_m
+    sensor=SimpleNamespace(render_camera=SimpleNamespace(projection_matrix=native_projection()),
+                           node=SimpleNamespace(absolute_transformation=lambda:camera))
+    sim=SimpleNamespace(_sensors={"rgb":SimpleNamespace(_sensor_object=sensor)})
+    video=SimpleNamespace(actors=[entry],sim=sim,width=640,height=360,
+          _native_pair_pixels=lambda scene,entries:{"a":2000},attachment_checks=[{"asset_id":"a","status":"pass"}])
+    return video,entry
+
+
+def test_native_common_readbacks_reject_repositioning_or_changed_yaw():
+    p=ScenePlan(CameraPose((0.,1.25,0.),0.),{"a":static_actor("a",[0,0,-4])})
+    v,e=fake_native_world(p)
+    assert native_static_checks(v,{},p,roles={"a":"inside"},minimum_visible_pixels={"a":100}).passed
+    v,e=fake_native_world(p,offset=(.03,0,0))
+    assert not native_static_checks(v,{},p).passed
+    v,e=fake_native_world(p,yaw=.1)
+    assert not native_static_checks(v,{},p).passed
+
+
+def test_solver_native_failure_backtracks_and_success_retains_same_prepared_payload():
+    c=context();p=ScenePlan(c.cameras[0],{"a":static_actor("a",[0,0,-4])})
+    plugin=SimpleNamespace(candidates=lambda c,r:iter([p,p]),verify=lambda c,r,p:[CheckResult("branch","pass")])
+    calls=[];closed=[];payload=object()
+    def prepare(c,r,p):
+        calls.append(p)
+        i=len(calls)
+        return PreparedCandidate(payload,(CheckResult("native:mask","fail"if i==1 else"pass"),),lambda:closed.append(i))
+    result=solve(c,FamilyRequest("QA-21","sound",("a",),{"require_native_preflight":True}),plugin,prepare_and_verify=prepare)
+    assert result.status=="certified" and len(calls)==2 and closed==[1]
+    assert result.prepared.payload is payload
+    with result.prepared as live:
+        assert live is payload
+    assert closed==[1,2]
+    blocked=solve(c,FamilyRequest("QA-21","sound",("a",),{"require_native_preflight":True}),plugin)
+    assert blocked.status=="unavailable" and blocked.reasons==("required_native_preflight_not_supplied",)
+
+
+def test_fixed_clock_straight_arc_preserves_pause_and_compact_depth():
+    c=context();t=np.arange(901)/30
+    d=1.02*np.clip(t-1,0,2)+1.02*np.clip(t-6,0,2)
+    p=straight_then_arc(c,[0,0,-4.8],[.5,-math.sqrt(.75)],d,2.04,
+                       turn_radius_m=.8,turn_sign=1,camera=c.cameras[0])
+    np.testing.assert_allclose(p.positions_m[135],[0,0,-4.8],atol=1e-8)
+    assert p.positions_m[-1,0] == pytest.approx(1.49,abs=.02)
+    assert p.positions_m[:,2].min() > -5.3
+    np.testing.assert_array_equal(p.metadata["distance_clock_m"],d)
+    assert p.metadata["validation"]["map_full_frames"]==901
+
+
+def test_repeat_bouts_reverses_same_curve_and_holds_after_two():
+    c=context()
+    original=construct_route(c,[[-2,0,-4],[0,0,-4],[0,0,-6]],entity_id="a")
+    repeated=repeat_bouts(original,(0,10),context=c,camera=c.cameras[0])
+    np.testing.assert_allclose(repeated.positions_m[-1],original.positions_m[0])
+    np.testing.assert_allclose(repeated.positions_m[600:],np.repeat(original.positions_m[:1],301,axis=0))
+    distance=np.linalg.norm(repeated.positions_m[300:601,None,:]-original.positions_m[None,:301,:],axis=2).min(axis=1)
+    assert distance.max()<.04
+    assert len(repeated.metadata["stationary_turn_intervals_s"])==1
+    a,b=repeated.metadata["stationary_turn_intervals_s"][0]
+    turn=repeated.positions_m[math.ceil(a*30):math.floor(b*30)+1]
+    assert np.max(np.linalg.norm(turn-turn[0],axis=1))<1e-9
+    assert certify_plan(c,ScenePlan(c.cameras[0],{"a":repeated})).passed
+
+
+def test_static_product_budget_varies_all_roles_and_prunes_bad_nav_points():
+    c=context()
+    bodies={"a":BodySpec(),"b":BodySpec()}
+    plans=list(enumerate_static_layouts(c,bodies,{"a":"inside","b":"outside"},max_candidates=8))
+    assert len({tuple(p.actors["a"].positions_m[0])for p in plans})>1
+    assert len({tuple(p.actors["b"].positions_m[0])for p in plans})>1
+    c.pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p)+([.1,0,0]if p[0]>0 else[0,.17,0]))
+    plans=list(enumerate_static_layouts(c,bodies,{"a":"inside","b":"outside"},max_candidates=8))
+    assert plans and all(all(a.positions_m[0,0]<=0 for a in p.actors.values())for p in plans)
+
+
+def test_native_motion_readback_requires_same_complete_clock_and_roots():
+    c=context();actor=construct_route(c,[[0,0,-3],[0,0,-5]],entity_id="a")
+    actor.metadata["native_yaw_rad"]=0.
+    p=ScenePlan(CameraPose((0.,1.25,0.),0.),{"a":actor})
+    v,e=fake_native_world(p)
+    matrices=np.repeat(np.eye(4)[None],901,axis=0);matrices[:,:3,3]=actor.positions_m
+    e["motion_episode"]={"world_roots_m":actor.positions_m.tolist(),"sample_rate_hz":30.,
+                          "native_30Hz_readbacks":[{"body_to_world_m":m.tolist(),"action_sample_index":i}for i,m in enumerate(matrices)]}
+    # Actual posed mesh loading belongs to the native adapter; a retained static
+    # local mesh suffices for this readback-clock counterexample.
+    import avengine.construction.joint.native as native
+    original=native.native_world_vertices
+    native.native_world_vertices=lambda entry:(np.asarray(entry["original_mesh"].vertices)+actor.positions_m[0],
+                                               entry["object"].root_scene_node.absolute_transformation())
+    try:
+        assert native_plan_checks(v,{},p).passed
+        e["motion_episode"]["native_30Hz_readbacks"][450]["body_to_world_m"][0][3]+=.01
+        result=native_plan_checks(v,{},p)
+        assert any(x.name.endswith("all_root_samples")and x.status=="fail"for x in result.checks)
+        e["motion_episode"]["native_30Hz_readbacks"].pop()
+        assert any(x.name.endswith("motion_clock")and x.status=="fail"for x in native_plan_checks(v,{},p).checks)
+    finally:
+        native.native_world_vertices=original
+
+
+def test_joint_solution_records_proposal_scope_without_claiming_rendered_truth():
+    c=context();p=ScenePlan(c.cameras[0],{"a":static_actor("a",[0,0,-4])})
+    plugin=SimpleNamespace(candidates=lambda c,r:iter([p]),verify=lambda c,r,p:[CheckResult("branch","pass")])
+    r=solve(c,FamilyRequest("QA-21","sound",("a",)),plugin)
+    source=r.plan.metadata["joint_solution"]
+    assert source["solver_entry"]=="avengine.construction.joint.solve"
+    assert source["native_preflight_status"]=="not_run"
+    assert not source["native_full_render_and_qa_verified"]
