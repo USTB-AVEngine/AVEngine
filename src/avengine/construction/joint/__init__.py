@@ -55,3 +55,6 @@ __all__ += ["native_full_mesh_sweep"]
 
 from .routes import out_and_back, out_and_back_shape
 __all__ += ["out_and_back", "out_and_back_shape"]
+
+from .paired import paired_parallel_routes
+__all__ += ["paired_parallel_routes"]
