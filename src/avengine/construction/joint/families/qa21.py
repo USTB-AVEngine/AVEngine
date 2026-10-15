@@ -105,6 +105,12 @@ class Qa21Plugin:
         if request.branch != expected_branch or tuple(request.target_ids) != tuple(self.targets):
             yield CheckResult('qa21_requested_classes', 'fail', 'plan changed requested classes or bodies')
             return
+        from itertools import combinations
+        for (aid, actor), (bid, other) in combinations(plan.actors.items(), 2):
+            distance = float(np.linalg.norm((np.asarray(actor.positions_m)[0]-np.asarray(other.positions_m)[0])[[0, 2]]))
+            required = max(1., actor.body.radius_m+other.body.radius_m)
+            yield CheckResult('qa21_spacing_'+aid+'_'+bid, 'pass' if distance >= required else 'fail',
+                margin=distance-required, evidence={'actual_planned_m': distance, 'required_m': required})
         for target_id, cls in self.targets.items():
             actor = plan.actors.get(target_id)
             if actor is None:
@@ -114,7 +120,9 @@ class Qa21Plugin:
             if np.max(np.linalg.norm(positions-positions[0], axis=1)) > 1.e-8:
                 yield CheckResult('qa21_static_body_'+target_id, 'fail', 'static target moved')
                 continue
-            prediction = context.predict(plan.camera, positions[0], actor.body)
+            occluders = tuple((other_id, np.asarray(other.positions_m)[0], other.body)
+                for other_id, other in plan.actors.items() if other_id != target_id)
+            prediction = context.predict(plan.camera, positions[0], actor.body, occluders=occluders)
             lower = float(prediction.visible_pixels_lower); edge = float(prediction.edge_margin_px)
             status = 'pass' if prediction.state == 'visible_clear' and lower >= MINIMUM_TARGET_PIXELS and edge >= FRAME_MARGIN_PX else 'fail'
             yield CheckResult('qa21_visible_'+target_id, status,
@@ -349,7 +357,7 @@ def construct_qa21_scene(room, house, state, catalog, records, semantic, contrac
     bodies = {a['asset_id']: body_spec(a) for a in [*(a for a, _, _ in selected), person]}
     roles = {**{aid: 'inside' for aid in target_ids}, companion: 'outside'}
     context = build_room_context(ctx['original_room'], house=house, runtime=runtime,
-        cache_dir=runtime.get('qa21_joint_cache_dir'), camera_limit=24)
+        cache_dir=runtime.get('qa21_joint_cache_dir'), camera_limit=24, width=1280, height=720)
     try:
         request = FamilyRequest('QA-21', '|'.join(targets.values()), tuple(target_ids))
         plugin = Qa21Plugin(bodies, roles, target_ids[0], targets[target_ids[0]], sounds=sounds, targets=targets)
@@ -363,6 +371,11 @@ def construct_qa21_scene(room, house, state, catalog, records, semantic, contrac
     row.update(listener_m=list(camera.position_m), camera_yaw_deg=camera.yaw_deg,
         camera_yaw_knots=[{'time_s': 0., 'yaw_deg': camera.yaw_deg}, {'time_s': 30., 'yaw_deg': camera.yaw_deg}],
         native_placement_preferences_m={aid: np.asarray(actor.positions_m)[0].tolist() for aid, actor in plan.actors.items()})
+    from dataclasses import asdict
+    import json
+    certificate = solved.certificate if hasattr(solved, 'certificate') else solved['certificate']
+    row['scene_demand']['qa21_planning_certificate'] = json.loads(json.dumps(asdict(certificate),
+        default=lambda value: value.tolist() if hasattr(value, 'tolist') else value.item()))
     row['scene_demand']['qa21_certification_authority'] = 'planning geometry and actual compiled source clock; original native masks and QA unchanged'
     validate_recipe(row, catalog, contract)
     return {'profile': 'phase2', 'row': row}
