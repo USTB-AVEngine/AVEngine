@@ -42,7 +42,9 @@ class NativePhase2Video(NativeVisibleVideo):
             from avengine.capture.v7_visible_mesh import indexed_static_mesh
             path=record['pose_glbs'][index]
             cache=entry.setdefault('phase2_foot_surface_mesh_cache',{})
-            if path not in cache:cache[path]=np.asarray(indexed_static_mesh(path).vertices)
+            if path not in cache:
+                if len(cache)>=8:cache.pop(next(iter(cache)))
+                cache[path]=np.asarray(indexed_static_mesh(path).vertices)
             vertices=cache[path];target=sole+[0.,.025,0.]
             # Apply the existing physical gates before minimizing distance.
             # An unconstrained nearest vertex can be on the sole while a valid

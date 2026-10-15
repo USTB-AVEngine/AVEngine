@@ -19,3 +19,11 @@ def test_unseen_room_constructs_footsteps_without_speech_on_the_walker():
     assert .8<=row['motion_requests'][walker]['speed_m_s']<=1.4
     assert len(row['asset_ids'])==4 and len(row['silent_asset_ids'])==2
     assert speaker not in row['motion_requests']
+
+
+def test_footstep_role_cannot_fall_through_to_an_animal_or_short_effect_program():
+    from avengine.timeline.v7_motion_source_roles import select_motion_role
+    human={'asset_id':'unseen_walker','kind':'human'}
+    role=select_motion_role('human_footsteps',human,[],[],None,123)
+    assert role['asset'] is human
+    assert role['record'] is None and role['event_clock']=='native-foot-contact-bouts'

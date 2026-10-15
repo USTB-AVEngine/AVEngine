@@ -3,8 +3,8 @@ from copy import deepcopy
 import numpy as np
 
 SOURCE_TYPES=('human_speech','human_other','dog_walk','cat_walk','animal_slide','human_footsteps')
-EMISSION_SPEEDS={'human_speech':(.8,1.2),'human_other':(.8,1.2),'dog_walk':(.9,1.2),'cat_walk':(.6,.8),'animal_slide':(.4,.5)}
-QUIET_SPEEDS={'human_speech':.8,'human_other':.8,'dog_walk':.5,'cat_walk':.3,'animal_slide':.2}
+EMISSION_SPEEDS={'human_speech':(.8,1.2),'human_other':(.8,1.2),'dog_walk':(.9,1.2),'cat_walk':(.6,.8),'animal_slide':(.4,.5),'human_footsteps':(.8,1.4)}
+QUIET_SPEEDS={'human_speech':.8,'human_other':.8,'dog_walk':.5,'cat_walk':.3,'animal_slide':.2,'human_footsteps':.8}
 
 def activity(record):
     return record.get('screens',{}).get('automatic_activity',{}).get('activity_intervals_samples') or record.get('source_normalization',{}).get('measured_activity',{}).get('source_activity_intervals_samples') or []
@@ -45,6 +45,7 @@ def select_source_program(records,allowed_classes,speed_range):
 def select_motion_role(source_type,human,catalog,records,contract,seed,attempt=0):
     if source_type not in SOURCE_TYPES:raise ValueError('unsupported moving physical source type: '+source_type)
     if source_type=='human_speech':return {'asset':human,'record':None,'program':None}
+    if source_type=='human_footsteps':return {'asset':human,'record':None,'program':None,'event_clock':'native-foot-contact-bouts'}
     band=EMISSION_SPEEDS[source_type]
     if source_type=='human_other':
         allowed=set(human['allowed_classes'])-{'speech_playback','footsteps'}
