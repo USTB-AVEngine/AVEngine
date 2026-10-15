@@ -1,5 +1,6 @@
 """UE load identity stays distinct from the source GLB; basis is native."""
 import json
+from pathlib import Path
 from types import SimpleNamespace
 import numpy as np
 import pytest
@@ -35,3 +36,34 @@ def test_native_load_does_not_relabel_glb_hash(tmp_path):
     with pytest.raises(ValueError,match='loaded UE actor'):require_loaded_asset(actor,asset)
     actor['loaded_artifact_sha256']=digest(package);package.write_bytes(b'changed UE package');_ue_receipt.cache_clear()
     with pytest.raises(ValueError,match='package changed'):require_loaded_asset(actor,asset)
+
+def test_registered_ue_receipt_compares_native_handles(tmp_path,monkeypatch):
+    from avengine.backends.spear_ue import research_runtime
+    from avengine.capture.v7_ue_registered_readback import prepare_readback
+    original=tmp_path/'source';project=tmp_path/'output/project';project.mkdir(parents=True)
+    paths=['/Game/Actors/Human.Human_C','/Game/Mesh/Body.Body','/Game/Mesh/Material.Material']
+    for content in [original/'ue_project/Content',project/'Content']:
+        for obj in paths:
+            path=content/(obj.partition('.')[0][6:]+'.uasset');path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(obj.encode())
+    registry=original/'registry.json';registry.write_text(json.dumps({'artifact_root':str(original),'ue_project':'ue_project/Humans.uproject'}))
+    glb=original/'body.glb';glb.write_bytes(b'original imported body')
+    service=SimpleNamespace(get_class=lambda **kw:17,load_class=lambda **kw:17,load_object=lambda **kw:21)
+    def objects(**kw):
+        # A raw int in GetPathName would serialize as a number, not a UE Ptr.
+        return SimpleNamespace(GetPathName=lambda **kw:pytest.fail('raw handle was sent to reflection'))
+    game=SimpleNamespace(unreal_service=service,get_unreal_object=objects)
+    video=SimpleNamespace(game=game,ue={'uproject':str(project/'SpearSim.uproject'),'output_root':str(tmp_path/'output')},instance=SimpleNamespace(_process=SimpleNamespace(pid=1234)))
+    point=np.array([.01,1.6,-.02]);asset={'asset_id':'human','mouth_local_glb_m':point.tolist(),
+        'registered_native_ue_mouth_local_cm':(GLB_TO_UE_CM@point).tolist(),'source_registry':str(registry),
+        'source_registry_sha256':digest(registry),'ue_generated_class':paths[0],
+        'registered_native_ue':{'mesh_paths':[paths[1]],'materials':[paths[2]]},'habitat_glb':str(glb),'actual_artifact_sha256':{str(glb):digest(glb)}}
+    monkeypatch.setattr(research_runtime,'attach_emitter_component',lambda *a,**kw:kw['emitter_local_ue_cm'])
+    component=SimpleNamespace(get_property_value=lambda **kw:21)
+    result=prepare_readback(video,asset,{'actor_id':'source1'},object(),object(),[component])
+    proof=json.loads(Path(result['native_load_receipt']).read_text())
+    assert proof['native_class_handle']==proof['registered_class_handle']==17
+    assert proof['actual_mesh_handles']==[21]
+    assert proof['original_glb_sha256']!=proof['loaded_artifact_sha256']
+    service.get_class=lambda **kw:18
+    with pytest.raises(ValueError,match='class handle differs'):
+        prepare_readback(video,asset,{'actor_id':'source1'},object(),object(),[component])
