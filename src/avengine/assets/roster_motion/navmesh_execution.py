@@ -51,6 +51,10 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
         from .reflect_navmesh import reflected_route_proposals
         yield from reflected_route_proposals(video,entry,scene,local_forward,request)
         return
+    if request.get('camera_path_condition'):
+        from avengine.capture.v7_camera_path_proposals import fixed_camera_route_proposals
+        yield from fixed_camera_route_proposals(video,entry,scene,distance,local_forward,request)
+        return
     if request.get('straight_motion_windows_s'):
         from avengine.assets.roster_motion.straight_window_routes import straight_window_routes
         proposals=list(islice(straight_window_routes(video,entry,scene,distance,local_forward,request),max(24,int(request.get('route_ranking_candidate_budget',64)))))
