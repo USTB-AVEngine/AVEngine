@@ -360,3 +360,34 @@ def test_delivered_class_feedback_cannot_replace_explicitly_preferred_reviewed_b
     assert {a['asset_id']: cls for a, cls, _ in selected} == {
         'cat': 'cat_meow', 'dog': 'dog_bark', 'speaker': 'music_playback'}
     assert catalog == original
+
+
+def test_dog_height_is_solved_from_actual_scan_before_any_native_execution(monkeypatch):
+    import trimesh
+    from avengine.construction.joint import CameraPose, BodySpec, ScenePlan, SoundEvent
+    from avengine.construction.joint.routes import static_actor
+    from avengine.construction.joint import MeshRaycaster
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    import avengine.construction.joint as core
+    import avengine.capture.v7_visible_mesh as meshes
+    floor = trimesh.creation.box((10., .1, 10.));floor.apply_translation([0., -.038, 0.])
+    mesh = trimesh.creation.box((.6, .6, .4));mesh.apply_translation([0., .3, 0.])
+    actor = static_actor('dog', [0., .002, -4.], BodySpec('dog', .35, .6), facing_rad=0.)
+    sound = SoundEvent('dog', 'bark_record', 'dog_bark', 2., 3., wet_end_s=3.5)
+    base = ScenePlan(CameraPose((0., 1.25, 0.), 0.), {'dog': actor}, sounds=(sound,))
+    monkeypatch.setattr(core, 'enumerate_static_layouts', lambda *a, **kw: iter([base]))
+    monkeypatch.setattr(meshes, 'indexed_static_mesh', lambda path: mesh)
+    asset = {**animal('dog', 'dog', 'dog_bark'), 'habitat_glb': 'actual-admitted-dog.glb'}
+    plugin = Qa21Plugin({'dog': actor.body}, {'dog': 'inside'}, 'dog', 'dog_bark', sounds=(sound,), assets={'dog': asset})
+    result = list(plugin.candidates(NS(floor_raycaster=MeshRaycaster(floor)), None))[0]
+    # Original grid height is10mm below this actual scan; the selected original
+    # probe solution is2mm above it, and has not touched the original actor.
+    assert result.actors['dog'].positions_m[0, 1] == pytest.approx(.014, abs=1e-6)
+    np.testing.assert_allclose(actor.positions_m[:, 1], .002)
+    np.testing.assert_array_equal(result.actors['dog'].positions_m[:, [0, 2]], actor.positions_m[:, [0, 2]])
+    np.testing.assert_array_equal(result.actors['dog'].headings_rad, actor.headings_rad)
+    assert result.sounds == base.sounds
+    assert result.actors['dog'].metadata['floor_contact_refinement']['native_contact_checks_required']
+    fallback = list(plugin.candidates(NS(), None))[0]
+    np.testing.assert_array_equal(fallback.actors['dog'].positions_m, actor.positions_m)
+    assert 'dog' in fallback.metadata['qa21_grounding_proposal_skipped']

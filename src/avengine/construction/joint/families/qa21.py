@@ -150,6 +150,32 @@ class Qa21Plugin:
         for plan in enumerate_static_layouts(context, self.bodies, self.roles, max_candidates=self.maximum):
             for aid,actor in plan.actors.items():
                 if aid in self.assets:actor.metadata['native_yaw_rad']=self.planned_yaw(context,plan,aid)
+            # Long quadruped footprints need heights solved from all original
+            # support probes, rather than the grid centre's default clearance.
+            # Core supplies bounded proposals; original native contact admission
+            # still decides whether any proposed height is physically valid.
+            from avengine.construction.joint import floor_contact_variants
+            from avengine.construction.joint.routes import ConstructionError
+            from avengine.capture.v7_visible_mesh import indexed_static_mesh
+            for aid, actor in tuple(plan.actors.items()):
+                asset = self.assets.get(aid, {})
+                if asset.get('kind') != 'animal' or asset.get('species_id') != 'dog':
+                    continue
+                try:
+                    variants = list(floor_contact_variants(context, actor,
+                        indexed_static_mesh(asset['habitat_glb']), asset=asset,
+                        yaw_rad=self.planned_yaw(context, plan, aid)))
+                    if variants:
+                        # Prefer the existing 2mm construction margin among
+                        # core's feasible proposals, without expanding XY/time.
+                        chosen = min(variants, key=lambda candidate: abs(float(np.min(
+                            candidate.metadata['floor_contact_refinement']['support_probe_deltas_predicted_m']))-.002))
+                        plan = replace(plan, actors={**plan.actors, aid: chosen})
+                except ConstructionError as exc:
+                    skipped = dict(plan.metadata.get('qa21_grounding_proposal_skipped', {}))
+                    skipped[aid] = str(exc)
+                    plan = replace(plan, metadata={**plan.metadata,
+                        'qa21_grounding_proposal_skipped': skipped})
             yield replace(plan, sounds=self.sounds, metadata={**plan.metadata,
                 'qa21_target_id': self.target_id, 'qa21_sound_class': self.sound_class})
 
