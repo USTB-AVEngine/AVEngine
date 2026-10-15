@@ -142,12 +142,13 @@ def route_preview_visible(scene, start, end, yaw, mouth):
 
 
 def motion_route_attempts(route_tiers, requested_mode, stationary):
-    """Explicit owner fallback: retimed walk, retained-pose slide, then static."""
-    attempts = [(route, requested_mode) for tier in route_tiers for route in tier[:2]]
-    if requested_mode == 'walk_animation':
-        attempts.extend((route, 'slide_no_animation') for tier in route_tiers[-2:] for route in tier[:2])
-    attempts.extend((route, 'static_after_failed_route') for route in stationary[:4])
-    return attempts
+    """Try shorter/slower physical routes while preserving the requested motion.
+
+    Owner 2026-10-15: construct missing conditions instead of degrading a walk
+    to a slide or a stationary pose. ``stationary`` is a retained call argument
+    for existing callers; those proposals cannot satisfy a motion request.
+    """
+    return [(route, requested_mode) for tier in route_tiers for route in tier[:2]]
 
 
 def realized_animal_motion(scene, visual):

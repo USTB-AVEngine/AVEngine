@@ -56,15 +56,19 @@ def test_preferred_positive_skin_gap_does_not_reject_a_valid_owner_contact():
     assert proof['per_frame_correction'] is False
 
 
-def test_fallback_order_is_explicit_and_static_is_last():
+@pytest.mark.parametrize('requested', ['walk_animation', 'slide_no_animation'])
+def test_route_search_preserves_requested_motion_at_each_speed(requested):
     from avengine.assets.animal_motion.production_episode import motion_route_attempts
     tiers = [[(.5, 'root', 'yaw', 'direction', speed)] for speed in [.03, .015, .0075, .003]]
-    attempts = motion_route_attempts(tiers, 'walk_animation', [(0., 'root', 'yaw', 'direction', 0.)])
-    modes = [mode for route, mode in attempts]
-    assert modes[:4] == ['walk_animation'] * 4
-    assert modes[4:6] == ['slide_no_animation'] * 2
-    assert modes[-1] == 'static_after_failed_route'
-    assert attempts[-1][0][-1] == 0.
+    attempts = motion_route_attempts(tiers, requested, [(0., 'root', 'yaw', 'direction', 0.)])
+    assert [mode for route, mode in attempts] == [requested] * 4
+    assert [route[-1] for route, mode in attempts] == [.03, .015, .0075, .003]
+
+
+def test_no_moving_route_cannot_silently_become_a_stationary_animal():
+    from avengine.assets.animal_motion.production_episode import motion_route_attempts
+    assert motion_route_attempts([[], [], [], []], 'walk_animation',
+        [(0., 'root', 'yaw', 'direction', 0.)]) == []
 
 
 def test_actual_static_labels_preserve_the_original_admission_and_positions():
