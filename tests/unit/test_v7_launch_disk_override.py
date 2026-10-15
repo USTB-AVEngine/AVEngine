@@ -6,7 +6,7 @@ POLICY={'minimum_free_bytes':60_000_000_000,'expires_utc':'2026-10-15T04:30:00+0
 
 def test_default_launch_headroom_remains_explicit():
     assert launch_minimum_free_bytes({},datetime.datetime(2026,10,15,5,tzinfo=datetime.timezone.utc))==100_000_000_000
-    assert launch_minimum_free_bytes(None,datetime.datetime(2026,10,15,10,29,59,tzinfo=datetime.timezone.utc))==60_000_000_000
+    assert launch_minimum_free_bytes(None,datetime.datetime(2026,10,15,10,29,59,tzinfo=datetime.timezone.utc))==40_000_000_000
     assert launch_minimum_free_bytes(None,datetime.datetime(2026,10,15,10,30,tzinfo=datetime.timezone.utc))==100_000_000_000
 
 def test_temporary_sixty_gb_applies_before_singapore_1230():

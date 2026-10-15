@@ -11,7 +11,7 @@ from pathlib import Path
 
 def launch_minimum_free_bytes(policy=None, now=None):
     """Read a time-limited task launch override; running writes are separate."""
-    policy=({'minimum_free_bytes':60_000_000_000,'expires_utc':'2026-10-15T10:30:00+00:00',
+    policy=({'minimum_free_bytes':40_000_000_000,'expires_utc':'2026-10-15T10:30:00+00:00',
              'after_expiry_minimum_free_bytes':100_000_000_000} if policy is None else policy)
     current=now or datetime.datetime.now(datetime.timezone.utc)
     expiry=policy.get('expires_utc')

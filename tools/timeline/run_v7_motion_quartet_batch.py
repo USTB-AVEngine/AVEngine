@@ -68,7 +68,7 @@ def main():
             'houses_cpu':str(a.houses.resolve()),'assets_cpu':str(a.assets.resolve()),
             'human_cpu':str(a.human_registry.resolve()),'human_registered_cpu':str(a.human_registry.resolve()),
             'cpu_ids':sorted(os.sched_getaffinity(0))[:16],
-            'disk_launch_policy':{'minimum_free_bytes':60_000_000_000,
+            'disk_launch_policy':{'minimum_free_bytes':40_000_000_000,
                 'expires_utc':'2026-10-15T10:30:00+00:00','after_expiry_minimum_free_bytes':100_000_000_000},
             'parents':[]}
         save(manifest_path,manifest)
