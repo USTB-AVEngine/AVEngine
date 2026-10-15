@@ -77,11 +77,15 @@ class FootPlant:
  def __init__(self,d,b,action,times,positions,yaws,play_rate,source_start,source_duration,floor,basis=None,chains=None,masks=None,emitter_bone=None,canonical_flip=True,backward_threshold=.2):
   self.d=d;self.b=b;self.action=action;self.times=np.asarray(times);self.pos=np.asarray(positions);self.yaw=np.asarray(yaws);self.basis=C if basis is None else basis;self.canonical_flip=canonical_flip;self.emitter_bone=emitter_bone;self.masks=foot_masks(d,b) if masks is None else masks;self.floor=floor;self.source=[];self.events=[];self.state={s:None for s in (chains or {'L':None,'R':None})};self.max_reach=0;self.max_ik_error=0
   self.chains=chains or {s:[find_bone(d,' '+s+' '+part)for part in ['Thigh','Calf','Foot','Toe0']]for s in ['L','R']}
+  phase_cache={}
   for i,t in enumerate(times):
-   phase=source_start+(float(t)*play_rate)%source_duration;raw=globals_at(d,b,action,phase);parts,ev=pose(d,b,action,phase,canonical_flip=canonical_flip,emitter_bone=emitter_bone);g={j:self.basis@m for j,m in raw.items()}
+   phase=source_start+(float(t)*play_rate)%source_duration
+   if phase in phase_cache:
+    self.source.append(phase_cache[phase]);continue
+   raw=globals_at(d,b,action,phase);parts,ev=pose(d,b,action,phase,canonical_flip=canonical_flip,emitter_bone=emitter_bone);g={j:self.basis@m for j,m in raw.items()}
    for m in g.values():m[1,3]+=ev['ground_correction_m']
    heights={s:foot_min(parts,self.masks,s)[0]for s in self.chains}
-   self.source.append((g,phase,heights,ev))
+   record=(g,phase,heights,ev);phase_cache[phase]=record;self.source.append(record)
   self.active={}
   for side,chain in self.chains.items():
    bone=chain[2];backward=[]
@@ -149,3 +153,13 @@ class FootPlant:
     spi,svi=state['support_id'];actual=root+rot@parts[spi]['positions'][svi];feet[side].update(support_vertex=[spi,svi],support_world_m=actual.tolist(),support_target_world_m=state['support_world'].tolist(),support_lock_error_m=float(np.linalg.norm(actual-state['support_world'])),support_segment_start_frame=state['start'],support_switches=state['switches'])
   ev.update(source_phase_s=float(phase),time_s=float(self.times[i]),world_root_m=root.tolist(),yaw_rad=float(self.yaw[i]),feet=feet,mouth_world_m=(root+rot@np.asarray(ev['mouth_m'])).tolist(),root_motion_grounded_in_clip=True,pelvis_lowering_m=lower)
   return raw,parts,ev
+
+
+def fork_prepared_gait(prepared,positions,yaws,floor):
+ """Reuse immutable source FK/skin preparation; start route contacts afresh."""
+ clone=copy.copy(prepared)
+ clone.pos=np.asarray(positions);clone.yaw=np.asarray(yaws);clone.floor=floor
+ clone.state={side:None for side in prepared.chains};clone.events=[]
+ clone.max_reach=0;clone.max_ik_error=0
+ clone.active={side:values.copy()for side,values in prepared.active.items()}
+ return clone
