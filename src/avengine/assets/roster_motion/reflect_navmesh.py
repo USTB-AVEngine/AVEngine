@@ -7,10 +7,13 @@ from shapely.geometry import Point, shape, LineString, box
 from .reflect_walk import reflect_walk, schedule_emissions, SPECIES_SPEED_M_S
 
 
-def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(), camera_margin=1.5):
+def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(), camera_margin=1.5,
+                          walkable_map=None, species='human'):
     listener=np.asarray(listener,float)[[0,2]]
     def is_free(xz):
         xz=np.asarray(xz,float)
+        if walkable_map is not None and not walkable_map.contains(xz,species):return False
+        if not np.isfinite(xz).all():return False
         if not polygon.covers(Point(*xz)) or np.linalg.norm(xz-listener)<camera_margin:return False
         if any(o.covers(Point(*xz)) for o in obstacles):return False
         p=np.array([xz[0],floor_y,xz[1]])
@@ -18,6 +21,15 @@ def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(
         if not np.isfinite(snap).all() or np.linalg.norm((snap-p)[[0,2]])>.002:return False
         return (not hasattr(pathfinder,'distance_to_closest_obstacle') or
                 float(pathfinder.distance_to_closest_obstacle(snap,1.))>=.35)
+    def segment_is_free(a,b):
+        if walkable_map is not None and not walkable_map.segment_free(a,b,species):return False
+        line=LineString([a,b])
+        if not polygon.covers(line) or line.distance(Point(*listener))<camera_margin:return False
+        if any(line.intersects(o)for o in obstacles):return False
+        # The cached cells cover the entire segment. The native point tests
+        # remain independent at every emitted frame and look-ahead endpoint.
+        return is_free(b)
+    if walkable_map is not None:is_free.segment_is_free=segment_is_free
     return is_free
 
 
@@ -71,7 +83,9 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
     rng=np.random.default_rng(int(seed)+int(attempt)*101)
     polygon=shape(room['floor_polygon']);floor=float(room['measured_floor_y_m'])
     listener=np.asarray(room['placement']['camera_m'],float)
-    is_free=native_free_predicate(pathfinder,polygon,floor,listener)
+    from avengine.rooms.walkable_map import load_room_map
+    walkable_map=load_room_map(room.get('room_label',room.get('room_id')),path=room.get('walkable_map_path'),floor_reference=floor)
+    is_free=native_free_predicate(pathfinder,polygon,floor,listener,walkable_map=walkable_map,species=species)
     lo,hi=SPECIES_SPEED_M_S[species]
     if speed_range is None:speed_range=(lo+.02,hi-.02)
     if focus=='M1':speed_range=(.82,.9) if species=='human' else (lo+.02,hi-.02)
@@ -115,6 +129,9 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
     target=np.mean(positions,axis=0)-listener[[0,2]]
     return {'reflect_walk':True,'positions_xz_m':positions.tolist(),'travel_yaws_rad':yaws.tolist(),
         'short_window_walk':window,
+        'walkable_map_path':getattr(walkable_map,'path',None),
+        'walkable_map_version':walkable_map.metadata['version']if walkable_map is not None else None,
+        'walkable_map_room_id':walkable_map.metadata['room_id']if walkable_map is not None else None,
         'speed_m_s':speed,'speed_range_m_s':[lo,hi],'listener_m':listener.tolist(),
         'camera_yaw_deg':math.degrees(math.atan2(target[0],-target[1])),
         'species':species,'template':focus,'emission_slot':slot,'candidate_count':len(trials),
@@ -125,12 +142,17 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
 def reflected_route_proposals(video,entry,scene,local_forward,request):
     route=request['motion_quartet_route'];xz=np.asarray(route['positions_xz_m'],float)
     floor=float(entry['applied_root_input'][1,3]);polygon=shape(scene['production_scenario']['motion_floor_polygon'])
+    from avengine.rooms.walkable_map import load_room_map,SPECIES_RADII_M
+    species=route.get('species',entry.get('declaration',{}).get('species_id','human'))
+    if species not in SPECIES_RADII_M:species='human'
+    radius=SPECIES_RADII_M[species]
+    walkable_map=load_room_map(route.get('walkable_map_room_id'),path=route.get('walkable_map_path'))
     obstacles=[]
     for actor in video.actors:
         if actor is entry or actor.get('phase2_layout_qualified') is False:continue
         root=actor['applied_root_input'];v=np.asarray(actor['original_mesh'].vertices)@root[:3,:3].T+root[:3,3]
-        obstacles.append(box(v[:,0].min()-.35,v[:,2].min()-.35,v[:,0].max()+.35,v[:,2].max()+.35))
-    is_free=native_free_predicate(video.pathfinder,polygon,floor,scene['listener_m'],obstacles=obstacles)
+        obstacles.append(box(v[:,0].min()-radius,v[:,2].min()-radius,v[:,0].max()+radius,v[:,2].max()+radius))
+    is_free=native_free_predicate(video.pathfinder,polygon,floor,scene['listener_m'],obstacles=obstacles,walkable_map=walkable_map,species=species)
     from avengine.timeline.v7_spatial_layout import spacing_rejection
     listener=np.asarray(scene['listener_m'],float)[[0,2]]
     rejected=Counter()
@@ -149,6 +171,7 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
         for angle in rotations:
             tested+=1;rotation=np.array([[math.cos(angle),-math.sin(angle)],[math.sin(angle),math.cos(angle)]])
             points=(xz-centre)@rotation.T+centre+shift
+            if walkable_map is not None and not walkable_map.contains_many(points,species).all():rejected['walkable_map_static']+=1;continue
             line=LineString(points)
             if not polygon.covers(line):rejected['native_scene_floor_polygon']+=1;continue
             if any(line.intersects(o)for o in obstacles):rejected['qualified_body_expanded_bbox']+=1;continue
@@ -164,7 +187,9 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
                 if cosine<math.cos(math.radians(30)) or sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):rejected['radial_slot']+=1;continue
             positions=np.column_stack((points[:,0],np.full(len(points),floor),points[:,1]))
             if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):rejected['body_centre_spacing']+=1;continue
-            if not all(is_free(p) for p in points):rejected['native_snap_clearance_or_camera']+=1;continue
+            unique=np.unique(points,axis=0)
+            if walkable_map is not None and not all(walkable_map.segment_free(a,b,species)for a,b in zip(points[:-1],points[1:])if np.linalg.norm(b-a)>1e-10):rejected['walkable_map_crossed_cell']+=1;continue
+            if not all(is_free(p) for p in unique):rejected['native_snap_clearance_or_camera']+=1;continue
             base=math.atan2(local_forward[2],local_forward[0])
             yaws=np.unwrap(base-np.asarray(route['travel_yaws_rad'],float)-angle)
             selected=np.linspace(0,len(positions)-1,17,dtype=int)
@@ -174,7 +199,8 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
         if len(candidates)>=limit:break
     diagnostics={'proposals_tested':tested,'native_admissible_route_pool':len(candidates),'rejections':dict(rejected),
         'native_scene_floor_bounds_xz_m':list(polygon.bounds),'planned_route_bounds_xz_m':list(LineString(xz).bounds),
-        'qualified_obstacle_count':len(obstacles),'native_root_y_m':floor,'camera_m':scene['listener_m'],
+        'qualified_obstacle_count':len(obstacles),'walkable_map_path':getattr(walkable_map,'path',None),
+        'walkable_map_version':walkable_map.metadata['version']if walkable_map is not None else None,'native_root_y_m':floor,'camera_m':scene['listener_m'],
         'original_gates_unchanged':True}
     entry['reflection_native_prefilter']=diagnostics
     if request.get('_reflection_diagnostics_path'):
