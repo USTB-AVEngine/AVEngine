@@ -228,7 +228,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],
         'split':'train','duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':listener,
         'camera_forward':[math.sin(angle),0.,-math.cos(angle)],
-        'camera_yaw_knots':row.get('camera_yaw_knots',[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]),
+        'camera_yaw_knots':[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}],
         'window_starts_s':[0.,15.],'sources':{},'events':[],
         'production_scenario':{'speaker_count':0,'non_speech_class':None},
         'admitted_sound_class_domain':sorted({r['sound_class'] for r in admitted}-PHASE2_CLASSES),

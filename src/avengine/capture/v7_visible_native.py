@@ -76,6 +76,8 @@ def attachment_template(vertices,surface,kind=None,landmarks=None,mesh=None):
 
 class NativeVisibleVideo(NativeRegisteredVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
+        from avengine.timeline.v7_camera_evidence import set_static_camera
+        set_static_camera(scene)
         super().__init__(house,scene,inputs,assets,**kwargs)
         if self.environment_nodes:raise ValueError('integration pilot forbids audio-only SceneGraph nodes')
         self.animal_color_thresholds=inputs.get('animal_color_thresholds')
@@ -522,6 +524,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 'engineering_only':a['label_color'] in {'gray','gray_silver','brown','wood_brown','beige'},**result})
 
     def encode(self,scene,path,**kwargs):
+        from avengine.timeline.v7_camera_evidence import assert_static_camera
+        assert_static_camera(scene)
         result=super().encode(scene,path,**kwargs)
         from avengine.assets.v7_visible_color import rebuild_appearance_review
         assets=[e['declaration'] for e in self.actors]
