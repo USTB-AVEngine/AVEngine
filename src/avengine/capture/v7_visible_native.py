@@ -317,7 +317,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             def candidate_score(p):
                 p=dict(p)
                 if key=='floor':
-                    delta=listener-np.asarray(p['point']);p['yaw_rad']=math.atan2(-delta[0],-delta[2]) if a['kind'] in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
+                    from avengine.capture.v7_layout_candidates import facing_yaw
+                    p['yaw_rad']=facing_yaw(scene,a,listener,p['point'])
                 root,yaw,normal,_=support_points(meta,p);rep=root+rotation(yaw)@np.asarray(a['emitter_local_m']) if not a['silent_decor'] else root+[0,.5,0]
                 delta=rep-listener;f=np.asarray(scene['camera_forward']);right=np.cross(f,[0.,1.,0.]);depth=float(delta@f)
                 visible=visible_from_path(delta)
@@ -330,6 +331,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     return (not visible,(abs(az-float(target))/3.4)**2+(abs(float(np.linalg.norm(delta[[0,2]]))-distance_target)/.4)**2)
                 return (not visible,not central if a['kind'] in {'human','performer'} or self.motion_inputs.get('independent_probe_camera_search') else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
+            from avengine.capture.v7_layout_candidates import order_support_candidates
+            candidates=order_support_candidates(scene,candidates)
             accepted=None;native_attempts=0;search_exhausted=False
             contact_budget=int(self.motion_inputs.get('visible_placement_max_contact_attempts_per_asset',64))
             if not 1<=contact_budget<=1280:raise ValueError('invalid native placement search budget')
@@ -346,8 +349,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     search_exhausted=True;reject('bounded_support_proposal_search_exhausted');break
                 support=dict(support);support['original_surface_point_m']=support['point'];support['point']=(np.asarray(support['point'])+np.asarray(support['normal'])*support['_outward_clearance_m']).tolist()
                 if key=='floor':
-                    delta=listener-np.asarray(support['point'])
-                    support['yaw_rad']=math.atan2(-delta[0],-delta[2]) if a['kind'] in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
+                    from avengine.capture.v7_layout_candidates import facing_yaw
+                    support['yaw_rad']=facing_yaw(scene,a,listener,support['point'])
                 # Pure candidate filtering: the support transform is identical
                 # to check_support's proposed root. Every surviving candidate
                 # still runs all original rays, contacts and real native pixels.

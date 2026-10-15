@@ -84,6 +84,8 @@ def _worker(request_path):
     output=pathlib.Path(request['output']).resolve();report=pathlib.Path(request['report']).resolve()
     if output.parent!=path.parent or report.parent!=path.parent:raise ValueError('fresh process output escaped its own request directory')
     if request['evidence_role']not in{'primary','independent_midpoint_reference'}:raise ValueError('invalid native RIR evidence role')
+    from avengine.timeline.v7_native_resource_slots import acquire_native_resource
+    resource_lease=acquire_native_resource('rir')
     started=time.perf_counter();cpu=time.process_time()
     from avengine.acoustics.runtime import load_habitat_runtime
     load_habitat_runtime(runtime_mode='current-installed',**request['inputs']['runtime'])

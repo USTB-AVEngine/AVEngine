@@ -34,7 +34,10 @@ def worker(task):
                 'single_cpu_selected_before_native_imports':selected_cpu,'one_parent_per_worker':True}
             receipt_root=Path(task[-1])/'receipts';receipt_root.mkdir(exist_ok=True)
             (receipt_root/f"worker_started_{os.getpid()}.json").write_text(json.dumps(identity,indent=2))
-            from avengine.timeline.v7_phase2_fallback import generate_parent_with_element_fallback as generate_phase2_parent
+            if task[0].get('automatic_construction'):
+                from avengine.timeline.v7_family_clock import generate_constructed_phase2_parent as generate_phase2_parent
+            else:
+                from avengine.timeline.v7_phase2_generation import generate_phase2_parent
             result=generate_phase2_parent(*task)
             identity.update(finished_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 status=result['status'],maximum_resident_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,

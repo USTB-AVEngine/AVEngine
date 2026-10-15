@@ -21,7 +21,7 @@ def run_worker(manifest,slot):
         raise ValueError('import escaped the acceptance worktree')
     from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
     os.environ[ENV_KEY]=json.dumps({'root':str(root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
-        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':128_000_000,
+        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
     policy=json.loads(os.environ[ENV_KEY])
     for key in ('temporary_minimum_free_bytes','temporary_minimum_free_until_unix'):
@@ -41,7 +41,9 @@ def run_worker(manifest,slot):
         row=load(previous) if previous.exists() else plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
         inputs.update(phase2=True,integration_pilot=True,render_backend='cpu_llvmpipe')
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
-        if row.get('conditioned_post_motion'):
+        if row.get('automatic_construction'):
+            from avengine.timeline.v7_family_clock import generate_constructed_phase2_parent as generate
+        elif row.get('conditioned_post_motion'):
             from avengine.timeline.v7_conditioned_post_motion import generate_post_sound_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
