@@ -188,6 +188,9 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.
                     'complete_step_distance_margin':1.12,'minimum_silent_straight_until_s':7.5,
                     'motion_template_windows_s':[0.], 'all_four_families_retained':True,
                     'geometry_status':'native NavMesh proposal; exact complete-step, full skin/contact/pixel gates still required'}
+    from avengine.assets.roster_motion.critical_hairpin import find_critical_hairpin
+    compact=find_critical_hairpin(room,pathfinder,seed,speed_range,quiet_speed)
+    if compact is not None:return compact
     raise MotionTemplateUnavailable('bounded native NavMesh straight/turn search exhausted: '+str(tested)+' proposals; stages='+str(dict(checks))+'; planner must choose another legal room')
 
 def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_records,
@@ -277,6 +280,8 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     row = prepare_motion_during_row(row, catalog, list(source_records)+measured)
     row['motion_requests'][a]['intervals_s'] = [[0., 9.7]]
     row['motion_requests'][a]['straight_motion_windows_s'] = [[x+.3, x+7.5] for x in offsets]
+    if route.get('critical_hairpin'):
+        row['motion_requests'][a]['straight_motion_windows_s']=[[.3,2.7],[route['post_turn_straight_start_s']+.05,route['minimum_stop_s']-.35]]
     row['motion_requests'][a].pop('distance_trend', None)
     row['motion_requests'][a].pop('distance_trend_intervals_s', None)
     if route.get('single_pass'):
