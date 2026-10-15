@@ -155,3 +155,14 @@ def test_unconfigured_legacy_and_invalid_manifest_root(tmp_path, monkeypatch):
     assert load_room_map('room') is None
     with pytest.raises(FileNotFoundError, match='cache root is missing'):
         configure_walkable_maps({'walkable_map_root': str(tmp_path/'missing')})
+
+
+def test_free_run_preserves_thin_wall_detection_and_clear_prefix_length(tmp_path):
+    from avengine.assets.roster_motion.reflect_walk import _free_run
+    pf = SimpleNamespace(snap_point=lambda p: p, distance_to_closest_obstacle=lambda p, r: .8)
+    m = fixture_map(tmp_path, [(5, 5)])
+    free = native_free_predicate(pf, box(-2, -2, 2, 2), 0., [2, 0, 2], walkable_map=m)
+    # Both endpoints of the first .2m probe are free, with a blocked cell between.
+    assert free([-.175, -.025]) and free([.025, -.025])
+    assert _free_run(free, np.array([-.175, -.025]), 0., step=.2, max_m=.4) == 0.
+    assert _free_run(free, np.array([-.225, -.225]), 0., step=.1, max_m=.8) == pytest.approx(.5)
