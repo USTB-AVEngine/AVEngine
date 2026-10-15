@@ -34,7 +34,7 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         semantic_sound_ids=[s['sound_asset_id']for s in epochs[0]],semantic_start_offsets_s=[3.,6.5,0.],
         camera_yaw_deg=yaw,camera_yaw_knots=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}],
         seeds={key:stable_seed(row['scene_seed'],key)for key in ('appearance','audio','camera','trajectory','event_schedule','pose','qa')},
-        measured_static_layout={'listener_m':ctx['listener_m'],'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],
+        measured_static_layout={'listener_m':ctx['listener_m'],'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],'preserve_role_positions':True,
             'admission_status':'unqualified; all three bodies require fresh native admission'},
         production_scenario={'speaker_count':3,'gender':actual[0]['visual_gender'][0].upper(),'asset_ids':ids,
             'non_speech_class':None,'category_focus_class':None,'camera_yaw_deg':yaw,'camera_policy':'hold',
@@ -75,7 +75,7 @@ def repair_registered_content_geometry(original,ctx,*,scene_id):
         valid.append({'position_m':p,'body_yaw_deg':math.degrees(math.atan2(delta[0],-delta[2])),'status':'automatic geometry repair; original native checks required'})
     row.update(scene_id=scene_id,independent_parent_scene_id=scene_id,listener_m=list(ctx['listener_m']),camera_yaw_deg=yaw,
         camera_yaw_knots=[{'time_s':t,'yaw_deg':yaw}for t in (0.,30.)],
-        measured_static_layout={'listener_m':list(ctx['listener_m']),'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],'admission_status':'unqualified repaired geometry'},
+        measured_static_layout={'listener_m':list(ctx['listener_m']),'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],'preserve_role_positions':True,'admission_status':'unqualified repaired geometry'},
         native_minimum_endpoint_distance_gaps=[{'endpoints':['voice1','voice2'],'minimum_difference_m':.6}],native_require_complete_visible_bodies=True)
     row.pop('native_endpoint_distance_bands_m',None)
     row['production_scenario']['camera_yaw_deg']=yaw
