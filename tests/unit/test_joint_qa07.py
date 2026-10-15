@@ -348,6 +348,24 @@ def test_obstructed_stage_entry_does_not_spend_the_companion_layout_beam():
     actor = ActorPlan("moving", roots, BodySpec("human", .35, 1.9, .05))
     for depth_value, expected in [(np.inf, True), (1., False)]:
         depth = DepthBuffer(camera, np.full((camera.height, camera.width), depth_value))
-        context = SimpleNamespace(predict=lambda cam, root, body:
-            predict_visibility(cam, root, body, depth=depth))
+        context = SimpleNamespace(predict=lambda cam, root, body, **kwargs:
+            predict_visibility(cam, root, body, depth=depth, **kwargs))
         assert entry_stage_seed_preview(context, camera, actor) is expected
+
+
+def test_registered_companion_cannot_hide_the_entry_after_stage_preview_passes():
+    from types import SimpleNamespace
+    from avengine.construction.joint import BodySpec, CameraPose, ActorPlan
+    from avengine.construction.joint.geometry import DepthBuffer, predict_visibility
+    from avengine.construction.joint.families.qa07 import entry_stage_seed_preview
+    camera = CameraPose((0., 1.25, 0.), 0., width=640, height=360)
+    weight = np.clip((np.arange(901)/30-3)/3, 0, 1)
+    roots = np.c_[-5.+3.*weight, np.zeros(901), np.full(901, -4.)]
+    body = BodySpec("human", .35, 1.9, .05)
+    actor = ActorPlan("moving", roots, body)
+    depth = DepthBuffer(camera, np.full((camera.height, camera.width), np.inf))
+    context = SimpleNamespace(predict=lambda cam, root, spec, **kwargs:
+        predict_visibility(cam, root, spec, depth=depth, **kwargs))
+    assert entry_stage_seed_preview(context, camera, actor)
+    assert not entry_stage_seed_preview(context, camera, actor,
+        occluders=(("real_companion", np.array([-1.7, 0., -3.]), body),))
