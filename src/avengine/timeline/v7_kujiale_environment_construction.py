@@ -76,8 +76,10 @@ def _construct_environment(row,house,inputs,classes,*,max_assets,max_supports,ac
         # First keep the planned view, then try the smallest actual registered
         # bodies on every legal support outside the fixed view (Claude ddce1120).
         from avengine.capture.v7_offscreen_layout import placement_construction_fallback
-        stages=[(False,a) for a in candidates[:max_assets]]
-        stages += [(True,a) for a in sorted(candidates,key=lambda a:(max(a['dimensions_m']),a['asset_id']))]
+        requested_view=row.get('construction_request',{}).get('source_view_conditions',{}).get(cls)
+        if requested_view not in {None,'inside','outside'}:raise ValueError('unknown requested physical source view')
+        stages=[] if requested_view=='outside' else [(False,a) for a in candidates[:max_assets]]
+        if requested_view!='inside':stages += [(True,a) for a in sorted(candidates,key=lambda a:(max(a['dimensions_m']),a['asset_id']))]
         for offscreen,asset in stages:
             fallback_scene=deepcopy(row)
             declaration={'asset_id':asset['asset_id'],'endpoint_id':'environment'+str(len(plans)+1),

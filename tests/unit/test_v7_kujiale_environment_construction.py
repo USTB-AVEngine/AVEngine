@@ -51,7 +51,8 @@ def test_cached_support_proposals_match_original_native_placement_anchor():
     assert len(cache.rotations)==15
 
 
-def test_required_real_dog_retries_legal_floor_behind_camera_without_removing_it(tmp_path,monkeypatch):
+@pytest.mark.parametrize('required_view',[None,'outside'])
+def test_required_real_dog_retries_legal_floor_behind_camera_without_removing_it(tmp_path,monkeypatch,required_view):
     from avengine.timeline import v7_kujiale_environment_construction as construction
     from avengine.qa import kujiale_asset_geometry as geometry
     from avengine.capture import kujiale_source_floor_paws as paws
@@ -67,7 +68,9 @@ def test_required_real_dog_retries_legal_floor_behind_camera_without_removing_it
     monkeypatch.setattr(geometry,'import_vertices',lambda r:vertices)
     contact_calls=[];paw_calls=[]
     class Support:
-        def support_catalog(self,*args):return {'floor':[{'point_m':[0.,0.,3.],'normal':[0,1,0]}]},object()
+        def support_catalog(self,*args):
+            points=[[0.,0.,-3.],[0.,0.,3.]]if required_view=='outside'else[[0.,0.,3.]]
+            return {'floor':[{'point_m':p,'normal':[0,1,0]}for p in points]},object()
         def ray(self,*args):return None
         def placement(self,mesh,support,yaw,tolerance):
             contact_calls.append(tolerance)
@@ -82,6 +85,7 @@ def test_required_real_dog_retries_legal_floor_behind_camera_without_removing_it
     row={'house':'any_house','room_id':'any_room','scene_seed':1,'production_scenario':{},
          'measured_static_layout':{'listener_m':[0.,1.,0.],'valid':humans,'fixed_camera_yaw_deg':0.}}
     house={'input':{'ue_config':{'native_floor_surface':{},'uproject':'registered_project'}},'checked_rooms':[{'room_label':'any_room'}]}
+    if required_view:row['construction_request']={'source_view_conditions':{'dog_bark':required_view}}
     plans=construction.construct_environment(row,house,{'kujiale_ue_asset_admission':str(inventory)},['dog_bark'])
     assert len(plans)==1 and plans[0]['asset_id']=='tiny_dog' and plans[0]['sound_class']=='dog_bark'
     assert plans[0]['intentional_offscreen_role']['real_registered_drawable_required']
