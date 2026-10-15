@@ -45,3 +45,15 @@ def test_selection_reads_latest_admitted_feedback_after_rendering(tmp_path,monke
     assert snapshot['observed_logical_questions']==100
     assert snapshot['observed_family_counts']=={'QA-06':100}
     assert snapshot['family_deficits']['QA-06']==0
+
+
+def test_live_feedback_does_not_require_stale_constructor_snapshot_fields(tmp_path,monkeypatch):
+    path=tmp_path/'actual_state.json';path.write_text(json.dumps({'logical_questions':37,'family_counts':{'QA-15':37}}))
+    monkeypatch.setenv(SELECTION_FEEDBACK_ENV,str(path))
+    snapshot=current_selection_snapshot({'required_independent_family_counts':{'QA-15':3}},next_questions=70)
+    assert snapshot['observed_logical_questions']==37
+    assert snapshot['observed_family_counts']=={'QA-15':37}
+    assert snapshot['target_shares']==default_targets()
+    path.write_text(json.dumps({'logical_questions':1,'family_counts':{'QA-15':37}}))
+    with pytest.raises(ValueError,match='count actual selected logical items'):
+        current_selection_snapshot({},next_questions=70)
