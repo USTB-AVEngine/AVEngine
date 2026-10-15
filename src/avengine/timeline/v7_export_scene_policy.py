@@ -24,7 +24,11 @@ def camera_metrics(readbacks):
     if all(v is not None for v in forward):
         f=np.asarray(forward,float);f/=np.linalg.norm(f,axis=1)[:,None]
         result['forward_range_deg']=float(np.degrees(np.arccos(np.clip(f@f[0],-1,1))).max())
-    result['status']='pass'if result['yaw_range_deg']<=.5+1e-6 and diameter<=.01+1e-9 and result.get('forward_range_deg',0)<=.5+1e-6 else'fail'
+    orientations=[r.get('orientation_wxyz')for r in readbacks]
+    if all(q is not None for q in orientations):
+        q=np.asarray(orientations,float);q/=np.linalg.norm(q,axis=1)[:,None]
+        result['orientation_range_deg']=float(np.degrees(2*np.arccos(np.clip(np.abs(q@q[0]),0,1))).max())
+    result['status']='pass'if result['yaw_range_deg']<=.5+1e-6 and diameter<=.01+1e-9 and result.get('forward_range_deg',0)<=.5+1e-6 and result.get('orientation_range_deg',0)<=.5+1e-6 else'fail'
     return result
 
 
@@ -34,10 +38,10 @@ def measured_actor_metrics(actors,fps,motion_requests=None):
         species=actor.get('species_id');roots=np.asarray(actor.get('root_positions_m',[]),float)
         if species not in {'human','dog','cat','bird'}:continue
         if roots.ndim!=2 or len(roots)<2:raise ValueError('missing actual actor roots: '+str(aid))
-        speeds=np.linalg.norm(np.diff(roots,axis=0),axis=1)*float(fps)
+        speeds=np.linalg.norm(np.diff(roots[:,[0,2]],axis=0),axis=1)*float(fps)
         moving=speeds>.01
         request=(motion_requests or{}).get(actor.get('asset_id'),{})
-        category='slide'if request.get('intentional_slide')or request.get('motion_kind')=='intentional_slide'else species
+        category='slide'if request.get('intentional_slide')or request.get('motion_kind')in {'intentional_slide','slide_no_animation'}or request.get('mode')=='slide_no_animation'else species
         if not moving.any():
             results.append({'actor_id':aid,'asset_id':actor.get('asset_id'),'species':species,'moving_samples':0,'status':'pass'});continue
         bounds=SPEED_RANGES.get(category)
@@ -59,9 +63,9 @@ def layout_metrics(actors,headings=None,listener_positions=None):
         for a in animals.values():animal_min=min(animal_min,float(np.linalg.norm((people[k]-a)[:,[0,2]],axis=1).min()))
     reasons=[]
     if minimum<1.-1e-6:reasons.append('human_centres_under_1m')
-    # 0.75m is the construction/export spacing for mixed species; the original
+    # 0.8m is the construction/export spacing for mixed species; the original
     # complete mesh collision and body-envelope checks still apply separately.
-    if animal_min<.75-1e-6:reasons.append('human_animal_centres_under_0_75m')
+    if animal_min<.8-1e-6:reasons.append('human_animal_centres_under_0_8m')
     natural=None
     if len(keys)>=3:
         if not headings or any(k not in headings for k in keys):reasons.append('missing_actual_human_heading_readbacks')
@@ -100,7 +104,11 @@ def _native_visuals(parent):
 
 def inspect_parent_policy(pointer_path):
     """Return evidence-rich failures; never modify a producer's seal or media."""
-    pointer_path=Path(pointer_path);pointer=_load(pointer_path);parent=pointer_path.parent
+    pointer_path=Path(pointer_path)
+    for ancestor in pointer_path.parents:
+        if any(ancestor.glob('INVALID*.md')):
+            return {'revision':REVISION,'status':'fail','source_seal':str(pointer_path),'reasons':['source_output_explicitly_invalidated'],'native_views':{},'member_listener':{},'original_native_evidence':[]}
+    pointer=_load(pointer_path);parent=pointer_path.parent
     # Question-only revisions refer back to original physical native capture.
     recipe=pointer['recipe']['input_recipe'];reissue=recipe.get('question_reissue',{})
     if reissue.get('original_source_seal'):

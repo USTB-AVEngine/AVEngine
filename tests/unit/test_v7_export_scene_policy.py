@@ -42,3 +42,10 @@ def test_jargon_is_rejected_only_in_model_text(field):
     validate_english_model_text(row)
     row[field]=[{'text':'admitted person'}]if field=='choices'else'Which STARSS class?'
     with pytest.raises(ValueError,match='internal terminology'):validate_english_model_text(row)
+
+
+def test_invalidated_source_is_never_reused(tmp_path):
+    from avengine.timeline.v7_export_scene_policy import inspect_parent_policy
+    (tmp_path/'INVALID_OWNER.md').write_text('All old media are invalid.')
+    pointer=tmp_path/'native/parent/seal.json';pointer.parent.mkdir(parents=True);pointer.write_text('{}')
+    assert inspect_parent_policy(pointer)['reasons']==['source_output_explicitly_invalidated']
