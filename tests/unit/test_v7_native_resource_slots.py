@@ -27,7 +27,7 @@ def test_locks_limit_concurrent_native_operations_and_release(tmp_path,monkeypat
 def test_memory_headroom_waits_then_allows_new_operation(tmp_path,monkeypatch):
     configure(tmp_path,monkeypatch,{'slots':1,'minimum_available_bytes':30_000_000_000})
     import psutil
-    available=iter([20_000_000_000,80_000_000_000]);slept=[]
+    available=iter([20_000_000_000,80_000_000_000,80_000_000_000]);slept=[]
     monkeypatch.setattr(psutil,'virtual_memory',lambda:SimpleNamespace(available=next(available)))
     monkeypatch.setattr(resource.time,'sleep',lambda seconds:slept.append(seconds))
     a=resource.acquire_native_resource('rir');assert slept==[.5];a.close()
