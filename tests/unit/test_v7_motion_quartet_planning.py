@@ -48,3 +48,11 @@ def test_native_room_adapter_selects_the_explicit_installed_runtime(monkeypatch)
     result=planning.plan_native_room_motion_quartet({'room_id':'R'},{},{'checked_rooms':[{'room_label':'R'}],'input':{'navmesh_source':'registered.navmesh'}},[],{},[],{'runtime':{'runtime_prefix':'registered-runtime'}})
     assert result=='constructed'
     assert calls==[{'runtime_mode':'current-installed','runtime_prefix':'registered-runtime'}]
+
+
+def test_actual_production_contract_is_forwarded_to_motion_constructor():
+    row,assets=fixture();seen={};contract={'animal_motion':{'dog':{'mode':'walk_animation'}}}
+    def constructor(*args,**kwargs):
+        seen.update(kwargs);return deepcopy(row)
+    plan_room_motion_quartet({'scene_seed':7},{},{},assets,{},[],object(),constructor=constructor,contract=contract)
+    assert seen['contract'] is contract

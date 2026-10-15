@@ -28,11 +28,13 @@ def validate_template_request(row,catalog):
     if row.get('phase2_include_footsteps_asset_ids'):raise ValueError('speech motion quartet must not add automatic footsteps')
 
 
-def plan_room_motion_quartet(base_row,state,room,catalog,semantic,records,pathfinder,*,attempt=0,constructor=None):
+def plan_room_motion_quartet(base_row,state,room,catalog,semantic,records,pathfinder,*,attempt=0,constructor=None,contract=None):
     if constructor is None:
         from avengine.timeline.v7_motion_quartet_template import motion_quartet_template
         constructor=motion_quartet_template
-    requested=deepcopy(base_row);row=constructor(requested,room,catalog,semantic,records,pathfinder,attempt=attempt)
+    requested=deepcopy(base_row);kwargs={'attempt':attempt}
+    if contract is not None:kwargs['contract']=contract
+    row=constructor(requested,room,catalog,semantic,records,pathfinder,**kwargs)
     validate_template_request(row,catalog)
     required=set(base_row.get('scene_demand',{}).get('required_asset_ids',[]))
     if not required<=set(row['asset_ids']):raise ValueError('constructor removed explicitly required physical identities')
@@ -53,7 +55,7 @@ def plan_native_room_motion_quartet(base_row,state,house,catalog,semantic,record
     room=next(r for r in house['checked_rooms']if r['room_label']==base_row['room_id'])
     habitat,_=load_habitat_runtime(runtime_mode='current-installed',**inputs['runtime']);pathfinder=habitat.PathFinder()
     if not pathfinder.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('existing registered NavMesh failed to load read-only')
-    return plan_room_motion_quartet(base_row,state,room,catalog,semantic,records,pathfinder,attempt=attempt)
+    return plan_room_motion_quartet(base_row,state,room,catalog,semantic,records,pathfinder,attempt=attempt,contract=inputs.get('production_input_contract'))
 
 
 def native_template_candidate_counts(row,parent):

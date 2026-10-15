@@ -109,6 +109,28 @@ def asset_category(asset, request, family):
     return surface + '_object'
 
 
+def room_eligible_catalog(catalog, room, requests=None):
+    """Restrict construction candidates before choosing a body or sound role.
+
+    This selects candidates, never removes a required body from a scene and
+    never broadens the room's registered legal categories.
+    """
+    allowed=set(room['categories']);requests=requests or {}
+    result=[]
+    for asset in catalog:
+        try:category=asset_category(asset,requests.get(asset['asset_id'],{}),room['family'])
+        except ValueError:continue
+        if category in allowed:result.append(asset)
+    return result
+
+
+def planning_catalog(row, catalog, contract):
+    if not contract or 'rooms' not in contract:return catalog
+    room=next((r for r in contract['rooms']if r['house']==row['house']and r['room_id']==row['room_id']),None)
+    if room is None:raise ValueError('planning room absent from legal input contract')
+    return room_eligible_catalog(catalog,room,row.get('motion_requests',{}))
+
+
 def validate_recipe(row, catalog, manifest):
     if manifest.get('schema') != SCHEMA:
         raise ValueError('production input contract required')

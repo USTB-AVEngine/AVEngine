@@ -279,7 +279,8 @@ def add_scene_demand(row,state,*,focus=None):
 
 def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None,construction_context=None):
     """Compile concrete demands through the existing registered phase2 intake."""
-    from avengine.timeline.v7_production_inputs import bind_animal_motion,validate_recipe
+    from avengine.timeline.v7_production_inputs import bind_animal_motion,validate_recipe,planning_catalog
+    catalog=planning_catalog(row,catalog,contract)
     row=add_scene_demand(row,state,focus=focus);request=row['scene_demand'];focus=request['focus']
     if construction_context is not None and focus in {'human_motion','animal_motion'}:
         from avengine.timeline.v7_motion_source_roles import choose_motion_source_type
