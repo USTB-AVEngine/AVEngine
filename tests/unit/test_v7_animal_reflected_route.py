@@ -123,7 +123,8 @@ def test_height_failure_refines_rigid_seed_through_the_same_native_prefilter(mon
         yield SimpleNamespace(positions=np.column_stack((xz[:,0],np.zeros(len(xz)),xz[:,1])),yaws=base.yaws.copy(),receipt={'native_admissible_route_pool':1})
     monkeypatch.setattr(reflect_navmesh,'reflected_route_proposals',provider)
     original=base.positions[:,[0,2]].copy();request={'motion_quartet_route':{'positions_xz_m':original.tolist(),'travel_yaws_rad':base.yaws.tolist()}}
-    proposals=animals.animal_reflected_route_proposals(None,None,{},np.array([1.,0.,0.]),request)
+    scene={'production_scenario':{'motion_floor_polygon':{'type':'Polygon','coordinates':[[[-10,-10],[10,-10],[10,10],[-10,10],[-10,-10]]]}}}
+    proposals=animals.animal_reflected_route_proposals(None,None,scene,np.array([1.,0.,0.]),request)
     first=next(proposals);first.report_failure('no constant rigid animal route height satisfies original skin and paw gates')
     second=next(proposals)
     assert len(calls)==2 and second.receipt['animal_rigid_fitting_round']==1
