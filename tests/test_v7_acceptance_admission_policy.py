@@ -160,7 +160,7 @@ def test_worker_keeps_its_frozen_snapshot_after_global_manifest_advances(tmp_pat
     old=tmp_path/'old';new=tmp_path/'new';old.mkdir();new.mkdir()
     monkeypatch.setattr('avengine.timeline.v7_frozen_code.source_commit',lambda root:'old_sha')
     monkeypatch.setattr('avengine.timeline.v7_frozen_code.verify_source',lambda root:True)
-    manifest={'worktree':str(new),'code_commit':'new_sha','parents':[{'snapshot_worktree':str(old),'snapshot_commit':'old_sha'}]}
+    manifest={'worktree':str(new),'code_commit':'new_sha','parents':[{'slot':9,'snapshot_worktree':str(new),'snapshot_commit':'new_sha'},{'slot':0,'snapshot_worktree':str(old),'snapshot_commit':'old_sha'}]}
     actual=bind_worker_snapshot(manifest,0,old)
     assert actual['code_commit']=='old_sha'and actual['worktree']==str(old)
     assert manifest['code_commit']=='new_sha'
