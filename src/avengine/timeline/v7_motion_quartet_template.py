@@ -264,6 +264,9 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         row.pop('motion_during_condition_plan',None)
         row=prepare_motion_during_row(row,catalog,list(source_records)+measured)
     row['motion_requests'][a]['motion_during_condition_plan_for_fit']=deepcopy(row['motion_during_condition_plan'])
+    # owner 10-15: question quantity is not important; a window delivers the legal questions it has instead of the
+    # whole rendered parent failing 'single parent has fewer actual legal questions than requested total' (G107).
+    row['acceptance_allow_partial_families']=True
     row['motion_requests'][a]['intervals_s']=[[0.,30.]]
     # The original v3 solver validates selected windows; geometry follows the
     # fully prefiltered reflection track, including its turns outside a leg.
