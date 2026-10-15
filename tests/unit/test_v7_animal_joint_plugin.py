@@ -11,9 +11,10 @@ from avengine.construction.joint.families.motion_animal import MotionAnimalPlugi
 pytestmark=pytest.mark.fast_unit
 
 
+@pytest.mark.parametrize('negative',[False,True])
 @pytest.mark.parametrize('duration',[1.2,2.3])
 @pytest.mark.parametrize('kind,species,mode',[('dog_walk','dog','walk_animation'),('cat_walk','cat','walk_animation'),('animal_slide','cat','slide_no_animation')])
-def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_branch(tmp_path,kind,species,mode,duration):
+def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_branch(tmp_path,kind,species,mode,duration,negative):
     layers={key:np.ones((300,320),bool)for key in SPECIES_RADII_M}
     metadata={'version':'walkable-map-v1','room_id':'fixture','species_radii_m':SPECIES_RADII_M,
               'footprint_policy':'independent-radius-coverage-v2','source_identity':[]}
@@ -49,7 +50,7 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
         actor.metadata['native_yaw_rad']=0.
     plugin=MotionAnimalPlugin(data,{'scene_id':'fixture','scene_seed':1},[animal,human],[record,speech],
         contract,{'house':'fixture'}, {'joint_max_geometry_preparations':1},tmp_path/'geometry',geometry_preparer=pure_geometry_fixture)
-    request=FamilyRequest('motion_animal','nearer',('animal',),{'movement_bouts':1})
+    request=FamilyRequest('motion_animal','nearer',('animal',),{'movement_bouts':1,'require_static_negative_comparator':negative})
     if duration==1.2 and kind=='animal_slide':
         with pytest.raises(StopIteration):next(plugin.candidates(context,request))
         return
@@ -69,6 +70,11 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     assert abs(sum(snapshot['target_shares'].values())-1.)<1e-8
     assert row['automatic_construction']['solver_entry']=='avengine.construction.joint.solve'
     assert row['motion_requests']['animal']['maximum_native_route_attempts']==1
+    if negative:
+        human_route=row['motion_requests']['speaker']['motion_quartet_route']
+        assert human_route['joint_exact_route']
+        np.testing.assert_array_equal(human_route['positions_xz_m'],plan.actors['speaker'].positions_m[:,[0,2]])
+        assert row['motion_requests']['speaker']['speed_m_s']==.85
     assert len(row['motion_during_condition_plan']['plans'])==4
     roots=plan.actors['animal'].positions_m
     assert np.max(np.abs(roots[20*30:]-roots[20*30]))==0.

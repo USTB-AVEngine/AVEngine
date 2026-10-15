@@ -136,6 +136,8 @@ def row_from_plan(plan, data, base_row, catalog, records, contract):
         'allow_registered_walk_tts':False,'maximum_native_route_attempts':1,
         'joint_animal_prepared_geometry':plan.actors[mover].metadata['joint_animal_prepared_geometry']},mover,contract)
     row['motion_requests']={mover:request}
+    if plan.metadata.get('negative_companion_motion_request'):
+        row['motion_requests'][companion]=deepcopy(plan.metadata['negative_companion_motion_request'])
     conditions=[]
     for index, offset in enumerate(movement_offsets):
         branch=route['emission_slots'][index]['branch']
@@ -249,6 +251,10 @@ class MotionAnimalPlugin:
                         if actor.metadata['validation']['max_snap_horizontal_m']>.002:continue
                         if bouts==2:actor=repeat_bouts(actor,offsets_s=(0.,10.),context=context,camera=camera)
                         speaker=static_actor(companion,standing,human)
+                        if request.options.get('require_static_negative_comparator'):
+                            from avengine.assets.animal_motion.negative_witness import construct_negative_companion
+                            speaker=construct_negative_companion(context,camera,standing,human,actor,
+                                entity_id=companion,animal_call_s=21.3,animal_duration_s=duration)
                         preliminary=ScenePlan(camera,{mover:actor,companion:speaker})
                         if not certify_plan(context,preliminary).passed:continue
                     except ConstructionError:continue
@@ -321,6 +327,10 @@ class MotionAnimalPlugin:
                                 'animal_route':route,'source_file_starts_s':file_starts,'movement_offsets_s':offsets,
                                 'walk_intervals_s':actor.metadata['walk_intervals_s'],'roles':{mover:'inside',companion:'outside'},
                                 'third_static_call_s':file_starts[mover][-1],'sound_schedule':schedule.diagnostics})
+                            if request.options.get('require_static_negative_comparator'):
+                                from avengine.assets.animal_motion.negative_witness import companion_motion_request
+                                plan.metadata['negative_companion_motion_request']=companion_motion_request(
+                                    speaker,camera,context.walkable_map,file_starts[companion][-1],d['speech_duration_s'])
                             emitted+=1
                             yield plan
                             if emitted>=int(request.options.get('candidate_limit',24)):return
@@ -387,6 +397,10 @@ class MotionAnimalPlugin:
         yield CheckResult('animal:later_still_call','pass'if held else'fail',
                           'zero_body_translation_during_and_after_registered_call',
                           evidence={'QA-06':'still','QA-17':'no','start_s':plan.metadata['third_static_call_s']})
+        if request.options.get('require_static_negative_comparator'):
+            from avengine.assets.animal_motion.negative_witness import verify_negative_comparator
+            yield from verify_negative_comparator(plan,mover,d['companion']['asset_id'],
+                plan.metadata['third_static_call_s'],d['animal_duration_s'])
         row['motion_quartet_planned_verification']=family_all
         row['motion_requests'][mover]['motion_quartet_route']=deepcopy(plan.metadata['animal_route'])
         row['motion_quartet_construction']['route']=deepcopy(plan.metadata['animal_route'])
@@ -432,7 +446,8 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
     request=FamilyRequest('motion_animal',branch,(data['animal']['asset_id'],),{
         'require_native_preflight':True,'movement_bouts':int(runtime.get('motion_animal_movement_bouts',1)),
         'candidate_limit':int(runtime.get('joint_candidate_limit',24)),
-        'families':FAMILIES,'later_static_call':True})
+        'families':FAMILIES,'later_static_call':True,
+        'require_static_negative_comparator':bool(runtime.get('motion_animal_static_negative_comparator',False))})
     plugin=MotionAnimalPlugin(data,base,catalog,records,contract,house,runtime,output/'geometry')
     with build_room_context(room,house=house,runtime=runtime,cache_dir=output/'room_cache',
             camera_limit=36,grid_step_m=.25,camera_heights_m=(1.1,),width=1280,height=720)as context:

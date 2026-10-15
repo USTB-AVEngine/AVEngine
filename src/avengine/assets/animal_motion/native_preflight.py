@@ -112,6 +112,14 @@ def animal_native_checks(video, scene, entries, *, plan, row):
     checks.append(CheckResult('animal:original_native_motion_verifier',
         'pass'if verdict and verdict['status']=='pass'else'fail','unchanged_original_motion_verifier',
         evidence={'report':verdict}))
+    if plan.metadata.get('negative_companion_motion_request'):
+        from avengine.assets.animal_motion.negative_witness import native_negative_companion_checks
+        mover=next(aid for aid,actor in plan.actors.items()if actor.body.species!='human')
+        companion=next(aid for aid,actor in plan.actors.items()if actor.body.species=='human')
+        start=plan.metadata['third_static_call_s']
+        end=plan.metadata['negative_companion_motion_request']['intervals_s'][-1][1]-.8
+        checks.extend(native_negative_companion_checks(video,entries,plan,mover,companion,start,end-start))
+        if any(check.status!='pass'for check in checks):return tuple(checks)
     pixel=native_animal_preflight(video,scene,entries)
     checks.append(CheckResult('animal:actual_native_pixels_and_rests',
         'pass'if pixel['status']=='pass'else'fail','same_final_native_scene_preflight',evidence=pixel))
