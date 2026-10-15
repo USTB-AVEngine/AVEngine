@@ -38,6 +38,15 @@ def worker_cpu_policy(manifest,task,slot,runtime,*,inherited_cpu_ids=None):
     return allocated[0] if task.get('cpu_ids') else allocated[slot%len(allocated)],rir,workers
 
 
+def question_worker_cpu_policy(manifest,task,allocated_cpu_ids):
+    cpus=sorted(set(allocated_cpu_ids))
+    if not cpus:raise ValueError('question workers need an admitted parent CPU group')
+    requested=int(task.get('registered_question_workers',manifest.get('registered_question_workers',1)))
+    if requested<1:raise ValueError('at least one registered question worker required')
+    count=min(requested,5,len(cpus))
+    return {'registered_question_workers':count,'registered_question_cpu_ids':cpus[:count]}
+
+
 def run_worker(manifest,slot):
     configure_walkable_maps(manifest)
     task=dict(task_by_slot(manifest,slot));row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
@@ -61,6 +70,7 @@ def run_worker(manifest,slot):
     inputs['cpu_visual_threads']=int(task.get('cpu_visual_threads',manifest.get('cpu_visual_threads',inputs.get('cpu_visual_threads',1))))
     from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
     visual_cpu_policy=configure_cpu_visual(inputs,cpu_ids=[cpu for cpu in(task.get('cpu_ids')or cpus)if cpu in inherited_cpus])
+    inputs.update(question_worker_cpu_policy(manifest,task,[cpu for cpu in(task.get('cpu_ids')or cpus)if cpu in inherited_cpus]))
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
