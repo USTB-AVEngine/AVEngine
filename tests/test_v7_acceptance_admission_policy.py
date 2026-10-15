@@ -78,7 +78,7 @@ def test_independent_helper_sdk_prefetch_is_included_without_worker_receipt(tmp_
 def test_owner_temporary_disk_floor_expires_at_1230_singapore():
     from avengine.timeline.v7_storage_budget import acceptance_minimum_free_bytes,policy_minimum_free_bytes
     before=datetime.datetime(2026,10,15,4,29,tzinfo=datetime.timezone.utc)
-    after=datetime.datetime(2026,10,15,4,30,tzinfo=datetime.timezone.utc)
+    after=datetime.datetime(2026,10,15,10,30,tzinfo=datetime.timezone.utc)
     assert acceptance_minimum_free_bytes(before)==60_000_000_000
     assert acceptance_minimum_free_bytes(after)==100_000_000_000
     assert policy_minimum_free_bytes({'root':'/own/v7_acceptance_20261015','minimum_free_bytes':100_000_000_000},before)==60_000_000_000

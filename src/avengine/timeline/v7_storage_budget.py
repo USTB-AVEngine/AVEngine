@@ -20,7 +20,7 @@ def launch_minimum_free_bytes(policy=None, now=None):
 
 
 ENV_KEY="AVENGINE_V7_STORAGE_BUDGET"
-TEMP_HEADROOM_UNTIL=datetime.datetime(2026,10,15,4,30,tzinfo=datetime.timezone.utc)
+TEMP_HEADROOM_UNTIL=datetime.datetime(2026,10,15,10,30,tzinfo=datetime.timezone.utc)
 ACCEPTANCE_ROOT_NAMES=frozenset({'v7_acceptance_20261015','v7_gap_motion_20261015','v7_gap_demand_20261015','v7_gap_kujiale_20261015'})
 
 
