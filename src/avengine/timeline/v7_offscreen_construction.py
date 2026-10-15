@@ -25,7 +25,7 @@ def _azimuth(point,listener,yaw):
     return (math.degrees(math.atan2(point[0]-listener[0],-(point[1]-listener[2])))-yaw+180)%360-180
 
 
-def plan_offscreen_floor(ctx,off_count,seed):
+def plan_offscreen_floor(ctx,off_count,seed,visible_people=2):
     """Choose initial fixed yaw and unqualified floor proposals in any room."""
     from shapely.geometry import shape,Point
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable,stable_seed
@@ -52,7 +52,7 @@ def plan_offscreen_floor(ctx,off_count,seed):
                 outside.append(options[0])
             if len(outside)!=off_count:continue
             inside=[]
-            for angle,distance in [(-26.,2.8),(26.,3.4),(5.,1.8)]:
+            for angle,distance in [(-26.,2.8),(26.,3.4),(5.,1.8)][:visible_people]:
                 options=[p for p in points if abs(_azimuth(p,listener,yaw))<=33 and separate(p,[*outside,*inside])]
                 if len(inside)>=2:
                     a,b=inside[:2];dx,dz=b[0]-a[0],b[1]-a[1]
@@ -60,11 +60,11 @@ def plan_offscreen_floor(ctx,off_count,seed):
                 options.sort(key=lambda p:(abs(_azimuth(p,listener,yaw)-angle)/15+abs(p[2]-distance)))
                 if not options:break
                 inside.append(options[0])
-            if len(inside)==3:return yaw,inside,outside
+            if len(inside)==visible_people:return yaw,inside,outside
     raise ConstructionUnavailable('same legal room has no measured-floor proposal for three visible plus requested offscreen people; retry another area/room, never remove a person')
 
 
-def joint_offscreen_floor(ctx,off_count,seed):
+def joint_offscreen_floor(ctx,off_count,seed,visible_people=2):
     """Select a new initial legal camera when the inherited point cannot fit.
 
     This is construction before capture, never a camera trajectory. Native
@@ -73,7 +73,7 @@ def joint_offscreen_floor(ctx,off_count,seed):
     from shapely.geometry import shape,Point
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable,stable_seed
     try:
-        yaw,inside,outside=plan_offscreen_floor(ctx,off_count,seed)
+        yaw,inside,outside=plan_offscreen_floor(ctx,off_count,seed,visible_people)
         return ctx,yaw,inside,outside
     except ConstructionUnavailable as original:
         reason=str(original)
@@ -91,7 +91,7 @@ def joint_offscreen_floor(ctx,off_count,seed):
         points.remove(p);chosen.append(p);ordered.append(p)
     for index,p in enumerate(ordered):
         candidate=deepcopy(ctx);candidate['listener_m']=[p.x,ctx['listener_m'][1],p.y]
-        try:yaw,inside,outside=plan_offscreen_floor(candidate,off_count,seed)
+        try:yaw,inside,outside=plan_offscreen_floor(candidate,off_count,seed,visible_people)
         except ConstructionUnavailable:continue
         candidate['initial_camera_construction']={'method':'legal same-room floor grid; spread candidates before capture',
             'inherited_camera_m':ctx['listener_m'],'selected_camera_m':candidate['listener_m'],
@@ -101,13 +101,16 @@ def joint_offscreen_floor(ctx,off_count,seed):
 
 
 def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract,runtime,
-        *,scene_id,seed,family='QA-08',attempt=0,offscreen_people=None,first_sounding_view=None):
+        *,scene_id,seed,family='QA-08',attempt=0,offscreen_people=None,first_sounding_view=None,visible_people=2):
     from avengine.timeline.v7_family_constructors import construct_family_scene,room_context,stable_seed,ConstructionUnavailable,_request
     from avengine.timeline.v7_production_inputs import asset_category,validate_recipe
     from avengine.timeline.v7_visible_sources import production_audio_record_views
     plan=construct_family_scene(room,house,state,catalog,records,semantic,contract,runtime,
         scene_id=scene_id,seed=seed,family='QA-03',attempt=attempt)
     row=plan['row'];ctx=room_context(room,house,attempt);ids=list(row['asset_ids'])
+    if visible_people not in {2,3}:raise ValueError('two or three required visible people')
+    inside_ids=ids if visible_people==3 else ids[:2]
+    reusable=ids[2]if visible_people==2 else None
     population=state.get('offscreen_population_request',row['scene_demand'].get('offscreen_population_request',{}))
     if offscreen_people is None:offscreen_people=int(population.get('required_offscreen_sounding_people',1))
     if offscreen_people not in {1,2}:raise ValueError('one or two real offscreen people required')
@@ -121,9 +124,10 @@ def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract
     for index in range(offscreen_people):
         options=[]
         for person in catalog:
-            if person.get('kind')!='human'or person['asset_id']in {*ids,*extras}or person['asset_id']in excluded:continue
+            if person.get('kind')!='human'or person['asset_id']in {*inside_ids,*extras}or person['asset_id']in excluded:continue
+            if reusable is not None and index==0 and person['asset_id']!=reusable:continue
             used_colors={assets[aid].get('color',assets[aid].get('registered_label_color'))
-                for aid in [*ids,*extras]if assets[aid].get('controlled_shirt')}
+                for aid in [*inside_ids,*extras]if assets[aid].get('controlled_shirt')}
             if person.get('controlled_shirt')and(person.get('color',person.get('registered_label_color'))in used_colors
                     or person.get('color',person.get('registered_label_color'))not in {'black','blue','green','white','yellow'}):continue
             if 'speech_playback'not in person.get('allowed_classes',[])or person.get('visual_gender')not in {'male','female'}:continue
@@ -141,10 +145,10 @@ def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract
                 options.append((score,person,record))
         if not options:raise ConstructionUnavailable('no additional real registered person and complete distinct admitted speaking voice in the legal room cell')
         _,person,record=min(options,key=lambda x:x[0]);extras.append(person['asset_id']);chosen_records[person['asset_id']]=record;voices.add(record['speaker_id'])
-    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,offscreen_people,seed+attempt)
+    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,offscreen_people,seed+attempt,visible_people)
     row['listener_m']=list(ctx['listener_m'])
     if ctx.get('initial_camera_construction'):row['automatic_construction']['initial_camera_search']=ctx['initial_camera_construction']
-    row['asset_ids']=[*ids,*extras];row['camera_yaw_deg']=yaw
+    row['asset_ids']=[*inside_ids,*extras];row['silent_asset_ids']=[aid for aid in row['silent_asset_ids']if aid in inside_ids];row['camera_yaw_deg']=yaw
     row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]
     # Three complete non-overlapping dry utterances per epoch. Wet activity is
     # remeasured natively; it is never assumed to end with these dry intervals.
@@ -154,15 +158,15 @@ def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract
         for aid,offset in zip(row['semantic_human_asset_ids'],offsets)}
     row['native_view_roles']={aid:{'view':'outside','static':True,'preferred_azimuth_deg':_azimuth(p,ctx['listener_m'],yaw),
         'minimum_abs_azimuth_deg':60.,'real_registered_drawable_required':True}for aid,p in zip(extras,outside)}
-    row['native_placement_preferences_m']={aid:[p[0],ctx['listener_m'][1]-1.5,p[1]]for aid,p in zip([*ids,*extras],[*inside,*outside])}
+    row['native_placement_preferences_m']={aid:[p[0],ctx['listener_m'][1]-1.5,p[1]]for aid,p in zip([*inside_ids,*extras],[*inside,*outside])}
     for index,aid in enumerate(extras):
         row['source_classes'][aid]=['speech_playback'];row.setdefault('proposed_sound_asset_ids',{})[aid]=chosen_records[aid]['sound_asset_id']
         starts=[epoch+(index if outside_first else 7.+index*.1)for epoch in (0.,10.,20.)]
         row.setdefault('phase2_recorded_speech_schedule_s',{})[aid]=starts
         row.setdefault('phase2_recorded_sound_ids',{})[aid]=[chosen_records[aid]['sound_asset_id']]*len(starts)
-    row['automatic_construction'].update(family=family,constructor='construct_offscreen_scene',required_role_count=3+offscreen_people)
+    row['automatic_construction'].update(family=family,constructor='construct_offscreen_scene',required_role_count=len(row['asset_ids']))
     row['offscreen_construction']={'revision':'real-offscreen-people-v1','offscreen_asset_ids':extras,
-        'visible_asset_ids':ids,'speaker_count_whole_world':2+offscreen_people,
+        'visible_asset_ids':inside_ids,'speaker_count_whole_world':2+offscreen_people,
         'first_sounding_view_requested':'outside'if outside_first else'inside','audio_only_points':0,
         'all_waveforms_complete':True,'all_people_have_one_sound_kind':True,'actual_mask_and_RIR_admission_required':True,
         'QA22_scope':'original visible-entities speaking subset; total live speakers use SPEAKERS; crossing needed for both to coincide'}

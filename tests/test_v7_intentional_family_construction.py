@@ -26,7 +26,7 @@ def test_static_explicit_branches_keep_real_people_whole_speech_and_fixed_camera
     room,house,catalog,records,semantic,contract=registry
     row=static.construct_specific_scene(room,house,{},catalog,records,semantic,contract,{},
         scene_id='new_explicit',seed=51,family=family)['row']
-    assert 4<=len(row['asset_ids'])<=5
+    assert 3<=len(row['asset_ids'])<=5
     assert row['automatic_construction']['family']==family
     assert row['native_view_roles']
     assert all(kinds==['speech_playback']for kinds in row['source_classes'].values())
@@ -39,7 +39,7 @@ def test_static_explicit_branches_keep_real_people_whole_speech_and_fixed_camera
             distance=np.linalg.norm((p-listener)[[0,2]])
             assert band[0]<=distance<=band[1]
     if family in {'QA-23','STARSS-CLASS13','STARSS-SPEAKERS'}:
-        assert row['explicit_class13_count']['live_speakers']==len(row['asset_ids'])-1
+        assert row['explicit_class13_count']['live_speakers']==len(row['asset_ids'])
 
 @pytest.mark.parametrize('family',moving.VISIBILITY_FAMILIES)
 def test_visibility_branches_request_native_route_and_never_add_shoe_sounds(registry,family):

@@ -13,7 +13,7 @@ def distance_comparison_proposals(row,ctx):
     from shapely.geometry import shape,Point
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable,stable_seed
     polygon=shape(ctx['room_floor_polygon']);x0,z0,x1,z1=polygon.bounds
-    listener=ctx['listener_m'];yaw=row['camera_yaw_deg'];step=max(.25,math.sqrt(max(1.,polygon.area)/1000))
+    listener=row['listener_m'];yaw=row['camera_yaw_deg'];step=max(.25,math.sqrt(max(1.,polygon.area)/1000))
     points=[];x=x0+step/3
     while x<x1:
         z=z0+step/3
@@ -49,7 +49,7 @@ def construct_specific_scene(room,house,state,catalog,records,semantic,contract,
         requested=min((3,4),key=lambda n:(counts.get(str(n),counts.get(n,0)),(n-seed)%2))
         count=requested-2
     plan=construct_offscreen_scene(room,house,state,catalog,records,semantic,contract,runtime,
-        scene_id=scene_id,seed=seed,family='QA-08',attempt=attempt,offscreen_people=count,first_sounding_view='inside')
+        scene_id=scene_id,seed=seed,family='QA-08',attempt=attempt,offscreen_people=count,first_sounding_view='inside',visible_people=3 if family=='QA-14'else 2)
     row=plan['row'];people=row['semantic_human_asset_ids'];lookup={s['sound_asset_id']:s for s in semantic['sounds']}
     utterances=[lookup[sid]for sid in row['semantic_sound_ids']]
     if family in {'QA-02','QA-12'}:
