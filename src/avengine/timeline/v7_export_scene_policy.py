@@ -143,6 +143,9 @@ def inspect_parent_policy(pointer_path):
         if not marker.is_file():reasons.append(member+':missing_candidate_listener_evidence');continue
         pool=Path(_load(marker)['recipe']['pool_directory'])/wid
         facts=_load(pool/'candidate_audit.json')['facts'];listener=facts['listener']
+        window_speed=measured_actor_metrics(facts['actors'],facts['time']['frame_rate_hz'],requests)
+        if any(a['status']!='pass'for a in window_speed):reasons.append(wid+':window_measured_root_speed_out_of_range')
+        metrics.setdefault('windows',{})[wid]={'actors':window_speed}
         for i,(position,yaw)in enumerate(zip(listener['positions_m'],listener['yaw_deg'])):
             b=listener.get('basis_m3',[]);members[member].append({'position_m':position,'yaw_deg':yaw,**({'forward_m':b[i]['forward']}if b else{})})
     listener_metrics={member:camera_metrics(values)for member,values in members.items()}
@@ -161,7 +164,9 @@ def require_parent_policy(pointer_path):
 
 def cached_parent_policy(pointer_path,cache_directory):
     """Cache only immutable native inspections, invalidate on any source stat."""
-    pointer_path=Path(pointer_path);key=hashlib.sha256(str(pointer_path.resolve()).encode()).hexdigest()
+    pointer_path=Path(pointer_path)
+    if any(any(parent.glob('INVALID*.md'))for parent in pointer_path.parents):return inspect_parent_policy(pointer_path)
+    key=hashlib.sha256(str(pointer_path.resolve()).encode()).hexdigest()
     path=Path(cache_directory)/(key+'.json');pointer=_load(pointer_path);parent=pointer_path.parent
     sources=[pointer_path]
     for name in ('visible_native_completed.json','visual_v0_completed.json','visual_v1_completed.json'):
