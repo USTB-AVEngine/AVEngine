@@ -116,3 +116,28 @@ def animal_native_checks(video, scene, entries, *, plan, row):
     checks.append(CheckResult('animal:actual_native_pixels_and_rests',
         'pass'if pixel['status']=='pass'else'fail','same_final_native_scene_preflight',evidence=pixel))
     return tuple(checks)
+
+
+def animal_acoustic_preflight(video, scene, entries, runtime, directory):
+    """Check original placement directions on actual native emitter readbacks."""
+    from pathlib import Path
+    from avengine.timeline.v7_position_admission import PositionAdmission
+    from avengine.construction.joint import CheckResult
+    directory=Path(directory);directory.mkdir(parents=True,exist_ok=False)
+    gate=PositionAdmission(scene,video.motion_house,runtime,directory/'rir_cache',
+                           directory/'acoustic_placement_admission.json')
+    checks=[]
+    try:
+        for entry in entries:
+            if entry.get('motion_episode'):
+                actual=video._apply_motion_entry(entry,0)
+            else:
+                actual=video._apply_entry(entry,scene)
+            evidence=gate.check(entry['endpoint_id'],np.asarray(actual['emitter_position_m'],float))
+            checks.append(CheckResult('animal:acoustic:'+entry['declaration']['asset_id'],
+                'fail'if evidence['status']=='blocked'else'pass',
+                'original_5deg_placement_gate_on_actual_native_emitter',evidence=evidence))
+    finally:
+        gate.close()
+    scene['joint_animal_acoustic_preflight_path']=str(directory/'acoustic_placement_admission.json')
+    return tuple(checks)

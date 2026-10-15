@@ -61,6 +61,7 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     row=plan.metadata['row']
     assert row['phase2_whole_source_recordings']['animal']==pytest.approx([1.3,21.3])
     assert row['joint_solver_only']
+    assert row['automatic_construction']['solver_entry']=='avengine.construction.joint.solve'
     assert row['motion_requests']['animal']['maximum_native_route_attempts']==1
     assert len(row['motion_during_condition_plan']['plans'])==4
     roots=plan.actors['animal'].positions_m
