@@ -312,7 +312,13 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     from avengine.timeline.continuous_pilot import write_json
     if request.get('joint_animal_prepared_geometry'):
         from .joint_execution import load_prepared_geometry
-        return load_prepared_geometry(entry, scene, house, request)
+        record = load_prepared_geometry(entry, scene, house, request)
+        # The capture hook writes actual readbacks beside this execution receipt.
+        # Retain the original prepared pose paths instead of recompiling them.
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        write_json(directory / 'motion_geometry.json', record)
+        return record
     authority = request['animal_motion_admission']
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
