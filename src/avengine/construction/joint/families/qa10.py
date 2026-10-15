@@ -11,7 +11,7 @@ from typing import Mapping
 
 import numpy as np
 
-REVISION = "qa10-registered-partial-occluder-v1"
+REVISION = "qa10-registered-partial-occluder-v2-joint-native"
 
 
 @dataclass(frozen=True)
@@ -78,46 +78,6 @@ def certify_native_relation(witness: Mapping, demand: OcclusionDemand,
             "scope": "one native static layout probe; complete stream still required"}
 
 
-def full_body_in_view(camera_m, yaw_deg, root_m, *, radius_m=.40,
-                      bottom_m=0., top_m=1.85, margin_deg=2.):
-    """Conservative body box under the actual 85deg,16:9 camera.
-
-    This rejects clipped construction candidates, including the old near
-    foreground layout whose feet lie outside the vertical frustum.
-    """
-    camera = np.asarray(camera_m, float)
-    root = np.asarray(root_m, float)
-    if camera.shape != (3,) or root.shape != (3,) or not np.isfinite([camera, root]).all():
-        raise ValueError("finite 3D camera and body root required")
-    angle = math.radians(float(yaw_deg))
-    forward = np.array([math.sin(angle), 0., -math.cos(angle)])
-    right = np.cross(forward, [0., 1., 0.])
-    horizontal = math.radians(42.5 - margin_deg)
-    vertical = math.atan(math.tan(math.radians(42.5)) * 9 / 16) - math.radians(margin_deg)
-    corners = np.array([[x, y, z] for x in (-radius_m, radius_m)
-                        for y in (bottom_m, top_m) for z in (-radius_m, radius_m)]) + root
-    delta = corners - camera
-    depth = delta @ forward
-    return bool(np.all(depth > 0)
-                and np.all(np.abs(delta @ right) <= depth * math.tan(horizontal))
-                and np.all(np.abs(delta[:, 1]) <= depth * math.tan(vertical)))
-
-
-def projected_lower_body_coverage(camera_height_m, target_depth_m,
-                                  occluder_depth_m, occluder_height_m):
-    """Invert a floor object's shadow top edge onto the target's vertical plane.
-
-    This geometric height is not a pixel occlusion fraction. The native
-    target-only mask still has to measure the requested fraction.
-    """
-    values = [camera_height_m, target_depth_m, occluder_depth_m, occluder_height_m]
-    if not all(math.isfinite(v) and v > 0 for v in values):
-        raise ValueError("positive finite dimensions required")
-    if target_depth_m <= occluder_depth_m:
-        raise ValueError("occluder must be in front of target")
-    return camera_height_m + (occluder_height_m - camera_height_m) * target_depth_m / occluder_depth_m
-
-
 def _colour(asset):
     return str(asset.get("color") or asset.get("registered_label_color")
                or asset.get("label_color") or "")
@@ -177,6 +137,9 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
             raise ValueError("QA-10 requires a complete static 30 Hz root plan")
         if not np.array_equal(positions, np.repeat(positions[:1], 901, axis=0)):
             raise ValueError("this QA-10 constructor requires stationary participants")
+        headings = getattr(actor, "headings_rad", None)
+        if headings is not None and not np.all(np.asarray(headings) == headings[0]):
+            raise ValueError("QA-10 static proof requires constant planned headings")
     actual = next(r for r in house["checked_rooms"]
                   if r.get("room_label", r.get("room_id")) == room["room_id"])
     floor = float(actual["measured_floor_y_m"])
@@ -190,7 +153,10 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
                    or e.sound_id != authored["sound_asset_id"]
                    or e.sound_class != "speech_playback" for e in speaker_events)):
         raise ValueError("QA-10 native program must retain the solver's real whole-utterance bindings")
-    starts = [float(e.start_s) for e in speaker_events]
+    starts = [float(t) for t in plan.metadata.get("source_playback_starts_s", {}).get(
+        companion["asset_id"], [])]
+    if not starts:
+        raise ValueError("QA-10 solver must retain whole-file playback starts separately from measured activity")
     if starts != sorted(set(starts)):
         raise ValueError("QA-10 solver event starts must be unique and ordered")
     cert = asdict(certificate) if is_dataclass(certificate) else {
@@ -229,12 +195,15 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
             "native_identity_certification_required": True,
         },
     }
+    bindings = deepcopy(plan.metadata.get("native_bindings", {}))
+    pins = bindings.get("native_attachment_supports", {})
+    if set(pins) != set(ids) or not all(pins[aid].get("joint_solved_pose") for aid in ids):
+        raise ValueError("QA-10 requires exact static bindings from joint_core")
     for aid in ids:
-        root = np.asarray(plan.actors[aid].positions_m[0], float)
-        row["native_attachment_supports"][aid] = {
-            "surface": "floor", "original_surface_point_m": root.tolist(),
-            "normal": [0., 1., 0.], "floor_y": floor, "_outward_clearance_m": .002,
-        }
+        expected = np.asarray(pins[aid]["joint_expected_root_m"], float)
+        if not np.allclose(expected, plan.actors[aid].positions_m[0], rtol=0., atol=1e-9):
+            raise ValueError("QA-10 binding poses differ from the solved plan")
+    row.update(bindings)
     _request(row, state, "QA-10")
     row["scene_demand"]["required_independent_family_counts"] = {"QA-10": 1}
     row["scene_demand"]["joint_static_answer"] = {
@@ -246,13 +215,15 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
 
 class QA10Plugin:
     """Family constraints over the core's shared static geometry proposals."""
-    def __init__(self, bodies, demand, *, sound_requirements=()):
+    def __init__(self, bodies, demand, *, assets, sound_requirements=()):
         self.bodies = bodies
         self.demand = demand
+        self.assets = assets
         self.sound_requirements = tuple(sound_requirements)
 
     def candidates(self, context, request):
-        from avengine.construction.joint import enumerate_static_layouts, schedule_sound_events
+        from avengine.construction.joint import enumerate_static_layouts, schedule_sound_events, static_actor
+        from avengine.construction.joint.native import strict_native_bindings
         from avengine.timeline.v7_family_constructors import ConstructionUnavailable
         schedule = schedule_sound_events(self.sound_requirements, start_grid_hz=10)
         if schedule.status != "solved":
@@ -265,13 +236,23 @@ class QA10Plugin:
             plan.metadata["sound_schedule"] = {
                 "status": schedule.status, "starts_s": list(schedule.starts_s),
                 "diagnostics": schedule.diagnostics,
-                "activity_authority": "conservative whole-admitted-file emission bounds; final activity measured independently"}
+                "activity_authority": "source_normalization.measured_activity; final native activity independently read"}
+            speaker = self.sound_requirements[0].entity_id
+            plan.metadata["source_playback_starts_s"] = {speaker: list(schedule.starts_s)}
+            # Answer identity should be readable: request the device's front
+            # toward the viewer, inside solve's candidate stage.
+            aid = self.demand.occluder_asset_id
+            root = plan.actors[aid].positions_m[0]
+            delta = np.asarray(plan.camera.position_m) - root
+            plan.actors[aid] = static_actor(aid, root, self.bodies[aid],
+                facing_rad=math.atan2(float(delta[2]), float(delta[0])))
             plan.actors[self.demand.occluder_asset_id].metadata.update(
                 native_entity_kind="object", motion_action="static",
                 map_profile="slide_floor_envelope_only")
             plan.metadata.update(qa10_target=self.demand.target_asset_id,
                                  qa10_occluder=self.demand.occluder_asset_id,
                                  native_mask_preflight_required=True)
+            plan.metadata["native_bindings"] = strict_native_bindings(plan, self.assets)
             yield plan
 
     def verify(self, context, request, plan):
@@ -283,7 +264,8 @@ class QA10Plugin:
             return
         prediction = context.predict(
             plan.camera, target.positions_m[0], target.body,
-            occluders=((occluder.entity_id, occluder.positions_m[0], occluder.body),))
+            occluders=tuple((a.entity_id, a.positions_m[0], a.body)
+                            for a in plan.actors.values() if a is not target))
         passed = (prediction.state == "visible_occluded"
                   and tuple(prediction.occluder_ids) == (occluder.entity_id,)
                   and self.demand.minimum_occluded_fraction <= prediction.occluded_fraction
@@ -302,7 +284,7 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
     from pathlib import Path
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable
     from avengine.construction.joint import (
-        BodySpec, FamilyRequest, SoundRequirement, build_room_context, solve,
+        BodySpec, FamilyRequest, SoundRequirement, build_room_context, solve, certify_plan,
     )
     if family != "QA-10":
         raise ConstructionUnavailable("QA-10 plugin cannot construct another family")
@@ -327,152 +309,151 @@ def construct_qa10_scene(room, house, state, catalog, records, semantic, contrac
     demand = OcclusionDemand(target["asset_id"], occluder["asset_id"])
     from avengine.timeline.v7_family_constructors import choose_authored
     authored = choose_authored(semantic, [companion], state, seed)[0][0]
-    duration = math.ceil(float(authored["synthesis_readback"]["duration_s"]) * 10) / 10
+    activity = authored.get("source_normalization", {}).get("measured_activity", {})
+    intervals = activity.get("source_activity_intervals_samples")
+    rate = float(activity.get("source_rate_hz", 0))
+    if not intervals or rate <= 0:
+        raise ConstructionUnavailable("QA-10 needs measured activity for its admitted whole utterance")
+    active_seconds = tuple((float(a)/rate, float(b)/rate) for a, b in intervals)
     sound_requirements = tuple(SoundRequirement(
         companion["asset_id"], authored["sound_asset_id"], "speech_playback",
-        ((0., duration),), (start, start), ((start, start + 9.),), wet_tail_s=.5)
+        active_seconds, (start, start+1.), ((start, start + 9.),), wet_tail_s=.5)
         for start in (0., 10., 20.))
     request = FamilyRequest("QA-10", "visible_registered_partial", (target["asset_id"],),
-                            {"occluder_asset_id": occluder["asset_id"]})
+                            {"occluder_asset_id": occluder["asset_id"],
+                             "require_native_preflight": True})
+    preparations = 0
+    def prepare(context, request, plan):
+        nonlocal preparations
+        preparations += 1
+        proposal = build_qa10_row(
+            room, house, state, catalog, semantic, contract, plan,
+            certify_plan(context, plan), target, occluder, companion,
+            scene_id=scene_id, seed=seed)
+        directory = Path(cache) / "qa10" / "native_preflight" / scene_id / (
+            "candidate_" + str(preparations).zfill(3))
+        return prepare_qa10_native_candidate(
+            plan, proposal["row"], house, catalog, records, semantic, runtime,
+            demand=demand, output_dir=directory)
     with build_room_context(actual, house=house, runtime=runtime,
                             cache_dir=Path(cache) / "qa10", camera_heights_m=(1.1,),
                             width=1280, height=720) as context:
-        solved = solve(context, request, QA10Plugin(bodies, demand, sound_requirements=sound_requirements),
-                       budget_s=float(runtime.get("qa10_planning_budget_s", 120.)),
-                       max_candidates=int(runtime.get("qa10_max_candidates", 256)))
+        solved = solve(
+            context, request, QA10Plugin(bodies, demand, assets=[target, occluder, companion],
+                                         sound_requirements=sound_requirements),
+            budget_s=float(runtime.get("qa10_planning_budget_s", 180.)),
+            max_candidates=int(runtime.get("qa10_max_candidates", 256)),
+            prepare_and_verify=prepare,
+            max_native_preparations=int(runtime.get("qa10_max_native_preparations", 6)))
     if solved.status != "certified":
         raise ConstructionUnavailable("QA-10 joint construction " + solved.status + ": " + str(solved.reasons))
-    proposal = build_qa10_row(room, house, state, catalog, semantic, contract, solved.plan,
-                               solved.certificate, target, occluder, companion,
-                               scene_id=scene_id, seed=seed)
-    proposal["row"] = certify_native_static_layout(
-        proposal["row"], house, catalog, records, semantic, runtime,
-        output_dir=Path(cache) / "qa10" / "native_preflight" / scene_id)
-    return proposal
+    from dataclasses import asdict
+    row = solved.prepared["row"]
+    row["automatic_construction"]["planning_certificate"] = asdict(solved.certificate)
+    row["automatic_construction"]["joint_solver"] = {
+        "status": solved.status, "diagnostics": solved.diagnostics,
+        "branch": request.branch, "native_execution_must_not_replan": True}
+    return {"profile": "phase2", "row": row}
 
 
-def certify_native_static_layout(row, house, catalog, records, semantic, runtime, *, output_dir):
-    """Real static layout/identity/colour preflight, with no audio/video render.
 
-    Exact native support sites are returned to the ordinary producer. It still
-    rechecks placement and independently measures all 450 native frames.
+def prepare_qa10_native_candidate(plan, row, house, catalog, records, semantic, runtime,
+                                  *, demand, output_dir):
+    """Family adapter for core's strict oracle, called only from solve.
+
+    The retained payload is the serialized prepared scene (exact bindings,
+    source identities and clock). The executor consumes those fields unchanged.
+    No support alternatives, yaw repair or world-position changes are allowed.
     """
-    from copy import deepcopy
     from pathlib import Path
-    from itertools import combinations
-    from avengine.timeline.v7_family_constructors import ConstructionUnavailable
+    from copy import deepcopy
+    from dataclasses import asdict
+    import os, time
+    import psutil
+    from avengine.construction.joint import PreparedCandidate, CheckResult
+    from avengine.construction.joint.native import native_static_checks
     from avengine.timeline.v7_family_clock import build_constructed_scene
     from avengine.capture.v7_phase2_native import NativePhase2Video
     from avengine.capture.v7_occlusion_demand import measure_requested_relations
+    from avengine.timeline.v7_position_admission import PositionAdmission
     from avengine.timeline.continuous_pilot import write_json
     from PIL import Image
 
-    result = deepcopy(row)
-    if row.get("motion_requests"):
-        raise ConstructionUnavailable("QA-10 static preflight cannot certify moving bodies")
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=False)
-    working, scene, _program, assets = build_constructed_scene(row, house, records, catalog, semantic)
-    preflight_runtime = deepcopy(runtime)
-    # Preparation may solve a nearby real support before it is certified.
-    # Formal rendering receives the accepted exact site and uses one proposal.
-    preflight_runtime["visible_placement_max_proposals_per_asset"] = int(
-        runtime.get("qa10_preflight_support_proposal_limit", 121))
-    video = NativePhase2Video(
-        working, scene, preflight_runtime, assets,
-        source_material_cache_directory=runtime["source_material_cache_directory"])
+    directory = Path(output_dir)
+    directory.mkdir(parents=True, exist_ok=False)
+    inputs = deepcopy(runtime)
+    inputs["visible_placement_max_proposals_per_asset"] = 1
+    inputs.setdefault("fresh_rir_cpu_ids", sorted(os.sched_getaffinity(0)))
+    inputs["fresh_rir_workers"] = min(5, max(1, len(inputs["fresh_rir_cpu_ids"])-1))
+    working, scene, program, assets = build_constructed_scene(row, house, records, catalog, semantic)
+    video = NativePhase2Video(working, scene, inputs, assets,
+        source_material_cache_directory=inputs["source_material_cache_directory"])
+    gate = None
+    timings = []
     try:
-        checks = video.qualify_standing(scene, output_dir / "standing")
-        witness = measure_requested_relations(video, scene, video.actors)
-        byasset = {a["asset_id"]: a for a in assets}
-        certificates = []
-        for relation in row["native_occlusion_relations"]:
-            demand = OcclusionDemand(
-                relation["target_asset_id"], relation["occluder_asset_id"],
-                minimum_occluded_fraction=relation["minimum_occluded_fraction"],
-                minimum_stable_seconds=relation["minimum_stable_seconds"])
-            oid = byasset[demand.occluder_asset_id]["native_instance_id"]
-            certificates.append(certify_native_relation(witness, demand, str(oid)))
-
-        video._native_pair_pixels(scene, video.actors)
-        obs = {k: np.asarray(v).copy() for k, v in video.sim.get_sensor_observations().items()}
-        video._check_source_frame(obs["rgb"][:, :, :3], obs["semantic"], 0)
-        colour = {c["asset_id"]: c for c in video.color_checks}
-        errors = [error for c in certificates for error in c["errors"]]
-        for asset in assets:
-            if not colour.get(asset["asset_id"], {}).get("matched"):
-                errors.append("native_appearance_label_unreviewable:" + asset["asset_id"])
-
-        sensor = video.sim._sensors["rgb"]._sensor_object
-        projection = np.asarray(sensor.render_camera.projection_matrix, float)
-        world_to_camera = np.linalg.inv(np.asarray(sensor.node.absolute_transformation(), float))
-        body_projection = []
-        for entry in video.actors:
-            asset = entry["declaration"]
-            transform = np.asarray(entry["applied_root_input"], float)
-            local = np.asarray(entry["original_mesh"].vertices, float)
-            vertices = local @ transform[:3, :3].T + transform[:3, 3]
-            clip = np.column_stack([vertices, np.ones(len(vertices))]) @ world_to_camera.T @ projection.T
-            forward = clip[:, 3]
-            visible = bool(np.all(forward > 0))
-            xy = clip[:, :2] / np.maximum(forward[:, None], 1e-12)
-            margins = (1 - np.abs(xy).max(axis=0)) * np.array([video.width, video.height]) / 2
-            in_view = bool(visible and np.min(margins) >= 8.)
-            body_projection.append({
-                "asset_id": asset["asset_id"], "full_mesh_vertices": len(vertices),
-                "entire_body_inside_native_image": in_view,
-                "minimum_horizontal_margin_px": float(margins[0]),
-                "minimum_vertical_margin_px": float(margins[1]),
-            })
-            if not in_view:
-                errors.append("native_full_body_clipped:" + asset["asset_id"])
-        people = [e for e in video.actors if e["declaration"]["kind"] in {"human", "performer"}]
-        roots = {e["declaration"]["asset_id"]: np.asarray(e["applied_root_input"], float)[:3, 3]
-                 for e in video.actors}
-        camera = np.asarray(scene["listener_m"], float)
-        for entry in people:
-            aid = entry["declaration"]["asset_id"]
-            if np.linalg.norm((roots[aid] - camera)[[0, 2]]) < 1.5 - 1e-6:
-                errors.append("native_person_camera_distance:" + aid)
-        for first, second in combinations(people, 2):
-            a, b = first["declaration"]["asset_id"], second["declaration"]["asset_id"]
-            if np.linalg.norm((roots[a] - roots[b])[[0, 2]]) < 1. - 1e-6:
-                errors.append("native_people_spacing:" + a + ":" + b)
-        certificate = {
-            "status": "fail" if errors else "pass", "errors": errors,
-            "authority": "actual_native_static_layout_preflight",
-            "one_frame_only": True, "complete_450_frame_stream_still_required": True,
-            "relations": certificates, "full_body_projection": body_projection,
-            "actual_roots_m": {aid: point.tolist() for aid, point in roots.items()},
-            "actual_yaw_rad": {e["declaration"]["asset_id"]: float(e["resolved_yaw_rad"])
-                               for e in video.actors},
-            "native_colour_checks": video.color_checks,
-            "native_control_restoration": witness.get("native_control_restoration"),
-            "qa_predicates_truth_scorer_changed": False,
-        }
-        write_json(output_dir / "certificate.json", certificate)
-        write_json(output_dir / "native_occlusion_witness.json", witness)
-        Image.fromarray(obs["rgb"][:, :, :3]).save(output_dir / "preview.png")
-        if errors:
-            raise ConstructionUnavailable("QA-10 native preflight: " + ";".join(errors))
-        for check in checks:
-            aid = check["asset_id"]
-            support = check["placement"]["support"]
-            result["native_attachment_supports"][aid] = {
-                key: deepcopy(support[key]) for key in
-                ("surface", "original_surface_point_m", "normal", "floor_y",
-                 "_outward_clearance_m", "_body_yaw_retry") if key in support}
-            result["native_placement_preferences_m"][aid] = roots[aid].tolist()
+        # Reuse the same measured RIR for an unchanged camera/source point;
+        # candidate backtracking must not resample a borderline acoustic result.
+        camera_cache = directory.parent/"rir_by_camera"/plan.camera.camera_id
+        gate = PositionAdmission(scene, working, inputs, camera_cache,
+                                 directory/"acoustic_placement_admission.json")
+        def acoustic_check(endpoint, point):
+            wall, cpu = time.monotonic(), time.process_time()
+            before = psutil.Process().cpu_num()
+            cache_before = deepcopy(gate.cache.stats)
+            result = gate.check(endpoint, point)
+            timings.append({"endpoint_id": endpoint, "wall_s": time.monotonic()-wall,
+                "cpu_self_s": time.process_time()-cpu, "pid": os.getpid(),
+                "psr_before": before, "psr_after": psutil.Process().cpu_num(),
+                "cpu_affinity": sorted(os.sched_getaffinity(0)), "status": result["status"],
+                "cache_before": cache_before, "cache_after": deepcopy(gate.cache.stats)})
+            return result
+        video.acoustic_position_admission = acoustic_check
+        try:
+            attachments = video.qualify_standing(scene, directory/"standing")
+        except ValueError as exc:
+            # Only an explicit original placement-conflict report is geometric.
+            # Programming/renderer errors still propagate and stop dispatch.
+            reports = list((directory/"standing").glob("*rejection*.json"))
+            reports += list((directory/"standing").glob("*execution_conflict*.json"))
+            if not reports and not str(exc).startswith("all people face camera"):
+                raise
+            checks = (CheckResult("qa10:native_fixed_execution", "fail", str(exc),
+                                  evidence={"reports": [str(p) for p in reports]}),)
+            write_json(directory/"certificate.json", {"status": "fail", "checks": [asdict(c) for c in checks]})
+            return PreparedCandidate({"row": row, "directory": str(directory)}, checks)
+        minimum = {aid: 100 for aid in plan.actors}
+        minimum[demand.target_asset_id] = demand.minimum_visible_pixels
+        native = native_static_checks(
+            video, scene, plan, roles={aid: "inside" for aid in plan.actors},
+            minimum_visible_pixels=minimum, appearance_ids=tuple(plan.actors),
+            standing_checks=attachments)
+        witness = attachments[-1].get("requested_occlusion_witness")
+        if witness is None:
+            witness = measure_requested_relations(video, scene, video.actors)
+        occluder_id = next(a["native_instance_id"] for a in assets
+                           if a["asset_id"] == demand.occluder_asset_id)
+        relation = certify_native_relation(witness, demand, str(occluder_id))
+        check = CheckResult("qa10:native_unique_partial_occluder",
+                            relation["status"], ";".join(relation["errors"]), evidence=relation)
+        checks = native.checks + (check,)
+        passed = all(c.status == "pass" for c in checks)
+        certificate = {"status": "pass" if passed else "fail",
+                       "authority": "planning_and_native_static_preflight",
+                       "checks": [asdict(c) for c in checks],
+                       "one_frame_static_witness": True, "final_450_frames_still_required": True}
+        write_json(directory/"certificate.json", certificate)
+        write_json(directory/"native_occlusion_witness.json", witness)
+        Image.fromarray(np.asarray(video.sim.get_sensor_observations()["rgb"])[:,:,:3]).save(directory/"preview.png")
+        result = deepcopy(row)
         result["automatic_construction"]["native_preflight"] = {
-            "certificate_path": str(output_dir / "certificate.json"),
-            "actual_roots_m": certificate["actual_roots_m"],
-            "actual_yaw_rad": certificate["actual_yaw_rad"],
-            "formal_render_support_proposal_limit": 1,
-            "status": "pass", "expected_occluder_asset_ids":
-                [r["occluder_asset_id"] for r in row["native_occlusion_relations"]],
-            "scope": "actual native static layout; final stream remains independent",
-        }
-        write_json(output_dir / "certified_row.json", result)
-        return result
+            "status": certificate["status"], "certificate_path": str(directory/"certificate.json"),
+            "formal_render_support_proposal_limit": 1, "native_execution_must_not_replan": True,
+            "prepared_payload": "exact registered assets, roots, headings, support sites and source clock"}
+        write_json(directory/"prepared_row.json", result)
+        return PreparedCandidate({"row": result, "certificate": certificate,
+                                  "directory": str(directory)}, checks)
     finally:
+        write_json(directory/"rir_cpu_observations.json", {"measurements": timings})
+        if gate is not None:
+            gate.close()
         video.close()
