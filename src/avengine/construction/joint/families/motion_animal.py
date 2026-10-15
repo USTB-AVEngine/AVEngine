@@ -169,6 +169,7 @@ class MotionAnimalPlugin:
         self.geometry_preparer=geometry_preparer
         self.rejections={}
         self.geometry_preparations=0
+        self.geometry_cache={}
 
     def candidates(self, context, request):
         from avengine.construction.joint import CameraPose,ScenePlan
@@ -221,6 +222,8 @@ class MotionAnimalPlugin:
                 line=LineString([near[[0,2]],far[[0,2]]])
                 candidates=[]
                 for p in people:
+                    bearing=math.degrees(math.atan2(float((p-origin)@camera.right),float((p-origin)@camera.forward)))
+                    if abs(bearing)<68.:continue  # Native outside role requires >=65deg; retain emitter-offset margin.
                     if (np.linalg.norm(p[[0,2]]-origin[[0,2]])<1.6 or line.distance(Point(*p[[0,2]]))<1.1
                         or framing(camera,p,human)[0]!='outside'):continue
                     candidates.append(p)
@@ -287,14 +290,28 @@ class MotionAnimalPlugin:
                                 'candidate_count':emitted+1,'candidate_trials':[],'selected_attempt':'joint-animal-'+str(emitted),
                                 'animal_native_preflight_required':True,'require_rest_poses_in_frame':True,
                                 'animal_stationary_turn_intervals_s':actor.metadata.get('stationary_turn_intervals_s',[])}
-                            self.output_dir.mkdir(parents=True,exist_ok=True)
-                            directory=Path(tempfile.mkdtemp(prefix='geometry_',dir=self.output_dir));directory.rmdir()
-                            if self.geometry_preparations>=int(self.runtime.get('joint_max_geometry_preparations',4)):return
-                            self.geometry_preparations+=1
-                            preparer=self.geometry_preparer or prepare_route_geometry
-                            try:preparer(context,self.house,self.runtime,d['animal'],self.contract['animal_motion'][mover],actor,route,directory)
-                            except ValueError as error:
-                                self.rejections[str(error)]=self.rejections.get(str(error),0)+1;continue
+                            # The original animal pose preparation excludes unplaced
+                            # companions. Reuse it only for the identical animal clock,
+                            # body/source and observer; final native scene physics is rerun.
+                            import hashlib
+                            key=(mover,repr(camera),hashlib.sha256(
+                                np.asarray(actor.positions_m,dtype='<f8').tobytes()+
+                                np.asarray(actor.headings_rad,dtype='<f8').tobytes()).hexdigest())
+                            cached=self.geometry_cache.get(key)
+                            if cached is not None:
+                                actor.positions_m=cached[0].copy()
+                                actor.metadata.update(cached[1])
+                            else:
+                                self.output_dir.mkdir(parents=True,exist_ok=True)
+                                directory=Path(tempfile.mkdtemp(prefix='geometry_',dir=self.output_dir));directory.rmdir()
+                                if self.geometry_preparations>=int(self.runtime.get('joint_max_geometry_preparations',4)):return
+                                self.geometry_preparations+=1
+                                preparer=self.geometry_preparer or prepare_route_geometry
+                                try:preparer(context,self.house,self.runtime,d['animal'],self.contract['animal_motion'][mover],actor,route,directory)
+                                except ValueError as error:
+                                    self.rejections[str(error)]=self.rejections.get(str(error),0)+1;continue
+                                self.geometry_cache[key]=(actor.positions_m.copy(),{
+                                    name:actor.metadata[name]for name in ('native_yaw_rad','joint_animal_prepared_geometry')})
                             plan=ScenePlan(camera,{mover:actor,companion:speaker},schedule.events,metadata={
                                 'animal_route':route,'source_file_starts_s':file_starts,'movement_offsets_s':offsets,
                                 'walk_intervals_s':actor.metadata['walk_intervals_s'],'roles':{mover:'inside',companion:'outside'},

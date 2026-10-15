@@ -53,7 +53,8 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     if duration==1.2 and kind=='animal_slide':
         with pytest.raises(StopIteration):next(plugin.candidates(context,request))
         return
-    plan=next(plugin.candidates(context,request))
+    iterator=plugin.candidates(context,request)
+    plan=next(iterator)
     assert certify_plan(context,plan).passed
     checks=list(plugin.verify(context,request,plan))
     assert checks and all(check.status=='pass'for check in checks),[(c.name,c.reason)for c in checks if c.status!='pass']
@@ -68,3 +69,14 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     assert np.max(np.abs(roots[20*30:]-roots[20*30]))==0.
     assert all(abs(start*10-round(start*10))<1e-8 for starts in plan.metadata['source_file_starts_s'].values()for start in starts)
     assert all(not (event.start_s<6.6 and event.wet_end_s>4.2)for event in plan.sounds)
+
+    from avengine.capture.v7_offscreen_layout import proposal_view_ok
+    assert proposal_view_ok({'native_view_roles':row['native_view_roles']},'speaker',
+        plan.actors['speaker'].positions_m[0]-np.asarray(plan.camera.position_m),plan.camera.forward,False)
+    # A second companion site shares exactly the same original animal geometry.
+    # One preparation remains sufficient even with the explicit per-solve cap=1.
+    second=next(iterator)
+    assert plugin.geometry_preparations==1
+    np.testing.assert_array_equal(second.actors['animal'].positions_m,plan.actors['animal'].positions_m)
+    assert second.actors['animal'].metadata['joint_animal_prepared_geometry']==plan.actors['animal'].metadata['joint_animal_prepared_geometry']
+    assert not np.array_equal(second.actors['speaker'].positions_m,plan.actors['speaker'].positions_m)
