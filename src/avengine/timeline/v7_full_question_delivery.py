@@ -307,6 +307,9 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
             quota=row['question_quota_base']+row['members'].index(name)*row['window_count']+index
             allocations[name]=question_allocation(quota,row['questions_per_window'])
         ordinary={name:[q for q in public[name] if q['qa_id']!='V7-CLASS34'] for name in names}
+        from avengine.timeline.v7_constructor_branch_selection import restrict_constructed_branch
+        branch_audits={}
+        for name in names:ordinary[name],branch_audits[name]=restrict_constructed_branch(ordinary[name],private[name],demand)
         if names==quartet:
             ordinary,pair_audit=filter_observed_nuisance_candidates(ordinary,private,window_ids)
             chosen,gold,audit=select_counterfactual_group(ordinary,private,allocations,
@@ -355,6 +358,7 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
                     if not partial or not (str(error).startswith('requested audio family lacks an actual eligible candidate:') or str(error)=='content reservation exceeds unchanged audio allocation'):raise
                     audit.setdefault('skipped_unavailable_family_reservations',[]).append({'member':name,'family':'QA-28','reason':str(error)})
             audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'canonical_answers_changed':False,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected':any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs),'status':'reserved' if any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs) else 'partial_skipped','skipped_empty_family':audit.get('skipped_unavailable_family_reservations',[])}
+        audit['constructed_branch_selection']=branch_audits
         if demand:
             audit['demand_feedback']=deepcopy(snapshot)
             # Subsequent windows see only actual selections from preceding crops.

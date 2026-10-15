@@ -61,7 +61,7 @@ def test_content_quartet_has_only_whole_authored_sources_and_fixed_real_voices(i
     result=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},scene_id='quad',seed=18,family='V7-CONTENT-BIND')
     row=result['row'];assert result['profile']=='registered'
     assert row['members']==['v0_a0','v0_a1','v1_a0','v1_a1']
-    assert len(row['production_scenario']['asset_ids'])==3
+    assert len(row['production_scenario']['asset_ids'])==4
     lookup={r['sound_asset_id']:r for r in semantic['sounds']}
     epochs=row['production_scenario']['semantic_epoch_sound_ids']
     assert len({lookup[ids[0]]['scenario_id']for ids in epochs})==3
@@ -403,7 +403,7 @@ def test_registered_quartet_selects_colors_supported_by_its_original_reviewer_wi
         plan=construct_family_scene(room,houses[room['house']],{},catalog,[],semantic,contract,{},
             scene_id='new',seed=seed,family='V7-CONTENT-BIND')
         ids=plan['row']['production_scenario']['asset_ids']
-        assert len(ids)==3 and len(plan['row']['members'])==4
+        assert len(ids)==4 and len(plan['row']['members'])==4
         assert all(lookup[aid]['color']in COLOR_HUE_DEGREES for aid in ids[:2])
 
 
@@ -473,7 +473,7 @@ def test_owner_layout_keeps_three_people_one_metre_apart_distributed_and_with_va
     row=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},
         scene_id='new',seed=10,family='V7-CONTENT-BIND')['row']
     valid=row['measured_static_layout']['valid'];points=[v['position_m']for v in valid]
-    assert len(points)==3 and len(row['members'])==4
+    assert len(points)==4 and len(row['members'])==4
     for i,p in enumerate(points):
         for q in points[i+1:]:assert math.hypot(p[0]-q[0],p[2]-q[2])>=1.
     assert len({round(v['body_yaw_deg'],2)for v in valid})>=2
