@@ -210,6 +210,44 @@ def realized_animal_motion(scene, visual):
 
 
 
+
+def animal_reflected_route_proposals(video,entry,scene,local_forward,request):
+    """Reuse the common physical fit, refining rigid placement after height failures.
+
+    A coarse 25cm proposal grid can leave only a few routes whose rigid height
+    interval misses by fractions of a millimetre on a scanned floor. Smaller
+    translations/rotations construct other routes; every one goes through the
+    exact same shared NavMesh, camera, polygon, body and radial prefilter.
+    """
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
+    original=request['motion_quartet_route'];xz=np.asarray(original['positions_xz_m'],float)
+    heading=np.asarray(original['travel_yaws_rad'],float);centre=xz.mean(0)
+    needs_refinement=[False];seen=set()
+    seeds=[(0.,0.,0.)]+[(x,z,0.)for x,z in ((.025,0.),(-.025,0.),(0.,.025),(0.,-.025),(.025,.025),(-.025,-.025),(.05,0.),(-.05,0.),(0.,.05),(0.,-.05))]+[(0.,0.,a)for a in (math.pi/72,-math.pi/72,math.pi/36,-math.pi/36)]
+    for number,(dx,dz,angle)in enumerate(seeds):
+        if number and not needs_refinement[0]:return
+        proposal_request=deepcopy(request)
+        rotation=np.array([[math.cos(angle),-math.sin(angle)],[math.sin(angle),math.cos(angle)]])
+        proposal_request['motion_quartet_route']['positions_xz_m']=((xz-centre)@rotation.T+centre+[dx,dz]).tolist()
+        proposal_request['motion_quartet_route']['travel_yaws_rad']=(heading+angle).tolist()
+        if number and request.get('_reflection_diagnostics_path'):
+            path=Path(request['_reflection_diagnostics_path'])
+            proposal_request['_reflection_diagnostics_path']=str(path.parent/('fine_fit_'+str(number))/path.name)
+        for route in reflected_route_proposals(video,entry,scene,local_forward,proposal_request):
+            key=(np.asarray(route.positions).tobytes(),np.asarray(route.yaws).tobytes())
+            if key in seen:continue
+            seen.add(key)
+            route.receipt={**route.receipt,'animal_rigid_fitting_round':number,
+                'animal_seed_translation_xz_m':[dx,dz],'animal_seed_rotation_rad':angle,
+                'original_physical_gates_unchanged':True}
+            previous=getattr(route,'report_failure',None)
+            def report_failure(reason,point=None,previous=previous):
+                if 'no constant rigid animal route height' in reason:needs_refinement[0]=True
+                if previous is not None:previous(reason,point)
+            route.report_failure=report_failure
+            yield route
+
+
 def animal_route_samples(times, origin, yaw, direction, speed, curved_route=None):
     """Execute a supplied native route and drive its gait by translated distance.
 
@@ -312,8 +350,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     if curved_motion:
         if request.get('motion_quartet_route',{}).get('reflect_walk'):request['_reflection_diagnostics_path']=str(directory/'reflection_native_prefilter.json')
         if reflected_motion:
-            from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
-            curve_stream=reflected_route_proposals(video,entry,scene,local_forward,request)
+            curve_stream=animal_reflected_route_proposals(video,entry,scene,local_forward,request)
         else:
             curve_stream=curved_route_proposals(video,entry,scene,distance,local_forward,request)
         routes=(((0.,route.positions[0].copy(),float(route.yaws[0]),np.zeros(3),speed),requested_mode,route)for route in curve_stream)
@@ -471,6 +508,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             write_json(directory / 'motion_geometry.json', evidence)
             return evidence
         except ValueError as error:
+            if curved_route is not None and hasattr(curved_route,'report_failure'):curved_route.report_failure(str(error),p0)
             failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'speed_m_s': route_speed, 'mode': mode, 'reason': str(error)})
             with(directory/'motion_route_search.jsonl').open('a')as stream:
                 stream.write(json.dumps({'candidate':len(failures),'wall_seconds':time.monotonic()-begun,**failures[-1]})+'\n')
