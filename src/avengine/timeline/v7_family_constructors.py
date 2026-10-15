@@ -216,7 +216,16 @@ def _construct_post(row,people,state,catalog,records,semantic,contract,runtime,h
         events=sorted((e for e in scene['events']if e['endpoint_id']==ep),key=lambda e:e['start_tick'])
         by_asset[aid]=[lookup[bindings[e['event_id']]['sound_asset_id']]for e in events]
     registry=registered_human_motion_registry(people[:2],runtime,house)
-    row=plan_post_sound_motion(row,qa_id=family,target=target,companion=companion,assets=assets,registry=registry,records_by_asset=by_asset,epochs_s=(0.,10.,20.))
+    from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion,REVISION as MOTION_REVISION
+    row['motion_execution_revision']=MOTION_REVISION
+    row['motion_requests']={target:{'action':'walk'}}
+    row=prepare_scene_motion(row,catalog)
+    speed=row['motion_requests'][target]['speed_m_s']
+    row=plan_post_sound_motion(row,qa_id=family,target=target,companion=companion,assets=assets,registry=registry,records_by_asset=by_asset,epochs_s=(0.,10.,20.),speed_m_s=speed)
+    request=row['motion_requests'][target]
+    request['straight_motion_windows_s']=deepcopy(request['intervals_s'])
+    request['distance_trend_intervals_s']=deepcopy(request.get('distance_trend_windows_s',[]))
+    request['minimum_distance_change_m']=request.get('minimum_window_distance_change_m',.2)
     return {'profile':'phase2','row':row}
 
 
