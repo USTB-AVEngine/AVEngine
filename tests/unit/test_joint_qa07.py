@@ -193,3 +193,17 @@ def test_qa07_sound_constraints_use_measured_activity_and_keep_complete_clip_sta
     program["records"][0]["screens"] = {}
     with pytest.raises(ValueError, match="measured activity"):
         qa07_sound_requirements(scene, program, [{"endpoint_id": "voice1", "asset_id": "real_person"}])
+
+
+@pytest.mark.parametrize("gap,accepted", [(1e-8, True), (.01, False)])
+def test_native_region_closes_numeric_seams_but_keeps_real_floor_holes(monkeypatch, gap, accepted):
+    from shapely.geometry import box, mapping
+    from avengine.construction.joint.families.qa07 import native_entry_route_proposals
+    video, entry, scene, distance, request = native_fixture(monkeypatch)
+    region = box(-20, -20, -1-gap/2, 20).union(box(-1+gap/2, -20, 20, 20))
+    scene["production_scenario"]["motion_floor_polygon"] = mapping(region)
+    if accepted:
+        assert len(list(native_entry_route_proposals(video, entry, scene, distance, [0, 0, -1], request))) == 1
+    else:
+        with pytest.raises(ValueError, match="floor polygon"):
+            list(native_entry_route_proposals(video, entry, scene, distance, [0, 0, -1], request))
