@@ -466,13 +466,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 native_attempts+=1
                 entry.update(resolved_root_m=root,resolved_yaw_rad=yaw);self._apply_entry(entry,scene)
                 native_pixels,pixel_views=self._native_observed_pixels(scene,[*placed,entry])
-                if not required_view and not expected_offscreen and native_pixels.get(a['asset_id'],0)==0:
-                    # Naturally off screen: record it as an intentional off-screen body so the existing projection
-                    # proof and coverage checks treat it exactly like a planned one.
-                    scene.setdefault('native_view_roles',{})[a['asset_id']]={'view':'outside','static':not bool(entry.get('motion_episode')),
-                        'minimum_abs_azimuth_deg':UNCONSTRAINED_OUTSIDE_AZIMUTH_DEG,'real_registered_drawable_required':True,
-                        'construction':'owner 10-15: question does not require this body in view; it stands naturally off screen'}
-                    dynamic_offscreen[0]=True
+                # A body the plan does not need in view may end up unseen (outside the frustum or fully occluded);
+                # it gets no planned off-screen role (zero pixels need not mean outside the projection) and the
+                # placement, final view and coverage checks exempt it (owner 10-15).
                 unconstrained_ids=tuple(e['declaration']['asset_id'] for e in [*placed,entry] if not e.get('_required_view',True))
                 if not native_pixels_ok(scene,[*placed,entry],native_pixels,unconstrained=unconstrained_ids,new_entry_id=a['asset_id']):
                     reject('actual_native_registered_or_stage_occlusion');continue
