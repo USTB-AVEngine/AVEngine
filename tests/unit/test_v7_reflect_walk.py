@@ -103,7 +103,7 @@ def test_zero_native_proposals_retains_specific_prefilter_reasons(tmp_path):
     from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
     entry={'applied_root_input':np.eye(4),'declaration':{'kind':'human'}}
     video=SimpleNamespace(actors=[entry],pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p)))
-    scene={'listener_m':[0.,1.25,0.],'production_scenario':{'motion_floor_polygon':box(100,100,110,110).__geo_interface__}}
+    scene={'listener_m':[0.,1.25,0.],'production_scenario':{'motion_floor_polygon':box(100,100,100.5,100.5).__geo_interface__}}  # too small for the 1 m walk anywhere
     route={'positions_xz_m':np.column_stack((np.linspace(0,1,901),np.zeros(901))).tolist(),'travel_yaws_rad':[0.]*901,'emission_slot':{'start_s':.2,'end_s':.6,'qa15':False},'species':'human','candidate_count':1,'candidate_trials':[],'selected_attempt':1}
     path=tmp_path/'rejections.json';request={'motion_quartet_route':route,'_reflection_diagnostics_path':str(path)}
     assert list(reflected_route_proposals(video,entry,scene,np.array([0.,0.,-1.]),request))==[]
