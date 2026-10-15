@@ -107,7 +107,7 @@ def acceptance_crop_starts(row,scene):
     return starts
 
 
-def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admission,output):
+def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admission,output,*,prepared_native=None):
     from avengine.timeline.v7_production_inputs import attach_runtime_contract
     row=attach_runtime_contract(row,inputs)
     from avengine.capture.v7_phase2_native import NativePhase2Video as NativeVisibleVideo,PHASE2_VISUAL_REVISION as VISUAL_REVISION
@@ -116,12 +116,17 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     from avengine.qa.v7_visible_truth import validate_additional_items
     root=Path(output)/'parents'/row['scene_id'];check_write(root,expected_bytes=1_000_000_000);root.mkdir(parents=True,exist_ok=True)
     wall=time.perf_counter();cpu=cpu_seconds();semantic=read_json(inputs['semantic_manifest']) if row.get('semantic_scenario_id') else None
-    if row.get('automatic_construction'):
+    if prepared_native is not None:
+        from avengine.timeline.v7_prepared_native_delivery import scene_inputs
+        row,working,base,program,assets=scene_inputs(prepared_native,row)
+    elif row.get('joint_prepared_scene_required'):
+        raise ValueError('live prepared native world required; solve again rather than rebuild')
+    elif row.get('automatic_construction'):
         from avengine.timeline.v7_family_clock import build_constructed_scene
         working,base,program,assets=build_constructed_scene(row,house,source_admission['records'],catalog,semantic)
     else:
         working,base,program,assets=build_visible_scene(row,house,source_admission['records'],catalog,semantic)
-    if row.get('phase2_authored_speech_schedule_s') and not row.get('automatic_construction'):
+    if prepared_native is None and row.get('phase2_authored_speech_schedule_s') and not row.get('automatic_construction'):
         from avengine.timeline.v7_conditioned_post_motion import apply_authored_post_schedule
         base,program=apply_authored_post_schedule(row,base,program,assets)
     from avengine.timeline.v7_production_inputs import bind_semantic_registry
@@ -145,7 +150,7 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         return {**delivered,'resumed':True}
     def render(attempt):
         from avengine.timeline.v7_native_resource_slots import acquire_native_resource
-        template_visual_lease=acquire_native_resource('template_visual') if row.get('motion_quartet_template_revision') else None
+        template_visual_lease=acquire_native_resource('template_visual') if prepared_native is None and row.get('motion_quartet_template_revision') else None
         from avengine.timeline.v7_material_quality_fallback import recover_complete_native_attempt,qualify_missing_materials
         recovered=recover_complete_native_attempt(root,attempt,base,assets,native_checks)
         if recovered is not None:return recovered
@@ -179,12 +184,17 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         check_write(attempt,expected_bytes=200_000_000)
         material_cache=Path(inputs.get('source_material_cache_directory',root/'source_material_cache'))
         check_write(material_cache,expected_bytes=64_000_000)
-        native_scene=deepcopy(base)
-        video=NativeVisibleVideo(working,native_scene,inputs,assets,source_material_cache_directory=material_cache)
+        native_scene=base if prepared_native is not None else deepcopy(base)
+        if prepared_native is not None:
+            from avengine.timeline.v7_prepared_native_delivery import arm_prepared_encode
+            video=arm_prepared_encode(prepared_native)
+        else:video=NativeVisibleVideo(working,native_scene,inputs,assets,source_material_cache_directory=material_cache)
         gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json');video.acoustic_position_admission=gate.check
         try:visual=video.encode(native_scene,attempt/'scene_video.mp4',collect_pixel_visibility=True)
         finally:
-            gate.close();video.close()
+            gate.close()
+            if prepared_native is not None:prepared_native.close()
+            else:video.close()
             if template_visual_lease is not None:template_visual_lease.close()
         del gate,video
         from avengine.capture.v7_native_context_recycling import release_unused_native_memory
