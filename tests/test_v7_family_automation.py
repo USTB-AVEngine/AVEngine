@@ -421,3 +421,44 @@ def test_worker_failure_log_keeps_actual_path_declared_root_and_source_traceback
         'traceback':'v7_storage_budget.py:74: check_write'})
     error=capsys.readouterr().err
     assert '/actual/cache'in error and '/declared/run'in error and 'v7_storage_budget.py:74'in error
+
+
+def test_only_actual_footstep_sources_request_shoe_emitters():
+    from avengine.capture.v7_phase2_native import requires_foot_emitters
+    scene={'sources':{'voice1':{'sound_class':'speech_playback'},'voice2':{'silent_decor':True}}}
+    assert not requires_foot_emitters(scene,'voice1')and not requires_foot_emitters(scene,'voice2')
+    scene['sources']['voice3_foot_L']={'owner_endpoint_id':'voice3','emitter_part':'foot_L','sound_class':'footsteps'}
+    assert requires_foot_emitters(scene,'voice3')and not requires_foot_emitters(scene,'voice1')
+
+
+@pytest.mark.parametrize('has_footsteps',[False,True])
+def test_speaking_walker_skips_unused_foot_gate_but_footstep_walker_keeps_unchanged_gates(monkeypatch,has_footsteps):
+    import numpy as np
+    from types import SimpleNamespace
+    from avengine.capture.v7_phase2_native import NativePhase2Video
+    from avengine.capture.v7_visible_native import NativeVisibleVideo
+    from avengine.capture import v7_visible_mesh
+    monkeypatch.setattr(NativeVisibleVideo,'_apply_motion_entry',lambda *args:{'body_to_world_m':np.eye(4).tolist()})
+    # No original vertex satisfies the existing 50mm/2mm surface predicate.
+    monkeypatch.setattr(v7_visible_mesh,'indexed_static_mesh',lambda path:SimpleNamespace(vertices=np.array([[0.,0.,0.]])))
+    entry={'declaration':{'silent_decor':False},'phase2_required_foot_emitters':has_footsteps,
+        'motion_episode':{'source_frames':[{'mouth_m':[0.,1.4,0.],'feet':{'L':{'sole_local_m':[0.,0.,0.]}}}],
+            'pose_glbs':['registered_original_pose.glb']}}
+    video=object.__new__(NativePhase2Video)
+    if has_footsteps:
+        with pytest.raises(ValueError,match='unchanged 50mm and 2mm gates'):video._apply_motion_entry(entry,0)
+    else:
+        row=video._apply_motion_entry(entry,0)
+        assert row['emitter_local_m_frame']==[0.,1.4,0.]
+        assert row['native_emitter_present']is True and row['attached_emitter_readbacks']==[]
+
+
+@pytest.mark.parametrize('key',['recorded_program','program'])
+def test_real_native_program_schema_drives_actual_authored_voice_rotation(key):
+    from tools.timeline.generate_v7_demand_scenes import authored_voice_ids
+    recipe={key:{'records':[{'source_type':'author_tts','voice_reference':{'speaker_id':'p225'}},
+        {'source_type':'author_tts','voice_reference':{'speaker_id':'p234'}},
+        {'source_type':'recorded','speaker_id':'p999'},
+        {'source_type':'author_tts','voice_reference':{'speaker_id':'p225'}}]},
+        'seed_row':{'requested_voice':'never_count_a_request'}}
+    assert authored_voice_ids(recipe)==['p225','p234']

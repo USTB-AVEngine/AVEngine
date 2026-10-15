@@ -2,6 +2,15 @@
 from copy import deepcopy
 from avengine.capture.v7_visible_native import NativeVisibleVideo
 PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v15-original-chair-component-collision'
+
+
+def requires_foot_emitters(scene,endpoint):
+    return any(source.get('owner_endpoint_id')==endpoint
+        and source.get('emitter_part')in {'foot_L','foot_R'}
+        and source.get('sound_class',source.get('content_kind'))=='footsteps'
+        for source in scene.get('sources',{}).values())
+
+
 class NativePhase2Video(NativeVisibleVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
         super().__init__(house,scene,inputs,assets,**kwargs)
@@ -33,7 +42,11 @@ class NativePhase2Video(NativeVisibleVideo):
                     else 'original retained pose; explicitly marked static after route failures'))
         row['native_emitter_present']=not entry['declaration'].get('silent_decor')
         attached=[]
-        for side,foot in frame.get('feet',{}).items():
+        # Only actual footstep sources need native shoe-surface children.
+        # Speech keeps its observed mouth emitter; silent walking has none.
+        # Original floor/contact certification remains in compile_walking.
+        feet=frame.get('feet',{})if entry.get('phase2_required_foot_emitters',True)else{}
+        for side,foot in feet.items():
             if side not in {'L','R'}:continue
             if 'sole_local_m' not in foot:raise ValueError('posed original sole coordinates missing')
             sole=np.asarray(foot['sole_local_m'],float)
@@ -146,6 +159,7 @@ class NativePhase2Video(NativeVisibleVideo):
         requests=scene.get('production_scenario',{}).get('motion_requests',{})
         ep=entry['endpoint_id']
         if ep not in requests:return
+        entry['phase2_required_foot_emitters']=requires_foot_emitters(scene,ep)
         directory=Path(directory)
         floor=float(self.motion_house['room']['measured_floor_y_m'])
         scene['native_placement_candidates']=[[p['point'][0],floor+1.3,p['point'][2]] for p in (supports['floor'] if requests[ep]['action']=='sit' else supports['floor'][:256])]

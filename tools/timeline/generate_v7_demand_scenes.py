@@ -121,8 +121,8 @@ def worker(a,cfg,root):
         result['machine_compiled_cache']=str(cache)
         if result.get('status')=='passed':
             parent=Path(native['producer_result']['delivery_directory']).parent
-            actual=read(parent/'input_recipe.json').get('program',{}).get('records',[])
-            result['actual_voice_ids']=sorted({r['voice_reference']['speaker_id']for r in actual if r.get('source_type')=='author_tts'and r.get('voice_reference')})
+            result['actual_voice_ids']=authored_voice_ids(read(parent/'input_recipe.json'))
+            result['actual_voice_ids_source']=str(parent/'input_recipe.json')+'#recorded_program.records'
         if global_fingerprints(cfg)!=frozen_inputs or commit()!=a.source_commit or subprocess.check_output(['git','-C',str(W),'status','--porcelain'],text=True).strip():
             result.update(status='source_changed_not_a_frozen_rehearsal',reason='worktree or global registry changed during the unattended native attempt')
     except Exception as error:
@@ -194,6 +194,14 @@ def failure_stop(result,history):
             'action':'retain logs and receipts; fix the cause before a new batch; never kill running work'}
     return None
 
+
+
+
+def authored_voice_ids(recipe):
+    """Actual bound native audio program; seed-row requests are not counted."""
+    program=recipe.get('recorded_program',recipe.get('program',{}))
+    return sorted({record['voice_reference']['speaker_id']for record in program.get('records',[])
+        if record.get('source_type')=='author_tts'and record.get('voice_reference')})
 
 
 def log_attempt_failure(result):
