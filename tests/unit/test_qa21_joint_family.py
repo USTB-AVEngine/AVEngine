@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 import numpy as np
 import pytest
 from avengine.construction.joint.families.qa21 import (
-    REVISION, target_options, emission_mechanism, native_candidate_check,
+    REVISION, target_options, emission_mechanism, native_geometry_candidate_check as native_candidate_check,
     certify_qa21_observation, MINIMUM_TARGET_PIXELS)
 from avengine.qa.unified_catalog import normalize_episode_bundle
 from test_qa_unified_catalog import _fixture
@@ -14,7 +14,8 @@ pytestmark = pytest.mark.fast_unit
 
 def animal(aid, species, cls):
     return {'asset_id': aid, 'kind': 'animal', 'species_id': species,
-        'allowed_classes': [cls], 'attachment_surface': 'floor', 'silent_decor': False}
+        'allowed_classes': [cls], 'attachment_surface': 'floor', 'silent_decor': False,
+        'label_color': 'brown' if species == 'cat' else 'black', 'standing_registered_qualified': True}
 
 
 def test_choose_requested_actual_class_before_geometry_and_keep_inputs_unchanged():
@@ -169,3 +170,34 @@ def test_geometry_preflight_accounts_for_other_actual_body_plans():
         NS(camera=None, actors=actors, sounds=plugin.sounds)))
     assert calls and calls[0][0][0] == 'dog'
     assert any(c.name == 'qa21_visible_cat' and c.status == 'fail' for c in checks)
+
+
+def test_unlabelled_or_unqualified_mesh_cannot_be_a_qa21_target():
+    cat = animal('cat', 'cat', 'cat_meow');room = {'family': 'hm3d', 'categories': ['floor_cat']}
+    records = [{'sound_class': 'cat_meow'}]
+    assert target_options(room, [{**cat, 'label_color': None}], records, {}, {}) == []
+    assert target_options(room, [{**cat, 'standing_registered_qualified': False}], records, {}, {}) == []
+
+
+def test_native_appearance_preflight_uses_original_reviewer_and_restores_video_state():
+    from avengine.construction.joint.families.qa21 import native_appearance_check
+    asset = {'asset_id': 'cat', 'native_instance_id': 1, 'kind': 'animal',
+        'label_color': 'brown', 'registered_label_color': 'brown', 'species_id': 'cat'}
+    entry = {'declaration': asset}
+    old_colors = [{'existing': True}];old_materials = [{'existing': True}];old_actors = ['existing']
+    video = NS(actors=old_actors, color_checks=old_colors, material_checks=old_materials,
+        sim=NS(get_sensor_observations=lambda: {'rgb': np.zeros((2, 2, 4)), 'semantic': np.ones((2, 2))}),
+        animal_color_thresholds={'min_pixels': 200})
+    def measure(rgb, semantic, frame):
+        assert video.actors == [entry]
+        video.color_checks.append({'asset_id': 'cat', 'matched': True, 'frame_index': 0, 'roi_pixels': 300})
+    video._check_source_frame = measure
+    scene = {'automatic_construction': {'qa21_target_asset_ids': ['cat']}}
+    result = native_appearance_check(video, scene, [entry])
+    assert result['status'] == 'pass' and result['reviewed_target_ids'] == ['cat']
+    assert video.actors is old_actors and video.color_checks is old_colors and video.material_checks is old_materials
+    def wrong(rgb, semantic, frame):
+        video.color_checks.append({'asset_id': 'cat', 'matched': False, 'frame_index': 0, 'roi_pixels': 300})
+    video._check_source_frame = wrong
+    assert native_appearance_check(video, scene, [entry])['status'] == 'fail'
+    assert video.color_checks is old_colors
