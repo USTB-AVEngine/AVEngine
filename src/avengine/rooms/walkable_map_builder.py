@@ -166,8 +166,7 @@ def build_room_map(video, house, room, *, code_commit, output):
             levels.append(_levels(floor.original_ray, xyz+[dx, 0., dz]))
         levels = np.asarray(levels)
         support[indices] = (np.isfinite(levels).all(0) & (np.max(np.abs(levels-reference), axis=0) <= SUPPORT_TOLERANCE_M)
-                            & (np.ptp(levels, axis=0) <= NATIVE_SUPPORT_TOLERANCE_M)
-                            & (np.abs(nav_y[indices]-reference) <= NATIVE_SUPPORT_TOLERANCE_M))
+                            & (np.ptp(levels, axis=0) <= NATIVE_SUPPORT_TOLERANCE_M))
         floor_y[indices] = levels[0]
         local_span[indices] = np.ptp(levels, axis=0)
         # Read back every initially supported cell independently from the native
@@ -205,7 +204,7 @@ def build_room_map(video, house, room, *, code_commit, output):
         clear = distances.reshape(shape2) > radius+NONFLOOR_MARGIN_M+resolution/math.sqrt(2)
         layers[species] = supported & clear & (nav_clearance.reshape(shape2) >= radius+resolution/math.sqrt(2))
     sources = source_identity([stage_path(house), house['input']['navmesh_source']])
-    metadata = {'version': VERSION, 'room_id': room['room_label'], 'house_id': house['house'],
+    metadata = {'version': VERSION, 'algorithm_revision': 'native-floor-horizontal-snap-v1', 'room_id': room['room_label'], 'house_id': house['house'],
                 'family': house['family'], 'source_code_commit': code_commit,
                 'created_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'source_identity': sources, 'floor_polygon': room['floor_polygon'],
