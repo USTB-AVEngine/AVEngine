@@ -251,7 +251,8 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 entry['placement_override_m']=position;entry.pop('floor_adjustment',None)
                 try:
                     observed=self._apply_entry(entry,scene)
-                    band=scene.get('native_distance_bands_m',{}).get(entry['declaration']['asset_id'])
+                    from avengine.timeline.v7_registered_sampling import registered_distance_band
+                    band=registered_distance_band(scene,entry['endpoint_id'],entry['declaration']['asset_id'])
                     if band is not None:
                         distance=float(np.linalg.norm((np.asarray(observed['emitter_position_m'])-np.asarray(scene['listener_m']))[[0,2]]))
                         if not band[0]<=distance<=band[1]:

@@ -47,7 +47,7 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
             'visible_asset_ids':[ids[0],ids[1],*([ids[3]]if include_silent_bystander else[])],'all_waveforms_author_tts':True,'all_waveforms_complete':True,
             'speaker_count_whole_world':3,'audio_only_points':0,'first_sounding_view_requested':'outside'})
     if include_silent_bystander:
-        row['native_distance_bands_m']={ids[i]:[inside[i][2]-.15,inside[i][2]+.15]for i in range(2)}
+        row['native_endpoint_distance_bands_m']={f'voice{i+1}':[inside[i][2]-.15,inside[i][2]+.15]for i in range(2)}
     row['automatic_construction'].update(family='V7-CONTENT-BIND',constructor='construct_pure_tts_offscreen_quartet',required_role_count=len(ids))
     _request(row,state,'V7-CONTENT-BIND')
     row=plan_registered_content_demand(row,state,actual,semantic)
