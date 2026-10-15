@@ -54,6 +54,13 @@ def proposal_score(scene, entry, support_root, placed):
     return (not metrics['foreground'],abs(metrics['lateral_m']-.20),abs(metrics['depth_fraction']-.55))
 
 
+def matches_partial_layout_request(mask_truth,occluder_frame,expected_id,minimum_fraction=0.):
+    return (mask_truth['state']=='visible_occluded'
+            and occluder_frame['occluder_instance_ids']==[str(expected_id)]
+            and occluder_frame['unknown_occluder_pixels']==0
+            and float(mask_truth['occlusion_fraction'])>=float(minimum_fraction))
+
+
 def measure_requested_relations(video,scene,entries):
     """Probe the same real masks used by final delivery, without retaining truth."""
     byid={e['declaration']['asset_id']:e for e in entries}
@@ -72,10 +79,12 @@ def measure_requested_relations(video,scene,entries):
         target=byid[relation['target_asset_id']];occluder=byid[relation['occluder_asset_id']]
         tid=str(target['declaration']['native_instance_id']);oid=str(occluder['declaration']['native_instance_id'])
         frame=next(r for r in stream.occluder_frames if r['target_instance_id']==tid)
-        state=truth['per_instance'][tid]['frames'][0]['state']
-        satisfies=(state=='visible_occluded' and frame['occluder_instance_ids']==[oid]
-                   and frame['unknown_occluder_pixels']==0)
-        observed.append({**relation,'native_state':state,**frame,'satisfies_request':satisfies})
+        mask_truth=truth['per_instance'][tid]['frames'][0]
+        state=mask_truth['state']
+        satisfies=matches_partial_layout_request(mask_truth,frame,oid,
+            relation.get('minimum_occluded_fraction',0.))
+        observed.append({**relation,'native_state':state,**frame,
+            'native_mask_metrics':mask_truth,'satisfies_request':satisfies})
     return {'satisfies_request':all(r['satisfies_request'] for r in observed),
             'relations':observed,'native_control_restoration':stream.receipt(),
             'scope':'layout proposal only; final complete 450-frame stream independently measured'}
