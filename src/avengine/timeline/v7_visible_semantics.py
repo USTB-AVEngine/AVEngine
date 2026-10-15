@@ -10,5 +10,6 @@ def visible_dialogue_evidence(scene,program,receipt,visual,manifest,start,retain
     subset=deepcopy(visual)
     for f in subset['frames']:f['actors']=[a for a in f['actors'] if a['actor_id'] in ids]
     proof=dialogue_evidence(scene,program,receipt,subset,manifest,start,retained_visual)
-    proof['native_dialogue_evidence']['registry_scope']='actual authored-speaking humans only; other registered objects/animals remain in the complete raw native evidence and independent binding audit'
+    if proof.get('native_dialogue_evidence')is not None:
+        proof['native_dialogue_evidence']['registry_scope']='actual authored-speaking humans only; other registered objects/animals remain in the complete raw native evidence and independent binding audit'
     return proof
