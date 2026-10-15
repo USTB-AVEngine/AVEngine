@@ -80,9 +80,9 @@ def test_view_follows_the_question_not_a_blanket_rule():
     assert proposal_view_ok(scene, 'p', side, fwd, False, required=False)
     assert not proposal_view_ok(scene, 'p', edge, fwd, False, required=False)
     e = {'declaration': {'asset_id': 'p'}}
-    assert native_pixels_ok(scene, [e], {'p': 0}, unconstrained=('p',))
-    assert native_pixels_ok(scene, [e], {'p': 250}, unconstrained=('p',))
-    assert not native_pixels_ok(scene, [e], {'p': 40}, unconstrained=('p',))             # a sliver is ambiguous
+    assert native_pixels_ok(scene, [e], {'p': 0}, unconstrained=('p',), new_entry_id='p')
+    assert native_pixels_ok(scene, [e], {'p': 250}, unconstrained=('p',), new_entry_id='p')
+    assert not native_pixels_ok(scene, [e], {'p': 40}, unconstrained=('p',), new_entry_id='p')             # a sliver is ambiguous
     assert not native_pixels_ok(scene, [e], {'p': 0})                                     # required stays required
     assert not visibility_required(scene, {'asset_id': 'p'})
     assert visibility_required({'native_view_roles': {'p': {'view': 'inside'}}}, {'asset_id': 'p'})
@@ -122,3 +122,15 @@ def test_mover_without_view_requirement_may_stay_out_of_view():
     scene['phase2_semantic_azimuth_targets_deg'] = {}
     scene['native_visibility_required_asset_ids'] = ['walker']
     assert coverage_errors(scene, assets, {}, {'walker': 0, 'stander': 12}) == ['registered entity never reached 100 native visible pixels']
+
+
+def test_an_unconstrained_body_placed_earlier_never_blocks_later_placements():
+    from avengine.capture.v7_offscreen_layout import native_pixels_ok
+    scene = {'native_view_roles': {}}
+    dog, person = {'declaration': {'asset_id': 'dog'}}, {'declaration': {'asset_id': 'p'}}
+    # the dog walked out of view (0 px); the new person is clearly visible
+    assert native_pixels_ok(scene, [dog, person], {'dog': 0, 'p': 500}, unconstrained=('dog', 'p'), new_entry_id='p')
+    # a sliver of the NEW unconstrained body is still rejected (ambiguous 'in view')
+    assert not native_pixels_ok(scene, [dog, person], {'dog': 0, 'p': 40}, unconstrained=('dog', 'p'), new_entry_id='p')
+    # a required earlier body that the new one hides still blocks it
+    assert not native_pixels_ok(scene, [dog, person], {'dog': 0, 'p': 500}, unconstrained=('p',), new_entry_id='p')

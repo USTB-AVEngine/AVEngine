@@ -337,8 +337,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             distance_target=float(scene.get('native_attachment_distance_targets_m',{}).get(a['asset_id'],2.5)) if scene.get('phase2_profile') else 2.5
             # owner 10-15: in view only when the question plan needs it (sector target, colour pair, mover, pinned
             # site, explicit role/list); everyone else stands naturally in or out of view.
-            required_view=(visibility_required(scene,a) or target is not None or bool(entry.get('motion_episode'))
+            # Movers are not required in view by default (owner 10-15); the plan marks them when a question needs it.
+            required_view=(visibility_required(scene,a) or target is not None
                 or bool(require_pair and a.get('controlled_shirt')) or pinned is not None)
+            entry['_required_view']=bool(required_view)
             dynamic_offscreen=[False]
             def candidate_score(p):
                 p=dict(p)
@@ -471,7 +473,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                         'minimum_abs_azimuth_deg':UNCONSTRAINED_OUTSIDE_AZIMUTH_DEG,'real_registered_drawable_required':True,
                         'construction':'owner 10-15: question does not require this body in view; it stands naturally off screen'}
                     dynamic_offscreen[0]=True
-                if not native_pixels_ok(scene,[*placed,entry],native_pixels,unconstrained=() if required_view else (a['asset_id'],)):
+                unconstrained_ids=tuple(e['declaration']['asset_id'] for e in [*placed,entry] if not e.get('_required_view',True))
+                if not native_pixels_ok(scene,[*placed,entry],native_pixels,unconstrained=unconstrained_ids,new_entry_id=a['asset_id']):
                     reject('actual_native_registered_or_stage_occlusion');continue
                 offscreen_proof=native_projection_proof(self,scene,entry,native_pixels.get(a['asset_id'],0))
                 if offscreen_proof is not None and offscreen_proof['status']!='pass':

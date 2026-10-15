@@ -46,9 +46,10 @@ def proposal_view_ok(scene,asset_id,delta,forward,ordinary_visible,required=True
     return ordinary_visible or abs(azimuth_degrees(delta,forward))>=UNCONSTRAINED_OUTSIDE_AZIMUTH_DEG
 
 
-def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100,unconstrained=()):
+def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100,unconstrained=(),new_entry_id=None):
     for entry in entries:
         aid=entry['declaration']['asset_id'];count=counts.get(aid,0)
+        if aid in unconstrained and aid!=new_entry_id:continue      # accepted earlier and not needed in view
         if scene.get('native_view_roles',{}).get(aid,{}).get('view')=='unconstrained_motion':
             if getattr(entry.get('object'),'object_id',None) is None:return False
             continue
