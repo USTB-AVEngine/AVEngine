@@ -18,39 +18,53 @@ def _compile_and_solve(config):
     return cm.solve_motion_windows(compiled,clock=cm.EpisodeClock(150,15.,16000),
         budget=cm.MotionBudget(**config['budget']),sounds=config['sounds'],
         registry=config['registry'],camera={'motion':'static'},
-        event_start_s=config['event_start_s'],distance_trend_criterion=config.get('distance_trend_criterion'))
+        event_start_s=config['event_start_s'],distance_trend_criterion=config.get('distance_trend_criterion'),
+        measured_wet_tail_s=config.get('measured_wet_tail_s'))
 
 
 def prepare_motion_during_row(row,catalog,records):
     """Construct an explicitly requested during-sound plan before native work."""
     requests=row.get('motion_during_condition_requests')
     if not requests or row.get('motion_during_condition_plan'):return row
-    result=deepcopy(row);byasset={a['asset_id']:a for a in catalog};byrecord={r['sound_asset_id']:r for r in records}
+    from avengine.timeline.v7_visible_sources import production_audio_record_views
+    from avengine.timeline.v7_environmental_sources import recording_header
+    result=deepcopy(row);byasset={a['asset_id']:a for a in catalog};byrecord={r['sound_asset_id']:r for r in production_audio_record_views(records)}
     instances=[];registry={'assets':[]}
     for aid in result['asset_ids']:
         asset=byasset[aid];kind='articulated_human' if asset['kind']=='human' else 'articulated_animal'
         instances.append({'entity_instance_id':aid,'asset_id':aid,'source_class':kind})
         timeline={'idle_action_id':'idle','body_plan_id':'human' if asset['kind']=='human' else 'animal','walk_phase_period_frames':30}
         if asset.get('walk_allowed'):timeline['walking_action_id']='walk'
+        admission=result.get('motion_requests',{}).get(aid,{}).get('animal_motion_admission',{})
+        if admission.get('mode')=='slide_no_animation':
+            timeline['walking_action_id']='registered_native_slide_no_animation'
+            timeline['v7_locomotion_mode']='slide_no_animation'
         registry['assets'].append({'asset_id':aid,'entity_class':kind,'timeline':timeline,
             'v7_registered_source_registry_sha256':asset.get('source_registry_sha256')})
     plans=[];motion={}
     for request in requests:
         qa=request['qa_id'];branch=request['branch'];target=request['target_asset_id']
-        if qa not in {'QA-06','QA-15'} or (qa=='QA-06' and branch!='moving'):raise ValueError('during adapter owns QA-06 moving and QA-15 only')
+        if qa not in {'QA-06','QA-15','QA-16','QA-17'} or (qa=='QA-06' and branch!='moving') or (qa=='QA-17' and branch!='yes'):raise ValueError('unsupported original motion condition branch')
         if target not in result.get('motion_requests',{}):raise ValueError('condition target lacks an admitted v7 motion request')
         sounds={};starts={}
         for aid in result['asset_ids']:
             sid=result.get('proposed_sound_asset_ids',{}).get(aid)
             if sid not in byrecord or aid in result.get('silent_asset_ids',[]):continue
-            record=byrecord[sid];header=record['header'];n=int(header['sample_count']);rate=int(header['sample_rate_hz'])
+            record=byrecord[sid]
+            if not record.get('header'):record=recording_header(record)
+            header=record['header'];n=int(header['sample_count']);rate=int(header['sample_rate_hz'])
             if rate!=16000:raise ValueError('conditioned v7 sound must retain the 16kHz source clock')
-            intervals=record['screens']['automatic_activity']['activity_intervals_samples']
+            intervals=record.get('screens',{}).get('automatic_activity',{}).get('activity_intervals_samples') or record.get('source_normalization',{}).get('measured_activity',{}).get('source_activity_intervals_samples')
             if not intervals:raise ValueError('conditioned motion needs measured source activity')
+            profile=result.get('phase2_animal_program_samples',{}).get(aid)
+            if profile:
+                begin=int(profile.get('crop_start_sample',0));n=int(profile['sample_count'])
+                if any(int(lo)<begin or int(hi)>begin+n for lo,hi in intervals):raise ValueError('planned crop would remove actual measured animal activity')
+                intervals=[[int(lo)-begin,int(hi)-begin]for lo,hi in intervals]
             count=math.ceil(n/1600)*1600
             sounds[aid]={'sound_asset_id':sid,'sample_rate_hz':rate,'sample_count':count,
                 'audible_start_sample':int(intervals[0][0]),'audible_end_sample_exclusive':int(intervals[-1][1]),
-                'source_activity_intervals_samples':intervals,'source_origin':record['path']}
+                'source_activity_intervals_samples':intervals,'source_origin':record.get('normalized_path') or record.get('path')}
             starts[aid]=float(result.get('phase2_whole_animal_recordings',{}).get(aid,
                 result.get('phase2_recorded_speech_schedule_s',{}).get(aid,[.3]))[0])
         if target not in sounds:raise ValueError('conditioned target needs a complete measured sound program')
@@ -58,6 +72,9 @@ def prepare_motion_during_row(row,catalog,records):
             'branch':branch,'instances':[{**x,'role':'anchor' if x['asset_id']==target else 'competitor'}for x in instances],
             'registry':registry,'sounds':sounds,'event_start_s':starts,
             'budget':{'walk_speed_range_mps':request.get('speed_range_m_s',[float(request['speed_m_s'])]*2),'reserve_tail_s':3.,'minimum_motion_s':float(request.get('minimum_motion_s',0.))}}
+        if qa in {'QA-16','QA-17'}:
+            config['measured_wet_tail_s']=float(request.get('wet_tail_planning_bound_s',request.get('measured_wet_tail_s',4.1)))
+            config['wet_tail_planning_provenance']='conservative configured 4s native IR plus 0.1s delay allowance; not a per-event measurement; delivered QA still uses actual measured wet support'
         if qa=='QA-15':config['distance_trend_criterion']={'net_change_at_least_m':float(request.get('minimum_distance_change_m',1.5))}
         solution=_compile_and_solve(config)
         if not solution.solved:raise ValueError('conditioned_motion rejected: '+str(solution.rejections))
@@ -70,6 +87,17 @@ def prepare_motion_during_row(row,catalog,records):
             # stable sounding interval, not a change to the compiled interval.
             intervals.append([max(0.,float(offset)+lo/15.-.3),min(30.,float(offset)+hi/15.+.3)])
         motion.setdefault(target,[]).extend(intervals)
+        target_request=result['motion_requests'][target]
+        if qa in {'QA-06','QA-15'}:
+            placement=solution.placement_for(target)
+            straight=[[float(offset)+placement.start_frame/15.,float(offset)+placement.end_frame/15.]for offset in offsets]
+            target_request.setdefault('sounding_straight_windows_s',[]).extend(straight)
+        else:
+            latest=solution.query_window['latest_query_frame_exclusive']/15.
+            earliest=solution.query_window['earliest_query_frame']/15.
+            straight=[[float(offset)+max(earliest,latest-2.05),float(offset)+latest]for offset in offsets]
+            if any(hi-lo<2.-1e-8 for lo,hi in straight):raise ValueError('construct a shorter whole recording to leave >=2 seconds beyond wet tail')
+        target_request.setdefault('straight_motion_windows_s',[]).extend(straight)
         if qa=='QA-15':
             result['motion_requests'][target]['distance_trend']='approaching' if branch=='nearer' else 'receding'
             placement=solution.placement_for(target)
@@ -84,7 +112,7 @@ def prepare_motion_during_row(row,catalog,records):
             else:merged.append([lo,hi])
         result['motion_requests'][aid]['intervals_s']=merged
     yaw=float(result['camera_yaw_deg']);result['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]
-    result['motion_during_condition_plan']={'status':'solved','owner':'motion helper QA-06/QA-15','solver':cm.solver_signature(),
+    result['motion_during_condition_plan']={'status':'solved','owner':'motion helper v3 sound and post-sound adapter','solver':cm.solver_signature(),
         'clock_mapping':'v3 150 frames at 15Hz + explicit parent offsets; original five half-overlap v7 crops',
         'static_camera_constructed':True,'plans':plans,'qa_predicates_changed':False,'native_admission_still_required':True}
     return result

@@ -72,3 +72,16 @@ def test_repaired_native_verification_keeps_original_failed_evidence(tmp_path):
     another=write_native_motion_condition_report(tmp_path,{'checks':['body root and source distance'],'status':'pass'})
     assert another!=saved and another.parent!=saved.parent
     assert another.read_bytes()==saved.read_bytes()
+
+
+@pytest.mark.parametrize('qa,branch',[('QA-16',None),('QA-17','yes')])
+def test_original_post_sound_solver_places_a_complete_two_second_straight_query(qa,branch):
+    row,assets,records=fixture(qa,branch)
+    records[0]['header']['sample_count']=38400
+    records[0]['screens']['automatic_activity']['activity_intervals_samples']=[[1600,36800]]
+    row['motion_during_condition_requests'][0].update(speed_m_s=.9,speed_range_m_s=[.8,1.4],minimum_motion_s=2.,measured_wet_tail_s=4.1)
+    out=prepare_motion_during_row(row,assets,records)
+    windows=out['motion_requests']['target']['straight_motion_windows_s']
+    assert all(hi-lo>=2. for lo,hi in windows)
+    assert min(lo for lo,_ in windows)>.3+2.3+4.1
+    assert out['motion_during_condition_plan']['plans'][0]['solution']['status']=='solved'
