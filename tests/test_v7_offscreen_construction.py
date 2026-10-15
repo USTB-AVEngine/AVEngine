@@ -77,3 +77,8 @@ def test_answer_proportion_requests_use_actual_counts_not_scene_event_quota():
 def test_ordinary_entity_view_requirement_is_retained_without_declared_outside_role():
     assert not proposal_view_ok({},'ordinary',[2,0,0],[0,0,-1],False)
     assert proposal_view_ok({'native_view_roles':{'off':{'view':'outside'}}},'off',[2,0,0],[0,0,-1],False)
+
+
+def test_acceptance_branch_feedback_is_used_directly():
+    state={'answer_branch_distribution':{'families':{'QA-08':{'answers':{'out_of_view':4,'visible_clear':6}}}}}
+    assert answer_branch_demands(state)['QA-08']['requested_branch']=='inside'

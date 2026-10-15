@@ -35,6 +35,9 @@ def build_constructed_scene(row,house,records,catalog,semantic_manifest=None):
             program['events'].append({**binding,'event_id':eid})
         scene['automatic_taxonomy_clock']={'source':'actual admitted full binding and complete companion header',
             'offset_ticks':offset,'duration_ticks':duration,'body_or_sound_kind_removed':False}
+    scene['events'].sort(key=lambda e:(e['start_tick'],e['end_tick'],e['event_id']))
+    order={e['event_id']:i for i,e in enumerate(scene['events'])}
+    program['events'].sort(key=lambda e:order.get(e['event_id'],len(order)))
     return working,scene,program,assets
 
 

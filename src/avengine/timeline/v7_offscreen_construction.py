@@ -10,6 +10,7 @@ ANSWER_TARGETS={'QA-08':('out_of_view',.25,.35),'STARSS-FRUSTUM':('out_of_frame'
 def answer_branch_demands(state):
     result={}
     tables=state.get('answer_counts',state.get('family_answer_counts',{}))
+    if not tables:tables={k:v.get('answers',{})for k,v in state.get('answer_branch_distribution',{}).get('families',{}).items()}
     for family,(answer,lower,upper)in ANSWER_TARGETS.items():
         counts=tables.get(family,{});total=sum(counts.values());outside=int(counts.get(answer,0))
         share=outside/total if total else None
@@ -64,14 +65,19 @@ def plan_offscreen_floor(ctx,off_count,seed):
 
 
 def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract,runtime,
-        *,scene_id,seed,family='QA-08',attempt=0,offscreen_people=1):
+        *,scene_id,seed,family='QA-08',attempt=0,offscreen_people=None,first_sounding_view=None):
     from avengine.timeline.v7_family_constructors import construct_family_scene,room_context,stable_seed,ConstructionUnavailable,_request
     from avengine.timeline.v7_production_inputs import asset_category,validate_recipe
     from avengine.timeline.v7_visible_sources import production_audio_record_views
-    if offscreen_people not in {1,2}:raise ValueError('one or two real offscreen people required')
     plan=construct_family_scene(room,house,state,catalog,records,semantic,contract,runtime,
         scene_id=scene_id,seed=seed,family='QA-03',attempt=attempt)
     row=plan['row'];ctx=room_context(room,house,attempt);ids=list(row['asset_ids'])
+    population=state.get('offscreen_population_request',row['scene_demand'].get('offscreen_population_request',{}))
+    if offscreen_people is None:offscreen_people=int(population.get('required_offscreen_sounding_people',1))
+    if offscreen_people not in {1,2}:raise ValueError('one or two real offscreen people required')
+    if first_sounding_view not in {None,'inside','outside'}:raise ValueError('unsupported first sounding view')
+    requested=answer_branch_demands(state).get(family,{}).get('requested_branch','outside')
+    outside_first=(first_sounding_view=='outside'if first_sounding_view else requested!='inside')
     assets={a['asset_id']:a for a in catalog};sounds={s['sound_asset_id']:s for s in semantic['sounds']}
     voices={sounds[sid]['voice_reference']['speaker_id']for sid in row['semantic_sound_ids']}
     pool=production_audio_record_views(records);usage=state.get('recording_use_counts',{});entity_usage=state.get('entity_use_counts',{})
@@ -104,20 +110,22 @@ def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract
     row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]
     # Three complete non-overlapping dry utterances per epoch. Wet activity is
     # remeasured natively; it is never assumed to end with these dry intervals.
-    row['semantic_start_offsets_s']=[0.,3.]
+    offsets=(3.,6.5)if outside_first else(0.,3.)
+    row['semantic_start_offsets_s']=list(offsets)
     row['phase2_authored_speech_schedule_s']={aid:[offset+epoch for epoch in (0.,10.,20.)]
-        for aid,offset in zip(row['semantic_human_asset_ids'],(0.,3.))}
+        for aid,offset in zip(row['semantic_human_asset_ids'],offsets)}
     row['native_view_roles']={aid:{'view':'outside','static':True,'preferred_azimuth_deg':_azimuth(p,ctx['listener_m'],yaw),
         'minimum_abs_azimuth_deg':60.,'real_registered_drawable_required':True}for aid,p in zip(extras,outside)}
     row['native_placement_preferences_m']={aid:[p[0],ctx['listener_m'][1]-1.5,p[1]]for aid,p in zip([*ids,*extras],[*inside,*outside])}
     for index,aid in enumerate(extras):
         row['source_classes'][aid]=['speech_playback'];row.setdefault('proposed_sound_asset_ids',{})[aid]=chosen_records[aid]['sound_asset_id']
-        starts=[epoch+7. for j,epoch in enumerate((0.,10.,20.))if j%offscreen_people==index]
+        starts=[epoch+(index if outside_first else 7.+index*.1)for epoch in (0.,10.,20.)]
         row.setdefault('phase2_recorded_speech_schedule_s',{})[aid]=starts
         row.setdefault('phase2_recorded_sound_ids',{})[aid]=[chosen_records[aid]['sound_asset_id']]*len(starts)
     row['automatic_construction'].update(family=family,constructor='construct_offscreen_scene',required_role_count=3+offscreen_people)
     row['offscreen_construction']={'revision':'real-offscreen-people-v1','offscreen_asset_ids':extras,
-        'visible_asset_ids':ids,'speaker_count_whole_world':2+offscreen_people,'audio_only_points':0,
+        'visible_asset_ids':ids,'speaker_count_whole_world':2+offscreen_people,
+        'first_sounding_view_requested':'outside'if outside_first else'inside','audio_only_points':0,
         'all_waveforms_complete':True,'all_people_have_one_sound_kind':True,'actual_mask_and_RIR_admission_required':True,
         'QA22_scope':'original visible-entities speaking subset; total live speakers use SPEAKERS; crossing needed for both to coincide'}
     _request(row,state,family);row['scene_demand']['answer_branch_targets']=answer_branch_demands(state)

@@ -18,6 +18,8 @@ def order_support_candidates(scene,candidates):
 def facing_yaw(scene,asset,listener,point):
     dx=float(listener[0])-float(point[0]);dz=float(listener[2])-float(point[2])
     base=math.atan2(-dx,-dz)if asset['kind']in {'human','performer','animal'}else math.atan2(-dz,dx)
+    explicit=scene.get('native_facing_offsets_deg',{}).get(asset.get('asset_id'))
+    if explicit is not None:return base+math.radians(float(explicit))
     if not(scene.get('automatic_construction')or scene.get('owner_social_layout')):return base
     offset=(0.,15.,-15.,30.)[candidate_index(scene)%4]
     from avengine.capture.v7_social_layout import is_human,varied_human_yaw_offset

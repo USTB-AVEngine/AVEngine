@@ -11,7 +11,8 @@ import hashlib,math,random,itertools
 REVISION='v7-room-family-constructors-20261015-v1'
 FAMILIES=('QA-16','QA-17','QA-13','QA-10','QA-28','QA-21','V7-CLASS34',
           'V7-CONTENT-BIND','QA-01','QA-03','QA-19','QA-26','QA-27',
-          'QA-04','QA-08','QA-20','QA-24','QA-25','STARSS-FRUSTUM')
+          'QA-04','QA-08','QA-20','QA-24','QA-25','STARSS-FRUSTUM',
+          'QA-02','QA-05','QA-07','QA-09','QA-11','QA-12','QA-14','QA-18','QA-22','QA-23','STARSS-CLASS13','STARSS-SPEAKERS')
 POST_FAMILIES={'QA-13','QA-16','QA-17'}
 
 class ConstructionUnavailable(ValueError):
@@ -146,6 +147,12 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
     from avengine.timeline.v7_production_inputs import validate_recipe
     family=family or next_family(state)
     if family not in FAMILIES:raise ConstructionUnavailable('family belongs to the separate motion/UE constructor: '+family)
+    from avengine.timeline.v7_specific_family_construction import SPECIFIC_FAMILIES,construct_specific_scene
+    if family in SPECIFIC_FAMILIES:
+        return construct_specific_scene(room,house,state,catalog,records,semantic,contract,runtime,scene_id=scene_id,seed=seed,family=family,attempt=attempt)
+    from avengine.timeline.v7_visibility_construction import VISIBILITY_FAMILIES,construct_visibility_scene
+    if family in VISIBILITY_FAMILIES:
+        return construct_visibility_scene(room,house,state,catalog,records,semantic,contract,runtime,scene_id=scene_id,seed=seed,family=family,attempt=attempt)
     from avengine.timeline.v7_offscreen_construction import OFFSCREEN_FAMILIES,construct_offscreen_scene
     if family in OFFSCREEN_FAMILIES:
         return construct_offscreen_scene(room,house,state,catalog,records,semantic,contract,runtime,scene_id=scene_id,seed=seed,family=family,attempt=attempt)

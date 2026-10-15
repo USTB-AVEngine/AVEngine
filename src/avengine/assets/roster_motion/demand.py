@@ -11,6 +11,8 @@ def matches_distance_request(positions,times,listener,request):
     if not np.isfinite(clearance)or clearance<1.5:raise ValueError('human camera construction clearance must be at least 1.5m')
     radii=np.linalg.norm(points[:,[0,2]]-listener[[0,2]],axis=1)
     if np.any(radii+1e-9<clearance):return False
+    from avengine.capture.v7_camera_path_proposals import matches_camera_path
+    if not matches_camera_path(positions,times,listener,request):return False
     trend=request.get('distance_trend')
     if trend is None:return True
     if trend not in {'approaching','receding'}:raise ValueError('unsupported demanded distance trend')
