@@ -170,7 +170,7 @@ class NativeVisibilityStream:
 
     def receipt(self):
         return {'mode':'native_same_context_OBJECTS_ONLY_target_pass','published_RGB_scene':'retained admitted house',
-            'compute_device':'CPU','root_max_error':self.root_max_error,'joint_max_error':self.joint_max_error,
+            'compute_device':getattr(self.primary,'receipt',{}).get('compute_device','CPU'),'root_max_error':self.root_max_error,'joint_max_error':self.joint_max_error,
             'camera_max_error':self.camera_max_error,'link_max_error':self.link_max_error,
             'rendered_native_masks':self.rendered_target_masks,'exact_pose_reused_masks':self.reused_target_masks,
             'restored_modal_RGB_depth_semantic_frames':self.restored_modal_frames,
