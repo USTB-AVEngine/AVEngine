@@ -23,6 +23,9 @@ TARGET_GROUPS = (
 )
 CONDITION_FAMILIES = {
     'walking_human': ['QA-06','QA-13','QA-15','QA-16','QA-17'],
+    'actual_contact_bound_human_footsteps': ['QA-06','QA-19','QA-23'],
+    'static_speaking_human': ['QA-06','QA-17'],
+    'unique_silent_same_type_bystanders': ['QA-01','QA-02','QA-14'],
     'distance_trend_during_sound': ['QA-15'],
     'moving_after_source_and_wet_tail_stop': ['QA-13','QA-16','QA-17'],
     'moving_animal': ['QA-06','QA-13','QA-15','QA-16','QA-17'],
@@ -35,6 +38,18 @@ CONDITION_FAMILIES = {
     'admitted_source_taxonomy': ['QA-21','STARSS-CLASS13','V7-CLASS34'],
     'source_direction_and_frustum': ['QA-04','QA-25','STARSS-FRUSTUM','QA-08','QA-09'],
 }
+
+def requested_question_families(demand):
+    """Resolve known condition extensions alongside a retained recipe's map.
+
+    The saved map keeps its meanings; newly registered conditions need not
+    rewrite an already rendered recipe. Unknown conditions still fail rather
+    than silently dropping a requested family. This is coverage metadata only.
+    """
+    mapping = {**CONDITION_FAMILIES, **demand['condition_families']}
+    return {family for condition in demand['requested_conditions']
+            for family in mapping[condition]}
+
 
 FAMILY_SCENE_REQUIREMENTS = {'QA-01': {'title_zh': '外观→是否发声',
            'conditions': ['unique_reviewed_appearance', 'silent_same_type_bystander', 'speaking_actor']},
