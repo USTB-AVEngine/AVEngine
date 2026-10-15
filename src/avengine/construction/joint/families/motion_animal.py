@@ -437,13 +437,8 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
             def oracle(ctx,req,plan):
                 from avengine.timeline.v7_production_inputs import attach_runtime_contract
                 row_factory=lambda selected:attach_runtime_contract(deepcopy(selected.metadata['row']),runtime)
-                def family_check(video,scene,entries):
-                    checks=animal_native_checks(video,scene,entries,plan=plan,row=plan.metadata['row'])
-                    if any(check.status!='pass'for check in checks):return checks
-                    from avengine.assets.animal_motion.native_preflight import animal_acoustic_preflight
-                    acoustics=output/'native_acoustics';acoustics.mkdir(parents=True,exist_ok=True)
-                    directory=Path(tempfile.mkdtemp(prefix='candidate_',dir=acoustics));directory.rmdir()
-                    return checks+animal_acoustic_preflight(video,scene,entries,runtime,directory)
+                family_check=lambda video,scene,entries:animal_native_checks(video,scene,entries,
+                    plan=plan,row=plan.metadata['row'])
                 return prepare_native(ctx,req,plan,row_factory=row_factory,house=house,catalog=catalog,
                     records=records,semantic=semantic,runtime=runtime,output_dir=output/'native_preparations',
                     family_check=family_check,roles=plan.metadata['roles'])
