@@ -25,3 +25,16 @@ def test_partial_or_contact_failed_reference_cannot_be_reused(tmp_path):
 def test_a_moving_reference_cannot_be_used_as_one_static_counterfactual_pose(tmp_path):
     path,data,target=fixture(tmp_path);data['frames'][-1]['actors'][2]['position_m'][0]+=.1;path.write_text(json.dumps(data))
     with pytest.raises(ValueError,match='actually static'):completed_shared_standing(tmp_path,target)
+
+
+def test_required_physical_dog_is_not_mistaken_for_a_fourth_standing_human(tmp_path):
+    path,data,target=fixture(tmp_path)
+    dog={'endpoint_id':'environment1','asset_id':'required_native_dog','position_m':[5.,0.,-4.],
+         'native_support_floor_y_m':0.,'source_geometry_present':True}
+    for frame in data['frames']:frame['actors'].append(copy.deepcopy(dog))
+    path.write_text(json.dumps(data));before=path.read_bytes()
+    result=completed_shared_standing(tmp_path,target)
+    assert set(result['actors'])=={'voice1','voice2','voice3'}
+    assert result['current_native_contact_collision_visibility_and_acoustics_must_rerun']
+    assert path.read_bytes()==before
+    assert all(any(a.get('asset_id')=='required_native_dog'for a in frame['actors'])for frame in json.loads(path.read_text())['frames'])
