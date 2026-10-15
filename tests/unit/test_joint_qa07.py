@@ -144,3 +144,34 @@ def test_native_probe_restores_original_pose_when_capture_raises(monkeypatch):
     with pytest.raises(ValueError, match="native probe failure"):
         native_entry_preflight(video, scene, [entry])
     assert calls == [0, 0, "closed"]
+
+
+@pytest.mark.parametrize("length", [1.5, 2.3, 3.5, 5.])
+def test_entry_timing_keeps_the_complete_stop_away_from_crop_boundary(length):
+    from avengine.construction.joint.families.qa07 import entry_timing
+    timing = entry_timing(length, 1.05)
+    assert timing["start_s"] >= .75
+    assert timing["requested_interval_s"][1] == pytest.approx(7.62)
+    assert timing["latest_reserved_stop_s"] < 9.
+    assert timing["start_s"]+length/1.05+.25 == pytest.approx(7.6)
+
+
+def test_proxy_lower_bound_zero_does_not_discard_named_inner_proxy_evidence():
+    from types import SimpleNamespace
+    from avengine.construction.joint import ActorPlan, BodySpec, CameraPose, FamilyRequest, ScenePlan
+    from avengine.construction.joint.geometry import VisibilityPrediction, framing
+    from avengine.construction.joint.families.qa07 import QA07Plugin
+    camera = CameraPose((0., 1.25, 0.), 0., width=1280, height=720)
+    weight = np.clip((np.arange(901)/30-3)/3, 0, 1)
+    roots = np.c_[-5.+3.*weight, np.zeros(901), np.full(901, -4.)]
+    body = BodySpec("human", .35, 1.9, .05)
+    actor = ActorPlan("target", roots, body)
+    def predict(camera, root, body, **kwargs):
+        return VisibilityPrediction(
+            "out_of_view" if framing(camera, root, body)[0] == "outside" else "visible_clear",
+            visible_pixels_lower=0, evidence={"inner_proxy_visible_pixels": 10000})
+    checks = list(QA07Plugin({"target": body}).verify(SimpleNamespace(predict=predict),
+        FamilyRequest("QA-07", "left", ("target",)), ScenePlan(camera, {"target": actor})))
+    assert all(c.status == "pass" for c in checks)
+    assert checks[-1].evidence["final_inner_proxy_pixels"] == 10000
+    assert checks[-1].evidence["native_preflight_required"] is True

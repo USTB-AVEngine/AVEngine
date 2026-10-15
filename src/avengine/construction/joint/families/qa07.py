@@ -118,6 +118,26 @@ def tangent_entry_anchors(camera_m, endpoint_m, side: str, *,
     }
 
 
+
+def entry_timing(length_m: float, speed_m_s: float, *, stop_s: float = 7.6,
+                 gait_extension_reserve_m: float = .65) -> dict:
+    """Put the completed entry away from half-overlapping crop boundaries.
+
+    An entry that stops just after t=5 can leave a crop containing only a slow
+    deceleration sliver. Solve the start from length instead: the requested
+    finish is near t=7.6, leaving room for complete-step fitting and a stable
+    first-window entry witness, and real locomotion inside the t=5 crop.
+    """
+    if not math.isfinite(length_m) or length_m <= 0 or not .8 <= speed_m_s <= 1.4:
+        raise ValueError("entry timing needs positive length and legal human speed")
+    start = stop_s-length_m/speed_m_s-.25
+    latest = stop_s+.02+gait_extension_reserve_m/speed_m_s+1/30.
+    if start < .75 or latest > 9.:
+        raise ValueError("entry route cannot fit an outside pause and stable first-window finish")
+    return {"start_s": start, "requested_interval_s": [start, stop_s+.02],
+            "nominal_stop_s": stop_s, "latest_reserved_stop_s": latest,
+            "complete_step_time_is_revalidated_natively": True}
+
 def entry_prediction_certificate(frames: Sequence[Mapping], resolution_hw, side: str,
                                  *, fps: float = 15., minimum_stable_s: float = .6,
                                  minimum_outside_s: float = .5,
@@ -370,7 +390,6 @@ class QA07Plugin:
         bystanders = [aid for aid in self.bodies if aid != target]
         speed = float(request.options.get("speed_m_s", 1.05))
         reserve = float(request.options.get("gait_extension_reserve_m", .65))
-        start_s = 3.
         emitted = 0
         seen_cameras = set()
         for original_camera in context.cameras:
@@ -406,22 +425,40 @@ class QA07Plugin:
                         if (np.linalg.norm(point[[0, 2]]-np.array(position)[[0, 2]]) < 1.6
                                 or line.distance(Point(*point[[0, 2]])) < 1.15):
                             continue
-                        if all(framing(camera, point, self.bodies[aid])[0] == "inside" for aid in bystanders):
+                        views = [framing(camera, point, self.bodies[aid])[0] for aid in bystanders]
+                        if "edge" not in views:
                             delta = point-np.asarray(position)
                             angle = math.degrees(math.atan2(float(delta@camera.right), float(delta@camera.forward)))
-                            options.append((abs(angle+SIDES[request.branch]*17.), point))
+                            # Only the requested moving target needs to enter.
+                            # Keep every companion real, wholly in or out, and
+                            # reserve its space before native motion compilation.
+                            options.append(((0 if views[0] == "outside" else 1,
+                                             abs(abs(angle)-105.) if views[0] == "outside" else abs(angle+SIDES[request.branch]*17.)), point))
                     options.sort(key=lambda item: item[0])
                     selected = []
                     for _, point in options:
-                        if all(np.linalg.norm((point-other)[[0, 2]]) >= 1.1 for other in selected):
-                            selected.append(point)
-                            if len(selected) == len(bystanders):
-                                break
+                        if not all(np.linalg.norm((point-other)[[0, 2]]) >= 1.1 for other in selected):
+                            continue
+                        if selected:
+                            a = np.asarray(anchors["start_m"])[[0, 2]]
+                            b = selected[0][[0, 2]]
+                            delta = point[[0, 2]]-a
+                            baseline = b-a
+                            area = abs(float(baseline[0]*delta[1]-baseline[1]*delta[0]))
+                            if area/max(1e-9, float(np.linalg.norm(baseline))) < .4:
+                                continue
+                        selected.append(point)
+                        if len(selected) == len(bystanders):
+                            break
                     if len(selected) != len(bystanders):
                         continue
                     try:
+                        timing = entry_timing(anchors["planning_length_m"], speed, gait_extension_reserve_m=reserve)
+                    except ValueError:
+                        continue
+                    try:
                         mover = construct_route(context, [anchors["start_m"], anchors["endpoint_m"]],
-                                                species="human", speed_m_s=speed, start_s=start_s,
+                                                species="human", speed_m_s=speed, start_s=timing["start_s"],
                                                 camera=camera, entity_id=target)
                     except ConstructionError:
                         continue
@@ -432,9 +469,11 @@ class QA07Plugin:
                     anchors.update(room_id=context.room.get("room_label", context.room.get("room_id")),
                                    walkable_map_path=getattr(context.walkable_map, "path", None),
                                    native_gait_extension_reserve_m=reserve,
-                                   speed_m_s=speed, native_preflight_required=True)
+                                   speed_m_s=speed, motion_interval_s=timing["requested_interval_s"],
+                                   timing=timing, native_preflight_required=True)
                     yield ScenePlan(camera, actors, metadata={
                         "joint_entry_route": anchors,
+                        "rest_views": {aid: framing(camera, actor.positions_m[0], actor.body)[0] for aid, actor in actors.items()},
                         "native_entry_preflight_required": True,
                         "planning_prediction_is_not_pixel_truth": True})
                     emitted += 1
@@ -477,11 +516,15 @@ class QA07Plugin:
                           margin=margin, evidence={"branch": request.branch, "all_projected_body_points_on_side": margin >= 8.})
         outside = sum(p.state == "out_of_view" for p in predictions[:45])
         end = predictions[-1]
-        ready = outside >= 8 and end.state in {"visible_clear", "visible_occluded"} and end.visible_pixels_lower >= 200
+        # Core deliberately reports zero for a real-silhouette lower bound
+        # from a proxy. The inner cylinder count is separately named evidence.
+        # It is a construction preference, followed by actual native masks.
+        proxy_pixels = int(end.evidence.get("inner_proxy_visible_pixels", 0))
+        ready = outside >= 8 and end.state in {"visible_clear", "visible_occluded"} and proxy_pixels >= 200
         yield CheckResult("entry_geometry_with_pixel_margin", "pass" if ready else "fail",
                           evidence={"initial_outside_samples": outside,
                                     "final_state": end.state,
-                                    "final_inner_proxy_pixels": end.visible_pixels_lower,
+                                    "final_inner_proxy_pixels": proxy_pixels,
                                     "unknown_prediction_samples": sum(p.state == "unknown" for p in predictions),
                                     "native_preflight_required": True,
                                     "lower_pixels_are_inner_proxy_only": True})
@@ -514,7 +557,7 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     request = FamilyRequest("QA-07", side, (target,), {"speed_m_s": 1.05, "candidate_limit": 32})
     with build_room_context(actual_room, house=house, runtime=runtime,
                             cache_dir=runtime.get("joint_cache_directory"),
-                            camera_limit=24, grid_step_m=.3, camera_heights_m=[1.25],
+                            camera_limit=72, grid_step_m=.3, camera_heights_m=[1.25],
                             width=1280, height=720) as context:
         solved = solve(context, request, QA07Plugin(bodies), budget_s=120., max_candidates=32)
     if solved.status != "certified" or solved.plan is None:
@@ -532,16 +575,24 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     start_delta = np.asarray(route["start_m"])-np.asarray(route["listener_m"])
     angle = abs(math.degrees(math.atan2(float(start_delta@np.asarray(route["camera_right"])),
                                         float(start_delta@np.asarray(route["camera_forward"])))))
-    row["native_view_roles"] = {aid: {"view": "inside", "static": True} for aid in row["asset_ids"] if aid != target}
+    row["native_view_roles"] = {}
+    for aid, actor in plan.actors.items():
+        if aid == target:
+            continue
+        view = plan.metadata["rest_views"][aid]
+        role = {"view": view, "static": True}
+        if view == "outside":
+            delta = actor.positions_m[0]-np.asarray(plan.camera.position_m)
+            azimuth = math.degrees(math.atan2(float(delta@plan.camera.right), float(delta@plan.camera.forward)))
+            role.update(minimum_abs_azimuth_deg=max(0., abs(azimuth)-1.),
+                        preferred_azimuth_deg=azimuth, real_registered_drawable_required=True)
+        row["native_view_roles"][aid] = role
     row["native_view_roles"][target] = {"view": "outside", "static": False, "required_visible_sometime": True,
         "minimum_abs_azimuth_deg": angle-1., "preferred_azimuth_deg": SIDES[side]*angle,
         "real_registered_drawable_required": True}
     speed = route["speed_m_s"]
-    end_s = 3. + route["planning_length_m"]/speed + .27
-    if end_s >= 8.5:
-        raise ConstructionUnavailable("QA-07 complete entry needs a longer first query window")
     row["motion_requests"] = {target: {"action": "walk", "speed_m_s": speed,
-        "intervals_s": [[3., end_s]], "minimum_listener_horizontal_distance_m": 1.5,
+        "intervals_s": [route["motion_interval_s"]], "minimum_listener_horizontal_distance_m": 1.5,
         "joint_entry_route": route,
         "camera_path_condition": {"kind": "enter", "camera_forward": route["camera_forward"],
             "required_entry_side": SIDES[side], "initial_outside_minimum_abs_deg": angle-1.,
