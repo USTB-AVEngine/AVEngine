@@ -264,12 +264,32 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                         if not band[0]<=distance<=band[1]:
                             attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'reason':'requested_visual_distance_witness_band','measured_m':distance,'requested_band_m':band})
                             continue
+                    relation_failed=False
+                    for relation in scene.get('native_minimum_endpoint_distance_gaps',[]):
+                        if entry['endpoint_id']not in relation['endpoints']:continue
+                        for other in placed:
+                            if other['endpoint_id']not in relation['endpoints']:continue
+                            previous=self._apply_entry(other,scene)['emitter_position_m']
+                            listener=np.asarray(scene['listener_m'])
+                            gap=abs(np.linalg.norm(np.asarray(observed['emitter_position_m'])-listener)-np.linalg.norm(np.asarray(previous)-listener))
+                            if gap<relation['minimum_difference_m']:
+                                relation_failed=True
+                                attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'reason':'actual_visual_distance_witness_gap','measured_gap_m':float(gap),'requested_gap_m':relation['minimum_difference_m']})
+                    if relation_failed:continue
                     entry['resolved_root_m']=entry['applied_root_input'][:3,3].copy()
                     from avengine.capture.v7_social_layout import spacing_violation
                     if spacing_violation(scene,entry['declaration'],entry['resolved_root_m'],placed) is not None:continue
                     from avengine.capture.v7_offscreen_layout import native_pixels_ok,native_projection_proof
                     counts,_=self._native_observed_pixels(scene,[*placed,entry])
                     if not native_pixels_ok(scene,[*placed,entry],counts):continue
+                    if scene.get('native_require_complete_visible_bodies'):
+                        from avengine.capture.v7_offscreen_layout import offscreen_role
+                        if not offscreen_role(scene,entry['declaration']['asset_id']):
+                            from avengine.construction.joint.native import native_rest_framing
+                            framing=native_rest_framing(self,entry)
+                            if framing['state']!='inside':
+                                attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'reason':'requested_complete_visible_body','observed_framing':framing})
+                                continue
                     offscreen=native_projection_proof(self,scene,entry,counts[entry['declaration']['asset_id']])
                     if offscreen is not None and offscreen['status']!='pass':continue
                     check=self._probe_entry(entry,directory)
