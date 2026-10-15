@@ -9,6 +9,16 @@ from __future__ import annotations
 import json,os,shutil,time,datetime
 from pathlib import Path
 
+def launch_minimum_free_bytes(policy=None, now=None):
+    """Read a time-limited task launch override; running writes are separate."""
+    policy=policy or {}
+    current=now or datetime.datetime.now(datetime.timezone.utc)
+    expiry=policy.get('expires_utc')
+    if expiry and current>=datetime.datetime.fromisoformat(expiry.replace('Z','+00:00')):
+        return int(policy.get('after_expiry_minimum_free_bytes',100_000_000_000))
+    return int(policy.get('minimum_free_bytes',100_000_000_000))
+
+
 ENV_KEY="AVENGINE_V7_STORAGE_BUDGET"
 TEMP_HEADROOM_UNTIL=datetime.datetime(2026,10,15,4,30,tzinfo=datetime.timezone.utc)
 ACCEPTANCE_ROOT_NAMES=frozenset({'v7_acceptance_20261015','v7_gap_motion_20261015','v7_gap_demand_20261015','v7_gap_kujiale_20261015'})
