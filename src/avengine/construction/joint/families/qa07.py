@@ -425,6 +425,39 @@ def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, fir
     return result
 
 
+def entry_stage_seed_preview(context, camera, actor):
+    """Screen the same edge obligation before a seed consumes the camera beam.
+
+    This is only a necessary subset of the later complete family prediction.
+    Every exported candidate still gets all-frame prediction and native masks.
+    """
+    from avengine.construction.joint.geometry import framing
+    roots = actor.positions_m[:300:2]
+    frames = [framing(camera, root, actor.body)[0] for root in roots]
+    inside = next((i for i, state in enumerate(frames) if state == "inside"), None)
+    if inside is None:
+        return False
+    first = next((i for i, state in enumerate(frames) if state != "outside"), None)
+    if first is None:
+        return False
+    predictions = {}
+    def predict(index):
+        if index not in predictions:
+            predictions[index] = context.predict(camera, roots[index], actor.body)
+        return predictions[index]
+    while first <= inside and not predict(first).evidence.get("target_proxy_pixels"):
+        first += 1
+    if first > inside:
+        return False
+    samples = {first, min(inside, first+5), inside, min(len(roots)-1, inside+10)}
+    for index in samples:
+        value = predict(index)
+        if (value.state not in {"visible_clear", "visible_occluded"}
+                or value.occluded_fraction is None or value.occluded_fraction > .02):
+            return False
+    return True
+
+
 class QA07Plugin:
     """Family-specific side-plane construction using the shared room/route core."""
 
@@ -437,6 +470,7 @@ class QA07Plugin:
         self.clock_evaluator = clock_evaluator
         self._static_meshes = {}
         self.silent_target = bool(silent_target)
+        self.seed_diagnostics = {"stage_previews": 0, "stage_preview_rejected": 0}
 
     def candidates(self, context, request):
         from copy import copy
@@ -480,15 +514,16 @@ class QA07Plugin:
                 continue
             seen_cameras.add(position)
             per_camera = 0
+            camera_previews = 0
             distances = np.linalg.norm(points[:, [0, 2]]-np.asarray(position)[[0, 2]], axis=1)
             for index in np.argsort(np.abs(distances-3.8), kind="stable")[:600]:
-                if per_camera >= 4:
+                if per_camera >= 1 or camera_previews >= 16:
                     break
                 if not 3.1 <= distances[index] <= 7.:
                     continue
                 endpoint = points[index]
                 for theta in (26., 30., 22.):
-                    if per_camera >= 4:
+                    if per_camera >= 1 or camera_previews >= 16:
                         break
                     try:
                         anchors = tangent_entry_anchors(position, endpoint-[0., body.margin_m, 0.],
@@ -527,6 +562,13 @@ class QA07Plugin:
                     except ConstructionError:
                         continue
                     if framing(camera, mover.positions_m[0], body)[0] != "outside" or framing(camera, mover.positions_m[-1], body)[0] != "inside":
+                        continue
+                    if self.seed_diagnostics["stage_previews"] >= int(request.options.get("seed_preview_limit", 512)):
+                        return
+                    self.seed_diagnostics["stage_previews"] += 1
+                    camera_previews += 1
+                    if not entry_stage_seed_preview(context, camera, mover):
+                        self.seed_diagnostics["stage_preview_rejected"] += 1
                         continue
                     mover.metadata["admitted_gait_clock_certificate"] = clock["certificate"]
                     mover.metadata["admitted_gait_source"] = clock["source_lineage"]
@@ -731,6 +773,16 @@ def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtim
         planned_sound_events=[asdict(event) for event in plan.sounds],
         sound_schedule_starts_s=plan.metadata["sound_schedule_starts_s"],
         actual_source_clock_solved_before_native=True)
+    # Entry is certified in the first complete 10-second window. The original
+    # producer supports a subset of crops while rendering/checking all 30s.
+    if runtime is not None and runtime.get("qa07_entry_window_only", True):
+        row["acceptance_window_starts_s"] = [0.]
+        row["window_count"] = 1
+        row["automatic_construction"]["delivery_scope"] = {
+            "window_start_s": 0., "window_duration_s": 10.,
+            "complete_native_world_duration_s": 30.,
+            "full_901_pose_physics_required": True,
+            "same_entry_in_overlapping_crops_is_not_another_question": True}
     row["joint_prepared_scene_required"] = True
     row = prepare_scene_motion(row, catalog)
     _request(row, state, "QA-07")
@@ -825,6 +877,12 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
         solved = solve(context, request, plugin, prepare_and_verify=oracle,
                        budget_s=float(runtime.get("qa07_solve_budget_s", 900.)),
                        max_candidates=128, max_native_preparations=3)
+    solved.diagnostics["family_seed_search"] = dict(plugin.seed_diagnostics)
+    from avengine.timeline.continuous_pilot import write_json
+    directory.mkdir(parents=True, exist_ok=True)
+    write_json(directory/"joint_solve_result.json", {
+        "status": solved.status, "reasons": list(solved.reasons),
+        "diagnostics": solved.diagnostics, "formal_export_completed": False})
     if solved.status != "certified" or solved.plan is None or solved.prepared is None:
         raise ConstructionUnavailable("QA-07 strict joint construction " + solved.status + ": " + "; ".join(solved.reasons))
     prepared = solved.prepared.payload

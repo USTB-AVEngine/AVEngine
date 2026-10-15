@@ -335,3 +335,19 @@ def test_silent_walker_has_no_moving_audio_negative_control_obligation():
     scene["events"].append({"endpoint_id": "moving"})
     checks = list(native_entry_counterfactual_checks(video, scene))
     assert len(checks) == 1 and checks[0].status == "fail"
+
+
+def test_obstructed_stage_entry_does_not_spend_the_companion_layout_beam():
+    from types import SimpleNamespace
+    from avengine.construction.joint import BodySpec, CameraPose, ActorPlan
+    from avengine.construction.joint.geometry import DepthBuffer, predict_visibility
+    from avengine.construction.joint.families.qa07 import entry_stage_seed_preview
+    camera = CameraPose((0., 1.25, 0.), 0., width=640, height=360)
+    weight = np.clip((np.arange(901)/30-3)/3, 0, 1)
+    roots = np.c_[-5.+3.*weight, np.zeros(901), np.full(901, -4.)]
+    actor = ActorPlan("moving", roots, BodySpec("human", .35, 1.9, .05))
+    for depth_value, expected in [(np.inf, True), (1., False)]:
+        depth = DepthBuffer(camera, np.full((camera.height, camera.width), depth_value))
+        context = SimpleNamespace(predict=lambda cam, root, body:
+            predict_visibility(cam, root, body, depth=depth))
+        assert entry_stage_seed_preview(context, camera, actor) is expected
