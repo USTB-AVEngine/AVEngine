@@ -23,3 +23,19 @@ __all__ += ["MeshInstance", "raster_mesh_depth", "predict_mesh_visibility"]
 
 from .scheduling import SoundRequirement, ScheduleResult, schedule_sound_events
 __all__ += ["SoundRequirement", "ScheduleResult", "schedule_sound_events"]
+
+from .geometry import framing_vertices
+from .native import strict_native_bindings, native_world_vertices, native_rest_framing, native_static_checks
+__all__ += ["framing_vertices", "strict_native_bindings", "native_world_vertices", "native_rest_framing", "native_static_checks"]
+
+from .types import PreparedCandidate
+__all__ += ["PreparedCandidate"]
+
+from .native import PreparedStaticScene, prepare_static_native
+__all__ += ["PreparedStaticScene", "prepare_static_native"]
+
+from .routes import bind_distance_clock, straight_then_arc, repeat_bouts
+__all__ += ["bind_distance_clock", "straight_then_arc", "repeat_bouts"]
+
+from .native import PreparedNativeScene, native_plan_checks, prepare_native
+__all__ += ["PreparedNativeScene", "native_plan_checks", "prepare_native"]

@@ -258,3 +258,138 @@ def construct_route(context, waypoints_m, *, species="human", speed_m_s=1., star
                      {"route_length_m": total, "walk_intervals_s": intervals, "speed_m_s": speed_m_s,
                       "ramp_s": .3, "waypoints_m": points.tolist(), "dwell_s": dwell.tolist(),
                       "validation": validation, "clock": {"fps": fps, "duration_s": duration_s}})
+
+
+def bind_distance_clock(context, distance_m, *, origin_m, heading_rad, species="human",
+                        corner=None, camera=None, entity_id="target", body=None, fps=30., ramp_s=.5):
+    """Bind an already admitted cumulative clock to one straight/rounded path.
+
+    corner=(start_distance_m, radius_m, signed_turn_rad), as in the existing
+    native straight_route parameterization. No time/distance rescaling or native
+    replanning occurs. Call certify_plan for the full multi-entity obligations.
+    """
+    from avengine.assets.roster_motion.straight_route import _shape_xy
+    distance=np.asarray(distance_m,float)
+    origin=np.asarray(origin_m,float)
+    if (distance.ndim!=1 or len(distance)<2 or not np.isfinite(distance).all()
+            or distance[0]<-1e-9 or np.any(np.diff(distance)<-1e-9)
+            or origin.shape!=(3,) or not np.isfinite(origin).all() or not math.isfinite(heading_rad)
+            or fps<=0 or not 0<=ramp_s<=.5):
+        raise ConstructionError("invalid_fixed_distance_clock")
+    if corner is not None:
+        sc,radius,turn=corner
+        if not np.isfinite(corner).all() or sc<0 or radius<=0:
+            raise ConstructionError("invalid_fixed_clock_corner")
+    xz,headings=_shape_xy(distance,origin[[0,2]],heading_rad,corner)
+    positions=np.column_stack((xz[:,0],np.full(len(xz),origin[1]),xz[:,1]))
+    positions,validation=validate_track(context,positions,species,camera=camera,snap=False)
+    active=np.diff(distance)>1e-8
+    edges=np.diff(np.r_[False,active,False].astype(int))
+    intervals=[[float(a/fps),float(b/fps)]for a,b in zip(np.flatnonzero(edges==1),np.flatnonzero(edges==-1))]
+    return ActorPlan(entity_id,positions,body or BodySpec.for_species(species),headings,
+        {"route_length_m":float(distance[-1]-distance[0]),"walk_intervals_s":intervals,
+         "ramp_s":ramp_s,"distance_clock_bound":True,"distance_clock_m":distance.tolist(),
+         "fixed_clock_geometry":{"origin_m":origin.tolist(),"heading_rad":heading_rad,
+                                 "corner":None if corner is None else list(corner)},
+         "validation":validation,"clock":{"fps":fps,"duration_s":(len(distance)-1)/fps}})
+
+
+def straight_then_arc(context, shadow_root_m, tangent_xz, distance_m, shadow_distance_m, *,
+                      turn_radius_m=.8, turn_sign=1, species="human", camera=None,
+                      entity_id="target", body=None, fps=30., ramp_s=.5):
+    """Same tangent before/after a specified stop anchor; compact return arc after it."""
+    direction=np.asarray(tangent_xz,float)
+    shadow=np.asarray(shadow_root_m,float)
+    if (direction.shape!=(2,) or not np.isfinite(direction).all() or np.linalg.norm(direction)<1e-9
+            or shadow.shape!=(3,) or not np.isfinite(shadow).all() or turn_radius_m<=0
+            or shadow_distance_m<0 or turn_sign not in {-1,1}):
+        raise ConstructionError("invalid_straight_then_arc")
+    direction=direction/np.linalg.norm(direction)
+    origin=shadow.copy();origin[[0,2]]-=shadow_distance_m*direction
+    distance=np.asarray(distance_m,float)
+    if distance.ndim!=1 or len(distance)<2 or not np.isfinite(distance).all():
+        raise ConstructionError("invalid_fixed_distance_clock")
+    arc_length=max(0.,float(distance[-1])-shadow_distance_m)
+    turn=turn_sign*arc_length/turn_radius_m
+    result=bind_distance_clock(context,distance,origin_m=origin,
+        heading_rad=math.atan2(direction[1],direction[0]),species=species,
+        corner=(shadow_distance_m,turn_radius_m,turn),camera=camera,entity_id=entity_id,
+        body=body,fps=fps,ramp_s=ramp_s)
+    result.metadata["shadow_distance_m"]=float(shadow_distance_m)
+    return result
+
+
+def repeat_bouts(actor, offsets_s=(0.,10.), *, fps=30., duration_s=30., source_window_s=(0.,10.),
+                 context=None, camera=None, turn_duration_s=1.):
+    """Repeat one out-and-back route on the SAME geometric path and source clock.
+
+    Return geometry reverses arc progress, not time, so sounding/moving windows
+    keep their temporal placement. Paused turns are explicit; after the last
+    requested bout the actor remains at that endpoint (no automatic third walk).
+    """
+    from copy import deepcopy
+    p=np.asarray(actor.positions_m,float)
+    if p.ndim!=2 or p.shape[1]!=3 or not np.isfinite(p).all() or fps<=0 or duration_s<=0:
+        raise ConstructionError("invalid_repeat_prototype")
+    a,b=map(float,source_window_s);offsets=tuple(map(float,offsets_s))
+    if (not offsets or not 0<=a<b or b>(len(p)-1)/fps+1e-9 or turn_duration_s<=0
+            or any(x<0 or x+b-a>duration_s+1e-9 for x in offsets)
+            or any(y<x+b-a-1e-9 for x,y in zip(offsets[:-1],offsets[1:]))):
+        raise ConstructionError("invalid_repeat_windows")
+    i,j=round(a*fps),round(b*fps)
+    segment=p[i:j+1]
+    length=np.r_[0.,np.cumsum(np.linalg.norm(np.diff(segment[:,[0,2]],axis=0),axis=1))]
+    if length[-1]<=1e-8:
+        raise ConstructionError("static_prototype_has_no_bout")
+    moving=np.diff(length)>1e-8
+    begin=int(np.flatnonzero(moving)[0]);end=int(np.flatnonzero(moving)[-1])+1
+    unique,index=np.unique(length,return_index=True)
+    path=segment[index]
+    tangent=np.diff(path[:,[0,2]],axis=0)
+    path_heading=np.unwrap(np.arctan2(tangent[:,1],tangent[:,0]))
+    path_heading=np.r_[path_heading,path_heading[-1]]
+    if actor.headings_rad is not None:
+        declared=np.asarray(actor.headings_rad,float)[i:j+1]
+        if declared.shape!=(len(segment),) or not np.isfinite(declared).all():
+            raise ConstructionError("invalid_repeat_headings")
+        path_heading=np.unwrap(declared[index])
+    n=round(duration_s*fps)+1;times=np.arange(n)/fps
+    positions=np.repeat(segment[:1],n,axis=0);headings=np.full(n,path_heading[0])
+    intervals=[];turns=[];bouts=[];previous_end=None;previous_heading=path_heading[0]
+    for k,offset in enumerate(offsets):
+        reverse=bool(k%2)
+        progress=length[-1]-length if reverse else length
+        trajectory=np.column_stack([np.interp(progress,unique,path[:,axis])for axis in range(3)])
+        heading=np.interp(progress,unique,path_heading)+(math.pi if reverse else 0.)
+        start=round(offset*fps);finish=start+len(segment)
+        if not np.allclose(positions[start],trajectory[0],atol=1e-8):
+            raise ConstructionError("repeat_endpoint_discontinuity")
+        positions[start:finish]=trajectory;positions[finish:]=trajectory[-1]
+        headings[start:finish]=heading;headings[finish:]=heading[-1]
+        move_begin=offset+begin/fps;move_end=offset+end/fps
+        if previous_end is not None:
+            if move_begin-previous_end < turn_duration_s+1/fps:
+                raise ConstructionError("insufficient_stationary_turn_time")
+            t0,t1=move_begin-turn_duration_s-1/fps,move_begin-1/fps
+            difference=(heading[0]-previous_heading+math.pi)%(2*math.pi)-math.pi
+            # Use the nearest equivalent yaw to avoid a numeric 2*pi jump.
+            headings[start:]-=heading[0]-(previous_heading+difference)
+            before=(times>=previous_end)&(times<t0);headings[before]=previous_heading
+            turn=(times>=t0)&(times<=t1)
+            u=(times[turn]-t0)/(t1-t0);headings[turn]=previous_heading+difference*(u*u*(3-2*u))
+            hold=(times>t1)&(times<move_begin);headings[hold]=previous_heading+difference
+            turns.append([t0,t1])
+        active=np.diff(length)>1e-8;edges=np.diff(np.r_[False,active,False].astype(int))
+        intervals.extend([[offset+x/fps,offset+y/fps]for x,y in zip(np.flatnonzero(edges==1),np.flatnonzero(edges==-1))])
+        bouts.append({"offset_s":offset,"reverse":reverse,"movement_s":[move_begin,move_end]})
+        previous_end=move_end;previous_heading=float(headings[min(n-1,round(move_end*fps))])
+    metadata=deepcopy(actor.metadata)
+    metadata.update(walk_intervals_s=intervals,stationary_turn_intervals_s=turns,bouts=bouts,
+                    route_length_m=float(length[-1]*len(offsets)),
+                    clock={"fps":fps,"duration_s":duration_s},repeat_geometry="same_path_reverse_arc_progress")
+    if "fixed_clock_geometry" in metadata:
+        metadata["prototype_fixed_clock_geometry"]=metadata.pop("fixed_clock_geometry")
+    metadata["distance_clock_m"]=np.r_[0.,np.cumsum(np.linalg.norm(np.diff(positions[:,[0,2]],axis=0),axis=1))].tolist()
+    if context is not None:
+        positions,metadata["validation"]=validate_track(context,positions,actor.body.species,camera=camera,snap=False)
+    return ActorPlan(actor.entity_id,positions,actor.body,headings,metadata)
