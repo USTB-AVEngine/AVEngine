@@ -84,7 +84,7 @@ def run_worker(manifest,slot):
         if task.get('automatic_registered_room'):
             from avengine.timeline.v7_registered_native_workers import prepare_native
             from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase
-            prepare_native(row,house,inputs,catalog,source,human,str(native_root),root)
+            prepare_native(row,house,inputs,catalog,source,human,str(native_root),root,source_path=contract['inputs']['source_admission']['path'],human_path=manifest['human_ue'],catalog_path=manifest['assets_ue'])
             phases.enter_context(cpu_phase(root,'audio_questions_reader',estimate_bytes=2000000000))
             result=generate(row,house,inputs,catalog,source,human,str(native_root))
         else:result=generate(row,house,inputs,catalog,source,human,str(native_root))

@@ -13,3 +13,9 @@ def test_new_parent_reserves_its_geometry_working_set_without_stopping_old_jobs(
     s={'MemAvailable_bytes':50e9,'PSS_bytes':37e9,'data_free_bytes':80e9,'minimum_disk_free_bytes':60e9,'new_parent_memory_reserve_bytes':4e9}
     assert not can_start(s,active_parents=3,max_parents=16)
     s['PSS_bytes']=32e9;assert can_start(s,active_parents=12,max_parents=16)
+
+def test_waiting_native_worker_carries_paths_instead_of_large_admission_payload():
+    import pickle
+    from avengine.timeline.v7_registered_native_workers import native_job
+    job=native_job('/own/parent/input_context.json','/own','v0')
+    assert len(pickle.dumps(job))<512 and set(job)=={'context_path','task_root','visual'}

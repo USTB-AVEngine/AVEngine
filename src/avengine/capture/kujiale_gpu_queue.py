@@ -10,23 +10,28 @@ def live(record):
         return fields[0]!='Z' and fields[19]==record['start_ticks']
     except (OSError,KeyError):return False
 
-def own_pss(root):
+def owned_processes(root):
     records={};owned=set()
     for entry in Path('/proc').iterdir():
         if not entry.name.isdecimal():continue
         try:
-            text=(entry/'stat').read_text();fields=text[text.rfind(')')+2:].split();pid=int(entry.name);records[pid]=(int(fields[1]),entry)
-            if str(root).encode()in(entry/'cmdline').read_bytes():owned.add(pid)
+            text=(entry/'stat').read_text();fields=text[text.rfind(')')+2:].split();pid=int(entry.name);command=(entry/'cmdline').read_bytes().replace(b'\0',b' ').decode(errors='replace');records[pid]={'pid':pid,'ppid':int(fields[1]),'state':fields[0],'start_ticks':fields[19],'command':command,'entry':entry}
+            if str(root)in command:owned.add(pid)
         except (OSError,ValueError):continue
     while True:
-        children={pid for pid,(parent,_)in records.items()if parent in owned}
+        children={pid for pid,r in records.items()if r['ppid']in owned}
         if children<=owned:break
         owned|=children
-    total=0
+    result=[]
     for pid in owned:
-        try:total+=sum(int(line.split()[1])*1024 for line in(records[pid][1]/'smaps_rollup').read_text().splitlines()if line.startswith('Pss:'))
-        except OSError:continue
-    return total
+        record=records[pid];entry=record.pop('entry')
+        try:record['pss_bytes']=sum(int(line.split()[1])*1024 for line in(entry/'smaps_rollup').read_text().splitlines()if line.startswith('Pss:'))
+        except OSError:record['pss_bytes']=0
+        result.append(record)
+    return result
+
+
+def own_pss(root):return sum(r['pss_bytes']for r in owned_processes(root))
 
 def launch_reserved_gpu(output,gpu,arguments,*,executable=None):
     from avengine.capture.kujiale_native_gpu_policy import check_gpu_policy
@@ -60,7 +65,9 @@ def launch_reserved_gpu(output,gpu,arguments,*,executable=None):
             rows=list(csv.reader(subprocess.check_output(['nvidia-smi','--query-compute-apps=gpu_uuid,pid,process_name','--format=csv,noheader,nounits'],text=True).splitlines()))
             actual={int(r[1])for r in rows if len(r)>=3 and r[0].strip()==uuid and 'UnrealEditor'in r[2]}
             count=len(actual|{p for p in reserved if p>0})+reserved.count(-1)
-            mem=next(int(l.split()[1])*1024 for l in Path('/proc/meminfo').read_text().splitlines()if l.startswith('MemAvailable:'));pss=own_pss(output)
+            from avengine.timeline.v7_kujiale_host_resources import read_host
+            host=read_host(output)
+            mem=host['MemAvailable_bytes']if host else 0;pss=host['PSS_bytes']if host else 40000000001
             if leases and count<4 and mem>=30000000000 and pss+int(policy.get('minimum_new_ue_pss_headroom_bytes',0))<=40000000000:
                 index,lease=leases.pop(0)
                 for _,other in leases:other.close()

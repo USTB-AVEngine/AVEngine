@@ -49,19 +49,12 @@ def cpu_phase(root,stage,*,estimate_bytes=4000000000):
                     except ValueError:busy.append({'pid':-1,'estimate_bytes':estimate_bytes})
                     lease.close();continue
                 available.append((index,lease))
-            leased={r['pid']for r in busy};legacy=legacy_workers(root,leased);reserved=0
-            for row in busy:
-                pid=row['pid'];pss=0
-                try:pss=sum(int(line.split()[1])*1024 for line in(Path('/proc')/str(pid)/'smaps_rollup').read_text().splitlines()if line.startswith('Pss:'))
-                except OSError:pass
-                reserved+=max(0,row.get('estimate_bytes',estimate_bytes)-pss)
-            # Existing workers do not hold a new lease. Reserve their measured
-            # QA working-set headroom while retaining their current execution.
-            for pid in legacy:
-                try:pss=sum(int(line.split()[1])*1024 for line in(Path('/proc')/str(pid)/'smaps_rollup').read_text().splitlines()if line.startswith('Pss:'))
-                except OSError:pss=0
-                reserved+=max(0,2000000000-pss)
-            actual=own_pss(root);mem=next(int(l.split()[1])*1024 for l in Path('/proc/meminfo').read_text().splitlines()if l.startswith('MemAvailable:'))
+            from avengine.timeline.v7_kujiale_host_resources import read_host,subtree_pss
+            host=read_host(root);leased={r['pid']for r in busy};legacy=legacy_workers(root,leased);reserved=0
+            if host is not None:
+                for row in busy:reserved+=max(0,row.get('estimate_bytes',estimate_bytes)-subtree_pss(host,row['pid']))
+                for pid in legacy:reserved+=max(0,2000000000-subtree_pss(host,pid))
+            actual=host['PSS_bytes']if host else 40000000001;mem=host['MemAvailable_bytes']if host else 0
             if available and phase_fits(actual,reserved,estimate_bytes,len(busy),len(legacy),mem):
                 preferred=range(12,16)if stage=='audio_questions_reader'else range(16)
                 rank={value:i for i,value in enumerate(preferred)};available.sort(key=lambda row:rank.get(row[0],100+row[0]))
