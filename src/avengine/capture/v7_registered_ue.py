@@ -30,6 +30,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 raise ValueError('registered static authority missing')
             if not a.get('ue_generated_class') or not a.get('registered_native_ue'):
                 raise ValueError('registered UE class/material source missing')
+        from avengine.registry.kujiale_ue_measurements import read_registration
+        self.native_measurement_registration,self.native_measurement_registration_receipt=read_registration(inputs.get('kujiale_native_measurement_registration'))
         self.house,self.scene,self.assets=deepcopy(house),scene,assets
         self.width,self.height,self.cv2=width,height,cv2
         self.capture_scale=inputs.get('registered_ue_capture_scale',2)
@@ -153,7 +155,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             for _ in range(PARAMETERS['warmup_frames']):
                 with self.instance.begin_frame():pass
                 with self.instance.end_frame():self.read_rgb(self.components['rgb'])
-            self.receipt={'backend':'UE/SPEAR registered native standing','graphics_adapter':self.ue['graphics_adapter'],
+            from avengine.registry.kujiale_ue_measurements import loaded_map_package
+            launch['loaded_map_package']=loaded_map_package(self.ue['uproject'],self.house['input']['ue_map_path'],launch['temporary_directory'])
+            self.receipt={'formal_native_registration':self.native_measurement_registration_receipt,'backend':'UE/SPEAR registered native standing','graphics_adapter':self.ue['graphics_adapter'],
                 'compute_device':'GPU','launch':launch,'exposure':exposure,'lights':lights,'hfov_deg':85.,'fps':15,
                 'capture_resolution_hw':[height*self.capture_scale,width*self.capture_scale],'resolution_hw':[height,width],
                 'startup_and_warmup_seconds':time.perf_counter()-start,'original_materials':True,

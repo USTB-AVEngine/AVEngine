@@ -29,9 +29,11 @@ def _package(content,object_path):
 
 def prepare_readback(video,asset,declaration,actor,root,components):
     from avengine.backends.spear_ue.research_runtime import attach_emitter_component
+    from avengine.registry.kujiale_ue_measurements import native_asset
+    formal,basis=native_asset(asset,video.native_measurement_registration)
     mouth=np.asarray(asset['mouth_local_glb_m'],float)
     local=np.asarray(asset['registered_native_ue_mouth_local_cm'],float)
-    if np.max(np.abs(GLB_TO_UE_CM@mouth-local))>1e-6:
+    if np.max(np.abs(basis@mouth-local))>1e-6:
         raise ValueError('registered GLB/native local mouth bases disagree')
     game=video.game;objects=game.get_unreal_object(uclass='UKismetSystemLibrary')
     native_class=int(game.unreal_service.get_class(uobject=actor,as_handle=True))
@@ -59,6 +61,8 @@ def prepare_readback(video,asset,declaration,actor,root,components):
         actual=_package(content,obj);source=_package(original,obj)
         observed=digest(actual);expected=digest(source)
         if observed!=expected:raise ValueError('loaded UE package differs from original registered package: '+obj)
+        registered={r['object_path']:r['sha256']for r in formal['packages']}
+        if registered.get(obj)!=observed:raise ValueError('loaded UE package differs from formal native registration: '+obj)
         files.append({'object_path':obj,'path':str(actual),'source':str(source),'sha256':observed})
     glb=Path(asset['habitat_glb']);glb_sha=digest(glb)
     if glb_sha!=asset['actual_artifact_sha256'][str(glb)]:raise ValueError('original import GLB changed')
@@ -70,14 +74,14 @@ def prepare_readback(video,asset,declaration,actor,root,components):
         'native_resource_identity_method':'exact live get_class/StaticMesh handles equal resolved registered class/mesh handles',
         'loaded_artifact_sha256':bp['sha256'],'loaded_artifact_kind':'UE Blueprint uasset',
         'original_glb':str(glb),'original_glb_sha256':glb_sha,
-        'glb_to_ue_local_cm':GLB_TO_UE_CM.tolist(),
+        'glb_to_ue_local_cm':basis.tolist(),'formal_native_registration':video.native_measurement_registration_receipt,
         'mouth_local_glb_m':mouth.tolist(),'mouth_local_ue_cm':local.tolist()}
     target=Path(video.ue['output_root'])/'inputs/native_loads'/(asset['asset_id']+'_'+bp['sha256'][:16]+'_pid'+str(video.instance._process.pid)+'.json')
     if target.exists():
         if json.loads(target.read_text())!=receipt:raise ValueError('native original load receipt changed')
     else:target.parent.mkdir(parents=True,exist_ok=True);write_json(target,receipt)
     probes=[attach_emitter_component(game,actor_id=declaration['actor_id']+'_basis_'+str(i),anchor_root=root,
-            emitter_local_ue_cm=GLB_TO_UE_CM[:,i].tolist())for i in range(3)]
+            emitter_local_ue_cm=basis[:,i].tolist())for i in range(3)]
     return {'body_basis_probes':probes,'native_load_receipt':str(target),
             'loaded_artifact_sha256':bp['sha256'],'original_glb_sha256':glb_sha}
 

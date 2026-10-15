@@ -57,6 +57,8 @@ def test_registered_ue_receipt_compares_native_handles(tmp_path,monkeypatch):
         'registered_native_ue_mouth_local_cm':(GLB_TO_UE_CM@point).tolist(),'source_registry':str(registry),
         'source_registry_sha256':digest(registry),'ue_generated_class':paths[0],
         'registered_native_ue':{'mesh_paths':[paths[1]],'materials':[paths[2]]},'habitat_glb':str(glb),'actual_artifact_sha256':{str(glb):digest(glb)}}
+    video.native_measurement_registration={'assets':[{'asset_id':'human','actual_class_path':paths[0],'actual_mesh_paths':[paths[1]],'mouth_local_glb_m':point.tolist(),'glb_to_ue_local_cm':GLB_TO_UE_CM.tolist(),'packages':[{'object_path':obj,'sha256':digest(project/'Content'/(obj.partition('.')[0][6:]+'.uasset'))}for obj in paths]}]}
+    video.native_measurement_registration_receipt={'path':'formal.json','sha256':'fixture','revision':'test'}
     monkeypatch.setattr(research_runtime,'attach_emitter_component',lambda *a,**kw:kw['emitter_local_ue_cm'])
     component=SimpleNamespace(get_property_value=lambda **kw:21)
     result=prepare_readback(video,asset,{'actor_id':'source1'},object(),object(),[component])
