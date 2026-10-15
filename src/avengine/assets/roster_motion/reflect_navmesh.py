@@ -21,6 +21,42 @@ def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(
     return is_free
 
 
+
+SHORT_WALK_LEAD_S=.7
+SHORT_WALK_RAMP_S=.3
+
+
+def _short_window_walk(walk,slot):
+    """Stand -> walk only on the selected straight leg around the emission -> stand (Claude 2026-10-15).
+
+    A 30 s room-filling reflected walk cannot be rigidly fitted among the other people later, so the source walks
+    only while it is needed: from SHORT_WALK_LEAD_S before the emission to SHORT_WALK_LEAD_S after the silent query
+    interval (QA-16/17) or after the emission (QA-06/15), along the straight leg the slot was scheduled on, with
+    smooth SHORT_WALK_RAMP_S speed ramps that stay outside the emission and query intervals.
+    """
+    fps=walk.fps;n=len(walk.positions);a,b=slot['leg']
+    start=float(slot['start_s']);end=float(slot['end_s'])
+    tail=slot.get('post_until_s') if (slot.get('qa17') or slot.get('qa16')) and slot.get('post_until_s') else end+.6
+    w0=max(a/fps,start-SHORT_WALK_LEAD_S);w1=min(b/fps,float(tail)+SHORT_WALK_LEAD_S)
+    i0=int(round(w0*fps));i1=int(round(w1*fps))
+    p0=walk.positions[i0];direction=walk.positions[i1]-p0;length=float(np.linalg.norm(direction))
+    if length<1e-6:raise ValueError('short window walk has no length')
+    direction/=length;speed=float(np.median(walk.speeds[i0:i1+1][walk.speeds[i0:i1+1]>0])) if np.any(walk.speeds[i0:i1+1]>0) else length/max(1e-6,(i1-i0)/fps)
+    t=np.arange(n)/fps;v=np.zeros(n)
+    inside=(t>=w0)&(t<=w1);v[inside]=speed
+    r=SHORT_WALK_RAMP_S
+    up=(t>=w0)&(t<w0+r);v[up]=speed*np.clip((t[up]-w0)/r,0,1)
+    down=(t>w1-r)&(t<=w1);v[down]=speed*np.clip((w1-t[down])/r,0,1)
+    # Exact species speed on the leg; the ramps only shorten the walked distance slightly (never speed it up).
+    s=np.r_[0.,np.cumsum((v[1:]+v[:-1])/2/fps)]
+    positions=p0[None,:]+s[:,None]*direction[None,:]
+    heading=math.atan2(direction[1],direction[0])
+    yaws=np.full(n,heading)
+    return positions,yaws,{'walk_start_s':w0,'walk_end_s':w1,'ramp_s':r,'speed_m_s':speed,'length_m':length,
+                           'emission_s':[start,end],'silent_query_until_s':float(tail),'heading_rad':heading,
+                           'reason':'owner 10-15: many paths; walk only where the question needs motion'}
+
+
 def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',utterance_s=1.5,focus='M1',speed_range=None):
     rng=np.random.default_rng(int(seed)+int(attempt)*101)
     polygon=shape(room['floor_polygon']);floor=float(room['measured_floor_y_m'])
@@ -40,7 +76,7 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
         start=starts[k%len(starts)];heading=float(rng.uniform(-math.pi,math.pi))
         walk=reflect_walk(is_free,start,heading,speed,min_speed=lo+.005,duration_s=30.,rng=rng)
         if walk is None:trials.append({'attempt':k+1,'reason':'boxed in or native free predicate failed'});continue
-        slots=schedule_emissions(walk,listener[[0,2]],utterance_s=(duration,duration),post_s=1.5,wet_tail_s=.5,min_radial_m=.5)
+        slots=schedule_emissions(walk,listener[[0,2]],utterance_s=(duration,duration),post_s=1.5,wet_tail_s=.5,min_radial_m=.5,margin_s=SHORT_WALK_LEAD_S)
         # The original solver runs in one of the five 10-second delivery crops.
         for slot in slots:
             slot['start_s']=math.ceil(slot['start_s']*10-1e-8)/10
@@ -60,8 +96,10 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
         if best is not None and best[0]>=2:break
     if best is None:raise ValueError('bounded native reflection search exhausted: '+str(trials))
     _,walk,slot,selected=best
-    target=np.mean(walk.positions,axis=0)-listener[[0,2]]
-    return {'reflect_walk':True,'positions_xz_m':walk.positions.tolist(),'travel_yaws_rad':walk.yaws.tolist(),
+    positions,yaws,window=_short_window_walk(walk,slot)
+    target=np.mean(positions,axis=0)-listener[[0,2]]
+    return {'reflect_walk':True,'positions_xz_m':positions.tolist(),'travel_yaws_rad':yaws.tolist(),
+        'short_window_walk':window,
         'speed_m_s':speed,'speed_range_m_s':[lo,hi],'listener_m':listener.tolist(),
         'camera_yaw_deg':math.degrees(math.atan2(target[0],-target[1])),
         'species':species,'template':focus,'emission_slot':slot,'candidate_count':len(trials),
