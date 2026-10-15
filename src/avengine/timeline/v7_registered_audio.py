@@ -122,6 +122,18 @@ def complete_native_occluder_targets(visual):
     return [deepcopy(r) for r in rows if str(r.get('target_instance_id',r.get('actor_id',''))) in complete],sorted(complete)
 
 
+def reviewed_occluder_display_label(appearance,identity):
+    if appearance.get('label_en'):return appearance['label_en']
+    value=str(appearance.get('value','')).strip()
+    kind=identity.get('entity_class')
+    if kind=='articulated_human':
+        from avengine.qa.unified_catalog import _appearance_phrases
+        return _appearance_phrases({'value':value})[0]
+    noun=identity.get('species_id') if kind=='articulated_animal' else kind
+    noun=str(noun or 'registered object').replace('_',' ')
+    return 'the '+value.replace('_',' ')+' '+noun
+
+
 def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,*,question_episode_id,window_start_s=None):
     by_id={r['sound_asset_id']:r for r in program['records']};bindings={b['event_id']:b for b in dry_receipt['events']}
     events={};protocol_events=[]
@@ -216,7 +228,7 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
             if aid in reviewed and reviewed[aid].get('status') == 'reviewed':
                 appearance = reviewed[aid]
                 record.update(label_zh=appearance['label_zh'],
-                              display_label=appearance.get('label_en') or appearance['label_zh'],
+                              display_label=reviewed_occluder_display_label(appearance,record),
                               appearance_value=appearance.get('value'))
         proof['occluder_registry']=registry
         proof['occluder_evidence']=deepcopy(visual['occluder_evidence'])
