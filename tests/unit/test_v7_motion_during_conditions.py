@@ -60,3 +60,15 @@ def test_native_verifier_uses_body_root_speed_and_actual_mouth_distance():
     visual={'native_motion_admissions':{'target_ep':{'world_roots_m':roots.tolist()}}}
     report=verify_motion_during_native(out,scene,visual)
     assert report['status']=='pass',report
+
+
+def test_repaired_native_verification_keeps_original_failed_evidence(tmp_path):
+    import json
+    from avengine.timeline.v7_motion_during_conditions import write_native_motion_condition_report
+    old=tmp_path/'conditioned_motion_native_verification.json';old.write_text('old failed native result')
+    saved=write_native_motion_condition_report(tmp_path,{'status':'pass','checks':['body root and source distance']})
+    assert saved!=old and old.read_text()=='old failed native result'
+    assert json.loads(saved.read_text())['status']=='pass'
+    another=write_native_motion_condition_report(tmp_path,{'checks':['body root and source distance'],'status':'pass'})
+    assert another!=saved and another.parent!=saved.parent
+    assert another.read_bytes()==saved.read_bytes()

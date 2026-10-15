@@ -119,3 +119,17 @@ def verify_motion_during_native(row,scene,visual):
             reports.append({'offset_s':offset,'qa_id':solution.qa_id,'report':report})
     return {'status':'pass' if all(x['report']['status']=='pass'for x in reports)else'fail',
         'source':'actual native attached mouth trajectories; original v3 verifier','reports':reports,'delivered_qa_gates_unchanged':True}
+
+
+def write_native_motion_condition_report(directory,report):
+    """Keep previous failed evidence and make each immutable replay addressable."""
+    import hashlib,json,uuid
+    from pathlib import Path
+    from avengine.timeline.continuous_pilot import write_json
+    saved=json.loads(json.dumps({**report,'adapter_revision':'separate-native-certified-root-locomotion-v2'},sort_keys=True))
+    digest=hashlib.sha256(json.dumps(saved,sort_keys=True,separators=(',',':')).encode()).hexdigest()[:20]
+    attempt=Path(directory)/('conditioned_motion_attempt_'+uuid.uuid4().hex)
+    attempt.mkdir()
+    path=attempt/('conditioned_motion_native_verification_'+digest+'.json')
+    write_json(path,saved)
+    return path
