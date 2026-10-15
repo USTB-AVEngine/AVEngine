@@ -260,7 +260,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     if curved_motion:
         from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
         times,moving,velocity,distance,clock,scene_clock=human_distance_driven_clock(
-            ts,double,speed,request.get('intervals_s',[[2.,6.],[16.,20.]]),nominal)
+            ts,double,speed,request.get('intervals_s',[[2.,6.],[16.,20.]]),nominal,request.get('scene_speed_range_m_s',(.8,1.4)),timed_route=request.get('motion_quartet_route'))
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
     accepted=None;prepared_solver=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
@@ -346,8 +346,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         if i%30==0:check_write(folder,expected_bytes=32_000_000)
         digest=hashlib.sha256()
         for part in parts:
-            digest.update(np.ascontiguousarray(part['positions']).tobytes())
-            if 'normals'in part:digest.update(np.ascontiguousarray(part['normals']).tobytes())
+            digest.update(np.ascontiguousarray(part['positions'],dtype='<f4').tobytes())
+            if 'normals'in part:digest.update(np.ascontiguousarray(part['normals'],dtype='<f4').tobytes())
         key=digest.hexdigest()
         if key not in pose_cache:
             path=folder/(key+'.glb');rigid_glb(ed,b,parts,path);pose_cache[key]=str(path)

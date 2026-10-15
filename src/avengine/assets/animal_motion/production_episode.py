@@ -278,7 +278,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         construction.update(actual_headings_per_start=len(headings),segments_tested=0,complete_navmesh_segments=0)
         routes = []
         route_tiers = []
-        for route_speed in [speed, speed / 2., speed / 4., speed / 10.]:
+        for route_speed in [speed]:
             tier = []
             for p0 in candidates:
                 for yaw in headings:

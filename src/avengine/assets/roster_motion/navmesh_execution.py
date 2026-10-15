@@ -16,6 +16,7 @@ def motion_yaw(record,index):
     return float(values[index] if values is not None else record['yaw_rad'])
 
 def prepare_scene_motion(row,catalog):
+    if row.get('motion_quartet_template_revision'):return row
     if row.get('motion_execution_revision')!=REVISION:return row
     row=deepcopy(row);assets={a['asset_id']:a for a in catalog}
     for number,(aid,request)in enumerate(sorted(row.get('motion_requests',{}).items())):
@@ -96,7 +97,7 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
                         'native_waypoint_connections':links,'heading_follows_route_tangent':True,'native_full_pose_checks_still_required':True})
 
 
-def human_distance_driven_clock(source_times,double_support,speed,intervals,nominal=1.2):
+def human_distance_driven_clock(source_times,double_support,speed,intervals,nominal=1.2,speed_range=(.8,1.4),timed_route=None):
     """Fit complete observed steps, then drive animation by translated distance.
 
     Extending a requested movement envelope to the next observed two-foot pause
@@ -105,6 +106,25 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
     """
     times=np.arange(901)/30.;duration=float(source_times[-1]-source_times[0])
     phase0=float(min(double_support));velocity=np.zeros(len(times));moving=np.zeros(len(times),bool)
+    if timed_route is not None and timed_route.get('single_pass'):
+        from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
+        distance,velocity=single_pass_clock(times,speed);desired=phase0+distance[-1]/nominal
+        endings=sorted(float(p)+cycle*duration for cycle in range(math.ceil(desired/duration)+2)for p in double_support if float(p)+cycle*duration>=desired-1e-9)
+        target=endings[0];ratio=(target-phase0)*nominal/distance[-1]
+        if ratio>1.12 or speed*ratio>float(speed_range[1])+1e-9:raise ValueError('bounded complete-step clock does not fit the selected scene speed; construct another candidate')
+        distance*=ratio;velocity*=ratio
+        return times,velocity>1e-8,velocity,distance,phase0+distance/nominal,{'method':'single straight pass with exact complete-step finish','complete_step_source_phase_s':target,'distance_clock_ratio':ratio,'emission_speed_m_s':speed*ratio,'maximum_clock_distance_error_s':0.}
+    if timed_route is not None:
+        from avengine.assets.roster_motion.timed_straight_clock import timed_straight_clock
+        distance,velocity,profile=timed_straight_clock(times,speed,straight_start_s=timed_route['straight_start_s'],straight_end_s=timed_route['straight_end_s'],turn_speed_m_s=timed_route['turn_speed_m_s'])
+        return times,np.ones(len(times),bool),velocity,distance,phase0+distance/nominal,{**profile,'maximum_clock_distance_error_s':0.,'nominal_source_speed_m_s':nominal}
+    if intervals==[[0.,30.]] or intervals==[[0,30]]:
+        edge=np.clip(times/.25,0,1);velocity=speed*edge**2*(3-2*edge)
+        distance=np.r_[0.,np.cumsum((velocity[1:]+velocity[:-1])/60)]
+        return times,np.ones(len(times),bool),velocity,distance,phase0+distance/nominal,{
+            'method':'exact integrated root distance; continuous walking through clip end',
+            'nominal_source_speed_m_s':nominal,'maximum_stable_speed_m_s':float(speed),
+            'maximum_clock_distance_error_s':0.,'clip_end_requires_planted_pause':False}
     base=phase0;executed=[]
     for number,(lo,hi)in enumerate(intervals):
         lo=float(lo);hi=float(hi);limit=float(intervals[number+1][0])if number+1<len(intervals) else 30.
@@ -121,7 +141,7 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
             v=np.where(active,speed*edge**2*(3-2*edge),0.);length=float(np.sum((v[1:]+v[:-1])*np.diff(times)/2))
             if length<=0:continue
             ratio=(target-base)*nominal/length;steady=speed*ratio
-            if not .8-1e-9<=steady<=1.4+1e-9:continue
+            if not float(speed_range[0])-1e-9<=steady<=float(speed_range[1])+1e-9:continue
             accepted=(end,v*ratio,active,target,steady);break
         if accepted is None:raise ValueError('no complete observed double-support gait fits this real-speed envelope; construct a longer envelope')
         end,v,active,target,steady=accepted;velocity+=v;moving|=active

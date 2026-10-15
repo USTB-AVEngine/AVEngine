@@ -15,7 +15,7 @@ def stadium_samples(distance,length,radius):
 def straight_window_routes(video,entry,scene,distance,local_forward,request):
     times=np.arange(len(distance))/30.;windows=request['straight_motion_windows_s'];sound_windows=request.get('sounding_straight_windows_s',[])
     slices=[np.flatnonzero((times>=float(lo))&(times<=float(hi)))for lo,hi in windows]
-    poly=shape(scene['production_scenario']['motion_floor_polygon']);margin=.32 if entry['declaration']['kind']=='human'else .25;free=poly.buffer(-margin)
+    poly=shape(scene['production_scenario']['motion_floor_polygon']);margin=.32 if entry['declaration']['kind']=='human'else .25;free=(poly.convex_hull if request.get('motion_quartet_route') else poly).buffer(-margin)
     x0,z0,x1,z1=free.bounds;centres=[free.representative_point()]+[Point(x,z)for x in np.linspace(x0,x1,15)for z in np.linspace(z0,z1,15)];centres=[p for p in centres if free.covers(p)]
     start=np.asarray(entry['applied_root_input'][:3,3]);centres.sort(key=lambda p:(p.x-start[0])**2+(p.y-start[2])**2)
     obstacles=[]
@@ -24,17 +24,23 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
         root=actor['applied_root_input'];v=np.asarray(actor['original_mesh'].vertices)@root[:3,:3].T+root[:3,3];obstacles.append(box(v[:,0].min()-margin,v[:,2].min()-margin,v[:,0].max()+margin,v[:,2].max()+margin))
     listener=np.asarray(scene['listener_m']);theta=math.radians(scene['camera_yaw_knots'][0]['yaw_deg']);camera=np.array([math.sin(theta),0.,-math.cos(theta)]);right=np.cross(camera,[0.,1.,0.]);mouth=np.asarray(entry['declaration'].get('emitter_local_m')or[0.,1.,0.]);base=math.atan2(local_forward[2],local_forward[0]);proposal=0
     required=max(float(distance[ids[-1]]-distance[ids[0]])for ids in slices if len(ids))
-    for length in [x for x in (1.8,2.1,2.4,2.7,3.,3.3,3.6,4.,4.5)if x>=required+.03]:
-      for radius in (.75,.65,.55,.85,.45,1.):
+    template=request.get('motion_quartet_route')
+    lengths=[template['straight_length_m']] if template else [x for x in (1.8,2.1,2.4,2.7,3.,3.3,3.6,4.,4.5)if x>=required+.03]
+    for length in lengths:
+      for radius in ([template['turn_radius_m']] if template else (.75,.65,.55,.85,.45,1.)):
         period=2*length+2*math.pi*radius;patterns=[]
-        for offset in np.linspace(0,period,192,endpoint=False):
-          p,tangent,segments=stadium_samples(np.asarray(distance)+offset,length,radius)
+        for offset in ([template.get('phase_distance_offset_m',0.)] if template else np.linspace(0,period,192,endpoint=False)):
+          if template and template.get('single_pass'):
+            p=np.column_stack((-length/2+np.asarray(distance),np.zeros(len(distance))));tangent=np.tile([1.,0.],(len(distance),1));segments=np.zeros(len(distance),int)
+          else:p,tangent,segments=stadium_samples(np.asarray(distance)+offset,length,radius)
           if any(not len(ids)or segments[ids[0]]<0 or np.any(segments[ids]!=segments[ids[0]])for ids in slices):continue
           patterns.append((offset,p,tangent))
         if not patterns:continue
-        for heading in np.arange(16)*math.pi/8:
+        headings=[template['heading_rad']] if template else np.arange(16)*math.pi/8
+        for heading in headings:
           rotation=np.array([[math.cos(heading),-math.sin(heading)],[math.sin(heading),math.cos(heading)]])
-          for centre in centres:
+          selected_centres=[Point(*template['centre_xz_m'])] if template else centres
+          for centre in selected_centres:
             for offset,p,tangent in patterns:
               xz=p@rotation.T+[centre.x,centre.y];line=LineString(xz)
               if not free.covers(line)or any(line.intersects(o)for o in obstacles):continue

@@ -19,7 +19,10 @@ def _validate_authored_motion_support(scene, program, requests):
     authored = {e['endpoint_id'] for e in scene['events']
                 if records[bindings[e['event_id']]['sound_asset_id']].get('source_type') == 'author_tts'}
     unsupported = [(ep, request['action']) for ep, request in requests.items()
-                   if ep in authored and request['action'] in {'sit', 'walk'}]
+                   if ep in authored and request['action'] in {'sit', 'walk'}
+                   and not (request['action']=='walk' and request.get('allow_registered_walk_tts'))]
+    scene['pending_registered_walk_tts']=[ep for ep,request in requests.items()
+        if ep in authored and request.get('allow_registered_walk_tts')]
     if unsupported:
         poses = ', '.join(f'{ep} ({action})' for ep, action in unsupported)
         raise ValueError(
@@ -286,16 +289,19 @@ def resolve_footstep_events(scene,program,visual):
                     if chosen and tick-chosen[-1][0]<5:continue
                     chosen.append((tick,side,samples))
                     break
-        count=planned['requested_events']
-        first=[r for r in chosen if r[0]<99];second=[r for r in chosen if 150<=r[0]<249]
-        if len(first)<count//2 or len(second)<count-count//2:raise ValueError('walking motion has too few actual stance intervals for footsteps')
-        selection=[first[i] for i in np.linspace(0,len(first)-1,count//2,dtype=int)]+[second[i] for i in np.linspace(0,len(second)-1,count-count//2,dtype=int)]
+        if not chosen:raise ValueError('walking motion has no actual admitted stance interval for footsteps')
+        selection=chosen
+        planned['event_unit']='footstep_bout'
+        planned['maximum_adjacent_onset_gap_s']=.6
+        planned['all_actual_step_contacts_retained']=True
         for tick,side,samples in selection:
             eid='footstep_event_'+str(len(scene['events'])).zfill(4);alias=ep+'_foot_'+side;spec=scene['sources'][alias]
             scene['events'].append({'event_id':eid,'endpoint_id':alias,'source_id':spec['actor_id'],'class_id':spec['class_id'],'sound_class':'footsteps','start_tick':int(tick),'end_tick':int(tick+1),'mechanism':spec['mechanism']})
             program['events'].append({'event_id':eid,'sound_asset_id':record['sound_asset_id'],'crop_start_sample':crop})
             proof.append({'event_id':eid,'native_body_endpoint_id':ep,'native_foot':side,'start_tick':int(tick),'crop_start_sample':crop,'actual_contact_frame_indices':list(range(tick*3,(tick+1)*3+1)),'contact_worst_error_m':max(abs(v['floor_delta_m']) for v in samples),'emitter_source':'actual original-skinned sole vertices and native attached foot child'})
-    return {'status':'pass','events':proof,'thresholds_changed':False,'recording_cropped_not_repeated_or_time_stretched':True}
+    return {'status':'pass','events':proof,'thresholds_changed':False,'recording_cropped_not_repeated_or_time_stretched':True,
+            'annotation_event_unit':'footstep_bout','maximum_adjacent_onset_gap_s':.6,
+            'raw_step_count':len(proof),'bout_annotation_requires_actual_native_wet_support':True}
 
 def audit_phase2_bindings(scene,assets,visual,allow_pending_feet=False):
     validate_phase2_bindings(scene,assets,allow_pending_feet=allow_pending_feet);owners=source_owners(scene,assets);base={a['endpoint_id']:a for a in assets}
@@ -323,3 +329,19 @@ def audit_phase2_bindings(scene,assets,visual,allow_pending_feet=False):
             if err>.0001:errors.append('native emitter readback exceeds unchanged 0.1mm')
     if any(n==0 for n in visible.values()):errors.append('registered entity never reached 100 actual visible pixels')
     return {'status':'fail' if errors else 'pass','invisible_sources':sum('invisible' in e for e in errors),'emitter_readbacks':count,'emitter_worst_error_m':worst,'asset_visible_frame_counts':visible,'errors':sorted(set(errors))}
+
+
+def qualify_registered_walk_tts(scene,visual):
+    """Only the actual admitted walking body and attached mouth permit TTS."""
+    reports=[]
+    for ep in scene.get('pending_registered_walk_tts',[]):
+        record=visual.get('native_motion_admissions',{}).get(ep,{})
+        readbacks=record.get('native_30Hz_readbacks',[])
+        if (record.get('status')!='pass' or len(readbacks)!=901
+                or record.get('final_complete_scene_recheck',{}).get('status')!='pass'
+                or not record.get('lineage',{}).get('master_sha256')
+                or any(not r.get('native_emitter_present') or r.get('asset_id')!=scene['sources'][ep]['asset_id'] for r in readbacks)):
+            raise ValueError('walking TTS needs complete actual native body, original skin and attached mouth admission')
+        reports.append({'endpoint_id':ep,'status':'pass','native_root_and_mouth_readbacks':len(readbacks),
+                        'motion_master_sha256':record['lineage']['master_sha256'],'footsteps_emitted':False})
+    return {'status':'pass','walking_tts_sources':reports,'source_waveforms_or_QA_predicates_changed':False}

@@ -54,28 +54,30 @@ def footstep_bout_question_inputs(scene,evidence):
         if not activity:raise ValueError('footstep bout lacks actual source samples')
         first=activity[0][0]/16000.;dry_end=max(span[1]for span in activity)/16000.;wet_end=max(span[1]for span in wet)
         identity=hashlib.sha256(('\0'.join([owner,*ids])).encode()).hexdigest()[:20]
-        event={**steps[0],'event_id':'footstep_bout_'+identity,'endpoint_id':owner,
+        event={**steps[0],'event_id':'footstep_bout_'+identity,'endpoint_id':steps[0]['endpoint_id'],
                'source_id':result['sources'][owner]['actor_id'],'start_tick':math.floor(first*10),
                'end_tick':min(math.ceil(wet_end*10),round(float(scene.get('duration_s',wet_end))*10)),'emission_end_s':dry_end,'wet_end_s':wet_end,
                'event_unit':'footstep_bout','component_event_ids':ids,'mechanism':'walking_human_footstep_bout'}
         retained.append(event)
-        spec=result['sources'][owner]
+        representative=steps[0]['endpoint_id']
+        spec=result['sources'][representative]
         spec.update(sound_class='footsteps',class_id=event['class_id'],content_kind='footsteps',mechanism=event['mechanism'])
         first_record=deepcopy(raw[ids[0]])
         first_record.pop('transcript',None)
         first_record['wet_support_readback']={'method':'conservative union of actual component native wet supports','component_event_ids':ids,'support_samples_global':[math.floor(min(span[0]for span in wet)*16000),math.ceil(wet_end*16000)]}
-        first_record.update(event_unit='footstep_bout',native_endpoint_id=owner,
+        first_record.update(event_unit='footstep_bout',native_endpoint_id=representative,
             emission_mechanism=event['mechanism'],activity_intervals_samples_global=activity,
             wet_intervals_global_s=[[min(span[0]for span in wet),wet_end]],
             event_segmentation={'method':REVISION,'maximum_adjacent_onset_gap_s':.6,
                 'component_event_ids':ids,'first_step_s':first,'last_step_emission_end_s':dry_end,
                 'measured_last_wet_end_s':wet_end,'raw_steps_retained':True},
+            event_geometry_source='actual native attached foot chosen from the bout; same person identity; both physical render streams retained',
             physical_render_endpoints=sorted({e['endpoint_id']for e in steps}),
             component_sound_asset_ids=sorted({raw[key]['sound_asset_id']for key in ids}))
         records[event['event_id']]=first_record
         if protocol:
             protocol['events'].append({k:event[k]for k in ('event_id','endpoint_id','source_id','class_id','start_tick','end_tick','mechanism')})
-            protocol['sources'][owner]=deepcopy(spec)
+            protocol['sources'][representative]=deepcopy(spec)
         receipts.append({'event_id':event['event_id'],'owner_endpoint_id':owner,'step_event_ids':ids,
             'step_onsets_s':[e['start_tick']/10. for e in steps],
             'emission_interval_s':[first,dry_end],'annotated_interval_with_measured_wet_tail_s':[first,wet_end]})

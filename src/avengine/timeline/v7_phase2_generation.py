@@ -143,6 +143,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         delivered=deduplicate_parent_delivery(row,saved['result'],root,directory)
         return {**delivered,'resumed':True}
     def render(attempt):
+        from avengine.timeline.v7_native_resource_slots import acquire_native_resource
+        template_visual_lease=acquire_native_resource('template_visual') if row.get('motion_quartet_template_revision') else None
         from avengine.timeline.v7_material_quality_fallback import recover_complete_native_attempt,qualify_missing_materials
         recovered=recover_complete_native_attempt(root,attempt,base,assets,native_checks)
         if recovered is not None:return recovered
@@ -180,7 +182,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         video=NativeVisibleVideo(working,native_scene,inputs,assets,source_material_cache_directory=material_cache)
         gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json');video.acoustic_position_admission=gate.check
         try:visual=video.encode(native_scene,attempt/'scene_video.mp4',collect_pixel_visibility=True)
-        finally:gate.close();video.close()
+        finally:
+            gate.close();video.close()
+            if template_visual_lease is not None:template_visual_lease.close()
         del gate,video
         from avengine.capture.v7_native_context_recycling import release_unused_native_memory
         release_unused_native_memory()
@@ -203,6 +207,10 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     from avengine.assets.v7_visible_color import rebuild_appearance_review,COLOR_EVIDENCE_REVISION
     visual['native_appearance_review'],color_eligibility=rebuild_appearance_review(
         visual['visible_color_checks'],assets,(inputs.get('animal_color_thresholds') or {}).get('min_pixels',200))
+    from avengine.timeline.v7_phase2_sources import qualify_registered_walk_tts
+    if base.get('pending_registered_walk_tts'):
+        walk_tts=qualify_registered_walk_tts(base,visual)
+        write_json(vd/'registered_walk_tts_admission.json',walk_tts)
     resolved=resolve_footstep_events(base,program,visual)
     foot_receipt=root/'resolved_footstep_contacts.json'
     if foot_receipt.exists():
@@ -258,7 +266,7 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             if replay['mismatches']:raise ValueError('independent original-family truth mismatch')
             write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',g);audit['native_color_eligibility']=color_eligibility
             write_json(dest/'candidate_audit.json',audit)
-            write_json(dest/'evidence.json',{'profile':PILOT_PROFILE,'seed_row':row,'scene':scene,'source_qa_evidence':proof,
+            write_json(dest/'evidence.json',{'profile':PILOT_PROFILE,'seed_row':row,'scene':question_scene,'source_qa_evidence':proof,
                 'native_visual_evidence':str(vd/'native_visible_visual_evidence_phase2.json'),'native_audio_evidence':str(ad/'audio_evidence.json'),
                 'machine_checks':checks,'independent_v6_truth':replay,'formal_dataset_count':0})
             wins.append({'window_id':wid});required.extend(wid+'/'+f for f in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','candidate_audit.json','evidence.json','independent_v6_truth.json'])
@@ -277,11 +285,17 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             qs=read_json(dest/'questions.json');stats.append({'window_id':wid,'media_readback':_verify_window(dest),'logical_questions':len({q['logical_question_id'] for q in qs}),'family_counts':dict(Counter(q['qa_id'] for q in {q['logical_question_id']:q for q in qs}.values()))})
         write_json(private/'machine_checks.json',checks);write_json(private/'assets.json',assets);write_json(private/'dry_program.json',program);write_json(private/'dry_receipt.json',receipt)
         required.extend('private/'+f for f in ['machine_checks.json','assets.json','dry_program.json','dry_receipt.json'])
+        counted_scene=scene
+        if scene.get('planned_footsteps'):
+            from avengine.timeline.v7_footstep_bouts import footstep_bout_question_inputs
+            full_proof=source_qa_evidence(scene,program,receipt,visual,ad/'scene_foa_full_tail.wav',ar,question_episode_id=row['scene_id'])
+            counted_scene,bout_proof=footstep_bout_question_inputs(scene,full_proof)
+            write_json(private/'footstep_bout_annotations.json',bout_proof['footstep_bouts']);required.append('private/footstep_bout_annotations.json')
         result={'status':'integration_pilot_admitted','profile':PILOT_PROFILE,'scene_id':row['scene_id'],'house':row['house'],
             'source_admission_version':inputs.get('source_admission_version'),'source_admission_sha256':inputs.get('source_admission_sha256'),
             'family':house['family'],'room_id':row['room_id'],'windows':stats,'machine_checks':checks,
             'asset_counts':dict(Counter([a['asset_id'] for a in assets]+[a['asset_id']for a in visual.get('phase2_chairs',[])])),
-            'chair_instances':visual.get('phase2_chairs',[]),'footstep_contact_receipt':str(foot_receipt),'class_event_counts':dict(Counter(e['sound_class'] for e in scene['events'])),
+            'chair_instances':visual.get('phase2_chairs',[]),'footstep_contact_receipt':str(foot_receipt),'class_event_counts':dict(Counter(e['sound_class'] for e in counted_scene['events'])),
             'pilot_windows':len(stats),'pilot_logical_questions':sum(w['logical_questions'] for w in stats),
             'delivery_window_starts_s':delivery_starts,'delivery_crops_share_one_independent_30s_parent':True,
             'acceptance_allow_partial_families':row.get('acceptance_allow_partial_families') is True,

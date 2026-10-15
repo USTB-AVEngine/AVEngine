@@ -24,7 +24,9 @@ def run_worker(manifest,slot):
     if not Path(avengine.__file__).resolve().is_relative_to(Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
     from avengine.timeline.v7_storage_budget import ENV_KEY,check_write,launch_minimum_free_bytes
-    os.environ[ENV_KEY]=json.dumps({'root':str(root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
+    budget_root=Path(manifest.get('resource_budget_root',str(root))).resolve()
+    if not root.is_relative_to(budget_root):raise ValueError('parent output escaped the explicit task resource root')
+    os.environ[ENV_KEY]=json.dumps({'root':str(budget_root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
         'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI',
         'resource_admission_managed':True})
@@ -34,7 +36,7 @@ def run_worker(manifest,slot):
     active_storage=json.loads(os.environ[ENV_KEY]);active_storage['minimum_free_bytes']=0
     os.environ[ENV_KEY]=json.dumps(active_storage)
     inputs=load(task.get('runtime_input') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
-    inputs['launch_disk_policy']=manifest.get('launch_disk_policy',{})
+    inputs['launch_disk_policy']=manifest.get('launch_disk_policy',manifest.get('disk_launch_policy',{}))
     inputs.update(fresh_rir_workers=min(16,max(1,int(task.get('fresh_rir_workers',manifest.get('fresh_rir_workers',inputs.get('fresh_rir_workers',16)))))),fresh_rir_cpu_ids=list(inputs.get('fresh_rir_cpu_ids') or cpus))
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
@@ -46,7 +48,7 @@ def run_worker(manifest,slot):
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         if previous.exists():row=load(previous)
-        elif task.get('focus')=='motion_quartet_template':
+        elif task.get('focus')=='motion_quartet_template' or task.get('constructor')=='motion_quartet_template':
             from avengine.timeline.v7_motion_quartet_planning import plan_native_room_motion_quartet
             row=plan_native_room_motion_quartet(row,state,house,catalog,load(inputs['semantic_manifest']),source['records'],inputs,attempt=int(task.get('construction_attempt',0)))
         else:row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
@@ -76,7 +78,7 @@ def run_worker(manifest,slot):
     if task['profile']=='phase2':
         from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion,REVISION as EXECUTION_REVISION
         if not previous.exists():row['motion_execution_revision']=EXECUTION_REVISION
-        if row.get('scene_constructor')!='motion_quartet_template':row=prepare_scene_motion(row,catalog)
+        if row.get('scene_constructor')!='motion_quartet_template' and not row.get('motion_quartet_template_revision'):row=prepare_scene_motion(row,catalog)
         from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
         row=prepare_motion_during_row(row,catalog,source['records'])
     write(root/'inputs/planned'/f'{slot:03d}.json',row)

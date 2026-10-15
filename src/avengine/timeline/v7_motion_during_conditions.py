@@ -65,16 +65,18 @@ def prepare_motion_during_row(row,catalog,records):
             sounds[aid]={'sound_asset_id':sid,'sample_rate_hz':rate,'sample_count':count,
                 'audible_start_sample':int(intervals[0][0]),'audible_end_sample_exclusive':int(intervals[-1][1]),
                 'source_activity_intervals_samples':intervals,'source_origin':record.get('normalized_path') or record.get('path')}
-            starts[aid]=float(result.get('phase2_whole_animal_recordings',{}).get(aid,
-                result.get('phase2_recorded_speech_schedule_s',{}).get(aid,[.3]))[0])
+            starts[aid]=float(result.get('motion_source_start_s',{}).get(aid,
+                result.get('phase2_whole_animal_recordings',{}).get(aid,
+                result.get('phase2_recorded_speech_schedule_s',{}).get(aid,[.3]))[0]))
         if target not in sounds:raise ValueError('conditioned target needs a complete measured sound program')
         config={'query':{'qa_id':qa,'target_instance_ids':[target],'event':{'kind':'target_audible_window'}},
             'branch':branch,'instances':[{**x,'role':'anchor' if x['asset_id']==target else 'competitor'}for x in instances],
             'registry':registry,'sounds':sounds,'event_start_s':starts,
-            'budget':{'walk_speed_range_mps':request.get('speed_range_m_s',[float(request['speed_m_s'])]*2),'reserve_tail_s':3.,'minimum_motion_s':float(request.get('minimum_motion_s',0.))}}
+            'budget':{'walk_speed_range_mps':request.get('speed_range_m_s',[float(request['speed_m_s'])]*2),'reserve_tail_s':3.,'minimum_motion_s':float(request.get('minimum_motion_s',0.)),'end_hold_s':float(request.get('end_hold_s',0.))}}
         if qa in {'QA-16','QA-17'}:
-            config['measured_wet_tail_s']=float(request.get('wet_tail_planning_bound_s',request.get('measured_wet_tail_s',4.1)))
-            config['wet_tail_planning_provenance']='conservative configured 4s native IR plus 0.1s delay allowance; not a per-event measurement; delivered QA still uses actual measured wet support'
+            tail=request.get('wet_tail_planning_bound_s',request.get('measured_wet_tail_s',4.1))
+            config['measured_wet_tail_s']=None if tail is None else float(tail)
+            config['wet_tail_planning_provenance']=('pending actual native wet measurement; original delivered _silent_after is authoritative' if tail is None else 'conservative configured native IR bound; not a per-event measurement; delivered QA uses actual measured wet support')
         if qa=='QA-15':config['distance_trend_criterion']={'net_change_at_least_m':float(request.get('minimum_distance_change_m',1.5))}
         solution=_compile_and_solve(config)
         if not solution.solved:raise ValueError('conditioned_motion rejected: '+str(solution.rejections))
@@ -96,7 +98,7 @@ def prepare_motion_during_row(row,catalog,records):
             latest=solution.query_window['latest_query_frame_exclusive']/15.
             earliest=solution.query_window['earliest_query_frame']/15.
             straight=[[float(offset)+max(earliest,latest-2.05),float(offset)+latest]for offset in offsets]
-            if any(hi-lo<2.-1e-8 for lo,hi in straight):raise ValueError('construct a shorter whole recording to leave >=2 seconds beyond wet tail')
+            if not result.get('motion_quartet_template_revision') and any(hi-lo<2.-1e-8 for lo,hi in straight):raise ValueError('construct a shorter whole recording to leave >=2 seconds beyond wet tail')
         target_request.setdefault('straight_motion_windows_s',[]).extend(straight)
         if qa=='QA-15':
             result['motion_requests'][target]['distance_trend']='approaching' if branch=='nearer' else 'receding'
