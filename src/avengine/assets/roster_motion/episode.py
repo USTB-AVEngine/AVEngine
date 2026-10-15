@@ -273,15 +273,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             if inputs.get('phase2') and time.process_time()-route_cpu_started>1800:
                 break
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
-            trend=request.get('distance_trend')
-            if trend is not None:
-                if trend not in {'approaching','receding'}:raise ValueError('unsupported demanded distance trend')
-                radii=np.linalg.norm(positions[:,[0,2]]-np.asarray(scene['listener_m'])[[0,2]],axis=1)
-                diffs=np.diff(radii);net=float(radii[-1]-radii[0])
-                if ((trend=='approaching' and (net>-.2 or np.any(diffs>1e-7)))
-                        or (trend=='receding' and (net<.2 or np.any(diffs<-1e-7)))):
-                    prefilter['demand_distance_trend_rejected']=prefilter.get('demand_distance_trend_rejected',0)+1
-                    continue
+            from avengine.assets.roster_motion.demand import matches_distance_request
+            if not matches_distance_request(positions,times,scene['listener_m'],request):
+                prefilter['demand_distance_trend_rejected']=prefilter.get('demand_distance_trend_rejected',0)+1
+                continue
             if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):
                 prefilter['polygon_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue

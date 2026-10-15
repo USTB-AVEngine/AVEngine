@@ -1,0 +1,20 @@
+"""Physical route proposals for requested distance changes, never QA truth."""
+from __future__ import annotations
+import numpy as np
+
+
+def matches_distance_request(positions,times,listener,request):
+    trend=request.get('distance_trend')
+    if trend is None:return True
+    if trend not in {'approaching','receding'}:raise ValueError('unsupported demanded distance trend')
+    points=np.asarray(positions);times=np.asarray(times);listener=np.asarray(listener)
+    radii=np.linalg.norm(points[:,[0,2]]-listener[[0,2]],axis=1)
+    sign=-1 if trend=='approaching' else 1
+    if sign*(radii[-1]-radii[0])<.2 or np.any(sign*np.diff(radii)<-1e-7):return False
+    minimum=float(request.get('minimum_window_distance_change_m',.2))
+    if not np.isfinite(minimum) or minimum<.2:raise ValueError('distance proposal margin must cover the original 0.2m QA margin')
+    for lo,hi in request.get('distance_trend_windows_s',[]):
+        if not times[0]<=lo<hi<=times[-1]:raise ValueError('distance demand window outside native route')
+        net=sign*(np.interp(hi,times,radii)-np.interp(lo,times,radii))
+        if net<minimum:return False
+    return True

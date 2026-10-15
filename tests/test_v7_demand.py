@@ -199,3 +199,28 @@ def test_admitted_parent_keeps_running_but_output_containment_remains(tmp_path,m
     assert budget.check_write(tmp_path/'own'/'running',expected_bytes=1000)['resource_limits_enforced_at']=='parent_admission'
     with pytest.raises(budget.StorageBudgetExceeded,match='escaped'):
         budget.check_write(tmp_path/'another_task')
+
+
+@pytest.mark.fast_unit
+def test_distance_request_checks_the_speaking_span_not_only_the_whole_route():
+    from avengine.assets.roster_motion.demand import matches_distance_request
+    times=np.array([0.,1.,2.,3.]);points=np.array([[0,0,-1.],[0,0,-1.05],[0,0,-1.1],[0,0,-2.]])
+    request={'distance_trend':'receding','distance_trend_windows_s':[[0.,2.]],'minimum_window_distance_change_m':.26}
+    assert not matches_distance_request(points,times,[0,1.3,0],request)
+    request['distance_trend_windows_s']=[[2.,3.]]
+    assert matches_distance_request(points,times,[0,1.3,0],request)
+    request['distance_trend']='approaching'
+    assert not matches_distance_request(points,times,[0,1.3,0],request)
+
+
+@pytest.mark.fast_unit
+def test_new_whole_utterances_cannot_change_or_fake_the_recorded_voice():
+    from avengine.timeline.v7_phase2_sources import _validate_recorded_speech_voice
+    original={'speaker_id':'same_admitted_voice','gender':'F'}
+    record={'speaker_id':original['speaker_id'],'gender':'F','source_type':'recorded',
+            'transcript':'A different complete sentence.','sound_class':'speech_playback'}
+    _validate_recorded_speech_voice(record,original)
+    with pytest.raises(ValueError,match='same admitted'):
+        _validate_recorded_speech_voice({**record,'speaker_id':'another_voice'},original)
+    with pytest.raises(ValueError,match='same admitted'):
+        _validate_recorded_speech_voice({**record,'source_type':'author_tts'},original)

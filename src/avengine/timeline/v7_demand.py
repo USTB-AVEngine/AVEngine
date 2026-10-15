@@ -254,36 +254,53 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
             if key.startswith(('semantic_','reuse_')):row.pop(key)
         row['source_classes']={};row['proposed_sound_asset_ids']={};row['motion_requests']={};row['silent_asset_ids']=[]
         row['phase2_recorded_speech_schedule_s']={}
-        selected=humans[:2]
+        row['phase2_recorded_sound_ids']={}
+        selected=humans[:2];used_voices=set();chosen_clips={}
         for i,a in enumerate(selected):
             gender='F' if a.get('visual_gender')=='female' else 'M'
             pool=[r for r in records if r.get('dataset')=='VCTK-Corpus 0.92' and r.get('source_type','recorded')=='recorded'
                   and r.get('gender')==gender and r.get('legacy_library_split')=='train'
                   and r.get('transcript') and (1.7 if focus=='human_motion' else .8)<=r.get('duration_s',0)<=2.3]
             if not pool:raise ValueError('demand lacks admitted short whole recorded speech for '+gender)
-            shortest=min(r['duration_s'] for r in pool);pool=[r for r in pool if r['duration_s']<=shortest+.1]
-            record=rng.choice(sorted(pool,key=lambda r:r['sound_asset_id']));aid=a['asset_id']
+            voices={}
+            for record in pool:
+                if record['speaker_id'] not in used_voices:
+                    voices.setdefault(record['speaker_id'],{})[record['transcript']]=record
+            required=3 if focus=='human_motion' and i==0 else 1
+            voices={voice:list(clips.values()) for voice,clips in voices.items() if len(clips)>=required}
+            if not voices:raise ValueError('demand lacks three distinct admitted whole utterances from one unused voice')
+            voice=rng.choice(sorted(voices));used_voices.add(voice)
+            available=sorted(voices[voice],key=lambda r:(-r['duration_s'],r['sound_asset_id']))
+            clips=available[:3]
+            clips=(clips*3)[:3]
+            record=clips[0];aid=a['asset_id'];chosen_clips[aid]=clips
             row['source_classes'][aid]=['speech_playback'];row['proposed_sound_asset_ids'][aid]=record['sound_asset_id']
             # Put first onsets in different original QA-19 time bands. A
             # second early call is useful for counting, but the moving body
             # must have a long measured quiet tail before its next utterance.
-            offsets=(.5,) if focus=='human_motion' or i else (.5,2.8)
-            if i:offsets=(5.5,)
+            if focus=='human_motion':offsets=(2.3,) if i==0 else (0.,)
+            else:offsets=(5.5,) if i else (.5,2.8)
             row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in offsets]
+            row['phase2_recorded_sound_ids'][aid]=[clip['sound_asset_id'] for clip in clips for _ in offsets]
         for a in humans[2:]:row['silent_asset_ids'].append(a['asset_id'])
         if focus=='human_motion':
             walker=selected[0]
             if not walker.get('walk_allowed'):raise ValueError('demand selected body has no registered walk')
             trend='receding' if row['scene_seed']%2 else 'approaching'
-            # One continuous straight route fits a normal legal room. The
-            # first whole utterance occurs while walking; after its measured
-            # wet support ends, the body keeps translating until 8.8s. Later
-            # crops observe the same body at rest rather than inventing a
-            # return route or stretching the room to hold three long walks.
-            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.25,'intervals_s':[[0.,8.8]],'distance_trend':trend}
+            # Static speech comes first; the moving speaker speaks last.
+            # No later program event interrupts the measured quiet query gap.
+            # Different whole transcripts create distinct sound anchors after
+            # the unchanged parent deduplication removes timestamp copies.
+            windows=[[start+2.3,start+2.3+math.ceil(clip['duration_s']*10)/10]
+                     for start,clip in zip((0.,10.,20.),chosen_clips[walker['asset_id']],strict=True)]
+            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.2,
+                'intervals_s':[[2.,5.],[7.5,10.],[12.,15.],[17.5,20.],[22.,25.],[27.5,30.]],
+                'distance_trend':trend,'distance_trend_windows_s':windows,'minimum_window_distance_change_m':.26}
             request['required_speaking_motion_contrast']={'moving_asset_id':walker['asset_id'],
-                'static_asset_id':selected[1]['asset_id'],'required_validation_window_s':[0.,10.],
-                'post_sound_motion_end_s':8.8,'status':'proposal; measured wet support and native body readbacks required'}
+                'static_asset_id':selected[1]['asset_id'],'required_validation_windows_s':[[0.,10.],[10.,20.],[20.,30.]],
+                'post_sound_query_gaps_s':[[8.7,10.],[18.7,20.],[28.7,30.]],
+                'distinct_whole_utterances_for_moving_speaker':3,
+                'status':'proposal; measured wet support, no later programmed event, and native body readbacks required'}
             request['distance_trend']=trend
         request['count_scope']='all actual human source activity in STARSS class13; no mixed-domain count'
     elif focus=='animal_motion':

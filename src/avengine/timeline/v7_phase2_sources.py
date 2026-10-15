@@ -27,6 +27,13 @@ def _validate_authored_motion_support(scene, program, requests):
             '; dialogue intake currently requires standing speaking humans; '
             'use complete recorded VCTK speech for seated speakers')
 
+
+def _validate_recorded_speech_voice(record, original):
+    if (record.get('source_type')=='author_tts' or not record.get('transcript')
+            or record.get('speaker_id')!=original.get('speaker_id')
+            or record.get('gender')!=original.get('gender') or record['sound_class']!='speech_playback'):
+        raise ValueError('recorded sequence must preserve the same admitted whole speaking voice')
+
 def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if row.get('schema')!=PHASE2_SCHEMA:raise ValueError('explicit phase-two schema required')
     from avengine.timeline.v7_production_inputs import validate_sampling_row
@@ -134,13 +141,21 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
             raise ValueError('recorded schedule cannot relabel TTS or a cropped utterance')
         doomed={e['event_id']for e in evs};scene['events']=[e for e in scene['events']if e['event_id']not in doomed]
         program['events']=[b for b in program['events']if b['event_id']not in doomed]
-        duration=first['end_tick']-first['start_tick']
-        for i,start in enumerate(starts):
+        sequence=row.get('phase2_recorded_sound_ids',{}).get(aid,[binding['sound_asset_id']]*len(starts))
+        if len(sequence)!=len(starts):raise ValueError('whole recorded sequence length differs from its schedule')
+        admitted_by_id={r['sound_asset_id']:r for r in admitted}
+        original=records_by_id[binding['sound_asset_id']]
+        for i,(start,sid) in enumerate(zip(starts,sequence,strict=True)):
+            record=records_by_id.get(sid)
+            if record is None:
+                record=recording_header(admitted_by_id[sid]);records_by_id[sid]=record;program['records'].append(record)
+            _validate_recorded_speech_voice(record,original)
+            duration=math.ceil(record['header']['sample_count']/1600)
             lo=round(float(start)*10)
             if lo<0 or lo+duration>300:raise ValueError('whole recorded speech cannot fit')
             eid='recorded_speech_'+ep+'_'+str(i)
             scene['events'].append({**deepcopy(first),'event_id':eid,'start_tick':lo,'end_tick':lo+duration})
-            program['events'].append({**deepcopy(binding),'event_id':eid})
+            program['events'].append({**deepcopy(binding),'event_id':eid,'sound_asset_id':sid})
     if row.get('phase2_single_animal_utterance_crop'):
         bindings={b['event_id']:b for b in program['events']}
         records_by_id={r['sound_asset_id']:r for r in program['records']}
