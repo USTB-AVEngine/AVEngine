@@ -42,10 +42,15 @@ def run_worker(manifest,slot):
     from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,add_scene_demand,record_selected_parent,SELECTION_FEEDBACK_ENV
     os.environ[SELECTION_FEEDBACK_ENV]=str(root/'inputs/demand_state.json')
     state=read_demand_state(root/'inputs/demand_state.json')
+    state['minimum_motion_independent_questions']=int(manifest.get('motion_quartet_final_targets',{}).get('minimum_independent_questions_per_family',30))
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
-        row=load(previous) if previous.exists() else plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
-        if manifest.get('require_authored_tts_per_new_parent') and not previous.exists():
+        if previous.exists():row=load(previous)
+        elif task.get('focus')=='motion_quartet_template':
+            from avengine.timeline.v7_motion_quartet_planning import plan_native_room_motion_quartet
+            row=plan_native_room_motion_quartet(row,state,house,catalog,load(inputs['semantic_manifest']),source['records'],inputs,attempt=int(task.get('construction_attempt',0)))
+        else:row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
+        if manifest.get('require_authored_tts_per_new_parent') and not previous.exists() and row.get('scene_constructor')!='motion_quartet_template':
             from avengine.timeline.v7_demand import assign_authored_tts
             row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
         inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
@@ -69,7 +74,7 @@ def run_worker(manifest,slot):
     if task['profile']=='phase2':
         from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion,REVISION as EXECUTION_REVISION
         if not previous.exists():row['motion_execution_revision']=EXECUTION_REVISION
-        row=prepare_scene_motion(row,catalog)
+        if row.get('scene_constructor')!='motion_quartet_template':row=prepare_scene_motion(row,catalog)
         from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
         row=prepare_motion_during_row(row,catalog,source['records'])
     write(root/'inputs/planned'/f'{slot:03d}.json',row)
@@ -89,6 +94,9 @@ def run_worker(manifest,slot):
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
         if not admitted:raise ValueError('native producer did not admit the parent')
         parent=Path(result['delivery_directory']).parent
+        if row.get('scene_constructor')=='motion_quartet_template':
+            from avengine.timeline.v7_motion_quartet_planning import native_template_candidate_counts
+            receipt['motion_quartet_native_realization']=native_template_candidate_counts(row,parent)
         # Derived deduplicated delivery is sparse. Export revalidates the original
         # raw seal with the unchanged 14-question gate, then deduplicates itself.
         pointer=next((p for p in [parent/'integration_seal_completed.json',parent/'alpha_seal_completed.json']if p.is_file()),None)
