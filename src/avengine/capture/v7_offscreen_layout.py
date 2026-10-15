@@ -94,3 +94,35 @@ def refresh_actual_offscreen_proofs(video,scene,checks):
         proof=native_projection_proof(video,scene,entry,counts[aid])
         if proof['status']!='pass':raise ValueError('final actual posed body is not outside native camera projection')
         byid[aid]['intentional_offscreen_proof']=proof
+
+
+def placement_construction_fallback(scene,declaration,surface,target,require_pair):
+    """Construct instead of failing when no strict placement passed (owner 10-15: "缺什么补什么", off-screen allowed).
+
+    Stage 'camera_1_2m': a person may stand at the unchanged 1.2 m person/camera gate instead of the 1.5 m
+    construction preference.  Stage 'offscreen': an entity the question plan does not need in view becomes a real
+    registered body wholly outside the fixed camera (|azimuth| >= 60 deg, zero native pixels, projection proof by
+    refresh_actual_offscreen_proofs).  Sector targets, controlled colour pairs, movers and entities that already have
+    a view role keep their requirements.  All physical/contact/acoustic gates and all truths are unchanged; truths
+    are read from the actual native scene.  Returns the applied stage, or None when nothing is left to relax.
+    """
+    aid=declaration['asset_id']
+    log=scene.setdefault('construction_fallbacks',[])
+    done={f['stage'] for f in log if f.get('asset_id')==aid}
+    if surface!='floor':return None
+    person=declaration.get('kind') in {'human','performer'}
+    if person and 'camera_1_2m' not in done:
+        scene.setdefault('native_person_camera_construction_m',{})[aid]=1.2
+        log.append({'asset_id':aid,'stage':'camera_1_2m','policy':'owner-20261015-construct-not-fail'})
+        return 'camera_1_2m'
+    movers=set(scene.get('production_scenario',{}).get('motion_requests',{}))
+    roles=scene.setdefault('native_view_roles',{})
+    if ('offscreen' not in done and aid not in roles and target is None
+            and not (require_pair and declaration.get('controlled_shirt'))
+            and aid not in movers and declaration.get('endpoint_id') not in movers):
+        roles[aid]={'view':'outside','static':True,'minimum_abs_azimuth_deg':60.,'real_registered_drawable_required':True,
+                    'construction':'owner 10-15 off-screen fallback: no in-view floor placement passed'}
+        if person:scene.setdefault('native_person_camera_construction_m',{})[aid]=1.2
+        log.append({'asset_id':aid,'stage':'offscreen','policy':'owner-20261015-construct-not-fail'})
+        return 'offscreen'
+    return None
