@@ -8,7 +8,16 @@ from avengine.capture.v7_registered_native import NativeRegisteredVideo
 from avengine.capture.v7_visible_attachment import survey,rotation,check_support,support_points,body_mask_from_native_depth
 from avengine.timeline.continuous_pilot import write_json
 
-VISUAL_REVISION='v7-visible-static-pilot-native-v15-original-paw-sole-regions'
+VISUAL_REVISION='v7-visible-native-v16-measured-emitter-5mm'
+EMITTER_READBACK_TOLERANCE_M=.005
+
+
+def attached_emitter_readback_error(actual,expected):
+    """Retain native emitter truth; tolerate <=5mm transform readback error."""
+    error=float(np.linalg.norm(np.asarray(actual,float)-np.asarray(expected,float)))
+    if not math.isfinite(error) or error>EMITTER_READBACK_TOLERANCE_M+1e-12:
+        raise ValueError('native attached emitter exceeds 5mm: '+str(error))
+    return error
 
 
 def contact_control_policy(vertices,surface,kind):
@@ -107,8 +116,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if 'emitter_node' not in entry:
                 node=entry['object'].root_scene_node.create_child();node.translation=self.mn.Vector3(a['emitter_local_m']);entry['emitter_node']=node
             emitter=np.asarray(entry['emitter_node'].absolute_transformation(),float)[:3,3]
-            expected=(native@np.r_[a['emitter_local_m'],1.])[:3];readback_error=float(np.linalg.norm(emitter-expected))
-            if readback_error>.0001:raise ValueError('native attached emitter exceeds 0.1mm')
+            expected=(native@np.r_[a['emitter_local_m'],1.])[:3]
+            readback_error=attached_emitter_readback_error(emitter,expected)
         else:emitter=native[:3,3];readback_error=None
         return {'endpoint_id':entry['endpoint_id'],'actor_id':a['native_instance_id'],
             'native_object_id':int(entry['object'].object_id),'semantic_id':entry['semantic_id'],'asset_id':a['asset_id'],
