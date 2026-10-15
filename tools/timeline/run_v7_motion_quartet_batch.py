@@ -47,7 +47,9 @@ def main():
     p.add_argument('--room-id')
     p.add_argument('--launch-deadline-utc')
     p.add_argument('--expand-after-first',action='store_true')
-    p.add_argument('--source-types',nargs='+',default=['human_speech','human_other','dog_walk','cat_walk','animal_slide'])
+    p.add_argument('--house-families',nargs='+',choices=['hm3d','mp3d'],default=['hm3d','mp3d'])
+    p.add_argument('--template-focuses',nargs='+',choices=['auto','M1','M2'],default=['auto'])
+    p.add_argument('--source-types',nargs='+',default=['human_speech','human_other','dog_walk','cat_walk','animal_slide','human_footsteps'])
     a=p.parse_args()
     if not 1<=a.workers<=6:raise ValueError('parent workers must be <=6; shared native SDK queue reserves <=10')
     out=a.output_root.resolve();out.mkdir(parents=True,exist_ok=True);budget=(a.resource_budget_root or out).resolve()
@@ -88,6 +90,9 @@ def main():
     excluded=from_passed_exports(a.exclude_evidence_roots).get('observed_houses',[])if a.exclude_evidence_roots else []
     candidates=candidate_rooms(houses,load(a.contract),excluded if not a.room_id else (),a.room_id)
     if not candidates:raise ValueError('no untouched legal training house admits the requested humans')
+    candidates=[item for item in candidates if item[0]['family'] in a.house_families]
+    manifest['default_new_parent_code_commit']=commit;save(manifest_path,manifest)
+    asset_inventory=load(a.assets);asset_inventory=asset_inventory.get('assets',asset_inventory) if isinstance(asset_inventory,dict)else asset_inventory
     pending=[]
     existing={(t['row']['house'],t['row']['room_id'],t.get('construction_attempt',0))for t in manifest['parents'] if (t.get('code_commit',manifest['code_commit'])==commit or (out/'evidence/jobs'/f'{t["slot"]:03d}.json').exists()and load(out/'evidence/jobs'/f'{t["slot"]:03d}.json')['status']=='passed')}
     for attempt in range(3):
@@ -189,6 +194,7 @@ def main():
                  'motion_source_type':('human_speech'if a.first_only else a.source_types[slot%len(a.source_types)]),
                  'scene_id':'motion_quartet_'+identity+'__attempt_'+str(attempt),'question_quota_base':10,'questions_per_window':14,
                  'window_count':5,'members':['v0_a0'],'trial_only':True}
+            if a.template_focuses[slot%len(a.template_focuses)]!='auto':row['motion_template_focus']=a.template_focuses[slot%len(a.template_focuses)]
             task={'slot':slot,'row':row,'device':'cpu','profile':'phase2','family':house['family'],
                   'constructor':'motion_quartet_template','focus':'motion_quartet_template','construction_attempt':attempt}
             manifest['parents'].append(task);save(manifest_path,manifest)

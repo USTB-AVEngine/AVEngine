@@ -27,7 +27,7 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
     is_free=native_free_predicate(pathfinder,polygon,floor,listener)
     lo,hi=SPECIES_SPEED_M_S[species]
     if speed_range is None:speed_range=(lo+.02,hi-.02)
-    if species=='human' and focus=='M1':speed_range=(.82,.9)
+    if focus=='M1':speed_range=(.82,.9) if species=='human' else (lo+.02,hi-.02)
     speed=float(rng.uniform(max(lo+.01,speed_range[0]),min(hi-.01,speed_range[1])))
     x0,z0,x1,z1=polygon.bounds
     points=[np.array([x,z]) for x in np.linspace(x0,x1,25) for z in np.linspace(z0,z1,25)]
