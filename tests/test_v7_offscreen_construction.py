@@ -94,3 +94,14 @@ def test_initial_camera_search_moves_only_the_initial_proposal_when_inherited_ca
     assert shape(ctx['room_floor_polygon']).buffer(-.35).covers(Point(chosen['listener_m'][0],chosen['listener_m'][2]))
     assert chosen['initial_camera_construction']['capture_camera_moves']is False
     assert len(inside)==3 and len(outside)==1
+
+
+def test_new_initial_listener_is_used_by_the_private_acoustic_room_without_mutating_authority():
+    from avengine.timeline.v7_visible_sources import build_visible_scene,SCHEMA
+    row={'schema':SCHEMA,'split':'train','house':'new_house','room_id':'r','scene_id':'new',
+        'scene_seed':7,'asset_ids':[],'listener_m':[2.,1.5,3.],'camera_yaw_deg':0.}
+    house={'split':'train','house':'new_house','acoustic_status':'pass','checked_room_ids':['r'],
+        'checked_rooms':[{'room_label':'r','placement':{'camera_m':[0.,1.5,0.]}}]}
+    working,scene,program,assets=build_visible_scene(row,house,[],[])
+    assert working['room']['placement']['camera_m']==scene['listener_m']==row['listener_m']
+    assert house['checked_rooms'][0]['placement']['camera_m']==[0.,1.5,0.]
