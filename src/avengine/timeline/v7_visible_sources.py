@@ -321,11 +321,21 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
         for index,start in enumerate(schedule):
             cls=classes[index%len(classes)];record=choices[cls]
             duration=float(record['duration_s']);ticks=math.ceil(duration*10) if whole else max(1,math.floor(min(2.,duration)*10))
+            measured_program=row.get('phase2_animal_program_samples',{}).get(a['asset_id'])
+            if measured_program is not None:
+                n=int(measured_program['sample_count']);begin=int(measured_program.get('crop_start_sample',0))
+                if a['kind']!='animal' or n<=0 or n%1600 or begin<0 or begin+n>record['header']['sample_count']:
+                    raise ValueError('invalid complete measured animal activity program')
+                ticks=n//1600;whole=False
             lo=round(start*10);hi=lo+ticks
             if hi>300:raise ValueError('complete utterance does not fit the continuous world')
             activity=record.get('screens',{}).get('automatic_activity',{}).get('activity_intervals_samples') or record.get('source_normalization',{}).get('measured_activity',{}).get('source_activity_intervals_samples')
             if not activity:raise ValueError('source has no measured activity')
             crop=0 if whole else max(0,min(int(activity[0][0]),record['header']['sample_count']-ticks*1600))
+            if measured_program is not None:
+                crop=int(measured_program.get('crop_start_sample',0))
+                if any(int(lo)<crop or int(hi)>crop+ticks*1600 for lo,hi in activity):
+                    raise ValueError('measured animal program would remove observed animal activity')
             eid=f'event_{len(scene["events"]):04d}';cid=source['class_id'] if human_speech else STRICT_CLASS13.get(cls)
             scene['events'].append({'event_id':eid,'endpoint_id':ep,'source_id':i+1,'class_id':cid,'sound_class':cls,'start_tick':lo,'end_tick':hi,'mechanism':mechanism})
             program['events'].append({'event_id':eid,'sound_asset_id':record['sound_asset_id'],'crop_start_sample':crop,
