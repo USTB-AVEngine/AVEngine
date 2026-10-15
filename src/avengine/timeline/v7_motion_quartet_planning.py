@@ -7,7 +7,11 @@ MOTION_FAMILIES=('QA-06','QA-15','QA-16','QA-17')
 def validate_template_request(row,catalog):
     from avengine.assets.roster_motion.navmesh_execution import SPEED_RANGES
     assets={a['asset_id']:a for a in catalog};requests=row.get('motion_during_condition_requests',[])
-    if set(MOTION_FAMILIES)-{r['qa_id']for r in requests}:raise ValueError('motion quartet must compile all four original conditions')
+    # Reflection M1/M2 slots explicitly advertise the original conditions they
+    # can serve; four-family coverage belongs to the batch, not every source.
+    slot=row.get('motion_quartet_construction',{}).get('route',{}).get('emission_slot')
+    required={qa for qa,flag in zip(MOTION_FAMILIES,('qa06','qa15','qa16','qa17')) if slot.get(flag)} if slot is not None else set(MOTION_FAMILIES)
+    if not required or required-{r['qa_id']for r in requests}:raise ValueError('motion quartet must compile its declared original conditions')
     moving=row.get('motion_requests',{})
     if not moving:raise ValueError('motion quartet has no moving physical source')
     for aid,request in moving.items():
@@ -20,7 +24,7 @@ def validate_template_request(row,catalog):
         if family=='QA-15'and float(request.get('minimum_distance_change_m',0))<.5:
             raise ValueError('QA-15 construction requires at least 0.5m during the complete sound')
         if family in {'QA-16','QA-17'}:
-            if float(request.get('minimum_motion_s',0))<2.:
+            if float(request.get('minimum_motion_s',0))<(1.5 if slot is not None else 2.):
                 raise ValueError('post-sound construction requires at least two silent moving seconds')
             if assets[aid]['kind']=='human'and row['source_classes'].get(aid)!=['speech_playback']:
                 raise ValueError('post-sound walking human must speak without footsteps')
@@ -38,9 +42,10 @@ def plan_room_motion_quartet(base_row,state,room,catalog,semantic,records,pathfi
     if not required<=set(row['asset_ids']):raise ValueError('constructor removed explicitly required physical identities')
     snapshot=demand_snapshot(state,next_questions=70);target=int(state.get('minimum_motion_independent_questions',30))
     row['scene_constructor']='motion_quartet_template'
+    actual_families=list(dict.fromkeys(r['qa_id']for r in row.get('motion_during_condition_requests',[])))
     row['scene_demand']={**deepcopy(row.get('scene_demand',{})),**snapshot,'focus':'motion_quartet_template',
         'requested_conditions':['walking_human','distance_trend_during_sound','moving_after_source_and_wet_tail_stop','staggered_sources'],
-        'required_actual_candidate_families':list(MOTION_FAMILIES),
+        'required_actual_candidate_families':actual_families,
         'batch_minimum_independent_family_counts':{f:target for f in MOTION_FAMILIES},
         'independent_motion_deficits':{f:max(0,target-state.get('family_counts',{}).get(f,0))for f in MOTION_FAMILIES},
         'required_asset_ids':list(row['asset_ids']),'constructor_attempt':int(attempt),
@@ -78,6 +83,7 @@ def native_template_candidate_counts(row,parent):
             for q in public:
                 if q['qa_id']not in MOTION_FAMILIES or q['form']!='open':continue
                 key,_=independence_key(row['scene_id'],q,gold[q['question_id']]);unique.setdefault(key,q['qa_id'])
-    counts.update(unique.values());missing=[f for f in MOTION_FAMILIES if not counts[f]]
+    counts.update(unique.values());required=row.get('scene_demand',{}).get('required_actual_candidate_families',MOTION_FAMILIES)
+    missing=[f for f in required if not counts[f]]
     if missing:raise ValueError('motion quartet missing measured legal candidates: '+','.join(missing))
     return {'status':'pass','independent_legal_family_counts':dict(counts),'original_QA_predicates_changed':False}

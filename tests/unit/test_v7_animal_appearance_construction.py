@@ -96,3 +96,14 @@ def test_animal_floor_fallback_remeasures_every_ray_and_keeps_contacts_honest(mo
     assert attachment_has_hard_error(admitted)
     monkeypatch.setattr(attachment,'ray',lambda *a:None)
     assert construct_animal_floor_support(None,None,meta,support) is None
+
+
+def test_reflection_m1_requires_its_advertised_original_families_without_forcing_radial_ones():
+    from avengine.timeline.v7_motion_quartet_planning import validate_template_request
+    catalog=[{'asset_id':'cat','kind':'animal','species_id':'cat'}]
+    row={'motion_quartet_construction':{'route':{'emission_slot':{'qa06':True,'qa15':False,'qa16':False,'qa17':True}}},
+         'source_classes':{'cat':['cat']},'motion_requests':{'cat':{'speed_m_s':.5}},
+         'motion_during_condition_requests':[{'qa_id':qa,'target_asset_id':'cat','minimum_motion_s':1.5} for qa in ('QA-06','QA-17')]}
+    validate_template_request(row,catalog)
+    row['motion_during_condition_requests'].pop()
+    with pytest.raises(ValueError,match='declared original conditions'):validate_template_request(row,catalog)

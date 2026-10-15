@@ -69,10 +69,10 @@ class StationaryPawGrounder:
                   'walking_candidate': recipe['source_inventory']}
         profile = self.native.get('source_provenance', {}).get('explicit_motion_profile')
         if profile: record['motion_profile'] = profile
-        rig = Rig.load(record).enable_skin_cache()
         model = self.native.get('gait_generation_floor_model', {})
         if model.get('type') != 'fixed_plane':
             raise ValueError('stationary IK requires the registered fixed-plane gait recipe')
+        rig = Rig.load(record).enable_skin_cache()
         self.walk = ConstrainedWalk(rig, speed=float(recipe['speed_m_s']),
                                     period=float(recipe['period_s']),
                                     floor=lambda p: float(model['local_height_m']))
@@ -89,14 +89,18 @@ class StationaryPawGrounder:
         walk.frame(float(frame['pose_reconstruction']['time_s']))
         globals_ = deepcopy(walk.last_globals)
         rotation = yaw_matrix(float(yaw)); maximum_reach = 0.
+        initial = paw_points(rig.skin(globals_), rig.masks); targets = {}; linears = {}
+        for side, chain in rig.chains.items():
+            local = np.asarray(initial[side]['point']); world = rotation @ local + root
+            world[1] = float(floor(world)) + .0004
+            targets[side] = rotation.T @ (world - root)
+            linears[side] = globals_[chain[2]][:3, :3].copy()
         for _ in range(8):
             parts = rig.skin(globals_); paws = paw_points(parts, rig.masks)
             for side, chain in rig.chains.items():
-                local = np.asarray(paws[side]['point']); world = rotation @ local + root
-                dy = float(floor(world)) + .0004 - world[1]
-                target = globals_[chain[2]][:3, 3].copy(); target[1] += dy
-                linear = globals_[chain[2]][:3, :3].copy()
-                maximum_reach = max(maximum_reach, solve_leg(rig.document, globals_, chain, target, linear))
+                adjustment = targets[side] - np.asarray(paws[side]['point'])
+                target = globals_[chain[2]][:3, 3] + adjustment
+                maximum_reach = max(maximum_reach, solve_leg(rig.document, globals_, chain, target, linears[side]))
         parts = rig.skin(globals_); paws = paw_points(parts, rig.masks); marks = rig.landmarks(globals_)
         measured = deepcopy(frame); measured.update(root_world_m=[0., 0., 0.],
             mouth_m=marks['mouth'].tolist(), head_m=marks['head'].tolist(), tail_m=marks['tail'].tolist(),
@@ -106,7 +110,7 @@ class StationaryPawGrounder:
             local = np.asarray(paw['point']); world = rotation @ local + root
             delta = float(world[1] - floor(world))
             measured['feet'][side] = {'sole_world_m': local.tolist(), 'support_world_m': local.tolist(),
-                'support_target_world_m': local.tolist(), 'floor_delta_m': delta, 'in_contact': abs(delta) <= .012}
+                'support_target_world_m': targets[side].tolist(), 'floor_delta_m': delta, 'in_contact': abs(delta) <= .012}
         self.directory.mkdir(parents=True, exist_ok=True)
         target = self.directory / ('stationary_%03d.glb' % len(self.cache))
         document = externalize_unchanged_images(rig.document, rig.binary, self.directory / 'textures')
