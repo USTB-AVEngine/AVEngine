@@ -79,7 +79,7 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
     whole_walking_speech(row,target,catalog,records,semantic,seed)
     yaw=row['camera_yaw_deg'];angle=math.radians(yaw)
     view={'kind':'enter'if enter else'cross_view','camera_forward':[math.sin(angle),0.,-math.cos(angle)],
-        'initial_outside_minimum_abs_deg':60.,'final_inside_maximum_abs_deg':28.,
+        'initial_outside_minimum_abs_deg':50.,'final_inside_maximum_abs_deg':35.,
         'minimum_angular_span_deg':20.,'maximum_crossing_abs_deg':32.,
         'minimum_crossing_radius_m':4.2,'required_entry_side':(-1 if seed%2 else 1)}
     compact=occlusion_construction_distances()
@@ -88,7 +88,7 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
     row['motion_requests']={target:{'action':'walk','speed_m_s':1.,'intervals_s':intervals,
         'minimum_listener_horizontal_distance_m':1.5,'camera_path_condition':view}}
     if enter:
-        row['native_view_roles'][target].update(static=False,required_visible_sometime=True,
+        row['native_view_roles'][target].update(static=False,required_visible_sometime=True,minimum_abs_azimuth_deg=50.,
             preferred_azimuth_deg=view['required_entry_side']*75.)
         row['native_placement_preferences_m'].pop(target,None)
         row['explicit_entry']={'target_asset_id':target,'side':view['required_entry_side'],

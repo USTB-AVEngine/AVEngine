@@ -35,3 +35,21 @@ def test_no_route_proposal_never_becomes_a_static_actor():
     scene={'listener_m':[0,1.3,0],'production_scenario':{'motion_floor_polygon':mapping(box(-.2,-.2,.2,.2))}}
     video=SimpleNamespace(actors=[entry],pathfinder=Pathfinder(),hs=SimpleNamespace(ShortestPath=SimpleNamespace))
     assert list(fixed_camera_route_proposals(video,entry,scene,np.linspace(0,4,151),np.array([0,0,-1]),{'camera_path_condition':{'kind':'enter'}}))==[]
+
+
+def test_real_whole_body_outside_then_inside_does_not_require_a_sixty_degree_dead_zone():
+    import math
+    from avengine.capture.v7_offscreen_layout import vertices_outside_camera
+    camera=np.eye(4);camera[1,3]=-1.3
+    scale=1/math.tan(math.radians(85)/2)
+    projection=np.array([[scale,0,0,0],[0,scale*16/9,0,0],[0,0,-1,-.02],[0,0,-1,0]])
+    body=np.array([[x,y,z]for x in (-.25,.25)for y in (0.,1.8)for z in (-.2,.2)])
+    start=np.array([2.5,0.,-1.8]);end=np.array([2.,0.,-3.5])
+    assert vertices_outside_camera(body+start,camera,projection)
+    assert not vertices_outside_camera(body+end,camera,projection)
+    positions=np.linspace(start,end,61);times=np.arange(61)/30
+    request={'camera_path_condition':{'kind':'enter','camera_forward':[0,0,-1],
+        'required_entry_side':1,'initial_outside_minimum_abs_deg':50.,'final_inside_maximum_abs_deg':35.}}
+    assert matches_camera_path(positions,times,[0,1.3,0],request)
+    request['camera_path_condition']['initial_outside_minimum_abs_deg']=60.
+    assert not matches_camera_path(positions,times,[0,1.3,0],request)
