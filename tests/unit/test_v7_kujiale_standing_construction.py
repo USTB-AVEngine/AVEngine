@@ -55,3 +55,14 @@ def test_other_native_failures_are_not_reclassified_as_construction_preferences(
     def reject(directory):raise ValueError('original package hash differs')
     video._qualify_standing_once=reject
     with pytest.raises(ValueError,match='package hash'):video.qualify_standing(tmp_path)
+
+
+def test_group_retry_does_not_turn_fixed_random_headings_into_everyone_facing_camera():
+    from avengine.capture.v7_kujiale_standing_construction import retained_initial_headings_ok
+    s,assets=scene();group={a['endpoint_id']:s['sources'][a['endpoint_id']]['trajectory'][0]['position_m']for a in assets}
+    for a in assets:
+        direction=np.asarray(s['listener_m'])-group[a['endpoint_id']]
+        s['sources'][a['endpoint_id']]['body_yaw_deg']=float(np.degrees(np.arctan2(direction[0],-direction[2])))
+    assert not retained_initial_headings_ok(s,assets,group)
+    s['sources']['voice3']['body_yaw_deg']+=90.
+    assert retained_initial_headings_ok(s,assets,group)

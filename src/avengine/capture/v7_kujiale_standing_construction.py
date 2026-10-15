@@ -8,6 +8,18 @@ class NativeStandingPlacementExhausted(ValueError):
     pass
 
 
+def retained_initial_headings_ok(scene,assets,group):
+    """A position retry keeps seeded headings and cannot make everyone face the lens."""
+    sources=[scene['sources'][a['endpoint_id']]for a in assets]
+    if any('body_yaw_deg' not in source for source in sources):return True
+    listener=np.asarray(scene['listener_m'],float)
+    points=np.asarray([group[a['endpoint_id']]for a in assets],float)
+    toward=listener-points;bearings=np.arctan2(toward[:,0],-toward[:,2])
+    yaws=np.radians([source['body_yaw_deg']for source in sources])
+    frontal=np.abs(np.angle(np.exp(1j*(yaws-bearings))))<=math.radians(25.)
+    return not bool(frontal.all())
+
+
 def standing_group_proposals(scene,assets,*,maximum_groups=24,minimum_camera_m=1.5):
     """Propose complete groups; native contact/collision/acoustics remain authority.
 
@@ -44,6 +56,8 @@ def standing_group_proposals(scene,assets,*,maximum_groups=24,minimum_camera_m=1
                 group=(int(i),int(j),int(k))
                 if group in groups:continue
                 groups.add(group)
-                yield {a['endpoint_id']:points[index].tolist() for a,index in zip(assets,group)}
+                proposal={a['endpoint_id']:points[index].tolist() for a,index in zip(assets,group)}
+                if not retained_initial_headings_ok(scene,assets,proposal):continue
+                yield proposal
                 emitted+=1
                 if emitted>=maximum_groups:return
