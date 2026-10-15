@@ -35,3 +35,12 @@ def test_host_uid_map_is_readable_without_privileged_proc1_namespace_access(monk
     from pathlib import Path
     monkeypatch.setattr(Path,'read_text',lambda self:mapping)
     assert scheduler.can_collect_host_sample() is expected
+
+
+def test_actual_host_collector_creates_its_own_new_output_directory(tmp_path,monkeypatch):
+    monkeypatch.setattr(host,'owned_processes',lambda root:[])
+    root=tmp_path/'new_campaign'
+    assert not root.exists()
+    value=host.sample_host(root)
+    assert (root/'evidence/host_resource_sample.json').is_file()
+    assert host.read_host(root)['sample_unix']==value['sample_unix']
