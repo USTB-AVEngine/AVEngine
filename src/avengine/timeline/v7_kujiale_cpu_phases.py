@@ -10,8 +10,8 @@ from pathlib import Path
 from avengine.capture.kujiale_gpu_queue import own_pss,live
 
 
-def phase_state(root,state,stage):
-    directory=Path(root)/'evidence/cpu_phases';directory.mkdir(parents=True,exist_ok=True);path=directory/(str(os.getpid())+'.json');value={'pid':os.getpid(),'state':state,'stage':stage,'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()};temporary=path.with_name(path.name+'.tmp');temporary.write_text(json.dumps(value)+'\n');temporary.replace(path)
+def phase_state(root,state,stage,**extra):
+    directory=Path(root)/'evidence/cpu_phases';directory.mkdir(parents=True,exist_ok=True);path=directory/(str(os.getpid())+'.json');value={'pid':os.getpid(),'state':state,'stage':stage,'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),**extra};temporary=path.with_name(path.name+'.tmp');temporary.write_text(json.dumps(value)+'\n');temporary.replace(path)
 
 
 def legacy_workers(root,leased):
@@ -40,10 +40,22 @@ def phase_memory_estimate(stage,declared):
     return max(declared,12000000000 if stage=='new_native_category'else 6000000000 if 'native'in stage else 4000000000 if stage=='construct_room'else 0)
 
 
+def remaining_peak_reserve(peak_bytes,already_counted_subtree_bytes):
+    """Host PSS already includes the waiting worker's retained memory."""
+    return max(0,int(peak_bytes)-int(already_counted_subtree_bytes))
+
+
+def oldest_fitting_waiter(requests,actual,reserved,busy,legacy,mem):
+    for request in sorted(requests,key=lambda row:(row['time_utc'],row['pid'])):
+        need=remaining_peak_reserve(request['estimate_bytes'],request.get('already_counted_bytes',0))
+        if phase_fits(actual,reserved,need,busy,legacy,mem):return request['pid']
+    return None
+
+
 @contextmanager
 def cpu_phase(root,stage,*,estimate_bytes=4000000000):
     estimate_bytes=phase_memory_estimate(stage,estimate_bytes)
-    root=Path(root);directory=root/'evidence/cpu_slots';directory.mkdir(parents=True,exist_ok=True);phase_state(root,'waiting',stage);last=0;prior=set(os.sched_getaffinity(0))
+    root=Path(root);directory=root/'evidence/cpu_slots';directory.mkdir(parents=True,exist_ok=True);phase_state(root,'waiting',stage,estimate_bytes=estimate_bytes);last=0;prior=set(os.sched_getaffinity(0))
     while True:
         with(directory/'queue.lock').open('a+')as guard:
             fcntl.flock(guard,fcntl.LOCK_EX);available=[];busy=[]
@@ -62,7 +74,18 @@ def cpu_phase(root,stage,*,estimate_bytes=4000000000):
                 for row in busy:reserved+=max(0,row.get('estimate_bytes',estimate_bytes)-subtree_pss(host,row['pid']))
                 for pid in legacy:reserved+=max(0,2000000000-subtree_pss(host,pid))
             actual=host['PSS_bytes']if host else 40000000001;mem=host['MemAvailable_bytes']if host else 0
-            if available and phase_fits(actual,reserved,estimate_bytes,len(busy),len(legacy),mem):
+            requests=[];owned={r['pid']for r in host['processes']}if host else set()
+            for path in(root/'evidence/cpu_phases').glob('*.json'):
+                if int(path.stem)not in owned and int(path.stem)!=os.getpid():continue
+                try:request=json.loads(path.read_text())
+                except (OSError,ValueError):continue
+                if request['state']!='waiting':continue
+                declared=request.get('estimate_bytes')
+                if declared is None:
+                    declared=phase_memory_estimate(request['stage'],{'audio_questions_reader':2000000000,'dry_inputs':1500000000,'unit_verification':1500000000,'recipe_diagnosis':1500000000}.get(request['stage'],4000000000))
+                request.update(estimate_bytes=declared,already_counted_bytes=subtree_pss(host,request['pid'])if host else 0);requests.append(request)
+            next_pid=oldest_fitting_waiter(requests,actual,reserved,len(busy),len(legacy),mem)
+            if available and next_pid==os.getpid():
                 preferred=range(12,16)if stage=='audio_questions_reader'else range(16)
                 rank={value:i for i,value in enumerate(preferred)};available.sort(key=lambda row:rank.get(row[0],100+row[0]))
                 index,lease=available.pop(0)
