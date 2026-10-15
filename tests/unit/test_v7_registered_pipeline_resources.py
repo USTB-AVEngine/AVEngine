@@ -19,3 +19,9 @@ def test_waiting_native_worker_carries_paths_instead_of_large_admission_payload(
     from avengine.timeline.v7_registered_native_workers import native_job
     job=native_job('/own/parent/input_context.json','/own','v0')
     assert len(pickle.dumps(job))<512 and set(job)=={'context_path','task_root','visual'}
+
+def test_cpu_only_phases_fill_cores_released_by_native_renderers():
+    from avengine.timeline.v7_kujiale_cpu_balance import assign_cpu_phases
+    allocation=assign_cpu_phases(range(100,108),{0,1,2,4,5,8,9})
+    assert len(set(allocation.values()))==8 and not(set(allocation.values())&{0,1,2,4,5,8,9})
+    assert len(set(assign_cpu_phases(range(16),set()).values()))==16
