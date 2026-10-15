@@ -219,6 +219,7 @@ class NativeContinuousVideo:
             '-c:v','libx264','-threads','1','-preset','veryfast','-crf','18','-pix_fmt','yuv420p',str(path)]
         from avengine.capture.continuous_native_visibility import NativeVisibilityStream
         visibility=NativeVisibilityStream(self,path.parent/"failed_visibility_masks") if collect_pixel_visibility else None
+        self._current_visibility_stream=visibility
         process=subprocess.Popen(command,stdin=subprocess.PIPE)
         try:
             for index in range(frame_count):
@@ -255,6 +256,7 @@ class NativeContinuousVideo:
             raise
         finally:
             if visibility is not None:visibility.close()
+            self._current_visibility_stream=None
         for values in mouths.values():values.append({'time_s':scene['duration_s'],'position_m':values[-1]['position_m']})
         material_checks={'status':'pass' if any(r['status']=='pass' for r in self.material_checks) else 'not_run',
                          'checks':self.material_checks}
@@ -270,4 +272,12 @@ class NativeContinuousVideo:
         write_json(path.parent/'native_visual_evidence.json',result)
         return result
 
-    def close(self):self.sim.close()
+    def close(self):
+        receipt=getattr(self,'receipt',{})
+        sim=getattr(self,'sim',None)
+        if sim is not None:sim.close()
+        for entry in getattr(self,'actors',[]):
+            for key in ('object','emitter_node','phase2_foot_surface_mesh_cache'):entry.pop(key,None)
+        self.__dict__.clear();self.receipt=receipt;self.sim=None
+        from avengine.capture.v7_native_context_recycling import release_unused_native_memory
+        del sim;release_unused_native_memory()

@@ -174,6 +174,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json');video.acoustic_position_admission=gate.check
         try:visual=video.encode(native_scene,attempt/'scene_video.mp4',collect_pixel_visibility=True)
         finally:gate.close();video.close()
+        del gate,video
+        from avengine.capture.v7_native_context_recycling import release_unused_native_memory
+        release_unused_native_memory()
         visual=qualify_missing_materials(root,assets,visual)
         if visual.get('owner_material_quality_fallbacks'):
             write_json(attempt/'owner_material_quality_references.json',{'references':visual['owner_material_quality_fallbacks'],'actual_original_measurements_retained':True})

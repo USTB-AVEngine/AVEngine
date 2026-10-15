@@ -5,6 +5,8 @@ PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v16-explicit-Habitat-EGL-device
 class NativePhase2Video(NativeVisibleVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
         super().__init__(house,scene,inputs,assets,**kwargs)
+        self._pose_context_configuration={'arguments':(house,scene,inputs,assets),'keywords':kwargs}
+        self._pose_resources_in_context=set();self._last_primary_frame=None
         for entry in self.actors:
             a=entry['declaration']
             if a.get('phase2_palette_reference'):
@@ -14,6 +16,16 @@ class NativePhase2Video(NativeVisibleVideo):
         self.receipt['source_materials']=[e['source_material'] for e in self.actors]
 
 
+    def _maybe_recycle_pose_context(self,scene,index):
+        if len(getattr(self,'_pose_resources_in_context',set()))>=int(self.motion_inputs.get('native_pose_resources_per_context',64)):
+            from avengine.capture.v7_native_context_recycling import recycle_pose_context
+            recycle_pose_context(self,scene,index)
+
+    def _apply(self,scene,frame_index):
+        if getattr(self,'_last_primary_frame',None)!=frame_index:
+            self._maybe_recycle_pose_context(scene,frame_index);self._last_primary_frame=frame_index
+        return super()._apply(scene,frame_index)
+
     def _apply_entry(self,entry,scene,frame_index=None):
         if entry.get('motion_episode'):
             return self._apply_motion_entry(entry,0 if frame_index is None else frame_index*2)
@@ -22,6 +34,8 @@ class NativePhase2Video(NativeVisibleVideo):
     def _apply_motion_entry(self,entry,index):
         import numpy as np
         row=super()._apply_motion_entry(entry,index)
+        if not hasattr(self,'_pose_resources_in_context'):self._pose_resources_in_context=set()
+        self._pose_resources_in_context.add(entry['motion_episode']['pose_glbs'][index])
         record=entry['motion_episode'];frame=record['source_frames'][index]
         row['emitter_local_m_frame']=list(frame['mouth_m'])
         if record.get('motion_mode') in {'walk_animation','slide_no_animation','static_after_failed_route'}:
@@ -172,6 +186,7 @@ class NativePhase2Video(NativeVisibleVideo):
         self._task_motion_capture_lease=acquire_native_resource('motion_capture')
         actual=[]
         for index in range(901):
+            self._maybe_recycle_pose_context(scene,index)
             row=self._apply_motion_entry(entry,index);row.update(frame_index=index,time_s=index/30)
             actual.append(row)
         record['native_30Hz_readbacks']=actual
