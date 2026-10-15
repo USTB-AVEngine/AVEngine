@@ -290,6 +290,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
     extra.sort(key=lambda p:float(np.linalg.norm(np.asarray(p)[[0,2]]-entry['applied_root_input'][[0,2],3])))
     candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
+    if scene.get('joint_strict_placement'):candidates=candidates[:1]
     import time
     route_cpu_started=time.process_time()
     native_trial_limit=max(24,min(256,int(request.get('maximum_native_route_attempts',32))))

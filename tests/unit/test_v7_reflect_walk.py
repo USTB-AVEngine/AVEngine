@@ -111,3 +111,20 @@ def test_zero_native_proposals_retains_specific_prefilter_reasons(tmp_path):
     assert report['native_admissible_route_pool']==0
     assert report['rejections']['native_scene_floor_polygon']==report['proposals_tested']
     assert report['original_gates_unchanged']
+
+
+
+def test_solved_native_motion_cannot_search_a_different_room_position(tmp_path):
+    from types import SimpleNamespace
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
+    entry={'applied_root_input':np.eye(4),'declaration':{'kind':'human'}}
+    video=SimpleNamespace(actors=[entry],pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p)))
+    scene={'listener_m':[0.,1.25,0.],'joint_strict_placement':True,
+        'production_scenario':{'motion_floor_polygon':box(100,100,105,105).__geo_interface__}}
+    route={'positions_xz_m':np.column_stack((np.linspace(0,1,901),np.zeros(901))).tolist(),
+        'travel_yaws_rad':[0.]*901,'emission_slot':{'start_s':.2,'end_s':.6,'qa15':False},
+        'species':'human','candidate_count':1,'candidate_trials':[],'selected_attempt':1}
+    result=list(reflected_route_proposals(video,entry,scene,np.array([0.,0.,-1.]),{'motion_quartet_route':route}))
+    assert result==[]
+    assert entry['reflection_native_prefilter']['proposals_tested']==1
+    assert entry['reflection_native_prefilter']['rejections']=={'native_scene_floor_polygon':1}
