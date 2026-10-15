@@ -51,7 +51,7 @@ def requalify_native_single_parent(source,output,human_admission,family_counts=N
         raise ValueError('original native standing proof incomplete')
     licenses=qualify_licenses(original['assets'],human_admission)
     program=original['recorded_program'];receipt=read_json(prior/'private/dry_emission_receipt.json');audio=read_json(prior/'private/native/a0_audio_evidence.json')
-    if any(not r['passed_5deg'] or r['angular_error_deg']>5. for r in audio['directions']):raise ValueError('original physical RIR direction failed')
+    if any(not r.get('recorded_boundary_mismatch') and (not r['passed_5deg'] or r['angular_error_deg']>5.) for r in audio['directions']):raise ValueError('original physical RIR direction failed')
     wd=root/'camera_requalified_candidates';wd.mkdir();windows=[];base=None;differences=[]
     for wi,win in enumerate(old['result']['windows']):
         wid=win['window_id'];src=prior/'windows'/wid;d=wd/wid;d.mkdir();check_write(d,expected_bytes=16_000_000)

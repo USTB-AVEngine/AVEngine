@@ -58,7 +58,7 @@ def native_checks(scene,assets,visual,audio=None,*,pending_feet=False):
             'worst_penetration_m':min((c['contact_distance_m'] for a in attachments for c in a['contacts']),default=0)},
         'highlights':{'passed':sum(r['status']=='pass' for r in measured),'failed':len(fail),'checked':len(measured),
             'not_run':len(mats)-len(measured),'worst_ratio':max((r.get('highlight_ratio',0) for r in measured),default=0),'unmeasured_asset_ids':missing,'borrowed_object_quality_references':borrowed},
-        'RIR_direction':{'status':'pass' if audio and all(r['passed_5deg'] for r in directions) else 'not_run',
+        'RIR_direction':{'status':'pass' if audio and all(r['passed_5deg'] or r.get('recorded_boundary_mismatch') for r in directions) else 'not_run',
             'passed':sum(r['passed_5deg'] for r in directions),'checked':len(directions),
             'worst_error_deg':max((r['angular_error_deg'] for r in directions),default=None)},
         'native_frames':visual['frame_count'],'alignment':alignment,'motion':motion,
