@@ -196,7 +196,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},required
         vc=_cpu();vw=time.perf_counter()
         from avengine.timeline.v7_native_stage_resume import compatible_static_native_recipe
-        visual_recipe=compatible_static_native_recipe(root,'visual_'+v,{'scene':base,'inputs':inputs,'assets':variant,
+        visual_recipe=compatible_static_native_recipe(root,'visual_'+v,{'scene':visual_scene,'inputs':inputs,'assets':variant,
             'visual_revision':ALPHA_VISUAL_REVISION,'source_material_revision':MATERIAL_REVISION},row)
         vd,vr,resumed=stage(root,'visual_'+v,visual_recipe,render)
         timings.append({'stage':'visual_'+v,'wall_seconds':time.perf_counter()-vw,'cpu_seconds_including_children':_cpu()-vc,'resumed':resumed})

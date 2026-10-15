@@ -16,7 +16,7 @@ def test_strict_registered_root_ignores_legacy_mouth_and_floor_reconstruction():
 
 def test_both_live_registered_worlds_are_required_without_rebuilding():
     row={'scene_id':'p'};p=SimpleNamespace(closed=False,video=object(),certificate=SimpleNamespace(passed=True),row=row,house={},scene={},program={},assets=[])
-    other=SimpleNamespace(**vars(p));worlds={'v0':p,'v1':other}
+    other=SimpleNamespace(**vars(p));other.video=object();other.scene={};worlds={'v0':p,'v1':other}
     actual=registered_scene_inputs(worlds,row)
     assert actual[0]is row and actual[2]is p.scene and actual[4]is p.assets
     with pytest.raises(ValueError,match='both independently'):registered_scene_inputs({'v0':p},row)

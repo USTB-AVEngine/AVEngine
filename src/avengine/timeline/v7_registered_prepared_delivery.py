@@ -20,7 +20,18 @@ def registered_scene_inputs(visuals,row):
     for payload in visuals.values():
         if payload.closed or payload.video is None or not payload.certificate.passed:raise ValueError('registered prepared visual is closed or uncertified')
         if payload.row['scene_id']!=row['scene_id']:raise ValueError('registered prepared parent identity differs')
-    p=visuals['v0']
+    p=visuals['v0'];other=visuals['v1']
+    if p.video is other.video or p.scene is other.scene:
+        raise ValueError('registered visuals must retain two distinct prepared worlds')
+    if getattr(p.video,'sim',None)is not None and getattr(p.video,'sim',None)is getattr(other.video,'sim',None):
+        raise ValueError('registered visuals share one native simulator')
+    if p.house!=other.house or p.program!=other.program:
+        raise ValueError('registered shared house or sound program changed across visuals')
+    receipt=row.get('production_sampling')
+    if receipt is not None:
+        for payload in visuals.values():
+            if payload.row.get('production_sampling')not in(None,receipt):raise ValueError('registered runtime contract differs from prepared world')
+            payload.row['production_sampling']=dict(receipt)
     return p.row,p.house,p.scene,p.program,p.assets
 
 
@@ -52,4 +63,6 @@ def consume_registered_qualification(video,scene,directory):
             if entry['declaration'].get('silent_decor'):continue
             actual=video._apply_entry(entry,scene,frame_index=0)['emitter_position_m']
             if admission(entry['endpoint_id'],np.asarray(actual))['status']=='blocked':raise ValueError('prepared registered emitter fails original 5deg gate')
+    video.camera_frame_readbacks=[]
+    if hasattr(video,'environment_frame_readbacks'):video.environment_frame_readbacks=[]
     return checks
