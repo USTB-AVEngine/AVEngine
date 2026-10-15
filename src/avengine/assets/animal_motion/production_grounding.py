@@ -47,6 +47,11 @@ def framewise_route_height(poses, meshes, roots, source, indices, yaws, floor, s
                     'skin_floor_gate_unchanged': True, **POLICY}
 
 
+def stationary_pose_path(directory,index):
+    frames_directory=Path(directory)/'frames';frames_directory.mkdir(parents=True,exist_ok=True)
+    return frames_directory/('stationary_%03d.glb'%index)
+
+
 class StationaryPawGrounder:
     """Reuse the registered target rig and two-bone IK for stopped walk poses.
 
@@ -113,7 +118,9 @@ class StationaryPawGrounder:
             measured['feet'][side] = {'sole_world_m': local.tolist(), 'support_world_m': local.tolist(),
                 'support_target_world_m': targets[side].tolist(), 'floor_delta_m': delta, 'in_contact': abs(delta) <= .012}
         self.directory.mkdir(parents=True, exist_ok=True)
-        target = self.directory / ('stationary_%03d.glb' % len(self.cache))
+        # externalize_unchanged_images uses ../textures, as for admitted
+        # frames. Keep derived GLBs in a sibling frames directory as well.
+        target = stationary_pose_path(self.directory,len(self.cache))
         document = externalize_unchanged_images(rig.document, rig.binary, self.directory / 'textures')
         rigid_glb(document, rig.binary, parts, target)
         receipt = {'method': 'registered target two-bone IK on actual measured ground',
