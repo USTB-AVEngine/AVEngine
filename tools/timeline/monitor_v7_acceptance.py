@@ -51,6 +51,10 @@ def combined_peak_budget(active_reserve,local_pss,requested_reserve,peer_pss):
  return max(active_reserve+requested_reserve,local_pss+requested_reserve)+peer_pss
 
 
+def parent_launch_headroom(active_reserve,local_pss,requested,limit,available_memory):
+ return combined_peak_budget(active_reserve,local_pss,requested,0)<=limit and available_memory-max(0,active_reserve-local_pss)-requested>=30_000_000_000
+
+
 def admission_limits(m,now):
  sg=now+datetime.timedelta(hours=8)
  return {"maximum_pss_bytes":int(m.get("maximum_pss_bytes",120_000_000_000 if sg.hour<4 else 140_000_000_000)),
@@ -160,8 +164,7 @@ def main():
     if len(active)>=limits["maximum_parents"] or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
     reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion'}else 7_000_000_000 for s in active)
     requested=30_000_000_000 if moving else 7_000_000_000
-    if combined_peak_budget(reserve,pss,requested,0)>limit:continue
-    if mem-max(0,reserve-pss)-requested<30_000_000_000:continue
+    if not parent_launch_headroom(reserve,pss,requested,limit,mem):continue
     if forecast_cpu+4>limits["maximum_cpu_processes"]:continue
     env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
     if ue:

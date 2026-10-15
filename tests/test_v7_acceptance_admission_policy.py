@@ -119,8 +119,9 @@ def test_independent_own_auxiliary_sdk_is_in_the_resource_budget(tmp_path):
 
 
 def test_owner_workload_budget_and_host_memory_have_separate_scopes():
-    from tools.timeline.monitor_v7_acceptance import combined_peak_budget
-    # Peers remain observable but do not consume this agent's explicit PSS180GB.
-    assert combined_peak_budget(100_000_000_000,110_000_000_000,7_000_000_000,0)==117_000_000_000
-    # Shared pressure is checked against actual host memory, including reserves.
-    assert 40_000_000_000-max(0,120_000_000_000-110_000_000_000)-7_000_000_000<30_000_000_000
+    from tools.timeline.monitor_v7_acceptance import parent_launch_headroom
+    gb=1_000_000_000
+    assert parent_launch_headroom(100*gb,110*gb,7*gb,180*gb,40*gb)
+    assert not parent_launch_headroom(100*gb,110*gb,7*gb,180*gb,36*gb)
+    assert not parent_launch_headroom(120*gb,110*gb,7*gb,180*gb,40*gb)
+    assert not parent_launch_headroom(170*gb,174*gb,7*gb,180*gb,80*gb)
