@@ -95,6 +95,12 @@ def native_fixture(monkeypatch, length_extra=.3):
     scene = {"listener_m": route["listener_m"], "camera_forward": route["camera_forward"],
              "production_scenario": {"motion_floor_polygon": mapping(box(-20, -20, 20, 20))}}
     distance = np.clip((np.arange(901)/30-3)/3, 0, 1)*(route["planning_length_m"]+length_extra)
+    direction = np.array([route["inward_unit_xz"][0], 0., route["inward_unit_xz"][1]])
+    positions = np.array(route["endpoint_m"])+(distance-distance[-1])[:, None]*direction
+    heading = math.atan2(float(direction[2]), float(direction[0]))
+    route.update(planned_distance_m=distance.tolist(), planned_positions_m=positions.tolist(),
+                 planned_native_yaws_rad=np.full(901, -math.pi/2-heading).tolist())
+    entry["applied_root_input"][:3, 3] = positions[0]
     return video, entry, scene, distance, {"joint_entry_route": route}
 
 
@@ -113,9 +119,10 @@ def test_native_route_preserves_completed_gait_and_solved_endpoint(monkeypatch):
 @pytest.mark.parametrize("defect", ["camera", "too_long", "backwards"])
 def test_native_route_rejects_changed_camera_or_uncertified_clock(monkeypatch, defect):
     from avengine.construction.joint.families.qa07 import native_entry_route_proposals
-    args = list(native_fixture(monkeypatch, length_extra=1. if defect == "too_long" else .3))
+    args = list(native_fixture(monkeypatch))
     video, entry, scene, distance, request = args
     if defect == "camera": scene["listener_m"] = [0, 1.25, .2]
+    if defect == "too_long": distance *= 1.2
     if defect == "backwards": distance[200] = distance[199]-.1
     with pytest.raises(ValueError):
         list(native_entry_route_proposals(video, entry, scene, distance, [0, 0, -1], request))
@@ -135,7 +142,7 @@ def test_native_probe_restores_original_pose_when_capture_raises(monkeypatch):
     monkeypatch.setattr(continuous_native_visibility, "NativeVisibilityStream", FailingStream)
     monkeypatch.setattr(v7_offscreen_layout, "native_projection_proof", lambda *args: {"status": "pass"})
     entry = {"endpoint_id": "person", "declaration": {"native_instance_id": "person", "asset_id": "person"},
-             "motion_episode": {"complete": True}}
+             "motion_episode": {"complete": True, "world_roots_m": np.c_[np.arange(901)/30, np.zeros(901), np.zeros(901)].tolist()}}
     video = SimpleNamespace(actors=[entry],
         _apply_motion_entry=lambda e, frame: calls.append(frame),
         _native_pair_pixels=lambda scene, entries: {"person": 0},
@@ -207,3 +214,55 @@ def test_native_region_closes_numeric_seams_but_keeps_real_floor_holes(monkeypat
     else:
         with pytest.raises(ValueError, match="floor polygon"):
             list(native_entry_route_proposals(video, entry, scene, distance, [0, 0, -1], request))
+
+
+def test_native_execution_does_not_reconstruct_missing_plan(monkeypatch):
+    from avengine.construction.joint.families.qa07 import native_entry_route_proposals
+    video, entry, scene, distance, request = native_fixture(monkeypatch)
+    del request["joint_entry_route"]["planned_positions_m"]
+    with pytest.raises(ValueError, match="lacks solved"):
+        list(native_entry_route_proposals(video, entry, scene, distance, [0, 0, -1], request))
+
+
+def test_native_execution_never_moves_the_solved_root_to_the_placement(monkeypatch):
+    from avengine.construction.joint.families.qa07 import native_entry_route_proposals
+    video, entry, scene, distance, request = native_fixture(monkeypatch)
+    entry["applied_root_input"][1, 3] += .01
+    with pytest.raises(ValueError, match="root differs"):
+        list(native_entry_route_proposals(video, entry, scene, distance, [0, 0, -1], request))
+
+
+def test_entry_certificate_keeps_absolute_frame_clock_for_a_contiguous_probe_window():
+    rows = predicted_rows()
+    for row in rows:
+        row["frame_index"] += 45
+    certificate = entry_prediction_certificate(rows, [360, 640], "left")
+    assert certificate["status"] == "pass"
+    assert certificate["transitions"][0]["entry_frame"] == 60
+    assert certificate["transitions"][0]["stable_frames"] == [60, 105]
+
+
+def test_probe_samples_every_entry_motion_frame_with_outside_and_stable_margins():
+    from avengine.construction.joint.families.qa07 import entry_preflight_frame_indices
+    times = np.arange(901)/30
+    p = np.c_[np.clip(times-4.3, 0, 3.4), np.zeros(901), np.zeros(901)]
+    frames = entry_preflight_frame_indices(p)
+    assert frames == list(range(frames[0], frames[-1]+1))
+    assert frames[0]/15 <= 4.3-.6
+    assert frames[-1]/15 >= 7.7+1.2
+    assert len(frames) < 100
+    with pytest.raises(ValueError, match="no actual motion"):
+        entry_preflight_frame_indices(np.zeros((901, 3)))
+
+
+def test_original_qa07_witness_requires_a_real_review_in_addition_to_visible_pixels():
+    from avengine.construction.joint.families.qa07 import original_qa07_witness
+    rows = predicted_rows()
+    assets = [{"asset_id": "registered_person", "native_instance_id": 7, "label_color": "blue"}]
+    review = {"7": {"status": "reviewed", "value": "blue", "frame_refs": [55]}}
+    result = original_qa07_witness(rows, review, assets, "7", [360, 640], "left", "fixture")
+    assert result["status"] == "pass"
+    assert result["question"]["qa_id"] == "QA-07"
+    assert result["question"]["truth"]["value"] == "left"
+    assert original_qa07_witness(rows, {}, assets, "7", [360, 640], "left", "fixture")["status"] == "fail"
+    assert original_qa07_witness(rows, review, assets, "7", [360, 640], "right", "fixture")["status"] == "fail"

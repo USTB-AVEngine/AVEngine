@@ -160,7 +160,9 @@ def entry_prediction_certificate(frames: Sequence[Mapping], resolution_hw, side:
     width = float(resolution_hw[1]); center = (width - 1.) / 2.
     dead_zone = max(1., width * .02)
     reasons = []
-    if not rows or [r.get("frame_index") for r in rows] != list(range(len(rows))):
+    first_frame = rows[0].get("frame_index") if rows else None
+    if (not isinstance(first_frame, int) or first_frame < 0
+            or [r.get("frame_index") for r in rows] != list(range(first_frame, first_frame+len(rows)))):
         reasons.append("prediction_frames_missing_or_not_contiguous")
     if any(r.get("state") not in {*VISIBLE_STATES, "out_of_view", "fully_occluded"} for r in rows):
         reasons.append("prediction_contains_unknown_state")
@@ -171,8 +173,9 @@ def entry_prediction_certificate(frames: Sequence[Mapping], resolution_hw, side:
         reasons.append("prediction_centroid_missing")
     transitions = []
     if not reasons:
-        facts = {"visibility": {"target": {str(i): dict(r) for i, r in enumerate(rows)}},
-                 "time": {"frame_count": len(rows), "frame_rate_hz": fps}}
+        by_frame = {int(r["frame_index"]): dict(r) for r in rows}
+        facts = {"visibility": {"target": {str(i): r for i, r in by_frame.items()}},
+                 "time": {"frame_count": first_frame+len(rows), "frame_rate_hz": fps}}
         for index in range(1, len(rows)):
             previous, current = rows[index-1], rows[index]
             if previous["state"] != "out_of_view" or current["state"] not in VISIBLE_STATES:
@@ -180,17 +183,18 @@ def entry_prediction_certificate(frames: Sequence[Mapping], resolution_hw, side:
             outside_begin = index-1
             while outside_begin > 0 and rows[outside_begin-1]["state"] == "out_of_view":
                 outside_begin -= 1
-            stable = _entry_transition_window(facts, "target", index, center=center, dead_zone=dead_zone)
+            entry_frame = int(current["frame_index"])
+            stable = _entry_transition_window(facts, "target", entry_frame, center=center, dead_zone=dead_zone)
             if stable is None or not publishable_query_window(facts, stable, start_rounding="floor")["publishable"]:
                 continue
             offset = float(current["target_centroid_xy_px"][0]) - center
             actual_side = "right" if offset > 0 else "left"
-            stable_offsets = [SIDES[side] * (float(rows[j]["target_centroid_xy_px"][0])-center)
+            stable_offsets = [SIDES[side] * (float(by_frame[j]["target_centroid_xy_px"][0])-center)
                               for j in range(*stable)]
             if (actual_side == side and (index-outside_begin)/fps >= minimum_outside_s
                     and (stable[1]-stable[0])/fps >= minimum_stable_s
                     and min(stable_offsets) >= dead_zone + pixel_margin_px):
-                transitions.append({"entry_frame": index, "stable_frames": stable,
+                transitions.append({"entry_frame": entry_frame, "stable_frames": stable,
                                     "side": side, "outside_s": (index-outside_begin)/fps,
                                     "stable_s": (stable[1]-stable[0])/fps,
                                     "minimum_side_offset_px": min(stable_offsets)})
@@ -217,18 +221,22 @@ def native_entry_route_proposals(video, entry, scene, distance, local_forward, r
         raise ValueError("QA-07 needs the final monotone 901-frame gait distance clock")
     if abs(float(distance[0])) > 1e-8:
         raise ValueError("QA-07 gait distance must start at zero")
+    required = ("planned_distance_m", "planned_positions_m", "planned_native_yaws_rad")
+    if any(key not in route for key in required):
+        raise ValueError("QA-07 native execution lacks solved clock/positions/yaws; return to joint solve")
+    planned_distance = np.asarray(route["planned_distance_m"], float)
+    positions = np.asarray(route["planned_positions_m"], float).copy()
+    yaws = np.asarray(route["planned_native_yaws_rad"], float).copy()
+    if (planned_distance.shape != (901,) or positions.shape != (901, 3) or yaws.shape != (901,)
+            or not all(np.isfinite(value).all() for value in (planned_distance, positions, yaws))):
+        raise ValueError("QA-07 solved native arrays must contain the complete finite 30Hz clock")
+    if not np.allclose(distance, planned_distance, rtol=0., atol=1e-7):
+        raise ValueError("QA-07 native completed gait clock differs from joint solve; execution cannot refit")
+    if np.linalg.norm(np.asarray(entry["applied_root_input"])[:3, 3]-positions[0]) > .002:
+        raise ValueError("QA-07 initial native body root differs from the solved root")
     length = float(distance[-1])
     expected = float(route["planning_length_m"])
-    reserve = float(route.get("native_gait_extension_reserve_m", .65))
-    if length < expected - .002 or length > expected + reserve:
-        raise ValueError("QA-07 completed gait length exceeds its jointly certified route envelope")
-    direction = np.array([route["inward_unit_xz"][0], 0., route["inward_unit_xz"][1]], float)
-    if not np.isfinite(direction).all() or abs(float(np.linalg.norm(direction))-1.) > 1e-6:
-        raise ValueError("QA-07 route direction must be a unit XZ vector")
-    endpoint = np.asarray(route["endpoint_m"], float)
-    start = endpoint - direction * length
-    positions = start + distance[:, None] * direction
-    positions[:, 1] = float(entry["applied_root_input"][1, 3])
+    start, endpoint = positions[0], positions[-1]
     listener = np.asarray(scene["listener_m"], float)
     if not np.allclose(listener, route["listener_m"], atol=1e-6, rtol=0):
         raise ValueError("QA-07 native camera differs from the solved fixed camera")
@@ -241,7 +249,9 @@ def native_entry_route_proposals(video, entry, scene, distance, local_forward, r
     if not poly.buffer(1e-6).covers(LineString(positions[:, [0, 2]])):
         raise ValueError("QA-07 final gait route leaves its original floor polygon")
     wm = load_room_map(route["room_id"], path=route.get("walkable_map_path"))
-    if wm is None or not wm.contains_many(positions[:, [0, 2]]).all() or not wm.segment_free(start[[0, 2]], endpoint[[0, 2]]):
+    moving_segments = np.flatnonzero(np.linalg.norm(np.diff(positions[:, [0, 2]], axis=0), axis=1) > 1e-10)
+    if (wm is None or not wm.contains_many(positions[:, [0, 2]]).all()
+            or any(not wm.segment_free(positions[i, [0, 2]], positions[i+1, [0, 2]]) for i in moving_segments)):
         raise ValueError("QA-07 final gait route fails the complete v2 walkable segment")
     others = [a for a in video.actors if a is not entry and a.get("phase2_layout_qualified") is not False]
     reason = spacing_rejection(entry["declaration"], positions, others,
@@ -260,10 +270,8 @@ def native_entry_route_proposals(video, entry, scene, distance, local_forward, r
         raise ValueError("QA-07 final gait endpoints are not natively connected")
     if float(native_path.geodesic_distance) > length + .05:
         raise ValueError("QA-07 straight route crosses a native navigation obstruction")
-    local_angle = math.atan2(float(local_forward[2]), float(local_forward[0]))
-    heading = math.atan2(float(direction[2]), float(direction[0]))
     yield SimpleNamespace(
-        positions=positions, yaws=np.full(len(positions), local_angle-heading),
+        positions=positions, yaws=yaws,
         receipt={"route_kind": "joint QA-07 analytic side entry", "branch": route["branch"],
                  "root_samples": len(positions), "planning_length_m": expected,
                  "executed_complete_gait_length_m": length,
@@ -272,35 +280,65 @@ def native_entry_route_proposals(video, entry, scene, distance, local_forward, r
                  "native_geodesic_m": float(native_path.geodesic_distance),
                  "camera_changed": False, "proposal_clock_changed": False,
                  "native_full_pose_checks_still_required": True,
-                 "native_entry_preflight_required": True})
+                 "native_entry_preflight_required": True,
+                 "same_solved_arrays": True, "execution_replanning_allowed": False})
 
 
 
 def _native_rest_framing(video, entry):
-    from avengine.capture.v7_visible_mesh import indexed_static_mesh
-    from avengine.capture.v7_offscreen_layout import vertices_outside_camera
-    mesh = indexed_static_mesh(entry["motion_pose_path"]) if entry.get("motion_episode") else entry["original_mesh"]
-    transform = np.asarray(entry["applied_root_input"], float)
-    vertices = np.asarray(mesh.vertices, float) @ transform[:3, :3].T + transform[:3, 3]
-    sensor = video.sim._sensors["rgb"]._sensor_object
-    projection = np.asarray(sensor.render_camera.projection_matrix, float)
-    world_to_camera = np.linalg.inv(np.asarray(sensor.node.absolute_transformation(), float))
-    if vertices_outside_camera(vertices, world_to_camera, projection):
-        return {"state": "outside", "original_mesh_vertices": len(vertices)}
-    clip = np.c_[vertices, np.ones(len(vertices))] @ world_to_camera.T @ projection.T
-    if np.any(clip[:, 3] <= 0):
-        return {"state": "edge", "reason": "actual_body_crosses_near_plane"}
-    ndc = clip[:, :2] / clip[:, 3, None]
-    margin = float(min((1-np.abs(ndc[:, 0])).min()*video.width/2,
-                       (1-np.abs(ndc[:, 1])).min()*video.height/2))
-    return {"state": "inside" if margin >= -1e-6 else "edge", "edge_margin_px": margin,
-            "original_mesh_vertices": len(vertices)}
+    from avengine.construction.joint.native import native_rest_framing
+    return native_rest_framing(video, entry)
+
+
+
+def entry_preflight_frame_indices(positions_m, *, root_fps=30., video_fps=15.):
+    """Exact moving interval plus observed outside/stable margins for QA-07.
+
+    QA-07 asks for an entry existence witness. Frame zero is independently
+    checked; the contiguous temporal proof covers every frame of locomotion,
+    at least .6s before it and 1.2s afterwards inside the first 10s window.
+    """
+    positions = np.asarray(positions_m, float)
+    if positions.shape != (901, 3) or not np.isfinite(positions).all():
+        raise ValueError("native entry probe needs all original 901 root samples")
+    moving = np.flatnonzero(np.linalg.norm(np.diff(positions, axis=0), axis=1) > 1e-8)
+    if not len(moving):
+        raise ValueError("native entry probe has no actual motion interval")
+    start = max(0, math.floor(moving[0]/root_fps*video_fps)-math.ceil(.6*video_fps))
+    end = min(150, math.ceil((moving[-1]+1)/root_fps*video_fps)+math.ceil(1.2*video_fps)+1)
+    return list(range(start, end))
+
+
+def original_qa07_witness(rows, reviews, assets, target_instance_id, resolution_hw, branch, scene_id):
+    """Run the original generator on measured probe rows and native ROI review."""
+    from avengine.qa.unified_catalog import _generate_qa_07, _Deferred
+    tid = str(target_instance_id)
+    facts = {"episode_id": scene_id, "time": {"frame_rate_hz": 15.,
+             "frame_count": max(int(row["frame_index"]) for row in rows)+1},
+             "visibility_meta": {"resolution_hw": list(resolution_hw)},
+             "visibility": {tid: {str(row["frame_index"]): row for row in rows}},
+             "actors": {}, "appearance_review": reviews}
+    for asset in assets:
+        aid = str(asset["native_instance_id"])
+        record = {"asset_id": asset["asset_id"]}
+        if asset.get("label_color") is not None:
+            record["appearance"] = {"value": asset["label_color"]}
+        facts["actors"][aid] = record
+    try:
+        question = _generate_qa_07(facts, "qa07-native-preflight")
+    except _Deferred as error:
+        return {"status": "fail", "reason": str(error), "original_generator": "_generate_qa_07"}
+    actual = question["truth"]["value"]
+    return {"status": "pass" if actual == branch else "fail",
+            "observed_answer": actual, "requested_answer": branch, "question": question,
+            "original_generator": "_generate_qa_07", "final_complete_stream_still_required": True}
 
 def native_entry_preflight(video, scene, entries):
     """Measure real adjacent modal/target-only masks before full media rendering.
 
-    Capture the first 10 seconds of the SAME final native scene and gait. All
-    controls and all moving actors are restored to frame zero on every exit.
+    Capture the SAME final native scene over the whole actual entry motion
+    and a publishable stable interval, plus an independent frame-zero proof.
+    All moving actors and controls are restored to frame zero on every exit.
     A failed witness is reported to the caller; no truth fields are edited.
     """
     from avengine.capture.continuous_native_visibility import NativeVisibilityStream
@@ -325,20 +363,44 @@ def native_entry_preflight(video, scene, entries):
     rows = []
     initial_projection = None
     rest_frames = []
+    temporal_indices = entry_preflight_frame_indices(target["motion_episode"]["world_roots_m"])
+    temporal_set = set(temporal_indices)
+    probe_indices = sorted(temporal_set | {0})
+    initial_mask = None
+    appearance_reviews = {}
+    appearance_observations = []
     try:
-        for index in range(150):
+        for index in probe_indices:
             for actor in entries:
                 if actor.get("motion_episode"):
                     video._apply_motion_entry(actor, index*2)
             counts = video._native_pair_pixels(scene, entries)
-            if index in (0, 149):
+            if index in (0, temporal_indices[-1]):
                 rest_frames.append({"frame_index": index, "actors": {e["declaration"]["asset_id"]: _native_rest_framing(video, e) for e in entries}})
             modal = np.asarray(video.sim.get_sensor_observations()["semantic"]).copy()
             measured = stream.capture(index, modal, identities)
-            rows.append(measured["per_instance"][tid]["frames"][0])
+            measured_row = measured["per_instance"][tid]["frames"][0]
+            if index in temporal_set:
+                rows.append(measured_row)
             if index == 0:
+                initial_mask = measured_row
                 initial_projection = native_projection_proof(video, scene, target,
                                                               counts[target["declaration"]["asset_id"]])
+            if index == temporal_indices[-1]:
+                from avengine.assets.v7_visible_color import rebuild_appearance_review
+                lengths = {name: len(getattr(video, name, [])) for name in
+                           ("color_checks", "material_checks", "phase2_chair_pixel_checks")}
+                try:
+                    observation = video.sim.get_sensor_observations()
+                    video._check_source_frame(observation["rgb"][:, :, :3], observation["semantic"], index)
+                    appearance_observations = list(video.color_checks[lengths["color_checks"]:])
+                    review, _ = rebuild_appearance_review(appearance_observations,
+                                                            [e["declaration"] for e in entries])
+                    appearance_reviews = review["actors"]
+                finally:
+                    for name, length in lengths.items():
+                        if hasattr(video, name):
+                            del getattr(video, name)[length:]
     finally:
         for actor in entries:
             if actor.get("motion_episode"):
@@ -355,12 +417,21 @@ def native_entry_preflight(video, scene, entries):
         result["reasons"].append("actual_rest_body_straddles_image_edge")
     if rest_frames[-1]["actors"][target["declaration"]["asset_id"]]["state"] != "inside":
         result["reasons"].append("actual_entry_endpoint_not_wholly_inside")
+    witness_rows = rows if 0 in temporal_set else [initial_mask, *rows]
+    witness = original_qa07_witness(witness_rows, appearance_reviews, [e["declaration"] for e in entries],
+                                   tid, [video.height, video.width], route["branch"], scene["scene_id"])
+    if witness["status"] != "pass":
+        result["reasons"].append("original_qa07_not_publishable_on_actual_native_probe")
     result.update(status="pass" if not result["reasons"] else "fail",
                   evidence_kind="same_native_final_scene_modal_target_only_preflight",
                   native_pixel_truth_verified=True, target_asset_id=target["declaration"]["asset_id"],
                   target_instance_id=tid, peak_actual_visible_pixels=peak,
                   initial_projection=initial_projection, native_control_restoration=stream.receipt(),
-                  measured_frames=rows, native_rest_framing=rest_frames, final_complete_stream_still_required=True)
+                  measured_frames=rows, initial_native_mask=initial_mask,
+                  native_probe_frame_indices=probe_indices, native_rest_framing=rest_frames,
+                  native_temporal_coverage="all actual motion frames plus .6s before and 1.2s after",
+                  native_appearance_review=appearance_reviews, native_appearance_observations=appearance_observations,
+                  original_qa07_witness=witness, final_complete_stream_still_required=True)
     return result
 
 
@@ -388,19 +459,32 @@ def qa07_sound_requirements(scene, program, assets):
 class QA07Plugin:
     """Family-specific side-plane construction using the shared room/route core."""
 
-    def __init__(self, bodies, sound_requirements=()):
+    def __init__(self, bodies, sound_requirements=(), *, clock_source=None, assets=None, seed=0, clock_evaluator=None):
         self.bodies = dict(bodies)
         self.sound_requirements = tuple(sound_requirements)
+        self.clock_source = clock_source
+        self.assets = {} if assets is None else dict(assets)
+        self.seed = int(seed)
+        self.clock_evaluator = clock_evaluator
 
     def candidates(self, context, request):
-        from shapely.geometry import LineString, Point
+        from copy import copy
         from avengine.construction.joint import CameraPose, ScenePlan
         from avengine.construction.joint.geometry import framing
-        from avengine.construction.joint.routes import construct_route, static_actor, ConstructionError
+        from avengine.construction.joint.routes import bind_distance_clock, ConstructionError
+        from avengine.construction.joint.layouts import enumerate_static_layouts
+        from avengine.construction.joint.scheduling import schedule_sound_events
+        if self.clock_evaluator is None:
+            from avengine.construction.joint.gait import complete_human_gait_clock
+        else:
+            complete_human_gait_clock = self.clock_evaluator
+        from avengine.construction.joint.native import native_yaw
+        from avengine.timeline.v7_natural_orientation import sample_initial_orientation
 
         if request.family != "QA-07" or request.branch not in SIDES or len(request.target_ids) != 1:
             raise ValueError("QA07Plugin requires a named target and a fixed left/right branch")
-        from avengine.construction.joint.scheduling import schedule_sound_events
+        if self.clock_source is None:
+            raise ValueError("QA07Plugin requires the admitted complete-step source inside solve")
         schedule = schedule_sound_events(self.sound_requirements)
         if schedule.status != "solved":
             return
@@ -408,108 +492,98 @@ class QA07Plugin:
         points = np.asarray(context.points_m, float)
         points = points[context.walkable_map.contains_many(points[:, [0, 2]], "human")]
         floor = float(context.room["measured_floor_y_m"])
-        points = points[np.abs(points[:, 1]-floor) <= .03].copy()
-        points[:, 1] = floor
+        points = points[np.abs(points[:, 1]-floor) <= .03]
         if not len(points):
             return
-        # Only family endpoint choices are enumerated. Yaw and start are solved,
-        # not an independent grid of arbitrary start/heading pairs.
-        radius = math.sqrt(2.)*(body.radius_m+body.margin_m)
-        envelope = EntryEnvelope(radius_m=radius, height_m=body.height_m+2*body.margin_m)
-        bystanders = [aid for aid in self.bodies if aid != target]
+        envelope = EntryEnvelope(radius_m=math.sqrt(2.)*(body.radius_m+body.margin_m),
+                                 height_m=body.height_m+2*body.margin_m)
+        companions = {aid: spec for aid, spec in self.bodies.items() if aid != target}
         speed = float(request.options.get("speed_m_s", 1.05))
-        reserve = float(request.options.get("gait_extension_reserve_m", .65))
-        emitted = 0
-        seen_cameras = set()
-        for original_camera in context.cameras:
-            position = tuple(original_camera.position_m)
+        emitted = 0; seen_cameras = set()
+        for inherited in context.cameras:
+            position = tuple(inherited.position_m)
             if position in seen_cameras:
                 continue
             seen_cameras.add(position)
-            distances = np.linalg.norm(points[:, [0, 2]]-np.array(position)[[0, 2]], axis=1)
-            endpoint_order = np.argsort(np.abs(distances-4.3), kind="stable")
-            for index in endpoint_order[:min(len(points), 600)]:
-                if not 3.3 <= distances[index] <= 7.:
+            per_camera = 0
+            distances = np.linalg.norm(points[:, [0, 2]]-np.asarray(position)[[0, 2]], axis=1)
+            for index in np.argsort(np.abs(distances-3.8), kind="stable")[:600]:
+                if per_camera >= 4:
+                    break
+                if not 3.1 <= distances[index] <= 7.:
                     continue
                 endpoint = points[index]
                 for theta in (26., 30., 22.):
+                    if per_camera >= 4:
+                        break
                     try:
                         anchors = tangent_entry_anchors(position, endpoint-[0., body.margin_m, 0.],
-                                                        request.branch, final_azimuth_deg=theta,
-                                                        envelope=envelope)
+                            request.branch, final_azimuth_deg=theta, envelope=envelope)
+                        timing = entry_timing(anchors["planning_length_m"], speed)
                     except ValueError:
                         continue
-                    anchors["endpoint_m"][1] = floor; anchors["start_m"][1] = floor
-                    camera = CameraPose(position, anchors["camera_yaw_deg"], hfov_deg=original_camera.hfov_deg,
-                                        width=original_camera.width, height=original_camera.height)
+                    anchors["endpoint_m"][1] = float(endpoint[1])
+                    camera = CameraPose(position, anchors["camera_yaw_deg"],
+                        hfov_deg=inherited.hfov_deg, width=inherited.width, height=inherited.height)
+                    clock = complete_human_gait_clock(self.clock_source, speed, [timing["requested_interval_s"]])
+                    distance = np.asarray(clock["distance_m"], float)
+                    # Family seed: the final whole-body inside anchor fixes the
+                    # origin of the completed source clock BEFORE certification.
                     direction = np.array([anchors["inward_unit_xz"][0], 0., anchors["inward_unit_xz"][1]])
-                    reserved = np.asarray(anchors["start_m"])-reserve*direction
-                    if not context.walkable_map.segment_free(reserved[[0, 2]], endpoint[[0, 2]], "human"):
+                    origin = endpoint-distance[-1]*direction
+                    # Query the core's original visual mesh at this exact seed,
+                    # rather than let native execution change the root height.
+                    if context.raycaster is None:
                         continue
-                    if framing(camera, anchors["start_m"], body)[0] != "outside" or framing(camera, endpoint, body)[0] != "inside":
+                    ranges, _ = context.raycaster.first_hit(origin+[0., .2, 0.], np.array([[0., -1., 0.]]))
+                    ground = float(origin[1]+.2-ranges[0])
+                    if not math.isfinite(ground) or abs(ground-floor) > .03:
                         continue
-                    line = LineString([reserved[[0, 2]], endpoint[[0, 2]]])
-                    options = []
-                    for point in points:
-                        if (np.linalg.norm(point[[0, 2]]-np.array(position)[[0, 2]]) < 1.6
-                                or line.distance(Point(*point[[0, 2]])) < 1.15):
-                            continue
-                        views = [framing(camera, point, self.bodies[aid])[0] for aid in bystanders]
-                        if "edge" not in views:
-                            delta = point-np.asarray(position)
-                            angle = math.degrees(math.atan2(float(delta@camera.right), float(delta@camera.forward)))
-                            # Only the requested moving target needs to enter.
-                            # Keep every companion real, wholly in or out, and
-                            # reserve its space before native motion compilation.
-                            options.append(((0 if views[0] == "outside" else 1,
-                                             abs(abs(angle)-105.) if views[0] == "outside" else abs(angle+SIDES[request.branch]*17.)), point))
-                    options.sort(key=lambda item: item[0])
-                    selected = []
-                    for _, point in options:
-                        if not all(np.linalg.norm((point-other)[[0, 2]]) >= 1.1 for other in selected):
-                            continue
-                        if selected:
-                            a = np.asarray(anchors["start_m"])[[0, 2]]
-                            b = selected[0][[0, 2]]
-                            delta = point[[0, 2]]-a
-                            baseline = b-a
-                            area = abs(float(baseline[0]*delta[1]-baseline[1]*delta[0]))
-                            if area/max(1e-9, float(np.linalg.norm(baseline))) < .4:
-                                continue
-                        selected.append(point)
-                        if len(selected) == len(bystanders):
-                            break
-                    if len(selected) != len(bystanders):
-                        continue
+                    origin[1] = ground
+                    heading = math.atan2(float(direction[2]), float(direction[0]))
                     try:
-                        timing = entry_timing(anchors["planning_length_m"], speed, gait_extension_reserve_m=reserve)
-                    except ValueError:
-                        continue
-                    try:
-                        mover = construct_route(context, [anchors["start_m"], anchors["endpoint_m"]],
-                                                species="human", speed_m_s=speed, start_s=timing["start_s"],
-                                                camera=camera, entity_id=target)
+                        mover = bind_distance_clock(context, distance, origin_m=origin, heading_rad=heading,
+                            species="human", camera=camera, entity_id=target, body=body, ramp_s=.25)
                     except ConstructionError:
                         continue
-                    mover.body = body
-                    actors = {target: mover}
-                    for aid, point in zip(bystanders, selected):
-                        actors[aid] = static_actor(aid, point, self.bodies[aid])
-                    anchors.update(room_id=context.room.get("room_label", context.room.get("room_id")),
-                                   walkable_map_path=getattr(context.walkable_map, "path", None),
-                                   native_gait_extension_reserve_m=reserve,
-                                   speed_m_s=speed, motion_interval_s=timing["requested_interval_s"],
-                                   timing=timing, native_preflight_required=True)
-                    yield ScenePlan(camera, actors, sounds=schedule.events, metadata={
-                        "joint_entry_route": anchors,
-                        "sound_schedule_starts_s": list(schedule.starts_s),
-                        "sound_schedule_diagnostics": schedule.diagnostics,
-                        "rest_views": {aid: framing(camera, actor.positions_m[0], actor.body)[0] for aid, actor in actors.items()},
-                        "native_entry_preflight_required": True,
-                        "planning_prediction_is_not_pixel_truth": True})
-                    emitted += 1
-                    if emitted >= int(request.options.get("candidate_limit", 32)):
-                        return
+                    if framing(camera, mover.positions_m[0], body)[0] != "outside" or framing(camera, mover.positions_m[-1], body)[0] != "inside":
+                        continue
+                    mover.metadata["admitted_gait_clock_certificate"] = clock["certificate"]
+                    mover.metadata["admitted_gait_source"] = clock["source_lineage"]
+                    anchors.update(start_m=mover.positions_m[0].tolist(), endpoint_m=mover.positions_m[-1].tolist(),
+                        room_id=context.room.get("room_label", context.room.get("room_id")),
+                        walkable_map_path=getattr(context.walkable_map, "path", None),
+                        speed_m_s=speed, motion_interval_s=timing["requested_interval_s"],
+                        timing=timing, physical_start_floor_y_m=ground, native_preflight_required=True)
+                    # All companion station selection and floor clearance is
+                    # delegated to the core, with this same fixed camera.
+                    view = copy(context); view.cameras = (camera,)
+                    for companion_view in ("outside", "inside"):
+                        for layout in enumerate_static_layouts(view, companions,
+                                {aid: companion_view for aid in companions},
+                                max_candidates=2, floor_clearance_m=.005):
+                            for aid, actor in layout.actors.items():
+                                policy = sample_initial_orientation(self.assets[aid], self.seed,
+                                    actor.positions_m[0], camera.position_m,
+                                    other_people=({"position_m": mover.positions_m[0].tolist(),
+                                                   "yaw_rad": native_yaw(mover, self.assets[target])},))
+                                actor.metadata["native_yaw_rad"] = policy["yaw_rad"]
+                                actor.metadata["initial_orientation_policy"] = policy
+                            actors = {target: mover, **layout.actors}
+                            roles = {target: "outside", **layout.metadata["roles"]}
+                            yield ScenePlan(camera, actors, sounds=schedule.events, metadata={
+                                "joint_entry_route": anchors, "roles": roles,
+                                "rest_views": roles, "native_entry_preflight_required": True,
+                                "sound_schedule_starts_s": list(schedule.starts_s),
+                                "sound_schedule_diagnostics": schedule.diagnostics,
+                                "planning_prediction_is_not_pixel_truth": True})
+                            emitted += 1; per_camera += 1
+                            if emitted >= int(request.options.get("candidate_limit", 128)):
+                                return
+                            if per_camera >= 4:
+                                break
+                        if per_camera >= 4:
+                            break
 
     def verify(self, context, request, plan):
         from avengine.construction.joint import CheckResult
@@ -561,82 +635,143 @@ class QA07Plugin:
                                     "lower_pixels_are_inner_proxy_only": True})
 
 
-def construct_qa07_scene(room, house, state, catalog, records, semantic, contract, runtime,
-                         *, scene_id, seed, family="QA-07", attempt=0):
-    """Translate a certified core proposal to the original phase-two producer."""
+
+def _entry_row_for_plan(base_row, plan, target, state, catalog, contract):
+    """Translate the already solved arrays; no route or timing search here."""
     from copy import deepcopy
     from dataclasses import asdict
-    from avengine.construction.joint import BodySpec, FamilyRequest, solve
-    from avengine.construction.joint.context import build_room_context
-    from avengine.timeline.v7_family_constructors import construct_family_scene, room_context, ConstructionUnavailable, _request
-    from avengine.timeline.v7_visibility_construction import walking_body, whole_walking_speech
+    from avengine.construction.joint.native import native_yaw
+    from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion
+    from avengine.timeline.v7_family_constructors import _request
     from avengine.timeline.v7_production_inputs import validate_recipe
+
+    row = deepcopy(base_row)
+    actor = plan.actors[target]
+    if not actor.metadata.get("distance_clock_bound"):
+        raise ValueError("QA-07 row needs a core-bound original complete-step clock")
+    route = deepcopy(plan.metadata["joint_entry_route"])
+    assets = {a["asset_id"]: a for a in catalog}
+    first_yaw = native_yaw(actor, assets[target])
+    yaws = first_yaw-(np.asarray(actor.headings_rad)-actor.headings_rad[0])
+    route.update(planned_distance_m=list(actor.metadata["distance_clock_m"]),
+                 planned_positions_m=actor.positions_m.tolist(), planned_native_yaws_rad=yaws.tolist(),
+                 strict_planned_motion=True)
+    row["listener_m"] = list(plan.camera.position_m)
+    row["camera_yaw_deg"] = plan.camera.yaw_deg
+    row["camera_yaw_knots"] = [{"time_s": t, "yaw_deg": plan.camera.yaw_deg} for t in (0., 30.)]
+    row["native_view_roles"] = {}
+    for aid, current in plan.actors.items():
+        view = plan.metadata["roles"][aid]
+        role = {"view": view, "static": aid != target}
+        if view == "outside":
+            delta = current.positions_m[0]-np.asarray(plan.camera.position_m)
+            azimuth = math.degrees(math.atan2(float(delta@plan.camera.right), float(delta@plan.camera.forward)))
+            role.update(minimum_abs_azimuth_deg=max(0., abs(azimuth)-1.),
+                        preferred_azimuth_deg=azimuth, real_registered_drawable_required=True)
+        if aid == target:
+            role["required_visible_sometime"] = True
+        row["native_view_roles"][aid] = role
+    delta = actor.positions_m[0]-np.asarray(plan.camera.position_m)
+    angle = abs(math.degrees(math.atan2(float(delta@plan.camera.right), float(delta@plan.camera.forward))))
+    row["motion_requests"] = {target: {"action": "walk", "speed_m_s": route["speed_m_s"],
+        "intervals_s": [route["motion_interval_s"]], "minimum_listener_horizontal_distance_m": 1.5,
+        "joint_entry_route": route,
+        "camera_path_condition": {"kind": "enter", "camera_forward": route["camera_forward"],
+            "required_entry_side": SIDES[route["branch"]], "initial_outside_minimum_abs_deg": angle-1.,
+            "final_inside_maximum_abs_deg": abs(route["final_azimuth_deg"])+.5}}}
+    row["automatic_construction"].update(family="QA-07", constructor="construct_qa07_scene",
+        revision=REVISION, requested_entry_side=route["branch"], native_entry_preflight_required=True,
+        planned_sound_events=[asdict(event) for event in plan.sounds],
+        sound_schedule_starts_s=plan.metadata["sound_schedule_starts_s"],
+        actual_source_clock_solved_before_native=True)
+    row["joint_prepared_scene_required"] = True
+    row = prepare_scene_motion(row, catalog)
+    _request(row, state, "QA-07")
+    validate_recipe(row, catalog, contract)
+    return row
+
+
+def construct_qa07_scene(room, house, state, catalog, records, semantic, contract, runtime,
+                         *, scene_id, seed, family="QA-07", attempt=0):
+    """One joint solve prepares, certifies, and returns the exact live native world."""
+    from copy import deepcopy
+    from dataclasses import asdict
+    from pathlib import Path
+    from avengine.construction.joint import BodySpec, FamilyRequest, CheckResult, solve
+    from avengine.construction.joint.context import build_room_context
+    from avengine.construction.joint.native import prepare_native
+    from avengine.construction.joint.gait import admitted_human_clock_source
+    from avengine.timeline.v7_family_constructors import construct_family_scene, room_context, ConstructionUnavailable
+    from avengine.timeline.v7_visibility_construction import walking_body, whole_walking_speech
+    from avengine.timeline.v7_family_clock import build_constructed_scene
 
     if family != "QA-07":
         raise ValueError("QA-07 constructor cannot serve a different family")
     if (house.get("split") != "train" or str(house["house"]).startswith("hm3d_val_")
             or house["house"] in set(contract.get("test_houses", []))):
         raise ConstructionUnavailable("QA-07 only constructs on the allowed non-val train inventory")
+    if Path(scene_id).name != scene_id or not runtime.get("joint_cache_directory"):
+        raise ValueError("QA-07 needs a plain scene ID and an explicitly owned native preparation directory")
     base = construct_family_scene(room, house, state, catalog, records, semantic, contract, runtime,
                                   scene_id=scene_id, seed=seed, family="QA-03", attempt=attempt)
     row = base["row"]
+    row["asset_ids"] = list(row["semantic_human_asset_ids"])
+    row["silent_asset_ids"] = []
+    row["automatic_construction"]["required_role_count"] = len(row["asset_ids"])
     target = row["semantic_human_asset_ids"][0]
     row, target = walking_body(row, target, catalog, room, contract, state, seed)
     whole_walking_speech(row, target, catalog, records, semantic, seed)
-    from avengine.timeline.v7_family_clock import build_constructed_scene
     _, sound_scene, sound_program, sound_assets = build_constructed_scene(row, house, records, catalog, semantic)
     sound_requirements = qa07_sound_requirements(sound_scene, sound_program, sound_assets)
     side = requested_side(state, seed)
+    assets = {a["asset_id"]: a for a in catalog if a["asset_id"] in row["asset_ids"]}
+    clock_source = admitted_human_clock_source(assets[target], runtime, house)
     bodies = {aid: BodySpec("human", radius_m=.35, height_m=1.9, margin_m=.05) for aid in row["asset_ids"]}
     actual_room = deepcopy(room_context(room, house, attempt)["original_room"])
-    request = FamilyRequest("QA-07", side, (target,), {"speed_m_s": 1.05, "candidate_limit": 32})
+    request = FamilyRequest("QA-07", side, (target,), {
+        "speed_m_s": 1.05, "candidate_limit": 128, "require_native_preflight": True})
+    plugin = QA07Plugin(bodies, sound_requirements, clock_source=clock_source, assets=assets, seed=seed)
+    directory = Path(runtime["joint_cache_directory"])/"qa07"/"native_preflight"/scene_id
+
+    def make_row(plan):
+        return _entry_row_for_plan(row, plan, target, state, catalog, contract)
+
+    def family_native(video, scene, entries):
+        report = getattr(video, "family_native_preflights", {}).get("QA-07")
+        if report is None:
+            yield CheckResult("QA-07:native_entry_witness", "unknown", "final native family probe was not recorded")
+            return
+        witness = report.get("original_qa07_witness", {})
+        ok = report.get("status") == "pass" and witness.get("status") == "pass" and witness.get("observed_answer") == side
+        yield CheckResult("QA-07:original_native_question", "pass" if ok else "fail",
+            "original mask predicate, reviewed appearance and publishable absolute interval",
+            evidence={"branch": side, "actual_answer": witness.get("observed_answer"),
+                      "target_asset_id": report.get("target_asset_id"),
+                      "transitions": report.get("transitions"),
+                      "peak_native_pixels": report.get("peak_actual_visible_pixels")})
+
+    def oracle(context, requested, plan):
+        initial_visible = {aid: 100 for aid, role in plan.metadata["roles"].items() if role == "inside"}
+        return prepare_native(context, requested, plan, row_factory=make_row, house=house,
+            catalog=catalog, records=records, semantic=semantic, runtime=runtime,
+            output_dir=directory, family_check=family_native, roles=plan.metadata["roles"],
+            minimum_visible_pixels=initial_visible)
+
     with build_room_context(actual_room, house=house, runtime=runtime,
-                            cache_dir=runtime.get("joint_cache_directory"),
-                            camera_limit=72, grid_step_m=.3, camera_heights_m=[1.25],
+                            cache_dir=runtime["joint_cache_directory"],
+                            camera_limit=216, grid_step_m=.3, camera_heights_m=[1.1, 1.25, 1.45],
                             width=1280, height=720) as context:
-        solved = solve(context, request, QA07Plugin(bodies, sound_requirements), budget_s=120., max_candidates=32)
-    if solved.status != "certified" or solved.plan is None:
-        raise ConstructionUnavailable("QA-07 joint construction " + solved.status + ": " + "; ".join(solved.reasons))
-    plan = solved.plan
-    route = deepcopy(plan.metadata["joint_entry_route"])
-    row["listener_m"] = list(plan.camera.position_m)
-    row["camera_yaw_deg"] = plan.camera.yaw_deg
-    row["camera_yaw_knots"] = [{"time_s": t, "yaw_deg": plan.camera.yaw_deg} for t in (0., 30.)]
-    row["native_placement_preferences_m"] = {aid: actor.positions_m[0].tolist() for aid, actor in plan.actors.items()}
-    row["native_attachment_supports"] = {
-        aid: {"surface": "floor", "original_surface_point_m": actor.positions_m[0].tolist(),
-              "normal": [0., 1., 0.], "floor_y": float(actor.positions_m[0, 1]),
-              "_outward_clearance_m": 0.} for aid, actor in plan.actors.items()}
-    start_delta = np.asarray(route["start_m"])-np.asarray(route["listener_m"])
-    angle = abs(math.degrees(math.atan2(float(start_delta@np.asarray(route["camera_right"])),
-                                        float(start_delta@np.asarray(route["camera_forward"])))))
-    row["native_view_roles"] = {}
-    for aid, actor in plan.actors.items():
-        if aid == target:
-            continue
-        view = plan.metadata["rest_views"][aid]
-        role = {"view": view, "static": True}
-        if view == "outside":
-            delta = actor.positions_m[0]-np.asarray(plan.camera.position_m)
-            azimuth = math.degrees(math.atan2(float(delta@plan.camera.right), float(delta@plan.camera.forward)))
-            role.update(minimum_abs_azimuth_deg=max(0., abs(azimuth)-1.),
-                        preferred_azimuth_deg=azimuth, real_registered_drawable_required=True)
-        row["native_view_roles"][aid] = role
-    row["native_view_roles"][target] = {"view": "outside", "static": False, "required_visible_sometime": True,
-        "minimum_abs_azimuth_deg": angle-1., "preferred_azimuth_deg": SIDES[side]*angle,
-        "real_registered_drawable_required": True}
-    speed = route["speed_m_s"]
-    row["motion_requests"] = {target: {"action": "walk", "speed_m_s": speed,
-        "intervals_s": [route["motion_interval_s"]], "minimum_listener_horizontal_distance_m": 1.5,
-        "joint_entry_route": route,
-        "camera_path_condition": {"kind": "enter", "camera_forward": route["camera_forward"],
-            "required_entry_side": SIDES[side], "initial_outside_minimum_abs_deg": angle-1.,
-            "final_inside_maximum_abs_deg": abs(route["final_azimuth_deg"])+.5}}}
-    row["automatic_construction"].update(family="QA-07", constructor="construct_qa07_scene",
-        revision=REVISION, requested_entry_side=side, core_certificate=asdict(solved.certificate),
-        core_diagnostics=solved.diagnostics, native_entry_preflight_required=True,
-        planned_sound_events=[asdict(event) for event in plan.sounds],
-        sound_schedule_starts_s=plan.metadata["sound_schedule_starts_s"])
-    _request(row, state, "QA-07")
-    validate_recipe(row, catalog, contract)
-    return {"profile": "phase2", "row": row}
+        solved = solve(context, request, plugin, prepare_and_verify=oracle,
+                       budget_s=float(runtime.get("qa07_solve_budget_s", 900.)),
+                       max_candidates=128, max_native_preparations=3)
+    if solved.status != "certified" or solved.plan is None or solved.prepared is None:
+        raise ConstructionUnavailable("QA-07 strict joint construction " + solved.status + ": " + "; ".join(solved.reasons))
+    prepared = solved.prepared.payload
+    try:
+        prepared.row["automatic_construction"].update(core_certificate=asdict(solved.certificate),
+                                                       core_diagnostics=solved.diagnostics)
+        return {"profile": "phase2", "row": prepared.row, "prepared_native": prepared,
+                "joint_plan": solved.plan, "joint_certificate": solved.certificate}
+    except Exception:
+        prepared.close()
+        raise
