@@ -271,7 +271,7 @@ def render_map_png(walkable, mesh, output):
         overlay = np.zeros((*walkable.shape, 4))
         overlay[:, :, :] = [1., .10, .10, .20]
         overlay[walkable.layers[species]] = [.05, .9, .2, .65]
-        ax.imshow(overlay, extent=(x0, x1, z0, z1), origin='lower', interpolation='nearest')
+        ax.imshow(overlay, extent=(x0, x1, z0, z1), origin='lower', interpolation='nearest', zorder=2)
         ax.set(xlim=(x0, x1), ylim=(z0, z1), aspect='equal', xlabel='world X (m)', ylabel='world Z (m)',
                title=f'{species}, radius {SPECIES_RADII_M[species]:.2f} m: {walkable.layers[species].sum()} cells')
     fig.suptitle(walkable.metadata['room_id']+'\nOriginal stage triangle top view; green=walkable, red=blocked; 5 cm cells')

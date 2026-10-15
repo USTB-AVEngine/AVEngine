@@ -159,6 +159,20 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
         if actor is entry or actor.get('phase2_layout_qualified') is False:continue
         root=actor['applied_root_input'];v=np.asarray(actor['original_mesh'].vertices)@root[:3,:3].T+root[:3,3]
         obstacles.append(box(v[:,0].min()-radius,v[:,2].min()-radius,v[:,0].max()+radius,v[:,2].max()+radius))
+    # Registered seats/props are separate native rigid instances. Include their
+    # measured world AABBs as well as the actors' original skin bounds.
+    seen={int(a['object'].object_id)for a in video.actors if a.get('object')is not None}
+    sim=getattr(video,'sim',None)
+    if sim is not None:
+        for obj in sim.get_rigid_object_manager().get_objects_by_handle_substring().values():
+            if int(obj.object_id)in seen:continue
+            node=obj.root_scene_node;node.compute_cumulative_bb();bounds=node.cumulative_bb
+            low=np.asarray(bounds.min,float);high=np.asarray(bounds.max,float)
+            corners=np.array([[x,y,z]for x in (low[0],high[0])for y in (low[1],high[1])for z in (low[2],high[2])])
+            root=np.asarray(node.absolute_transformation(),float)
+            v=corners@root[:3,:3].T+root[:3,3]
+            if not np.isfinite(v).all():raise ValueError('dynamic native prop has invalid world bounds')
+            obstacles.append(box(v[:,0].min()-radius,v[:,2].min()-radius,v[:,0].max()+radius,v[:,2].max()+radius))
     is_free=native_free_predicate(video.pathfinder,polygon,floor,scene['listener_m'],obstacles=obstacles,walkable_map=walkable_map,species=species)
     from avengine.timeline.v7_spatial_layout import spacing_rejection
     listener=np.asarray(scene['listener_m'],float)[[0,2]]
