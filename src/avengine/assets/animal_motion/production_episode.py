@@ -141,6 +141,14 @@ def route_preview_visible(scene, start, end, yaw, mouth):
     return True
 
 
+def route_navmesh_preview(pathfinder,start,end):
+    # These are five of the exact original 901 route samples. Prune an
+    # impossible proposal before the eight expensive complete native trials.
+    points=np.asarray([np.asarray(start)*(1.-i/900.)+np.asarray(end)*(i/900.)for i in (0,225,450,675,900)])
+    snaps=np.asarray([pathfinder.snap_point(p)for p in points])
+    return bool(np.isfinite(snaps).all() and np.max(np.linalg.norm((snaps-points)[:,[0,2]],axis=1))<=.002)
+
+
 def motion_route_attempts(route_tiers, requested_mode, stationary):
     """Try shorter/slower physical routes while preserving the requested motion.
 
@@ -235,6 +243,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 if (not poly.covers(line) or any(line.intersects(b) for b in bodies)
                         or not route_preview_visible(scene, p0, end, yaw, source[0]['mouth_m'])):
                     continue
+                if not route_navmesh_preview(video.pathfinder,p0,end):continue
                 score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
                 tier.append((float(score), p0.copy(), yaw, direction, route_speed))
         tier = list({(tuple(r[1]), r[2]): r for r in tier}.values())
@@ -360,5 +369,5 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         except ValueError as error:
             failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'speed_m_s': route_speed, 'mode': mode, 'reason': str(error)})
     write_json(directory / 'motion_rejected.json', {'status': 'blocked', 'mode': mode,
-               'reason': 'walk/shorter route, explicit retained-pose slide and static placement all failed physical gates', 'failed_candidates': failures})
+               'reason': 'requested motion routes failed original physical gates; no animal removed or mode substituted', 'failed_candidates': failures})
     raise ValueError('final animal admission has no route passing retained answer gates and owner visual quality policy')

@@ -62,6 +62,9 @@ def run_worker(manifest,slot):
         add_required_condition(row,'authored_native_quartet')
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
         from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
+    if task['profile']=='phase2':
+        from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
+        row=prepare_motion_during_row(row,catalog,source['records'])
     write(root/'inputs/planned'/f'{slot:03d}.json',row)
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],

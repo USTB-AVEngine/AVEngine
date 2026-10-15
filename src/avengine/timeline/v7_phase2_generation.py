@@ -201,6 +201,11 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     dry,receipt=parent_dry(root,base,program)
     for ep,voice in receipt['endpoint_speaker_ids'].items():base['sources'][ep]['voice_identity_id']=voice
     scene=member_scene(base,visual,'v0_a0')
+    from avengine.timeline.v7_motion_during_conditions import verify_motion_during_native
+    motion_condition_report=verify_motion_during_native(row,scene,visual)
+    if motion_condition_report is not None:
+        write_json(root/'conditioned_motion_native_verification.json',motion_condition_report)
+        if motion_condition_report['status']!='pass':raise ValueError('original conditioned_motion native verification failed; see conditioned_motion_native_verification.json')
     def audio(attempt):return render_alpha_audio(scene,working,inputs,root/'rir_cache',attempt,dry,receipt,visual['camera_frame_readbacks'])
     from avengine.timeline.v7_wet_support import WET_SUPPORT_REVISION
     audio_recipe={'scene':scene,'inputs':inputs,'wet_support_revision':WET_SUPPORT_REVISION}

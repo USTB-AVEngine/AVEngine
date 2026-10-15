@@ -54,6 +54,17 @@ def schedule_authored_speech(scene,program,assets,schedules):
             scene['events'].append({**deepcopy(first),'event_id':eid,'start_tick':tick,'end_tick':tick+duration})
             program['events'].append({**deepcopy(binding),'event_id':eid})
 
+def footstep_walkers_for_row(row):
+    motion=row.get('motion_requests',{})
+    walkers=[]
+    for aid,classes in row.get('source_classes',{}).items():
+        if 'footsteps' not in classes:continue
+        if classes!=['footsteps']:raise ValueError('one sound source per human: footsteps cannot be mixed with speech or another sound')
+        if motion.get(aid,{}).get('action')!='walk':raise ValueError('footsteps require actual requested walking')
+        walkers.append(aid)
+    if not set(row.get('phase2_include_footsteps_asset_ids',[]))<=set(walkers):
+        raise ValueError('one sound source per human: the footstep alias cannot add feet to a speaking or silent walker')
+    return walkers
 
 def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if row.get('schema')!=PHASE2_SCHEMA:raise ValueError('explicit phase-two schema required')
@@ -70,10 +81,8 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
         stub['semantic_start_offsets_s']=deepcopy(row['semantic_offsets_s'])
     silent=set(row.get('silent_asset_ids',[]))
     stub['asset_ids']=[aid for aid in row['asset_ids'] if aid not in silent]
-    walkers=[aid for aid,req in motion.items() if req.get('action')=='walk' and row.get('source_classes',{}).get(aid)==['footsteps']]
+    walkers=footstep_walkers_for_row(row)
     footstep_walkers=walkers
-    if any(aid not in walkers for aid in row.get('phase2_include_footsteps_asset_ids',[])):
-        raise ValueError('one human has one sound source: assign footsteps explicitly without speech')
     if any(motion.get(aid,{}).get('action')!='walk'for aid in footstep_walkers):raise ValueError('footsteps require actual requested walking')
     if row.get('semantic_scenario_id'):
         stub['asset_ids']=[aid for aid in stub['asset_ids'] if aid not in walkers]
