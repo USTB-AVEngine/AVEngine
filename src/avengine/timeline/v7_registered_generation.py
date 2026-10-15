@@ -174,8 +174,8 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         if inputs.get('render_backend')=='ue_spear':
             from avengine.capture.v7_alpha_ue import assert_ue_alpha_visual
             assert_ue_alpha_visual(visual)
-        elif visual['source_material_checks']['status']!='pass' or any(visual['alignment'][k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or visual['alignment']['restored_modal_RGB_depth_semantic_frames']!=450:
-            raise ValueError('native material or mask restoration qualification failed')
+        elif any(visual['alignment'][k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or visual['alignment']['restored_modal_RGB_depth_semantic_frames']!=450:
+            raise ValueError('native mask restoration qualification failed')
         for a in visual['standing_admission']:
             if a['status']!='pass' or a['known_bad_detected'] is not True:raise ValueError('native static contact admission incomplete')
         # Disjoint native full-skin AABBs certify that isolated placement probes
@@ -311,7 +311,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         result={'status':'formal_alpha_admitted','profile':ALPHA_RELEASE_PROFILE,'scene_id':row['scene_id'],
             'house':row['house'],'room_id':row['room_id'],'independent_parent_scenes':1,'windows':stats,
             'content_binding_native_candidates':content_audit,'alpha_formal_windows':len(stats),'alpha_formal_logical_questions':sum(w['logical_questions'] for w in stats),
-            'full_v7_formal_windows':0,'full_v7_generation_ready':False,'alpha_limitations':base['sampling_limitations'],
+            'material_quality_policy':'owner_record_only_20261014','full_v7_formal_windows':0,'full_v7_generation_ready':False,'alpha_limitations':base['sampling_limitations'],
             'wall_seconds_before_seal':elapsed,'cpu_seconds_before_seal_including_children':cpu,'stage_timings':timings,
             'used_dry_original_ids':sorted(r['original_id'] for r in program['records']),
             'measured_RIR_calls':sum(result['RIR_cache']['new_rirs'] for _,result in audio_factors.values())+sum(read_json(visual_dirs[v]/'acoustic_placement_admission.json')['cache_stats']['new_rirs'] for v in visual_names),

@@ -233,7 +233,8 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         row['scene_demand']['required_asset_ids']=list(row['asset_ids'])
         row['automatic_construction']['required_role_count']=len(row['asset_ids'])
     elif family=='V7-CONTENT-BIND':
-        return _construct_content(row,people,state,semantic,ctx,attempt)
+        from avengine.timeline.v7_content_offscreen_construction import construct_pure_tts_offscreen_quartet
+        return construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,catalog,room,contract)
     validate_recipe(row,catalog,contract)
     return {'profile':'phase2','row':row}
 

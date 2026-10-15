@@ -122,10 +122,12 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     event_starts=[0.,10.,20.] if starts==[0.,5.,10.,15.,20.] else starts
     yaw=float(plan['camera_yaw_deg']);angle=math.radians(yaw)
     camera_policy=plan.get('camera_policy','uniform_static')
-    if camera_policy not in {'uniform_static','binding_static','binding_sweep','review_sweep_360','pilot_binding_coverage'}:raise ValueError('unsupported camera policy')
+    if camera_policy not in {'hold','uniform_static','binding_static','binding_sweep','review_sweep_360','pilot_binding_coverage'}:raise ValueError('unsupported camera policy')
     knots=[{'time_s':float(i),'yaw_deg':yaw} for i in range(31)]
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],'split':row['split'],'duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':layout['listener_m'],'camera_forward':[math.sin(angle),0.,-math.cos(angle)],'camera_yaw_knots':knots,'window_starts_s':starts,'sources':{},'events':[],'production_scenario':plan,'source_motion_policy':'registered standing only; independent objects require separate motion admission','sampling_limitations':['walk/sit/seat pending complete episode admission','unadmitted old sound classes are not generated','moving object episode intake pending','profile requests are not measured realized marginals']}
     if row.get('scene_demand'):scene['scene_demand']=deepcopy(row['scene_demand'])
+    for key in ('native_view_roles','offscreen_construction','owner_social_layout','automatic_construction'):
+        if row.get(key):scene[key]=deepcopy(row[key])
     placements=_placements(layout,len(assets))
     if camera_policy in {'binding_static','binding_sweep','pilot_binding_coverage'}:
         vectors=[np.asarray(p['position_m'])-np.asarray(layout['listener_m']) for p in placements[:2]]
@@ -211,6 +213,9 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     program['records']=list(by_id.values())
     attach_environmental_program(scene,program,plan,admitted,rng,starts)
     by_id.update({r['sound_asset_id']:r for r in program['records']})
+    scene['events'].sort(key=lambda e:(e['start_tick'],e['end_tick'],e['event_id']))
+    order={e['event_id']:i for i,e in enumerate(scene['events'])}
+    program['events'].sort(key=lambda e:order[e['event_id']])
     ns=plan.get('non_speech_class','laughter')
     if ns is not None:scene['admitted_sound_class_domain']=sorted({r['sound_class']for r in admitted if r.get('dataset')!='VCTK-Corpus 0.92'})
     if ns is None:

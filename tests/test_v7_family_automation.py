@@ -57,17 +57,18 @@ def test_any_legal_room_retains_required_roles_and_real_source_kinds(inputs,fami
 
 
 def test_content_quartet_has_only_whole_authored_sources_and_fixed_real_voices(inputs):
-    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    rooms,houses,assets,semantic,contract=content_inputs(inputs);room=rooms[0]
     result=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},scene_id='quad',seed=18,family='V7-CONTENT-BIND')
     row=result['row'];assert result['profile']=='registered'
     assert row['members']==['v0_a0','v0_a1','v1_a0','v1_a1']
-    assert len(row['production_scenario']['asset_ids'])==3
+    assert len(row['production_scenario']['asset_ids'])==4
     lookup={r['sound_asset_id']:r for r in semantic['sounds']}
     epochs=row['production_scenario']['semantic_epoch_sound_ids']
     assert len({lookup[ids[0]]['scenario_id']for ids in epochs})==3
     voices=[[lookup[sid]['voice_reference']['speaker_id']for sid in ids]for ids in epochs]
-    assert voices[0]==voices[1]==voices[2]and len(set(voices[0]))==2
+    assert voices[0]==voices[1]==voices[2]and len(set(voices[0]))==3
     assert row['production_scenario']['environment_sound_classes']==[]
+
 
 
 def test_original_room_legality_is_not_widened_to_make_a_constructor_fit(inputs):
@@ -157,7 +158,7 @@ def test_whole_source_clock_keeps_waveform_binding_and_separates_taxonomy_from_a
 
 
 def test_content_constructor_changes_real_body_gender_instead_of_reducing_complete_epochs(inputs):
-    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    rooms,houses,assets,semantic,contract=content_inputs(inputs);room=rooms[0]
     restricted={'sounds':[s for s in semantic['sounds']if s['voice_reference']['gender']=='female'or s['scenario_id']=='0']}
     for a in assets:a['body_identity_id']=a['visual_gender']+'_registered_body'
     plan=construct_family_scene(room,houses[room['house']],{},assets,[],restricted,contract,{},scene_id='auto',seed=1,family='V7-CONTENT-BIND')
@@ -165,6 +166,7 @@ def test_content_constructor_changes_real_body_gender_instead_of_reducing_comple
     assert all(lookup[aid]['visual_gender']=='female'for aid in ids[:2])
     assert len({lookup[aid]['body_identity_id']for aid in ids[:2]})==1
     assert len(plan['row']['production_scenario']['semantic_epoch_sound_ids'])==3
+
 
 
 def test_public_new_room_entry_never_reads_an_agent_scene_configuration(tmp_path,monkeypatch,inputs):
@@ -391,7 +393,7 @@ def test_silent_human_visibility_proposal_uses_actual_body_without_changing_nati
 def test_registered_quartet_selects_colors_supported_by_its_original_reviewer_without_banning_phase2_neutrals(inputs):
     from avengine.qa.v7_visual_admission import COLOR_HUE_DEGREES
     from avengine.timeline.v7_family_constructors import eligible_humans
-    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    rooms,houses,assets,semantic,contract=content_inputs(inputs,add_people=False);room=rooms[0]
     for a in assets:a['body_identity_id']=a['visual_gender']+'_body'
     catalog=[*assets,*[{**a,'asset_id':a['visual_gender']+'_'+neutral,'color':neutral}
         for a in assets if a['color']=='blue'for neutral in ('black','white')]]
@@ -401,8 +403,9 @@ def test_registered_quartet_selects_colors_supported_by_its_original_reviewer_wi
         plan=construct_family_scene(room,houses[room['house']],{},catalog,[],semantic,contract,{},
             scene_id='new',seed=seed,family='V7-CONTENT-BIND')
         ids=plan['row']['production_scenario']['asset_ids']
-        assert len(ids)==3 and len(plan['row']['members'])==4
+        assert len(ids)==4 and len(plan['row']['members'])==4
         assert all(lookup[aid]['color']in COLOR_HUE_DEGREES for aid in ids[:2])
+
 
 
 def test_placement_failure_signature_is_the_same_cause_for_different_registered_individuals():
@@ -466,15 +469,16 @@ def test_real_native_program_schema_drives_actual_authored_voice_rotation(key):
 
 def test_owner_layout_keeps_three_people_one_metre_apart_distributed_and_with_varied_facing(inputs):
     import math
-    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    rooms,houses,assets,semantic,contract=content_inputs(inputs);room=rooms[0]
     row=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},
         scene_id='new',seed=10,family='V7-CONTENT-BIND')['row']
     valid=row['measured_static_layout']['valid'];points=[v['position_m']for v in valid]
-    assert len(points)==3 and len(row['members'])==4
+    assert len(points)==4 and len(row['members'])==4
     for i,p in enumerate(points):
         for q in points[i+1:]:assert math.hypot(p[0]-q[0],p[2]-q[2])>=1.
     assert len({round(v['body_yaw_deg'],2)for v in valid})>=2
     assert row['production_scenario']['camera_policy']=='hold'
+
 
 
 def test_owner_spacing_checks_reserved_motion_track_and_human_animal_pairs():
@@ -587,3 +591,18 @@ def test_offscreen_speaks_first_when_the_actual_selected_answer_branch_is_missin
     outside=row['offscreen_construction']['offscreen_asset_ids'][0]
     assert row['phase2_recorded_speech_schedule_s'][outside][0]==0.
     assert min(row['phase2_authored_speech_schedule_s'][aid][0]for aid in row['semantic_human_asset_ids'])>0.
+
+
+def content_inputs(inputs,add_people=True):
+    rooms,houses,assets,semantic,contract=copy.deepcopy(inputs)
+    if add_people:
+        for color in ('white','black'):
+            for gender in ('female','male'):
+                if not any(a['asset_id']==gender+'_'+color for a in assets):
+                    assets.append({**copy.deepcopy(assets[0]),'asset_id':gender+'_'+color,'color':color,'visual_gender':gender})
+    for scenario in ('0','1','2'):
+        for gender in ('female','male'):
+            semantic['sounds'].append({'sound_asset_id':scenario+'_c_'+gender,'scenario_id':scenario,'role_id':'c',
+                'transcript':'A third complete sentence for '+scenario,'synthesis_readback':{'duration_s':2.,'sample_count':32000},
+                'voice_reference':{'speaker_id':gender+'2','gender':gender}})
+    return rooms,houses,assets,semantic,contract
