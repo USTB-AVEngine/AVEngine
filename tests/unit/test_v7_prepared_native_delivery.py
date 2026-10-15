@@ -14,7 +14,8 @@ def test_prepared_scene_preserves_the_actual_program_house_and_asset_objects():
     with pytest.raises(ValueError,match='closed'):scene_inputs(prepared,row)
 
 
-def test_consumption_uses_existing_support_proofs_and_original_acoustic_check(tmp_path):
+def test_consumption_uses_existing_support_proofs_and_original_acoustic_check(tmp_path,monkeypatch):
+    monkeypatch.setattr('avengine.timeline.v7_cpu_visual_runtime.configure_cpu_visual',lambda *args,**kwargs:{'LP_NUM_THREADS':4})
     scene={};source=tmp_path/'prepared/standing';source.mkdir(parents=True)
     for name in ('standing_admission.json','native_support_survey.json'):(source/name).write_text('{}')
     checks=[{'status':'pass'}];entry={'endpoint_id':'voice','declaration':{'silent_decor':False}};calls=[]

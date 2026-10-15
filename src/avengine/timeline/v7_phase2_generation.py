@@ -188,6 +188,7 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         if prepared_native is not None:
             from avengine.timeline.v7_prepared_native_delivery import arm_prepared_encode
             video=arm_prepared_encode(prepared_native)
+            video._prepared_cpu_visual_inputs=inputs
         else:video=NativeVisibleVideo(working,native_scene,inputs,assets,source_material_cache_directory=material_cache)
         gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json');video.acoustic_position_admission=gate.check
         try:visual=video.encode(native_scene,attempt/'scene_video.mp4',collect_pixel_visibility=True)
