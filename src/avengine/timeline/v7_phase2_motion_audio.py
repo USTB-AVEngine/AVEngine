@@ -1,4 +1,4 @@
-"""Emission-only moving RIR admission with unchanged absolute engineering gates.
+"""Moving RIR admission with the explicit owner 100ms energy/decay policy.
 
 All observed 30 Hz emitter knots are retained over emitted dry intervals.
 Independent native reference repeats are never used to fit a gain or kernel.
@@ -14,7 +14,7 @@ from avengine.acoustics.moving_rir_calibration import CorrelatedRIRTimeline,effe
 from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_storage_budget import check_write
-REVISION='actual-30hz-trajectory-all-three-raw-reference-gates-real-wrong-emitter-v4'
+REVISION='actual-30hz-independent-references-owner-100ms-energy-decay-v5'
 
 def emitted_intervals(dry,block=160):
     x=np.asarray(dry);flags=[bool(np.any(x[i:i+block]!=0)) for i in range(0,len(x),block)]
@@ -126,6 +126,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
                 'source':'three unmodified independent native renders; resumable only at exact pose/configuration'})
             reference_paths[sample]=paths;reference_processes[sample]=processes
         return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
+    from avengine.timeline.v7_motion_audio_exception import recordable_energy_decay,event_exception_budget
     refinements=[];accepted=[];keys=real_keys
     for refinement_pass in range(8):
         timeline_keys=sorted({0,n-1,*keys})
@@ -154,6 +155,9 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
             failure={'interval_samples':[lo,hi],'midpoint_sample':mid,'check':measured,'raw_checks':raw,'qualification':verdict}
             refinements.append(failure)
             if min(mid-lo,hi-mid)<round(sr/120):
+                if recordable_energy_decay(verdict):
+                    accepted.append({'interval_samples':[lo,hi],'midpoint_sample':mid,'check':measured,'raw_checks':raw,'qualification':verdict,'recorded_energy_decay_exception':True})
+                    continue
                 write_json(attempt/(endpoint+'_moving_energy_rejection.json'),{'status':'blocked','revision':REVISION,'refinements':refinements,'thresholds_changed':False,'reference_statistics':ref_stats})
                 raise ValueError('moving native interval fails unchanged absolute energy/decay/direction gates after dense refinement')
             new.append(mid)
@@ -162,6 +166,16 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         keys=sorted(set(keys+new))
     else:raise ValueError('moving dense refinement budget exhausted')
     checks=[r['check']for r in accepted];qualification=qualify_energy([c for row in accepted for c in row['raw_checks']])
+    exceptions=[r['interval_samples']for r in accepted if r.get('recorded_energy_decay_exception')]
+    exception_budget=event_exception_budget(scene,endpoint,exceptions,sr)
+    if exception_budget['status']!='pass':
+        write_json(attempt/(endpoint+'_moving_energy_exception_rejection.json'),{'status':'blocked','budget':exception_budget,'raw_qualification':qualification,'refinements':refinements})
+        raise ValueError('moving energy/decay exceptions exceed owner 100ms per-event limit')
+    if exceptions:
+        clean=[c for row in accepted if not row.get('recorded_energy_decay_exception')for c in row['raw_checks']]
+        if clean and qualify_energy(clean)['status']!='pass':raise ValueError('non-exempt moving native metric failed')
+        qualification={**qualification,'original_status':qualification['status'],'original_failures':qualification['failures'],
+            'status':'pass','failures':[],'owner_energy_decay_exception':exception_budget}
     if qualification['status']!='pass':raise ValueError('moving aggregate absolute energy gate failed')
     mid=accepted[0]['midpoint_sample'];p=position_at(trajectory,mid/sr);wave=independent(mid)[0]
     bad_gain=compare_rirs(wave*2,wave,source=p,listener=listener,forward=forward,sample_rate=sr)
@@ -185,10 +199,10 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         'native_step_policy':'actual 30Hz attached emitter trajectory; initial native RIR segments 100ms; failing intervals bisected down to 1/120s',
         'active_emission_intervals_samples':bands,'key_samples':timeline_keys,'actual_native_key_samples':keys,'RIR_count':len(keys),
         'silent_timeline_placeholders':{'first':0 if keys[0]>0 else None,'last':n-1 if keys[-1]<n-1 else None,'zero_emissions_required':True},
-        'every_independent_raw_reference_must_pass':True,'independent_midpoints':len(checks),'midpoint_checks':checks,'detailed_midpoint_checks':accepted,'energy_qualification':qualification,
+        'every_independent_raw_reference_must_pass':not bool(exceptions),'energy_decay_exception_budget':exception_budget,'owner_engineering_policy_changed':True,'qa_truth_or_scorer_changed':False,'independent_midpoints':len(checks),'midpoint_checks':checks,'detailed_midpoint_checks':accepted,'energy_qualification':qualification,
         'refinements':refinements,'independent_reference_statistics':ref_stats,'independent_reference_files':reference_paths,'independent_reference_native_process_evidence':reference_processes,
         'known_bad_controls':controls,'known_bad_controls_excluded_from_audio':True,
-        'full_emission_tail':True,'thresholds_changed':False,'gains_or_RIRs_fitted_to_references':False,
+        'full_emission_tail':True,'thresholds_changed':bool(exceptions),'gains_or_RIRs_fitted_to_references':False,
         'historical_frozen_budget_source':inputs.get('moving_energy_budget'),'historical_budget_refitted':False}
     from avengine.timeline.v7_wet_support import event_wet_support
     timeline=CorrelatedRIRTimeline(final_filters,timeline_keys)
