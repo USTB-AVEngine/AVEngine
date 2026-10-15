@@ -759,3 +759,48 @@ def test_parallel_lanes_reject_cropped_feet_and_crossing_seed():
     b.positions_m[:,0]=np.linspace(-1.,1.,901)
     with pytest.raises(ConstructionError,match="shared_straight"):
         list(paired_parallel_routes(c,a,b,camera=c.cameras[0]))
+
+
+def test_independent_following_fits_narrow_room_without_parallel_lanes():
+    c=context()
+    cells=c.walkable_map.origin[0]+(np.arange(c.walkable_map.shape[1])+.5)*c.walkable_map.resolution
+    for layer in c.walkable_map.layers.values():layer[:,np.abs(cells)>.4]=False
+    c.room["floor_polygon"]={"type":"Polygon","coordinates":[[[-.8,-7.5],[.8,-7.5],[.8,1.5],[-.8,1.5],[-.8,-7.5]]]}
+    a,b=_parallel_test_actors(c,near_z=-4.)
+    assert not list(paired_parallel_routes(c,a,b,camera=c.cameras[0],separations_m=(1.25,)))
+    stats={}
+    plans=list(independent_straight_pair_routes(c,a,b,camera=c.cameras[0],second_branch="farther",
+        minimum_pair_distance_m=1.2,max_candidates=1,diagnostics=stats))
+    assert plans and stats["yielded"]==1
+    plan=plans[0]
+    np.testing.assert_array_equal(plan.actors["a"].positions_m,a.positions_m)
+    np.testing.assert_array_equal(plan.actors["b"].metadata["distance_clock_m"],b.metadata["distance_clock_m"])
+    np.testing.assert_allclose(np.linalg.norm(np.diff(plan.actors["b"].positions_m,axis=0),axis=1),
+        np.linalg.norm(np.diff(b.positions_m,axis=0),axis=1),atol=1e-12)
+    assert plan.metadata["minimum_pair_distance_m"]>=1.2-1e-8
+    assert plan.metadata["second_full_track_radial_change_m"]>.5 and certify_plan(c,plan).passed
+
+
+def test_independent_nonparallel_second_track_and_explicit_rest_roles():
+    c=context();a,b=_parallel_test_actors(c,near_z=-4.)
+    plan=next(independent_straight_pair_routes(c,a,b,camera=c.cameras[0],second_branch="farther",
+        origins_m=[[1.3,0,-4.5]],heading_offsets_deg=(0,),minimum_pair_distance_m=1.2))
+    delta=plan.actors["b"].positions_m[-1]-plan.actors["b"].positions_m[0]
+    assert abs(delta[0])>.2 # independent radial line is not parallel to first
+    assert plan.metadata["minimum_pair_distance_m"]>=1.2
+    np.testing.assert_array_equal(plan.actors["b"].metadata["distance_clock_m"],b.metadata["distance_clock_m"])
+    # A declared off-screen role may be whole-body outside; never an edge crop.
+    outside=next(independent_straight_pair_routes(c,a,b,camera=c.cameras[0],second_branch="farther",
+        origins_m=[[2.,0,.5]],heading_offsets_deg=(0,),roles={"a":"inside","b":"outside"}))
+    assert outside.metadata["rest_framing"]["states"]==["inside","inside","outside","outside"]
+    assert certify_plan(c,outside).passed
+
+
+def test_independent_pair_reports_finite_budget_without_certifying_collision():
+    c=context();a,b=_parallel_test_actors(c,near_z=-4.)
+    stats={}
+    plans=list(independent_straight_pair_routes(c,a,b,camera=c.cameras[0],second_branch="farther",
+        origins_m=[a.positions_m[0]],heading_offsets_deg=(0,),max_evaluations=1,diagnostics=stats))
+    assert not plans
+    assert stats["stop_reason"]=="evaluation_budget_exhausted"
+    assert stats["rejections"]["independent_continuous_pair_distance"]==1
