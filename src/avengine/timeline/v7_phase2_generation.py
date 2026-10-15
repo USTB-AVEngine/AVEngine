@@ -251,6 +251,13 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             native_sampling_revision=f'same-native-engine-rays-x{phase2_ray_multiplier(scene,dry)}-all-reference-gates-v2',
             moving_native_context_revision=CONTEXT_REVISION)
     ad,ar,_=stage(root,'audio_v0_a0',audio_recipe,audio)
+    return finish_phase2_delivery(row,house,inputs,assets,program,semantic,root,wall,cpu,recipe,scene,visual,vd,ad,ar,receipt,color_eligibility,foot_receipt)
+
+
+def finish_phase2_delivery(row,house,inputs,assets,program,semantic,root,wall,cpu,recipe,scene,visual,vd,ad,ar,receipt,color_eligibility,foot_receipt):
+    """Original crop, candidate, replay, selection and seal path; no native rendering."""
+    from avengine.qa.v7_validation import validate_v6_items,validate_content_items
+    from avengine.qa.v7_visible_truth import validate_additional_items
     checks=native_checks(scene,assets,visual,ar)
     delivery_starts=acceptance_crop_starts(row,scene)
     def windows(attempt):
