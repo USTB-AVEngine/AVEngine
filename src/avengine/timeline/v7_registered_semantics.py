@@ -14,6 +14,11 @@ def dialogue_evidence(scene,program,receipt,visual,manifest,start,retained_visua
         if actor['asset_id'] in moving_assets:continue
         aid=actor['actor_id']
         instances.append({'native_actor_id':aid,'asset_id':actor['asset_id'],'pose':'stand','body_to_world_m':actor['body_to_world_m'],'standing_pose_readback':{'status':'pass','source':retained_visual,'actor_id':aid,'asset_id':actor['asset_id'],'source_registry_sha256':actor['source_registry_sha256'],'loaded_artifact_sha256':actor['loaded_artifact_sha256']}})
+    if not instances:
+        return {'moving_TTS_content_binding_deferred_asset_ids':sorted(moving_assets),
+            'native_dialogue_deferred':{'status':'not_applicable_no_static_authored_actor',
+                'reason':'standing-only dialogue intake has no static authored speaker; original moving native body/mouth admission remains authoritative',
+                'source':retained_visual,'standing_proof_fabricated':False}}
     from avengine.timeline.v7_registry_snapshot import resolve_registry,qualify_namespace
     static_visual={**visual,'frames':[{**f,'actors':[a for a in f['actors'] if a['asset_id'] not in moving_assets]} for f in visual['frames']]}
     registry,original_sha,registry_sha=resolve_registry(retained_visual,static_visual,manifest['source_registry'])
