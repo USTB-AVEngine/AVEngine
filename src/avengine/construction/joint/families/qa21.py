@@ -453,7 +453,7 @@ def construct_qa21_scene(room, house, state, catalog, records, semantic, contrac
     try:
         request = FamilyRequest('QA-21', '|'.join(targets.values()), tuple(target_ids))
         plugin = Qa21Plugin(bodies, roles, target_ids[0], targets[target_ids[0]], sounds=sounds, targets=targets, assets={a['asset_id']: a for a in [*(a for a, _, _ in selected), person]})
-        solved = solve(context, request, plugin, budget_s=120., max_candidates=256)
+        solved = solve(context, request, plugin, budget_s=float(runtime.get('qa21_joint_budget_s', 300.)), max_candidates=256)
     finally:
         close = getattr(context, 'close', None)
         if close:close()
