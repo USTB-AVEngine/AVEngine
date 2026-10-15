@@ -123,6 +123,9 @@ def main():
  for n in ['ue_tmp','ue_shm','ue_config']:(o/n).mkdir(exist_ok=True)
  while pending or active:
   m=load(a.manifest)
+  if m.get('rebalance_owned_cpu_contention') and time.monotonic()-locals().get('last_cpu_rebalance',0)>=300:
+   from avengine.timeline.v7_cpu_placement import rebalance_owned_parents
+   rebalance_owned_parents(m,a.manifest);last_cpu_rebalance=time.monotonic()
   pending=sorted(set(pending)|{slot for slot in range(len(m['parents']))if slot not in active and not (o/'evidence/jobs'/f'{slot:03d}.json').exists()})
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
   records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=len(records)+2
