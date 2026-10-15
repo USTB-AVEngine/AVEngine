@@ -460,3 +460,33 @@ def test_joint_solution_records_proposal_scope_without_claiming_rendered_truth()
     assert source["solver_entry"]=="avengine.construction.joint.solve"
     assert source["native_preflight_status"]=="not_run"
     assert not source["native_full_render_and_qa_verified"]
+
+
+def test_composite_raycaster_preserves_long_registered_identity():
+    import trimesh
+    from avengine.construction.joint.mesh_prediction import InstanceRaycaster
+    wall=trimesh.creation.box((2.,2.,.1));wall.apply_translation([0,0,-4.])
+    foreground=trimesh.creation.box((1.,1.,.1));foreground.apply_translation([0,0,-2.])
+    identifier="registered_occluder_"+"x"*160
+    ray=CompositeRaycaster(MeshRaycaster(wall),InstanceRaycaster(MeshInstance(identifier,MeshRaycaster(foreground))))
+    distance,ids=ray.first_hit([0,0,0],[[0,0,-1]])
+    assert distance[0]==pytest.approx(1.95,abs=1e-5)
+    assert ids[0]==identifier
+
+
+def test_exact_mesh_roi_matches_full_depth_counts_and_does_not_mutate_background():
+    import trimesh
+    c=CameraPose((0.,1.25,0.),0.,width=160,height=90)
+    mesh=trimesh.creation.box((.6,1.8,.2));transform=np.eye(4);transform[:3,3]=[.3,.9,-4.]
+    target=MeshInstance("t",MeshRaycaster(mesh),transform)
+    background=depth(c);before=background.depth_m.copy()
+    blocker=trimesh.creation.box((.3,2.,.2));blocker.apply_translation([.3,1.,-2.])
+    other=MeshInstance("b",MeshRaycaster(blocker))
+    result=predict_mesh_visibility(c,target,scene_depth=background,occluders=(other,))
+    td=raster_mesh_depth(c,target);od=raster_mesh_depth(c,other)
+    mask=np.isfinite(td);visible=mask&(td<=od+1e-5)
+    assert result.evidence["target_only_pixels"]==int(mask.sum())
+    assert result.visible_pixels_estimate==int(visible.sum())
+    np.testing.assert_array_equal(background.depth_m,before)
+    x0,y0,x1,y1=result.evidence["raster_roi_xyxy"]
+    assert (x1-x0)*(y1-y0)<c.width*c.height/2
