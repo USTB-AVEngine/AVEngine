@@ -57,6 +57,8 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
     permitted(pointer_path)
     from avengine.timeline.v7_export_scene_policy import cached_parent_policy,REVISION as SCENE_POLICY
     source_policy=cached_parent_policy(pointer_path,output/'evidence/scene_delivery_policy')
+    pointer=load(pointer_path);receipt=deepcopy(receipt)
+    receipt['export'].setdefault('windows',pointer['result']['windows'])
     from avengine.timeline.v7_export_window_policy import scope_receipt_windows
     receipt,scene_policy=scope_receipt_windows(receipt,source_policy)
     allowed_windows={w['window_id']for w in receipt['export']['windows']}
