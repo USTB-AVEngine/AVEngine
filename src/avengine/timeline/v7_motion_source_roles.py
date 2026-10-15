@@ -2,7 +2,7 @@
 from copy import deepcopy
 import numpy as np
 
-SOURCE_TYPES=('human_speech','human_other','dog_walk','cat_walk','animal_slide')
+SOURCE_TYPES=('human_speech','human_other','dog_walk','cat_walk','animal_slide','human_footsteps')
 EMISSION_SPEEDS={'human_speech':(.8,1.2),'human_other':(.8,1.2),'dog_walk':(.9,1.2),'cat_walk':(.6,.8),'animal_slide':(.4,.5)}
 QUIET_SPEEDS={'human_speech':.8,'human_other':.8,'dog_walk':.5,'cat_walk':.3,'animal_slide':.2}
 

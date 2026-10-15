@@ -198,6 +198,9 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     from avengine.timeline.v7_registered_sampling import semantic_record
     from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
     import soundfile as sf
+    if (source_type or base_row.get('motion_source_type'))=='human_footsteps':
+        from avengine.timeline.v7_footstep_motion_template import footstep_motion_template
+        return footstep_motion_template(base_row,room,catalog,semantic_manifest,attempt=attempt)
     row = deepcopy(base_row)
     seed = int(row['scene_seed'])
     pairs = authored_pairs(semantic_manifest)
