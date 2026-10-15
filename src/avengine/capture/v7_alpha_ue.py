@@ -22,8 +22,9 @@ def assert_ue_alpha_visual(visual):
     a=visual['native_visibility_alignment']
     if visual['frame_count']!=450 or len(visual['camera_frame_readbacks'])!=450:
         raise ValueError('incomplete native UE alpha world')
-    if visual['source_material_checks']['status']!='pass' or visual['native_body_foot_status']!='pass':
-        raise ValueError('original native highlight/contact checks failed')
+    # Owner 2026-10-15 10:4x: high/matte observations do not reject UE media.
+    if visual['native_body_foot_status']!='pass':
+        raise ValueError('original native contact checks failed')
     if a['status']!='pass' or a['target_only_root_max_error_m']>.0005 or a['target_only_animation_max_error_s']>1e-4 or a['camera_position_max_error_m']>.0005:
         raise ValueError('native UE modal/target pose readbacks disagree')
     if a['rendered_native_target_depth_passes']!=450*len(visual['frames'][0]['actors']):
@@ -98,7 +99,7 @@ class NativeUEAlphaVideo(UENativeContinuousVideo):
                         self.foot_components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
                         self.foot_components['depth'].set_property_value(property_name='ShowOnlyActors',property_value=[runtime['visual_actor']])
                     with self.instance.end_frame():depth=self.read_depth(self.foot_components['depth'])
-                rows.append({'view':name,**depth_support(depth,float(origin[1]),float(root[1]))})
+                rows.append({'view':name,**depth_support(depth,float(origin[1]),float(actor.get('native_support_floor_y_m',root[1])))})
         finally:
             self.alpha_lower_endpoint=None
             with self.instance.begin_frame():self._apply(0)

@@ -128,9 +128,9 @@ class Capture:
         body=self.body_mask(row,visible,isolated,view,vertices,placement);color=measure(rgb[:,:,::-1],body,self.thresholds)
         import cv2
         dest.mkdir(parents=True,exist_ok=True);rgbfile=dest/f'view_{index}.jpg';maskfile=dest/f'view_{index}_mask.png';cv2.imwrite(str(rgbfile),cv2.resize(rgb,(1280,720)),[cv2.IMWRITE_JPEG_QUALITY,90]);cv2.imwrite(str(maskfile),cv2.resize(mask.astype('uint8')*255,(1280,720),interpolation=cv2.INTER_NEAREST))
-        status='pass' if count>=80 and frac>=.99 and not border and highlight is not None and highlight<=.02 else 'fail'
-        rec={'status':status,'view':view,'rgb':str(rgbfile),'mask':str(maskfile),'whole_asset_pixels':count,'native_geometry_far_range_m':far_m,'isolated_background_range_m':float(np.nanmax(isolated)),'measurement_revision':REVISION,'native_depth_units':'radial meters','occlusion_tolerance_m':.005,'visible_fraction':frac,'crop_border':border,'highlight_ratio':highlight,'highlight_limit':.02,'color':color,
-             'visibility_method':'paired actual UE scene and isolated native metric depth; occlusion fraction, five-pixel complete-frame margin','capture_resolution':[2560,1440],'delivery_resolution':[1280,720]}
+        status='pass' if count>=80 and frac>=.99 and not border else 'fail'  # highlights are record-only by owner
+        rec={'status':status,'view':view,'rgb':str(rgbfile),'mask':str(maskfile),'whole_asset_pixels':count,'native_geometry_far_range_m':far_m,'isolated_background_range_m':float(np.nanmax(isolated)),'measurement_revision':REVISION,'native_depth_units':'radial meters','occlusion_tolerance_m':.005,'visible_fraction':frac,'crop_border':border,'highlight_ratio':highlight,'highlight_limit':.02,'highlight_previous_limit_exceeded':highlight is not None and highlight>.02,'highlight_gate_enforced':False,'color':color,
+             'visibility_method':'paired actual UE scene and isolated native metric depth; occlusion fraction, five-pixel complete-frame margin','capture_resolution':[int(rgb.shape[1]),int(rgb.shape[0])],'delivery_resolution':[1280,720]}
         np.savez_compressed(dest/f'view_{index}_depth.npz',isolated=isolated.astype('float16'),scene=scene.astype('float16'))
         write(dest/f'view_{index}.json',rec);return rec
 
@@ -180,7 +180,7 @@ class Capture:
                     rec.update(views=views,placement=placement,size={'status':plan['size_status'],'native_dimensions_m':plan['native_dimensions_m'],'relative_errors':plan['dimensions_relative_error'],'tolerance_fraction':.15},emitter=self.read_emitter(row,placement))
                     self.cleanup()
                     if len(passed)>=3:break
-                if len([v for v in rec['views'] if v['status']=='pass'])<3:raise RuntimeError('fewer than three complete visible views at highlight <=2%')
+                if len([v for v in rec['views'] if v['status']=='pass'])<3:raise RuntimeError('fewer than three complete visible geometry views')
                 if rec['emitter']['status'] not in ['pass','not_applicable_silent_decor']:raise RuntimeError('physical emitter readback failed')
                 color=summarize_views([x['color'] for x in rec['views'] if x['status']=='pass'],self.thresholds);aliases={'gray':'gray_silver','silver':'gray_silver','brown':'wood_brown'};expected=aliases.get(row['label_color'],row['label_color'])
                 rec.update(status='pass_static_native',measured_color=color,registered_label_color=row['label_color'],color_tag_status='unlabelled_companion' if expected is None else ('match' if color.get('label')==expected else 'mismatch_owner_decision'),registered_labels_modified=False,ue_asset_paths=[x['path'] for x in imported['static'] if x['class']=='StaticMesh'],native_motion_status='not_run' if row['walk_allowed'] else 'not_applicable_static')

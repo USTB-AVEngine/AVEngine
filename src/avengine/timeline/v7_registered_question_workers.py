@@ -50,6 +50,20 @@ def publish_window(job):
     return {'window_id':wid,'logical_candidates':len({x['logical_question_id']for x in q})},[f'{wid}/{name}'for name in names]
 
 
+def collect_content_window(job):
+    from copy import deepcopy
+    from avengine.qa.v7_content_binding import collect_content_binding
+    bundle=job['bundle'];wid=job['window_id'];seed=job['seed'];media=job['media']
+    pub,priv,audit=collect_content_binding(bundle,wid,media,seed=seed)
+    alternate=deepcopy(bundle)
+    for record in alternate['queries']:record['wording_variant']='alternate'
+    ap,ag,_=collect_content_binding(alternate,wid,pub[0]['media']if pub else media,seed=seed)
+    signature=lambda qs,gs:([(q['question_id'],q['qa_id'],q['form'],q.get('choices'),q['answer_type'])for q in qs],[(g['question_id'],g['canonical_answer'],g['evidence']['answer_domain'])for g in gs])
+    if signature(pub,priv)!=signature(ap,ag):raise ValueError('actual content wording exchange changes IDs, answers, domains or options')
+    audit['wording_exchange']={'status':'pass','standard_logical':len(pub)//2,'alternate_logical':len(ap)//2,'facts_identical':True}
+    return pub,priv,audit
+
+
 class RegisteredQuestionWorkers:
     def __init__(self,inputs):
         self.workers=int(inputs.get('registered_question_workers',1));self.enabled=self.workers>1
@@ -61,6 +75,7 @@ class RegisteredQuestionWorkers:
         if self.enabled:self.pool=ProcessPoolExecutor(max_workers=self.workers,mp_context=multiprocessing.get_context('spawn'),initializer=_pin,initargs=(self.cpu_ids,))
         return self
     def submit(self,job):self.futures.append(self.pool.submit(publish_window,job))
+    def submit_content(self,job):return self.pool.submit(collect_content_window,job)
     def results(self):return [f.result()for f in self.futures]
     def __exit__(self,*exc):
         if self.pool:self.pool.shutdown(wait=True)

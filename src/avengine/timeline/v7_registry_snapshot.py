@@ -57,6 +57,8 @@ def qualify_namespace(visual,registry,original_sha,receipt_path,visual_path):
         path=Path(receipt_path)
         if not path.is_file() or json.loads(path.read_text())!=cached['receipt']:raise ValueError('registry namespace receipt changed')
         return deepcopy(cached['roster']),deepcopy(cached['receipt'])
+    from avengine.timeline.v7_native_asset_readback import _ue_receipt
+    _ue_receipt.cache_clear()  # A changed input must rehash the actual UE packages too.
     roster=intake_roster(registry);assets={r['asset_id']:r for r in roster['records']}
     if len(visual['frames'])!=450:raise ValueError('registry requalification requires all 450 actual frames')
     error=0.;checked=set()

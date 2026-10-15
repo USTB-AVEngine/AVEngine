@@ -77,7 +77,7 @@ def _verify_window(folder):
     return {'video':info,'FOA':{'sample_rate_hz':sr,'samples':len(data),'channels':4,'format':'ACN_WYZX_SN3D_camera'},'mono_matches_W':True}
 
 
-def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output):
+def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None):
     from avengine.timeline.v7_production_inputs import attach_runtime_contract
     row=attach_runtime_contract(row,inputs)
     if inputs.get('render_backend')=='ue_spear':
@@ -132,6 +132,9 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
     for ep,speaker in receipt['endpoint_speaker_ids'].items():base['sources'][ep]['voice_identity_id']=speaker
     visual_dirs={};visuals={};variants={};audio_factors={};members=[];timings=[];clip_paths={}
     visual_names=sorted({m.split('_')[0] for m in row['members']})
+    if native_only_visual is not None:
+        if native_only_visual not in visual_names:raise ValueError('requested native visual is absent from the original quartet')
+        visual_names=[native_only_visual]
     for v in visual_names:
         variant=deepcopy(assets)
         if v=='v1':
@@ -152,6 +155,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 'scene_video.mp4','native_registered_visual_evidence.json','native_visual_evidence.json',
                 'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','standing/standing_admission.json','acoustic_placement_admission.json']
             if inputs.get('render_backend')=='ue_spear':required.append('native_registered_assets.json')
+            if visual.get('native_vertical_contact_construction'):required.append('native_vertical_contact_construction.json')
             return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},required
         vc=_cpu();vw=time.perf_counter()
         from avengine.timeline.v7_native_stage_resume import compatible_static_native_recipe
@@ -191,6 +195,9 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 or visual['camera_frame_readbacks']!=visuals['v0']['camera_frame_readbacks']):
             raise ValueError('appearance counterfactual changed native geometry or camera')
         visual_dirs[v]=vd;visuals[v]=visual;variants[v]=variant
+    if native_only_visual is not None:
+        return {'status':'native_visual_completed','scene_id':row['scene_id'],'visual':native_only_visual,
+                'visual_directory':str(visual_dirs[native_only_visual]),'formal_dataset_count':0}
     for member in row['members']:
         v,factor=member.split('_');visual=visuals[v];vd=visual_dirs[v]
         scene=member_scene(base,visual,member)

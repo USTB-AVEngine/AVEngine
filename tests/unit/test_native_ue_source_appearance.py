@@ -16,13 +16,17 @@ def test_ue_colored_shadow_does_not_use_habitat_color_gate():
     assert metric['status']=='pass' and metric['highlight_ratio']==0 and metric['color_checks_used'] is False
 
 
-def test_highlight_ratio_and_gate_equal_frozen_metric():
+def test_highlight_ratio_is_retained_but_owner_makes_it_record_only():
     reference=np.full((20,20,3),[40,40,40],dtype=np.uint8)
     rendered=reference.copy();rendered[:2]=255;mask=np.ones((20,20),bool)
     old=measure_source_appearance(rendered,mask,palette=np.array([[.2,.2,.2]]),max_highlight_ratio=.04,reference_rgb=reference,strict=False)
     new=measure_ue_source_highlights(rendered,mask,max_highlight_ratio=.04,reference_rgb=reference)
     assert old['highlight_ratio']==new['highlight_ratio']==.1
-    assert new['status']=='fail' and new['failures']==['excess_source_highlights']
+    assert new['status']=='pass' and new['failures']==[]
+    assert new['observation_flags']==['excess_source_highlights']
+    assert new['highlight_admission']=='record_only' and new['highlight_gate_enforced'] is False
+    from avengine.capture.continuous_ue_video import native_material_sample_status
+    assert native_material_sample_status([{'asset_id':'blue','metrics':new}],['blue'])=='pass'
 
 
 def test_missing_native_body_pixels_cannot_pass():
@@ -43,3 +47,15 @@ def test_wrong_native_material_is_rejected(tmp_path):
     component=SimpleNamespace(GetNumMaterials=lambda:1,GetMaterial=lambda **kw:456)
     service=SimpleNamespace(load_object=lambda **kw:123)
     with pytest.raises(ValueError):verify_original_ue_materials(SimpleNamespace(unreal_service=service),{'component':component},'a',path)
+
+
+def test_ue_alpha_records_highlight_flags_but_still_rejects_bad_contact():
+    from avengine.capture.v7_alpha_ue import assert_ue_alpha_visual
+    visual={'frame_count':450,'camera_frame_readbacks':[{}]*450,'frames':[{'actors':[{}]}],
+        'native_body_foot_status':'pass','source_material_checks':{'status':'fail','highlight_ratio':.21},
+        'native_visibility_alignment':{'status':'pass','target_only_root_max_error_m':0.,
+            'target_only_animation_max_error_s':0.,'camera_position_max_error_m':0.,
+            'rendered_native_target_depth_passes':450}}
+    assert assert_ue_alpha_visual(visual)
+    visual['native_body_foot_status']='fail'
+    with pytest.raises(ValueError,match='contact'):assert_ue_alpha_visual(visual)
