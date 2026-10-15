@@ -46,3 +46,9 @@ __all__ += ["EntryEnvelope", "tangent_entry_anchors", "entry_timing", "admitted_
 
 from .grounding import floor_contact_variants
 __all__ += ["floor_contact_variants"]
+
+from .acoustics import native_acoustic_checks
+__all__ += ["native_acoustic_checks"]
+
+from .physics import native_full_mesh_sweep
+__all__ += ["native_full_mesh_sweep"]
