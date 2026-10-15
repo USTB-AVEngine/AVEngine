@@ -95,6 +95,12 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.rejected_contact_positions=dict(saved_contact.get('rejected_native_positions_xz_m',{}))
         self.native_support_floor_y={}
         self.initial_placement_preflight=self._seed_initial_navigation_placements()
+        from avengine.capture.v7_kujiale_joint_standing import completed_shared_standing
+        self.shared_native_standing=completed_shared_standing(self.contact_construction_path.parent,self.assets)
+        if self.shared_native_standing:
+            for ep,observed in self.shared_native_standing['actors'].items():
+                original=self.scene['sources'][ep]['trajectory'][0]['position_m']
+                self.placement_overrides[ep]=[observed['position_m'][0],original[1],observed['position_m'][2]]
         self.physical_environment_bindings={}
         self.current_native_environment=bool(scene.get('require_current_native_environment'))
         self.suspend_unused_capture_sensors=bool(inputs.get('suspend_unused_registered_capture_sensors',False))
@@ -241,7 +247,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         foot,_=self._navigation_foot(p)
         root=np.asarray(self.native_floor_surface.sample(foot),float)
         self.native_support_floor_y[ep]=float(root[1])
-        root[1]+=float(self.vertical_root_offsets.get(ep,0.))
+        if self.shared_native_standing:
+            root=np.asarray(self.shared_native_standing['actors'][ep]['position_m'],float).copy()
+        else:root[1]+=float(self.vertical_root_offsets.get(ep,0.))
         if ep==self.alpha_lower_endpoint:root[1]-=.1
         yaw=float(spec['body_yaw_deg'])
         if not math.isfinite(yaw):raise ValueError('constructed body orientation is not finite')
@@ -293,14 +301,14 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.alpha_standing_refs={};self.current_camera_yaw_offset=0.
         for a,d in zip(self.assets,self.declarations,strict=True):
             accepted=None;ep=a['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
-            candidates=[original,*self.scene.get('native_placement_candidates',[])]
+            candidates=[self.placement_overrides[ep]]if self.shared_native_standing else[original,*self.scene.get('native_placement_candidates',[])]
             if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
                     and len(self.assets)>2 and a is self.assets[2]):
                 from avengine.capture.kujiale_pilot_environment import comparison_person_candidates
                 points=[self.alpha_standing_refs[x['endpoint_id']]['position_m'] for x in self.assets[:2]]
                 candidates=comparison_person_candidates(self.scene['listener_m'],points,candidates)
             for p in candidates:
-                if any(np.linalg.norm(np.asarray(p)[[0,2]]-q)<.05 for q in self.rejected_contact_positions.get(ep,[])):continue
+                if not self.shared_native_standing and any(np.linalg.norm(np.asarray(p)[[0,2]]-q)<.05 for q in self.rejected_contact_positions.get(ep,[])):continue
                 # SPEAR's begin_frame marks its transaction permanently in
                 # error if a ValueError escapes _apply. Check the unchanged
                 # 15 cm navigation rule before entering that transaction so
@@ -398,7 +406,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             'measurement_reused':True,'reference_views':ref['views']}
 
     def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=True):
-        if self.current_native_environment:
+        if self.current_native_environment and not self.shared_native_standing:
             from avengine.capture.v7_native_contact_construction import encode_with_contact_construction
             result=encode_with_contact_construction(self,scene,path,review_frames,collect_pixel_visibility,super().encode)
         else:result=super().encode(scene,path,review_frames,collect_pixel_visibility=collect_pixel_visibility)
@@ -414,6 +422,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             from avengine.capture.kujiale_pilot_environment import finish_scene
             finish_scene(self,result,path)
         result['alignment']=result['native_visibility_alignment'];result['registered_visual_revision']=REGISTERED_UE_VISUAL_REVISION
+        if self.shared_native_standing:result['joint_counterfactual_standing_construction']=self.shared_native_standing
         copies=[]
         for asset in self.assets:
             frames=[a for f in result['frames']for a in f['actors']if a['asset_id']==asset['asset_id']]
