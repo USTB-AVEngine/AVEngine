@@ -166,11 +166,21 @@ def verify_motion_during_native(row,scene,visual):
                 else:roots[aid]=positions[aid]
             # Distance trends are judged on the 0.5 s smoothed mouth track (owner 10-15); net change and reversal
             # limits are unchanged, so walking back is still caught while head sway is not counted.
-            smoothed={aid:smooth_track(track) for aid,track in positions.items()}
+            # owner 10-15: head motion is not source locomotion.  A moving body's trend is read from its certified
+            # root track at the mouth's mean height (a big dog's mouth sits ~0.45 m ahead of the root and swung
+            # 17 cm when it turned its head); static bodies keep their mouth track.
+            trend_tracks={}
+            for aid,track in positions.items():
+                if aid in roots and admissions:
+                    body=np.asarray(roots[aid],float);mouth_height=float(np.mean(np.asarray(track,float)[:,1]))
+                    trend_tracks[aid]=np.column_stack((body[:,0],np.full(len(body),mouth_height),body[:,2]))
+                else:trend_tracks[aid]=track
+            smoothed={aid:smooth_track(track) for aid,track in trend_tracks.items()}
             report=cm.verify_motion_candidate(solution,positions_m=smoothed,
                 root_positions_m=roots if admissions else None,listener_position_m=scene['listener_m'])
             report['distance_trend_smoothing_s']=TREND_SMOOTHING_S
             report['distance_trend_smoothing_authority']='owner 10-15: mouth sway from head motion is not a reversal'
+            report['distance_trend_track']='moving bodies: certified root at mouth height; static: mouth'
             reports.append({'offset_s':offset,'qa_id':solution.qa_id,'report':report})
     return {'status':'pass' if all(x['report']['status']=='pass'for x in reports)else'fail',
         'source':'actual native attached mouth trajectories; original v3 verifier','reports':reports,'delivered_qa_gates_unchanged':True}
