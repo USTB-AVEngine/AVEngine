@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 652 个工具脚本。
+当前共 653 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -370,6 +370,7 @@
 | `tools/timeline/prepare_v7_production_inputs.py` | Freeze v7 room, sound, dialogue and motion input authority without rendering |
 | `tools/timeline/prepare_v7_quota_seed_tables.py` | Default aggregate-profile v7 requests with a separate 0--8 coverage stratum |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
+| `tools/timeline/probe_kujiale_automatic_request.py` | Unattended required-class smoke in the first previously unstarted legal room |
 | `tools/timeline/project_v7_alpha_seeds.py` | Project fixed S parent seeds onto measured alpha layouts, preserving prefixes |
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
 | `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |

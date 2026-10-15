@@ -32,13 +32,13 @@ def run_worker(manifest,slot):
         house['input']['ue_config'].update(physical_gpu_index=gpu,graphics_adapter=0,unreal_editor=str(root/'scripts'/f'ue_gpu{gpu}'))
         os.sched_setaffinity(0,{12+slot%4})
     from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,add_scene_demand,record_selected_parent
+    if task.get('automatic_registered_room') and row.get('required_sound_classes'):
+        from avengine.timeline.v7_kujiale_environment_construction import bind_inventory_project
+        inputs=bind_inventory_project(inputs,house,root)
     if task.get('automatic_registered_room') and not (root/'inputs/planned'/f'{slot:03d}.json').exists():
         from avengine.timeline.v7_kujiale_construction import construct_request
         from avengine.registry.kujiale_ue_measurements import read_registration
         registration,_=read_registration(inputs.get('kujiale_native_measurement_registration'))
-        if row.get('required_sound_classes'):
-            from avengine.timeline.v7_kujiale_environment_construction import bind_inventory_project
-            inputs=bind_inventory_project(inputs,house,root)
         row=construct_request(row,house,inputs,catalog,load(inputs['semantic_manifest']),registration)
     state=read_demand_state(root/'inputs/demand_state.json')
     if task['profile']=='phase2':
