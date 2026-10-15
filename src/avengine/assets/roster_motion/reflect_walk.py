@@ -45,6 +45,23 @@ def _free_dir(is_free, p, heading, lookahead, n=32):
     return out
 
 
+def _free_run(is_free, p, angle, step=0.1, max_m=6.0):
+    """How far one can walk straight from p along angle before leaving the free space."""
+    d = np.array([math.cos(angle), math.sin(angle)])
+    r = 0.0
+    while r + step <= max_m and is_free(p + (r + step) * d):
+        r += step
+    return r
+
+
+def _pick_heading(is_free, p, frees, mirror, *, angle_weight=0.35):
+    """Among free headings prefer the longest straight run, biased towards the mirror reflection (Claude 10-15)."""
+    def score(a):
+        diff = abs(math.atan2(math.sin(a - mirror), math.cos(a - mirror)))
+        return _free_run(is_free, p, a) - angle_weight * diff
+    return max(frees, key=score)
+
+
 def _mirror_heading(is_free, p, heading, lookahead):
     """Approximate the obstacle normal by probing, then mirror the heading about it."""
     blocked = []
@@ -67,7 +84,8 @@ SPECIES_SPEED_M_S = {'human': (0.8, 1.4), 'dog': (0.5, 1.2), 'cat': (0.3, 0.8), 
 
 
 def reflect_walk(is_free, start_xz, heading, speed, *, duration_s=30.0, fps=30, lookahead=0.45,
-                 turn_time_s=0.6, turn_speed_factor=0.5, rng=None, pause_prob=0.0, min_speed=None):
+                 turn_time_s=0.6, turn_speed_factor=0.5, rng=None, pause_prob=0.0, min_speed=None,
+                 prefer_long_legs=True):
     """Walk straight at `speed`; turn smoothly to the free heading nearest the mirror direction when blocked.
 
     Returns None if the start is not free or the walker gets boxed in (no free heading at all).
@@ -77,6 +95,9 @@ def reflect_walk(is_free, start_xz, heading, speed, *, duration_s=30.0, fps=30, 
     p = np.asarray(start_xz, float)
     if not is_free(p):
         return None
+    if prefer_long_legs:
+        cands = [heading + k * math.pi / 8 for k in range(16)]
+        heading = _pick_heading(is_free, p, cands, heading, angle_weight=0.15)
     n = int(round(duration_s * fps)) + 1
     dt = 1.0 / fps
     pos = np.zeros((n, 2)); yaw = np.zeros(n); spd = np.zeros(n)
@@ -93,7 +114,8 @@ def reflect_walk(is_free, start_xz, heading, speed, *, duration_s=30.0, fps=30, 
             if not frees:
                 return None
             mirror = _mirror_heading(is_free, p, h, lookahead)
-            target = min(frees, key=lambda a: abs(math.atan2(math.sin(a - mirror), math.cos(a - mirror))))
+            target = _pick_heading(is_free, p, frees, mirror) if prefer_long_legs else \
+                min(frees, key=lambda a: abs(math.atan2(math.sin(a - mirror), math.cos(a - mirror))))
             turning = max(1, int(round(turn_time_s * fps)))
             if i - 1 > leg_start:
                 legs.append((leg_start, i - 1))
