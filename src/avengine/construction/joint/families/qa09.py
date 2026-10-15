@@ -78,6 +78,12 @@ class ReappearanceDemand:
         }
 
 
+def planning_admissible(certificate, *, native_sweep_pending=False):
+    """A coarse-map miss may enter native verification, never certify itself."""
+    from avengine.construction.joint.solver import _awaits_only_native_sweep
+    return certificate.passed or (native_sweep_pending and _awaits_only_native_sweep(certificate.checks))
+
+
 def requested_answer(state: Mapping[str, Any], seed: int = 0) -> str:
     """Balance actual deduplicated outputs, not admitted plans or retries."""
     tables = state.get("answer_counts") or state.get("family_answer_counts") or {}
@@ -321,10 +327,19 @@ def native_qa09_route_proposals(video: Any, entry: Mapping[str, Any], scene: Map
     room = dict(video.motion_house["room"])
     room["walkable_map_path"] = solved["walkable_map_path"]
     room.setdefault("room_label", solved["room_id"])
-    with build_room_context(room, pathfinder=video.pathfinder, camera_limit=1,
+    allow_fallback = bool(solved.get("allow_native_map_fallback", False))
+    raycaster = None
+    if allow_fallback:
+        from avengine.assets.v7_phase2_floor import original_native_stage_mesh
+        from avengine.rooms.walkable_map_builder import stage_path
+        from avengine.construction.joint import MeshRaycaster
+        mesh, evidence = original_native_stage_mesh(video, stage_path(video.motion_house))
+        raycaster = MeshRaycaster(mesh, evidence=evidence)
+    with build_room_context(room, pathfinder=video.pathfinder, raycaster=raycaster, camera_limit=1,
+                            allow_native_map_fallback=allow_fallback,
                             width=camera.width, height=camera.height) as context:
         certificate = certify_plan(context, ScenePlan(camera, actors))
-    if not certificate.passed:
+    if not planning_admissible(certificate, native_sweep_pending=allow_fallback):
         reasons = [c.name + ":" + c.reason for c in certificate.checks if c.status != "pass"]
         raise ValueError("executed QA-09 clock invalidates solved geometry: " + "; ".join(reasons))
     direction = np.asarray(solved["cross_direction_xz"])
@@ -675,15 +690,19 @@ class QA09Plugin:
                             yaws[tids[2]] = math.radians(stable_seed(self.seed, "companion_yaw") % 360)
                             actors[tids[2]].metadata["native_yaw_rad"] = yaws[tids[2]]
                         plan = ScenePlan(camera, actors, sounds=self.sounds, metadata={"body_yaws_rad": yaws, "qa09_route": route,
-                                         "qa09_demand": asdict(demand)})
+                                         "qa09_demand": asdict(demand),
+                                         "allow_native_map_fallback": context.allow_native_map_fallback})
                         self.diagnostics["geometric_layouts"] += 1
                         common = certify_plan(context, plan)
-                        if not common.passed:
+                        if not planning_admissible(common, native_sweep_pending=bool(request.options.get("require_native_preflight"))):
                             for check in common.checks:
                                 if check.status != "pass":
                                     key = check.name+":"+check.reason
                                     self.diagnostics["common_rejections"][key] = self.diagnostics["common_rejections"].get(key, 0)+1
                             continue
+                        plan.metadata["qa09_native_sweep_pending"] = any(
+                            c.status == "unknown" and c.reason == "native_full_pose_required_for_map_fallback"
+                            for c in common.checks)
                         predictions = self._predict(context, plan, demand)
                         family = prediction_certificate(predictions, demand, tids[1])
                         if family.status != "pass":
@@ -709,13 +728,13 @@ class QA09Plugin:
 
 
 def build_qa09_row(room, house, state, catalog, contract, plan, certificate, roles, authored, gait,
-                   walkable_map_path, *, scene_id, seed):
+                   walkable_map_path, *, scene_id, seed, native_sweep_pending=False):
     from copy import deepcopy
     from avengine.timeline.v7_family_constructors import _request
     from avengine.timeline.v7_production_inputs import validate_recipe
     from avengine.construction.joint import strict_native_bindings
     from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION
-    if not certificate.passed:
+    if not planning_admissible(certificate, native_sweep_pending=native_sweep_pending):
         raise ValueError("QA-09 row requires the joint planning certificate")
     target, foreground = roles[:2]
     ids = [a["asset_id"] for a in roles]
@@ -723,7 +742,8 @@ def build_qa09_row(room, house, state, catalog, contract, plan, certificate, rol
     demand = ReappearanceDemand(**plan.metadata["qa09_demand"])
     yaws = plan.metadata["body_yaws_rad"]
     route = deepcopy(plan.metadata["qa09_route"])
-    route.update(planned_distance_m=gait["distance"].tolist(), positions_m=plan.actors[ids[0]].positions_m.tolist(),
+    route.update(allow_native_map_fallback=bool(plan.metadata.get("allow_native_map_fallback", False)),
+        planned_distance_m=gait["distance"].tolist(), positions_m=plan.actors[ids[0]].positions_m.tolist(),
         native_yaws_rad=plan.actors[ids[0]].metadata["native_yaw_rad_per_frame"],
         camera=asdict(plan.camera), target_body=asdict(plan.actors[ids[0]].body),
         room_id=room["room_id"], walkable_map_path=str(walkable_map_path),
@@ -804,15 +824,17 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
     with build_room_context(actual, house=house, runtime=runtime,
             cache_dir=Path(cache)/room["room_id"] if cache else None,
             camera_limit=int(runtime.get("qa09_camera_limit", 72)), grid_step_m=.3,
-            camera_heights_m=[1.1, 1.25], width=1280, height=720) as context:
+            camera_heights_m=[1.1, 1.25], width=1280, height=720,
+            allow_native_map_fallback=bool(runtime.get("qa09_allow_native_map_fallback", False)) and not geometric_only) as context:
         def make_row(plan):
             cert = Certificate(certify_plan(context, plan).checks + tuple(plugin.verify(context, request, plan)))
             result = build_qa09_row(room, house, state, catalog, contract, plan, cert,
-                                   roles, authored, gait, path, scene_id=scene_id, seed=seed)
+                                   roles, authored, gait, path, scene_id=scene_id, seed=seed,
+                                   native_sweep_pending=not geometric_only)
             from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion
             return prepare_scene_motion(result["row"], catalog)
 
-        def family_native_checks(video, scene, entries):
+        def family_native_checks(video, scene, entries, *, common_sweep_required=False):
             report = getattr(video, "family_native_preflights", {}).get("QA-09", {})
             certificates = [r.get("native_complete_window_certificate", {}) for r in report.get("relations", [])
                             if r.get("target_asset_id") == target["asset_id"]]
@@ -822,7 +844,7 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
             yield CheckResult("native:QA09:complete_window", "pass" if passed else "fail",
                 "original_predicates_on_complete_native_mask_stream",
                 evidence={"requested_answer": answer, "certificates": certificates})
-            if passed:
+            if passed and not common_sweep_required:
                 from avengine.construction.joint import native_full_mesh_sweep
                 yield from native_full_mesh_sweep(video, entries)
 
@@ -834,7 +856,8 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
             return prepare_native(ctx, req, plan, row_factory=make_row, house=house, catalog=catalog,
                 records=records, semantic=semantic, runtime=dict(runtime, phase2=True, integration_pilot=True),
                 output_dir=Path(cache)/"qa09_native"/scene_id,
-                family_check=family_native_checks,
+                family_check=lambda v, s, e: family_native_checks(v, s, e,
+                    common_sweep_required=bool(plan.metadata.get("qa09_native_sweep_pending"))),
                 roles={a["asset_id"]: "inside" for a in roles},
                 minimum_visible_pixels={target["asset_id"]: 100, foreground["asset_id"]: 100},
                 appearance_ids=(target["asset_id"],))
@@ -850,6 +873,7 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
                             "solver_diagnostics": result.diagnostics}, sort_keys=True))
         if result.prepared is not None:
             payload = result.prepared.payload
+            payload.row["automatic_construction"]["joint_geometry_certificate"] = asdict(result.certificate)
             return {"profile": "phase2", "row": payload.row, "prepared_native": payload}
         row = make_row(result.plan)
         row["automatic_construction"]["prototype_validation_only"] = True
