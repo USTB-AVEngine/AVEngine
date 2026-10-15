@@ -133,6 +133,7 @@ def worker(a,cfg,root):
         if lease:lease.close()
     result.update(automatic_started_unix=started,automatic_finished_utc=utc(),source_commit=a.source_commit,
         pid=os.getpid(),handwritten_scene_configuration_inputs_read=[],global_configuration=str(Path(a.config).resolve()))
+    log_attempt_failure(result)
     write(root/'automatic_result.json',result)
     return 0 if result['status']=='passed'else 2
 
@@ -174,6 +175,7 @@ def failure_signature(result):
     else:
         reason=re.sub(r'/[^\s;,)]+','<path>',reason)
         reason=re.sub(r'auto_[A-Za-z0-9_]+','<scene>',reason)
+        reason=re.sub(r'\bv7_[A-Za-z0-9_]+','<registered_asset>',reason)
     return str(result.get('error_type',''))+':'+reason
 
 
@@ -191,6 +193,15 @@ def failure_stop(result,history):
             'failed_attempt':result.get('automatic_attempt_root'),
             'action':'retain logs and receipts; fix the cause before a new batch; never kill running work'}
     return None
+
+
+
+def log_attempt_failure(result):
+    """Keep the exact path/root, error and source traceback in worker.log."""
+    if result.get('status')=='passed':return
+    print(json.dumps({key:result.get(key)for key in ('status','error_type','reason','native_receipt')},
+        ensure_ascii=False),file=sys.stderr,flush=True)
+    if result.get('traceback'):print(result['traceback'],file=sys.stderr,flush=True)
 
 
 def main():

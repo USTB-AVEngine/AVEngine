@@ -152,8 +152,14 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
     if family=='V7-CONTENT-BIND':
         # Color counterfactuals share a registered body and gender. Choose that
         # compatibility from the actual roster, then solve whole fixed voices.
+        from avengine.qa.v7_visual_admission import COLOR_HUE_DEGREES
         pool=eligible_humans(catalog,room,contract);groups=defaultdict(list)
-        for person in pool:groups[(person.get('body_identity_id',person['visual_gender']),person['visual_gender'])].append(person)
+        for person in pool:
+            # This producer uses the original hue reviewer, unlike phase-2's
+            # CIELAB reviewer. Select compatible registered color variants;
+            # retain every required person and counterfactual member.
+            if person['color']in COLOR_HUE_DEGREES:
+                groups[(person.get('body_identity_id',person['visual_gender']),person['visual_gender'])].append(person)
         keys=sorted(groups,key=lambda key:stable_seed(seed,'quartet body',*key,attempt))
         for key in keys:
             variants=groups[key];colors=sorted({a['color']for a in variants})
