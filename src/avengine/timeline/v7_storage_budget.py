@@ -123,7 +123,7 @@ def check_write(path,*,expected_bytes=0):
     if not raw:return None
     policy=json.loads(raw);root=Path(policy["root"]).resolve();path=Path(path).resolve()
     if not path.is_relative_to(root):
-        raise StorageBudgetExceeded("write escaped the declared own task output root")
+        raise StorageBudgetExceeded(f"write escaped the declared own task output root: path={path}; root={root}")
     # The acceptance scheduler admits new jobs against the shared resource
     # limits. Once admitted, those limits must not abort an active producer.
     # Keep the own-output boundary enforced for every write.

@@ -95,7 +95,7 @@ def worker(a,cfg,root):
         plan=construct_family_scene(room,house,state,assets,source['records'],semantic,contract,runtime,
             scene_id=sid,seed=a.seed,family=a.family,attempt=a.candidate)
         row=plan['row'];row['independent_parent_scene_id']=a.scene_id
-        runtime=runtime_resource_view(runtime,policy,cpus);runtime['launch_disk_policy']=launch_disk_policy(policy);runtime['source_material_cache']=str(root/'cache/source_materials')
+        runtime=runtime_resource_view(runtime,policy,cpus,cache_root=Path(a.run_root));runtime['launch_disk_policy']=launch_disk_policy(policy)
         write(root/'inputs/runtime_cpu.json',runtime);write(root/'inputs/demand_state.json',state)
         # Machine compilation cache only: no pre-existing handwritten row is consumed.
         cache=root/'inputs/planned/000.json'
@@ -171,6 +171,34 @@ def cleanup_new_failed(root,result,policy_after,log):
     write(audit,{**read(audit),'status':'removed_only_new_rebuildable_large_failed_copies','removed_bytes':sum(r['bytes']for r in files)})
 
 
+
+def failure_signature(result):
+    """Compare causes across candidates and parents, ignoring attempt paths."""
+    reason=str(result.get('reason')or result.get('status','unknown failure')).splitlines()[0]
+    if reason.startswith('write escaped the declared own task output root'):
+        reason='write escaped the declared own task output root'
+    else:
+        reason=re.sub(r'/[^\s;,)]+','<path>',reason)
+        reason=re.sub(r'auto_[A-Za-z0-9_]+','<scene>',reason)
+    return str(result.get('error_type',''))+':'+reason
+
+
+def failure_stop(result,history):
+    """Stop dispatch for a code error or a second occurrence of one cause."""
+    if result.get('status')=='passed':return None
+    key=failure_signature(result);history[key]=history.get(key,0)+1
+    fatal=result.get('error_type')in {'KeyError','ImportError','ModuleNotFoundError',
+        'FileExistsError','SyntaxError','StorageBudgetExceeded'}
+    fatal=fatal or result.get('status')=='source_changed_not_a_frozen_rehearsal'
+    if fatal or history[key]>=2:
+        return {'status':'stopped_before_next_candidate','time_utc':utc(),
+            'cause_signature':key,'same_cause_occurrences':history[key],
+            'reason':'systemic code/input failure'if fatal else'same failure cause occurred twice',
+            'failed_attempt':result.get('automatic_attempt_root'),
+            'action':'retain logs and receipts; fix the cause before a new batch; never kill running work'}
+    return None
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--config',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--parents',type=int,default=1);p.add_argument('--families',nargs='+');p.add_argument('--room-id');p.add_argument('--unseen-houses',action='store_true')
@@ -210,7 +238,7 @@ def main():
     if not baseline_path.exists():write(baseline_path,exposure_state)
     write(root/'feedback.json',state)
     os.environ.update(child_env(cfg,root))
-    outcomes=[];stop_requested=False
+    outcomes=[];stop_requested=False;failure_history={};stop_reason=None
     def request_stop(signum,frame):
         nonlocal stop_requested
         stop_requested=True
@@ -240,8 +268,12 @@ def main():
         for candidate in range(a.maximum_candidates):
             attempt=root/'attempts'/(scene+'__'+str(candidate).zfill(3))
             if (attempt/'automatic_result.json').exists():
-                result=read(attempt/'automatic_result.json')
-                if result['status']=='passed':write(record,result);break
+                result=read(attempt/'automatic_result.json');write(record,result)
+                if result['status']=='passed':break
+                stop_reason=failure_stop(result,failure_history)
+                if stop_reason:
+                    stop_requested=True;write(root/'AUTOMATION_STOP.json',stop_reason)
+                    emit_progress(root,cfg,'entire batch dispatch stopped '+json.dumps(stop_reason));break
                 continue
             while True:
                 if stop_requested:return
@@ -272,11 +304,13 @@ def main():
             emit_progress(root,cfg,'construction result '+json.dumps({**{k:result.get(k)for k in ('scene_id','status','reason','independent_questions','target_family')},'family_counts':result.get('export',{}).get('question_family_counts',{})}))
             if result['status']=='passed':break
             cleanup_new_failed(attempt,result,cfg.get('cleanup_failed_after_unix'),log)
-            if result.get('error_type')in {'KeyError','ImportError','ModuleNotFoundError','FileExistsError','SyntaxError','StorageBudgetExceeded'}:
-                break  # Programming/input errors need a code fix, not repeated native work.
+            stop_reason=failure_stop(result,failure_history)
+            if stop_reason:
+                stop_requested=True;write(root/'AUTOMATION_STOP.json',stop_reason)
+                emit_progress(root,cfg,'entire batch dispatch stopped '+json.dumps(stop_reason));break
         outcomes.append(read(record));state=from_passed_exports([*cfg.get('feedback_roots',[]),root]);write(root/'feedback.json',state)
     write(root/'AUTOMATION_RESULT.json',{'source_commit':identity['source_commit'],'plan_only':a.plan_only,'outcomes':outcomes,
-        'handwritten_scene_configuration_inputs_read':[],'stop_requested':stop_requested,'native_passed_parents':sum(r['status']=='passed'for r in outcomes),'family_counts':state['family_counts']})
+        'handwritten_scene_configuration_inputs_read':[],'stop_requested':stop_requested,'stop_reason':stop_reason,'native_passed_parents':sum(r['status']=='passed'for r in outcomes),'family_counts':state['family_counts']})
     print(json.dumps({'output':str(root),'plan_only':a.plan_only,'native_passed_parents':sum(r['status']=='passed'for r in outcomes),'outcomes':[{'scene':r.get('scene_id'),'status':r['status']}for r in outcomes]},ensure_ascii=False))
 
 if __name__=='__main__':main()

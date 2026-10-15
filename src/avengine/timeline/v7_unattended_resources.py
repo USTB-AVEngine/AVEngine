@@ -62,10 +62,15 @@ def idle_cpu_order(allowed=None,interval=.15):
     return sorted(allowed,key=busy)
 
 
-def runtime_resource_view(runtime,policy,cpus):
+def runtime_resource_view(runtime,policy,cpus,*,cache_root=None):
     if len(cpus)<2:raise ValueError('need one parent core and an independent fresh RIR core')
     result=dict(runtime);count=min(policy.fresh_rir_workers,len(cpus)-1,policy.maximum_cpu_processes-1)
     result.update(fresh_rir_workers=count,fresh_rir_cpu_ids=list(cpus[1:1+count]))
+    if cache_root is not None:
+        # This is the exact key consumed by both native phase-2 and registered
+        # producers. Never inherit a sibling task's material cache location.
+        result['source_material_cache_directory']=str(Path(cache_root).resolve()/'cache/source_materials')
+        result.pop('source_material_cache',None)
     return result
 
 
