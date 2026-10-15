@@ -38,7 +38,7 @@ def standing_group_proposals(scene,assets,*,maximum_groups=24,minimum_camera_m=1
             thirds=np.flatnonzero(legal[i]&legal[j]);axis=(points[j]-points[i])[[0,2]]
             def score(k):
                 distance=min(abs(radii[k]-radii[i]),abs(radii[k]-radii[j]))
-                angular=min(delta[k,i],delta[k,j]);side=abs(float(np.cross(axis,(points[k]-points[i])[[0,2]])))/np.linalg.norm(axis)
+                angular=min(delta[k,i],delta[k,j]);offset=(points[k]-points[i])[[0,2]];side=abs(float(axis[0]*offset[1]-axis[1]*offset[0]))/np.linalg.norm(axis)
                 return (side<.25,distance<.6,angular<8.,-min(side,1.),-min(distance,1.),int(k))
             for k in sorted(thirds,key=score):
                 group=(int(i),int(j),int(k))
