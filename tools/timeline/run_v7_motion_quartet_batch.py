@@ -28,6 +28,24 @@ def candidate_rooms(houses):
             if groups[family]:ordered.append(groups[family].pop(0))
     return ordered
 
+def infrastructure_retries(manifest,out,commit,houses):
+    """Replay automatic requests affected by an older implementation failure."""
+    by_house={house['house']:house for house in houses}
+    already={task['retry_of_slot'] for task in manifest['parents']
+        if task.get('code_commit',manifest['code_commit'])==commit and 'retry_of_slot'in task}
+    result=[]
+    for task in manifest['parents']:
+        if task['slot']in already or task.get('code_commit',manifest['code_commit'])==commit:continue
+        receipt=Path(out)/'evidence/jobs'/f'{task["slot"]:03d}.json'
+        if not receipt.exists():continue
+        failed=load(receipt);reason=failed.get('reason','')
+        if failed.get('status')!='failed' or not ('[Errno 17] File exists'in reason or 'drawable has no accepted native support'in reason):continue
+        house=by_house.get(task['row']['house'])
+        if house is None:continue
+        room=next((room for room in house['checked_rooms']if room['room_label']==task['row']['room_id']),None)
+        if room is not None:result.append((house,room,task.get('construction_attempt',0),task))
+    return result
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('contract','houses','assets','runtime','human-registry','output-root'):
@@ -82,7 +100,8 @@ def main():
         for house,rooms in candidates:
             room=rooms[min(attempt,len(rooms)-1)]
             if (house['house'],room['room_label'],attempt)in existing:continue
-            pending.append((house,room,attempt))
+            pending.append((house,room,attempt,None))
+    pending=infrastructure_retries(manifest,out,commit,houses)+pending
     active={};last_progress=0.;completed_at_start=sum((out/'evidence/jobs'/f'{t["slot"]:03d}.json').exists()for t in manifest['parents'])
     class AdoptedProcess:
         def __init__(self,pid,created):self.pid=pid;self.created=created;self.returncode=None
@@ -157,16 +176,18 @@ def main():
         while pending and len(active)<(1+sum(bool(j.get('adopted'))for j in active.values())if a.first_only else a.workers) and len(manifest['parents'])<a.maximum_attempts and result['status']!='complete':
             if a.launch_deadline_utc and datetime.datetime.now(datetime.timezone.utc)>=datetime.datetime.fromisoformat(a.launch_deadline_utc.replace('Z','+00:00')):pending.clear();break
             if psutil.virtual_memory().available<30_000_000_000 or shutil.disk_usage('/data').free<launch_minimum_free_bytes(manifest['disk_launch_policy']):break
-            house,room,attempt=pending.pop(0);slot=len(manifest['parents'])
+            house,room,attempt,retry_task=pending.pop(0);slot=len(manifest['parents'])
             launch_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.worktree,text=True).strip()
-            seed=a.seed+slot*101+attempt;identity=hashlib.sha256((house['house']+room['room_label']+str(seed)).encode()).hexdigest()[:14]
+            seed=retry_task['row']['scene_seed'] if retry_task else a.seed+slot*101+attempt
+            identity=hashlib.sha256((house['house']+room['room_label']+str(seed)+(str(retry_task['slot'])+launch_commit if retry_task else '')).encode()).hexdigest()[:14]
             row={'schema':'v7-visible-registered-pilot-phase2-v1','split':{'development':'dev'}.get(house['split'],house['split']),
                  'house':house['house'],'room_id':room['room_label'],'scene_seed':seed,
-                 'motion_source_type':('human_speech'if a.first_only else a.source_types[slot%len(a.source_types)]),
+                 'motion_source_type':(retry_task['row'].get('motion_source_type','human_speech') if retry_task else 'human_speech'if a.first_only else a.source_types[slot%len(a.source_types)]),
                  'scene_id':'motion_quartet_'+identity,'question_quota_base':10,'questions_per_window':14,
                  'window_count':5,'members':['v0_a0'],'trial_only':True}
             task={'slot':slot,'row':row,'device':'cpu','profile':'phase2','family':house['family'],
                   'constructor':'motion_quartet_template','construction_attempt':attempt,'code_commit':launch_commit}
+            if retry_task is not None:task['retry_of_slot']=retry_task['slot']
             manifest['parents'].append(task);save(manifest_path,manifest)
             logfile=out/'logs'/f'parent_{slot:03d}.log';stream=logfile.open('a')
             command=[sys.executable,str(a.worktree/'tools/timeline/run_v7_frozen_acceptance.py'),
