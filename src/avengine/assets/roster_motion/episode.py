@@ -20,7 +20,8 @@ REVISION='admitted-contact-clip-new-house-full-triangle-native-v1'
 
 
 class PhysicalFloor:
-    def __init__(self, video, reference, ignore=(), reference_tolerance_m=.015):
+    def __init__(self, video, reference, ignore=(), reference_tolerance_m=None):
+        if reference_tolerance_m is None:reference_tolerance_m=HUMAN_QUALITY.get('floor_level_tolerance_m',.015)
         self.video=video;self.reference=float(reference);self.ignore=set(ignore)
         self.reference_tolerance_m=float(reference_tolerance_m)
         self.original_ray=None;self.native_ray_agreements=[];self.native_ray_count=0

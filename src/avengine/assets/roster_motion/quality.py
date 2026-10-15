@@ -7,6 +7,9 @@ HUMAN_QUALITY = {
     'foot_contact_limit_m': .03,
     'support_lock_limit_m': .02,
     'foot_penetration_limit_m': .03,
+    # Same-level support for a walking person: scanned floors, rugs and thresholds vary by a few cm; furniture
+    # tops (>= 35 cm) and steps (>= 15 cm) stay far outside this band (gate audit G027: was 15 mm).
+    'floor_level_tolerance_m': .05,
     'minimum_nonfloor_clearance_m': 0.,
     'actual_intersections_allowed': False,
 }
