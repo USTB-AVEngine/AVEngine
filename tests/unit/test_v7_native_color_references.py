@@ -14,3 +14,14 @@ def test_chinese_question_uses_existing_authority_actor_id():
 def test_absent_native_identity_is_not_invented():
     q=[{'question_id':'q'}];gold=[{'question_id':'q','evidence':{'target_actor_id':'missing'}}]
     bind_native_color_references(q,gold,{'actors':{'1':{}}});assert 'color_actor_ids'not in q[0]
+
+
+def test_distance_comparison_uses_both_original_appearance_review_ids():
+    q=[{'question_id':'q','logical_question_id':'l','modality':'vision','question_zh':'蓝色和绿色上衣的人谁更近？','question_en':'Who is closer, the blue or green shirt person?'}]
+    gold=[{'question_id':'q','canonical_answer':'1','evidence':{'distances_m':{'1':1.,'2':4.},'appearance_reviews':{'1':{'actor_id':'1'},'2':{'actor_id':'2'}}}}]
+    raw={'actors':{'1':{'display_label':'the woman in the blue shirt'},'2':{'display_label':'the woman in the green shirt'}},'appearance_review':{'actors':{'1':{'frame_refs':[0]},'2':{'frame_refs':[15]}}}}
+    bind_native_color_references(q,gold,raw)
+    assert q[0]['color_actor_ids']==['1','2']
+    assert len(filter_current_scene_colors(q,gold,{'native_bundle':raw},{},0)[0])==1
+    raw['appearance_review']['actors']['2']['frame_refs']=[]
+    assert not filter_current_scene_colors(q,gold,{'native_bundle':raw},{},0)[0]
