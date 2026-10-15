@@ -61,3 +61,6 @@ __all__ += ["paired_parallel_routes", "independent_straight_pair_routes"]
 
 from .certification import track_framing_check
 __all__ += ["track_framing_check"]
+
+from .registered import PreparedNativeBundle, prepare_native_bundle, prepare_registered_bundle, swapped_visual_plan
+__all__ += ["PreparedNativeBundle", "prepare_native_bundle", "prepare_registered_bundle", "swapped_visual_plan"]
