@@ -95,7 +95,7 @@ def test_all_height_projection_keeps_vertical_and_very_thin_triangles():
 
 def test_species_masks_must_be_nested(tmp_path):
     m = fixture_map(tmp_path)
-    m.layers['cat'][0, 0] = False
+    m.layers['dog'][0, 0] = False
     with pytest.raises(ValueError, match='nested'):
         WalkableMap(m.origin, .05, 0., m.layers, m.metadata)
 
@@ -119,6 +119,8 @@ def test_navmesh_vertical_offset_does_not_replace_the_actual_floor(tmp_path, mon
             self.native_ray_count += 1
             self.native_ray_agreements.append(0.)
             return 0.
+    from avengine.rooms import walkable_map_builder
+    monkeypatch.setattr(walkable_map_builder, 'native_support_readback', lambda video, points: np.zeros(len(points)))
     monkeypatch.setattr(episode, 'PhysicalFloor', Floor)
     monkeypatch.setattr(v7_phase2_floor, 'original_native_stage_mesh', lambda *a: (mesh, {}))
     stage, nav = tmp_path/'stage.glb', tmp_path/'stage.navmesh'
@@ -166,3 +168,69 @@ def test_free_run_preserves_thin_wall_detection_and_clear_prefix_length(tmp_path
     assert free([-.175, -.025]) and free([.025, -.025])
     assert _free_run(free, np.array([-.175, -.025]), 0., step=.2, max_m=.4) == 0.
     assert _free_run(free, np.array([-.225, -.225]), 0., step=.1, max_m=.8) == pytest.approx(.5)
+
+
+def test_support_fraction_tolerates_small_holes_and_counts_unknown_edges():
+    from avengine.rooms.walkable_map_builder import support_fraction
+    a = np.ones((31, 31), bool)
+    a[15, 16] = False
+    f = support_fraction(a, .35)
+    assert .85 <= f[15, 15] < 1.
+    assert f[0, 0] < .85
+    # The builder separately requires the centre, even if its disk is 99% good.
+    assert not (a & (f >= .85))[15, 16]
+    a[11:20, 11:20] = False
+    assert support_fraction(a, .35)[15, 15] < .85
+
+
+def test_low_scan_bumps_are_ignored_but_tall_steps_and_clipped_walls_remain():
+    vertices = np.array([[-1, .07, -1], [1, .07, -1], [0, .07, 1],
+                         [0, 0, -1], [0, .2, 1], [0, .2, -1]], float)
+    faces = np.array([[0, 1, 2], [3, 4, 5]])
+    d, stats = projected_clearance(vertices, faces, 0., (-2, -2, 2, 2), np.array([[.1, 0]]))
+    assert d[0] == pytest.approx(.1)
+    assert stats['removed_original_ground_triangles'] == 1
+    assert stats['selected_original_nonfloor_triangles'] == 1
+    d, _ = projected_clearance(vertices[:3], faces[:1], 0., (-2, -2, 2, 2), np.array([[0., 0.]]))
+    assert np.isinf(d[0])
+    # Only the portion above 10cm belongs to the obstacle footprint.
+    ramp = np.array([[0, 0, 0], [2, .2, 0], [2, .2, 1]], float)
+    d, _ = projected_clearance(ramp, np.array([[0, 1, 2]]), 0., (-1, -1, 3, 2), np.array([[.1, .01], [1.5, .2]]))
+    assert np.isinf(d[0])
+    assert d[1] == pytest.approx(0.)
+
+
+def test_independent_coverage_policy_does_not_force_erosion_nesting(tmp_path):
+    m = fixture_map(tmp_path)
+    m.metadata['footprint_policy'] = 'independent-radius-coverage-v2'
+    m.layers['dog'][0, 0] = False
+    WalkableMap(m.origin, .05, 0., m.layers, m.metadata)
+    m.layers['slide'][0, 0] = False
+    with pytest.raises(ValueError, match='cat/slide'):
+        WalkableMap(m.origin, .05, 0., m.layers, m.metadata)
+
+
+@pytest.mark.parametrize('height,expected', [(.025, True), (.031, False)])
+def test_map_support_has_its_own_3cm_band_and_never_calls_strict_native_gate(tmp_path, monkeypatch, height, expected):
+    from avengine.assets.roster_motion import episode
+    from avengine.assets import v7_phase2_floor
+    from avengine.rooms import walkable_map_builder as builder
+    mesh = SimpleNamespace(vertices=np.array([[-2, height, -2], [2, height, -2], [0, height, 2]]), faces=np.array([[0, 1, 2]]))
+    class Ray:
+        MAX_QUERY_POINTS = 32
+        def many(self, points): return np.full(len(points), height)
+    class Floor:
+        def __init__(self, *args): self.original_ray = Ray()
+        def __call__(self, point): raise AssertionError('native full-pose support gate must stay separate')
+    monkeypatch.setattr(episode, 'PhysicalFloor', Floor)
+    monkeypatch.setattr(builder, 'native_support_readback', lambda video, points: np.full(len(points), height))
+    monkeypatch.setattr(v7_phase2_floor, 'original_native_stage_mesh', lambda *a: (mesh, {}))
+    stage, nav = tmp_path/'stage.glb', tmp_path/'stage.navmesh'
+    stage.write_bytes(b'fixture'); nav.write_bytes(b'fixture')
+    house = {'house': 'fixture', 'family': 'hm3d', 'input': {'visual_source': str(stage), 'navmesh_source': str(nav)}}
+    room = {'room_label': 'room', 'measured_floor_y_m': 0., 'floor_polygon': box(-1, -1, 1, 1).__geo_interface__}
+    pf = SimpleNamespace(snap_point=lambda p: p, distance_to_closest_obstacle=lambda p, r: 1.)
+    result = builder.build_room_map(SimpleNamespace(pathfinder=pf), house, room, code_commit='fixture', output=tmp_path/'map.npz')
+    assert result.contains([0, 0]) == expected
+    assert result.metadata['support_tolerance_m'] == .03
+    assert result.metadata['minimum_footprint_support_fraction'] == .85
