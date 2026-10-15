@@ -166,9 +166,17 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 if video is not None:video.close()
             appearance=derive_native_appearance_evidence(attempt,visual,variant)
             write_json(attempt/'native_appearance_review.json',appearance)
+            from avengine.timeline.v7_kujiale_binding_readiness import native_binding_readiness
+            readiness=native_binding_readiness(base,visual,appearance,variant)
+            write_json(attempt/'native_binding_readiness.json',readiness)
+            if readiness['status']=='needs_new_layout':
+                missing=[c['endpoint_id'] for c in readiness['checks'] if c['status']!='pass']
+                error=ValueError('automatic native binding layout needs original appearance proof for '+', '.join(missing)+'; reconstruct same room with all required elements')
+                retire_failed_media(attempt,marker,error)
+                raise error
             required=[
                 'scene_video.mp4','native_registered_visual_evidence.json','native_visual_evidence.json',
-                'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','standing/standing_admission.json','acoustic_placement_admission.json']
+                'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_binding_readiness.json','native_environmental_emitters.json','standing/standing_admission.json','acoustic_placement_admission.json']
             if inputs.get('render_backend')=='ue_spear':required.append('native_registered_assets.json')
             if visual.get('native_vertical_contact_construction'):required.append('native_vertical_contact_construction.json')
             return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},required
@@ -312,7 +320,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         required=[];stats=[];private=attempt/'private';private.mkdir();shared=private/'native';shared.mkdir()
         for v in visual_names:
             target=shared/v;target.mkdir()
-            for name in ['native_registered_visual_evidence.json','source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','acoustic_placement_admission.json']:
+            for name in ['native_registered_visual_evidence.json','source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_binding_readiness.json','native_environmental_emitters.json','acoustic_placement_admission.json']:
                 os.link(visual_dirs[v]/name,target/name);required.append(str((target/name).relative_to(attempt)))
             if inputs.get('render_backend')=='ue_spear':
                 name='native_registered_assets.json';os.link(visual_dirs[v]/name,target/name);required.append(str((target/name).relative_to(attempt)))
