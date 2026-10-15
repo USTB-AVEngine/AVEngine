@@ -59,7 +59,7 @@ def noncollinear_rejection(declaration, root, others):
 def body_yaw(base_yaw, declaration, person_index, retry=0):
     if not is_person(declaration):
         return float(base_yaw)
-    offset = (-65., 65., 145., -145.)[person_index % 4] + (0., -15., 15.)[retry % 3]
+    offset = (0., -25., 75., 155., -95.)[person_index % 5] + (0., -15., 15.)[retry % 3]
     return float(base_yaw)+math.radians(offset)
 
 
