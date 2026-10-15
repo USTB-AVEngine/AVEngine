@@ -1,7 +1,7 @@
 {
   "schema": "v7-kujiale-ue-native-measurements-v1",
   "revision": "20261015-native-measured-v1",
-  "updated_utc": "2026-10-15T09:48:10.424039+00:00",
+  "updated_utc": "2026-10-15T09:51:23.961194+00:00",
   "original_registrations_modified": false,
   "runtime_authority": "production reads these measured native bases and original package hashes; world matrices remain measured per new frame",
   "scope": {
@@ -641,6 +641,8 @@
         "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
+      "selected_smoke_slot": 2,
+      "selected_smoke_policy": "latest completely passed request slot; earlier fresh media retained",
       "scene_id": "v7_kujiale_fixed_v2_kujiale_0003_R3_a00",
       "families": {
         "QA-02": 8,
@@ -1890,6 +1892,8 @@
         "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
+      "selected_smoke_slot": 7,
+      "selected_smoke_policy": "latest completely passed request slot; earlier fresh media retained",
       "scene_id": "v7_kujiale_fixed_v2_kujiale_0021_R1_a00",
       "families": {
         "QA-02": 8,
@@ -2700,7 +2704,7 @@
           }
         }
       ],
-      "independent_questions": 88,
+      "independent_questions": 81,
       "reason": "",
       "native_floor_surface": {
         "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0022/native_editor_audit.json",
@@ -2712,35 +2716,37 @@
         "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
-      "scene_id": "v7_kujiale_fixed_v2_kujiale_0022_R0_a00",
+      "selected_smoke_slot": 44,
+      "selected_smoke_policy": "latest completely passed request slot; earlier fresh media retained",
+      "scene_id": "v7_kujiale_fixed_v2_initial_orientation_kujiale_0022_R0_q44_a00",
       "families": {
         "QA-02": 8,
         "QA-12": 8,
-        "QA-26": 8,
+        "QA-19": 8,
         "QA-11": 1,
         "QA-14": 4,
-        "QA-28": 2,
-        "QA-04": 2,
-        "QA-25": 2,
         "STARSS-FRUSTUM": 1,
+        "QA-25": 2,
+        "QA-04": 2,
+        "QA-28": 2,
         "QA-01": 1,
+        "QA-26": 8,
         "QA-27": 8,
-        "QA-19": 16,
-        "STARSS-CLASS13": 1,
         "QA-05": 1,
-        "QA-03": 2,
-        "QA-22": 1,
         "STARSS-SPEAKERS": 1,
+        "QA-08": 2,
+        "QA-03": 1,
+        "STARSS-CLASS13": 1,
         "V7-CONTENT-BIND": 12,
         "QA-23": 2,
-        "QA-08": 2,
-        "QA-20": 1,
-        "QA-18": 2,
+        "QA-20": 2,
+        "QA-22": 1,
+        "QA-18": 3,
         "QA-13": 2
       },
       "parent_receipt": {
-        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/evidence/jobs/008.json",
-        "sha256": "bea67b2c610805cbfa12cb0a4f91183e8ab8fbeddd30b5f4ef7c62a0a2ef3155"
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/evidence/jobs/044.json",
+        "sha256": "aaa712a297fe07e068405e6d53b9d7788f70c72f94a6d0583d442f26c48c461e"
       },
       "reader": {
         "status": "pass",
@@ -2755,7 +2761,7 @@
       "current_owner_scene_policy": {
         "revision": "v7-fixed-observer-natural-layout-measured-speed-standoff-v2",
         "status": "pass",
-        "source_seal": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0022_R0_a00/alpha_seal_completed.json",
+        "source_seal": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_initial_orientation_kujiale_0022_R0_q44_a00/alpha_seal_completed.json",
         "reasons": [],
         "member_listener": {
           "v0_a0": {
@@ -2789,12 +2795,12 @@
         },
         "original_native_evidence": [
           {
-            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0022_R0_a00/visual_v0_attempt_51ec689225c24de2a4340f988f5c8ac2/native_registered_visual_evidence.json",
-            "sha256": "3148201b8237c07cc5a6888c6f12eefbbca868bc3407f7966cdc50705b0ee695"
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_initial_orientation_kujiale_0022_R0_q44_a00/visual_v0_attempt_e7575f41402c4b90b32d6499ab80fde4/native_registered_visual_evidence.json",
+            "sha256": "9d807acda90d7d400143f367271759538684cddb685a05f2e3287dc9f73da89a"
           },
           {
-            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0022_R0_a00/visual_v1_attempt_bbe632f72fc24d7ebb63f3d5612f59ac/native_registered_visual_evidence.json",
-            "sha256": "0251fe741c3fb689a521d31b890c8515a727fbdf7c43971a64c761ef393db96b"
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_initial_orientation_kujiale_0022_R0_q44_a00/visual_v1_attempt_cf3a1406a02f4ed08b9ad471fbfb5479/native_registered_visual_evidence.json",
+            "sha256": "9bcf8187f4a7a884222c95dc58ddd3fd02fa375b46da8272f0395860768ee51c"
           }
         ],
         "native_layout": {
@@ -2806,7 +2812,7 @@
             "minimum_human_animal_centre_distance_m": null,
             "orientation": {
               "line_cross_track_rms_m": 0.40747734294508453,
-              "heading_spread_deg": 121.4015828424896
+              "heading_spread_deg": 146.51157421431725
             },
             "reasons": []
           },
@@ -2818,7 +2824,7 @@
             "minimum_human_animal_centre_distance_m": null,
             "orientation": {
               "line_cross_track_rms_m": 0.40747734294508453,
-              "heading_spread_deg": 121.4015828424896
+              "heading_spread_deg": 146.51157421431725
             },
             "reasons": []
           }
@@ -5578,6 +5584,8 @@
         "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
+      "selected_smoke_slot": 24,
+      "selected_smoke_policy": "latest completely passed request slot; earlier fresh media retained",
       "scene_id": "v7_kujiale_fixed_v2_kujiale_0038_R0_a00",
       "families": {
         "QA-02": 8,
@@ -6053,6 +6061,8 @@
         "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
+      "selected_smoke_slot": 25,
+      "selected_smoke_policy": "latest completely passed request slot; earlier fresh media retained",
       "scene_id": "v7_kujiale_fixed_v2_kujiale_0042_R0_a00",
       "families": {
         "QA-02": 8,
