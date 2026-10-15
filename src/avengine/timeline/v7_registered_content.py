@@ -20,6 +20,9 @@ MEMBERS=('v0_a0','v0_a1','v1_a0','v1_a1')
 
 def retain_readback(path,value):
     path=Path(path)
+    # JSON persists integer actor-map keys as strings. Compare the exact stored
+    # representation so an unchanged measured witness remains resumable.
+    value=json.loads(json.dumps(value,ensure_ascii=False))
     if path.exists():
         previous=read_json(path)
         if previous!=value:

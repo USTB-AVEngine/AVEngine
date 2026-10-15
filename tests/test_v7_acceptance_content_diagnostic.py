@@ -19,3 +19,18 @@ def test_identical_content_witness_resume_does_not_write_a_diagnostic(tmp_path):
     p=tmp_path/'native.json';value={'clock':150}
     retain_readback(p,value);retain_readback(p,value)
     assert not list(tmp_path.glob('*.rejected_*.json'))
+
+
+def test_integer_actor_map_keys_resume_with_identical_json_truth(tmp_path):
+    p=tmp_path/'native.json';value={'source_actor_onsets_s':{1:1.1,2:3.26}}
+    retain_readback(p,value);before=p.read_bytes();mtime=p.stat().st_mtime_ns
+    retain_readback(p,value)
+    assert p.read_bytes()==before and p.stat().st_mtime_ns==mtime
+    assert not list(tmp_path.glob('*.rejected_*.json'))
+
+
+def test_changed_measured_onset_is_still_rejected_after_json_normalization(tmp_path):
+    p=tmp_path/'native.json';retain_readback(p,{'source_actor_onsets_s':{1:1.1}})
+    with pytest.raises(ValueError,match='source_actor_onsets_s'):
+        retain_readback(p,{'source_actor_onsets_s':{1:1.2}})
+    assert json.loads(p.read_text())['source_actor_onsets_s']=={'1':1.1}
