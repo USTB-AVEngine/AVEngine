@@ -64,6 +64,10 @@ def launch_native(ue, map_path):
     config.SP_CORE.SHARED_MEMORY_INITIAL_UNIQUE_ID=port*10000
     arguments=config.SPEAR.INSTANCE.COMMAND_LINE_ARGS
     arguments.renderoffscreen=None
+    if ue.get('offscreen_viewport_resolution_hw'):
+        viewport_height,viewport_width=map(int,ue['offscreen_viewport_resolution_hw'])
+        if min(viewport_height,viewport_width)<64:raise ValueError('offscreen viewport must be at least 64 pixels')
+        arguments.resx=viewport_width;arguments.resy=viewport_height
     arguments.graphicsadapter=int(ue['graphics_adapter'])
     arguments.ddc='KUJIALEOwnDDC'
     arguments.notraceserver=None

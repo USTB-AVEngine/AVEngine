@@ -37,6 +37,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             raise ValueError('registered UE capture scale must be one or two native pixels per output dimension')
         self.source_material_cache_directory=source_material_cache_directory
         self.ue=bind_histogram_profile(self.house['input']['ue_config'],scene_seed=scene['scene_id'])
+        if inputs.get('registered_offscreen_viewport_resolution_hw'):
+            self.ue['offscreen_viewport_resolution_hw']=list(inputs['registered_offscreen_viewport_resolution_hw'])
         # The camera helper imports the native client; resolve the task-owned
         # extension before that import can cache an unavailable client.
         sys.path.insert(0,str(Path(self.ue['spear_ext_dir']).resolve()))
