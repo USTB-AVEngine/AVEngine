@@ -253,7 +253,10 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     template=request.get('motion_quartet_route')
     if template:
         from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock,timed_straight_clock
-        if template.get('single_pass'):distance,velocity=single_pass_clock(times,speed,template['turn_speed_m_s'],template.get('minimum_stop_s',7.9))
+        if template.get('reflect_walk'):
+            from avengine.assets.roster_motion.reflect_navmesh import reflected_distance_clock
+            distance,velocity,_=reflected_distance_clock(template,source_speed)
+        elif template.get('single_pass'):distance,velocity=single_pass_clock(times,speed,template['turn_speed_m_s'],template.get('minimum_stop_s',7.9))
         else:distance,velocity,_=timed_straight_clock(times,speed,straight_start_s=template['straight_start_s'],straight_end_s=template['straight_end_s'],turn_speed_m_s=template['turn_speed_m_s'])
     phase = np.mod(distance / source_speed, period)
     indices = np.minimum(len(source) - 2, np.rint(phase / period * (len(source) - 1)).astype(int))

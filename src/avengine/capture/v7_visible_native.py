@@ -178,19 +178,20 @@ class NativeVisibleVideo(NativeRegisteredVideo):
     def _native_observed_pixels(self,scene,entries):
         from avengine.capture.v7_alpha_native import forward_at
         maximum={e['declaration']['asset_id']:0 for e in entries}
-        observed=[];seen=set()
-        for knot in scene['camera_yaw_knots']:
-            yaw=round(knot['yaw_deg']%360.,6)
-            if yaw in seen:continue
-            seen.add(yaw);pixels=self._native_pair_pixels(scene,entries,forward_at(scene,knot['time_s']))
-            observed.append({'time_s':knot['time_s'],'pixels':pixels})
-            maximum={k:max(maximum[k],pixels[k]) for k in maximum}
-            # Opt-in proposal search can stop after an actual positive witness
-            # for every current entity. The original existential 100px gate
-            # is identical; negative cases still inspect the complete path.
-            # Final video and all material/color/clock observations are intact.
-            if (self.motion_inputs.get('visible_placement_stop_after_native_visibility_witness',False) or self.motion_inputs.get('independent_probe_camera_search',False)) and all(n>=100 for n in maximum.values()):
-                break
+        observed=[]
+        # A fixed camera may see an actor only after it enters the view. Sample
+        # actual native poses, and restore the initial state before placement.
+        moving=[e for e in entries if e.get('motion_episode')]
+        times=[0.,.5,1.,2.,3.,5.,7.5,10.,15.,20.,25.,29.] if moving else [0.]
+        try:
+            for at in times:
+                for entry in moving:self._apply_entry(entry,scene,frame_index=round(at*15))
+                pixels=self._native_pair_pixels(scene,entries,forward_at(scene,at))
+                observed.append({'time_s':at,'pixels':pixels,'camera_fixed':True})
+                maximum={k:max(maximum[k],pixels[k]) for k in maximum}
+                if all(n>=100 for n in maximum.values()):break
+        finally:
+            for entry in moving:self._apply_entry(entry,scene,frame_index=0)
         return maximum,observed
 
     def qualify_standing(self,scene,directory):

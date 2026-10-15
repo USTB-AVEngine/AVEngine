@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import numpy as np
 import pytest
-from avengine.timeline.v7_motion_quartet_template import authored_pairs,find_template_route,MotionTemplateUnavailable
+from avengine.timeline.v7_motion_quartet_template import authored_pairs,find_legacy_template_route,MotionTemplateUnavailable
 from avengine.timeline.v7_phase2_sources import qualify_registered_walk_tts
 pytestmark=pytest.mark.fast_unit
 
@@ -10,12 +10,12 @@ def test_complete_tts_pair_has_distinct_roles_and_physical_voice_references():
         return {'scenario_id':'ordinary unseen script','sound_asset_id':name,'role_id':role,
                 'synthesis_readback':{'duration_s':duration},'voice_reference':{'speaker_id':voice}}
     manifest={'sounds':[sound('a','one',2.2,'v1'),sound('b','two',1.4,'v2'),sound('cut','two',4.,'v3')]}
-    assert [(a['sound_asset_id'],b['sound_asset_id'])for a,b in authored_pairs(manifest)]==[('a','b')]
+    assert [(a['sound_asset_id'],b['sound_asset_id'])for a,b in authored_pairs(manifest)]==[('b','a'),('a','b')]
 
 def test_unseen_open_room_gets_native_straight_windows_and_alternating_distance_trends():
     room={'floor_polygon':{'type':'Polygon','coordinates':[[[-6,-6],[6,-6],[6,6],[-6,6],[-6,-6]]]},'measured_floor_y_m':0.}
     pf=SimpleNamespace(snap_point=lambda point:np.asarray(point,float))
-    result=find_template_route(room,pf,97)
+    result=find_legacy_template_route(room,pf,97)
     assert result['candidate_native_root_samples']==901
     assert [x['branch']for x in result['distance_branches']]==['nearer']
     assert result['single_pass']
@@ -49,7 +49,7 @@ def test_turns_use_exact_distance_clock_and_do_not_interrupt_speech_or_post_quer
 def test_native_narrow_room_uses_one_complete_straight_pass_with_all_four_conditions():
     room={'floor_polygon':{'type':'Polygon','coordinates':[[[-6,-.5],[6,-.5],[6,.5],[-6,.5],[-6,-.5]]]},'measured_floor_y_m':0.}
     pf=SimpleNamespace(snap_point=lambda point:np.asarray(point,float))
-    route=find_template_route(room,pf,97)
+    route=find_legacy_template_route(room,pf,97)
     assert route['single_pass'] and route['all_four_families_retained']
     assert route['motion_template_windows_s']==[0.]
     assert route['speed_m_s']>=.8

@@ -74,7 +74,7 @@ def prepare_motion_during_row(row,catalog,records):
         config={'query':{'qa_id':qa,'target_instance_ids':[target],'event':{'kind':'target_audible_window'}},
             'branch':branch,'instances':[{**x,'role':'anchor' if x['asset_id']==target else 'competitor'}for x in instances],
             'registry':registry,'sounds':sounds,'event_start_s':starts,
-            'budget':{'walk_speed_range_mps':request.get('speed_range_m_s',[float(request['speed_m_s'])]*2),'reserve_tail_s':3.,'minimum_motion_s':float(request.get('minimum_motion_s',0.)),'end_hold_s':float(request.get('end_hold_s',0.))}}
+            'budget':{'walk_speed_range_mps':request.get('speed_range_m_s',[float(request['speed_m_s'])]*2),'reserve_tail_s':float(request.get('reserve_tail_s',3.)),'minimum_motion_s':float(request.get('minimum_motion_s',0.)),'end_hold_s':float(request.get('end_hold_s',0.))}}
         if qa in {'QA-16','QA-17'}:
             tail=request.get('wet_tail_planning_bound_s',request.get('measured_wet_tail_s',4.1))
             config['measured_wet_tail_s']=None if tail is None else float(tail)

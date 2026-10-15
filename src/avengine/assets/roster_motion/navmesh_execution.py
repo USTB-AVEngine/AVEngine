@@ -47,6 +47,10 @@ def sounding_at(scene,endpoint,time_s):
 
 def curved_route_proposals(video,entry,scene,distance,local_forward,request):
     """Closed smooth waypoint routes; search alternate centres around obstacles."""
+    if request.get('motion_quartet_route',{}).get('reflect_walk'):
+        from .reflect_navmesh import reflected_route_proposals
+        yield from reflected_route_proposals(video,entry,scene,local_forward,request)
+        return
     if request.get('straight_motion_windows_s'):
         from avengine.assets.roster_motion.straight_window_routes import straight_window_routes
         proposals=list(islice(straight_window_routes(video,entry,scene,distance,local_forward,request),max(24,int(request.get('route_ranking_candidate_budget',64)))))
@@ -115,6 +119,10 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
     """
     times=np.arange(901)/30.;duration=float(source_times[-1]-source_times[0])
     phase0=float(min(double_support));velocity=np.zeros(len(times));moving=np.zeros(len(times),bool)
+    if timed_route is not None and timed_route.get('reflect_walk'):
+        from .reflect_navmesh import reflected_distance_clock
+        distance,velocity,clock=reflected_distance_clock(timed_route,nominal,phase0)
+        return times,velocity>1e-8,velocity,distance,clock,{'method':'exact cumulative reflected root distance drives original gait','maximum_stable_speed_m_s':float(max(velocity)),'maximum_clock_distance_error_s':0.,'nominal_source_speed_m_s':nominal}
     if timed_route is not None and timed_route.get('single_pass'):
         from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
         minimum_stop=float(timed_route.get('minimum_stop_s',7.9))
