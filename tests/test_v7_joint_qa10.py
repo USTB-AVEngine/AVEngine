@@ -121,6 +121,7 @@ def test_solved_row_keeps_answer_identity_native_support_and_real_single_voice()
     assert all(k["yaw_deg"] == 0 for k in row["camera_yaw_knots"])
     assert row["scene_demand"]["required_independent_family_counts"] == {"QA-10": 1}
     assert row["automatic_construction"]["native_identity_certification_required"]
+    assert row["joint_prepared_scene_required"] is True
 
 
 def test_row_translation_rejects_missing_roles_motion_and_colour_collisions():
