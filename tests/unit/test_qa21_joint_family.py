@@ -342,3 +342,21 @@ def test_family_preflight_keeps_only_appearance_while_core_owns_acoustic_gate(mo
     checks = list(module.native_family_obligations(video, {}, []))
     assert len(checks) == 1 and checks[0].name == 'native:qa21:appearance_and_pixels'
     assert checks[0].status == 'pass' and checks[0].evidence['actual_pixels'] == 500
+
+
+def test_delivered_class_feedback_cannot_replace_explicitly_preferred_reviewed_bodies():
+    from avengine.construction.joint.families.qa21 import select_target_set
+    cat = animal('cat', 'cat', 'cat_meow'); dog = animal('dog', 'dog', 'dog_bark')
+    speaker = {'asset_id': 'speaker', 'kind': 'object', 'entity_class': 'loudspeaker',
+        'allowed_classes': ['music_playback', 'speech_playback'], 'attachment_surface': 'floor',
+        'label_color': 'white', 'standing_registered_qualified': True}
+    distractor = {**speaker, 'asset_id': 'other_speaker'}
+    catalog = [cat, dog, speaker, distractor];original = deepcopy(catalog)
+    records = [{'sound_class': c} for c in ('cat_meow', 'dog_bark', 'music_playback', 'speech_playback')]
+    room = {'family': 'hm3d', 'categories': ['floor_cat', 'floor_dog', 'floor_object']}
+    feedback = {'qa21_positive_counts': {'cat_meow': 10, 'dog_bark': 10, 'music_playback': 10}}
+    selected = select_target_set(target_options(room, catalog, records, {}, feedback,
+        preferred_asset_ids=['cat', 'dog', 'speaker'], asset_class_choices={'speaker': 'music_playback'}))
+    assert {a['asset_id']: cls for a, cls, _ in selected} == {
+        'cat': 'cat_meow', 'dog': 'dog_bark', 'speaker': 'music_playback'}
+    assert catalog == original

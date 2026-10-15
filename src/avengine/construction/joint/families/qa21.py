@@ -79,7 +79,7 @@ def target_options(room, catalog, records, contract, state, *, requested_class=N
     if any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in positives.values()):
         raise ValueError('positive class feedback must be nonnegative delivered counts')
     preferred={aid:index for index,aid in enumerate(preferred_asset_ids)}
-    result.sort(key=lambda t: (positives.get(t[1], 0), preferred.get(t[0]['asset_id'],len(preferred)),
+    result.sort(key=lambda t: (preferred.get(t[0]['asset_id'],len(preferred)), positives.get(t[1], 0),
         state.get('source_entity_usage_counts', {}).get(t[0]['asset_id'], 0), t[1], t[0]['asset_id']))
     return result
 
