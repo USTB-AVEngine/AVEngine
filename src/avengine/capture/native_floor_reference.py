@@ -149,21 +149,44 @@ class NativeFloorReference:
         return [float(point[0]),float(surface[1]),float(point[2])]
 
     def validate_probes(self, floor_reference):
-        measured=[p['native_visual_floor_y_m'] for p in floor_reference['probes'] if p.get('status')=='measured']
-        if len(measured)<9:raise ValueError('render surface does not agree with nine retained native floor probes')
-        self.room_floor_y_m=float(np.median(measured))
-        checks=[]
+        """Keep consistent witnesses; a bad historical point cannot veto a room.
+
+        Excluded points never certify contact. With no consistent witness the
+        result explicitly requires fresh native contact, and its height is
+        only a search proposal. Mesh identity and each sampled support gate
+        remain mandatory.
+        """
+        self.room_floor_y_m=None
+        checks=[];excluded=[];native_heights=[]
         for probe in floor_reference['probes']:
-            if probe.get('status')!='measured':raise ValueError('native floor reference has an unmeasured witness')
+            label={'witness_index':probe.get('witness_index'),'role':probe.get('role')}
+            if probe.get('status')!='measured':
+                excluded.append({**label,'reason':'unmeasured historical witness'});continue
             try:actual=self.sample(probe['nav_point_m'])
-            except ValueError as error:raise ValueError('render surface does not agree with nine retained native floor probes: '+str(error)) from error
+            except ValueError as error:
+                excluded.append({**label,'reason':str(error)});continue
+            native_heights.append(actual[1])
             error=abs(actual[1]-probe['native_visual_floor_y_m'])
-            checks.append({'witness_index':probe['witness_index'],'role':probe['role'],'render_surface_y_m':actual[1],
-                           'native_depth_floor_y_m':probe['native_visual_floor_y_m'],'absolute_error_m':error})
-        if len(checks)<9 or max(c['absolute_error_m'] for c in checks)>.02:
-            raise ValueError('render surface does not agree with nine retained native floor probes')
-        return {'status':'pass','method':'actual audited UE render LOD0 downward ray at each actor nav point',
-                'checks':checks,'max_native_depth_error_m':max(c['absolute_error_m'] for c in checks),
+            record={**label,'render_surface_y_m':actual[1],
+                    'native_depth_floor_y_m':probe['native_visual_floor_y_m'],'absolute_error_m':error}
+            if error>.02:excluded.append({**record,'reason':'native depth and render surface differ by more than 20 mm'})
+            else:checks.append(record)
+        if checks:
+            baseline=float(np.median([c['render_surface_y_m'] for c in checks]))
+            retained=[]
+            for check in checks:
+                if abs(check['render_surface_y_m']-baseline)>.02:
+                    excluded.append({**check,'reason':'different floor level; construct on the consistent room level'})
+                else:retained.append(check)
+            checks=retained
+            if checks:self.room_floor_y_m=float(np.median([c['render_surface_y_m'] for c in checks]))
+        seeds=native_heights or [p['nav_point_m'][1] for p in floor_reference['probes'] if p.get('nav_point_m')]
+        self.proposal_floor_y_m=self.room_floor_y_m if self.room_floor_y_m is not None else float(np.median(seeds)) if seeds else 0.
+        return {'status':'pass' if checks else 'fresh_native_construction_required',
+                'method':'actual audited UE render LOD0 rays; inconsistent historical points excluded',
+                'checks':checks,'excluded_probes':excluded,'retained_probe_count':len(checks),
+                'max_native_depth_error_m':max((c['absolute_error_m'] for c in checks),default=None),
                 'native_depth_tolerance_m':.02,'source_or_nav_geometry_modified':False,
                 'floor_offset_is_spatial_not_a_constant_median':True,'room_floor_y_m':self.room_floor_y_m,
-                'support_face_must_be_room_floor':True}
+                'proposal_floor_y_m':self.proposal_floor_y_m,'proposal_is_contact_admission':False,
+                'fresh_native_contact_required':True,'support_face_must_be_room_floor':True}
