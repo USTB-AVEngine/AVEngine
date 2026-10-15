@@ -81,6 +81,11 @@ def attach_environmental_program(scene,program,plan,admitted,rng,starts):
             # A late class probe and a carry-in excerpt occur in a continuous
             # world. Counts remain based on actual measured activity.
             offsets=(.9+index*.5,6.+index*.5) if binding is not None else (0.,float(plan.get('environment_probe_offset_s',7.6)))
+            requested_offsets=plan.get('environment_start_offsets_s')
+            if requested_offsets is not None:
+                offsets=tuple(float(t) for t in requested_offsets)
+                if not offsets or len(set(offsets))!=len(offsets) or any(not math.isfinite(t) or t<0. for t in offsets):
+                    raise ValueError('environment start offsets require distinct finite nonnegative times')
             for offset in offsets:
                 lo=round((start+offset)*10);hi=lo+ticks
                 if hi>300:raise ValueError('environment crop exceeds the continuous world')
