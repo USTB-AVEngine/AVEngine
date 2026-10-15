@@ -266,3 +266,28 @@ def test_original_qa07_witness_requires_a_real_review_in_addition_to_visible_pix
     assert result["question"]["truth"]["value"] == "left"
     assert original_qa07_witness(rows, {}, assets, "7", [360, 640], "left", "fixture")["status"] == "fail"
     assert original_qa07_witness(rows, review, assets, "7", [360, 640], "right", "fixture")["status"] == "fail"
+
+
+def test_geometry_edge_filter_rejects_furniture_before_native_preparation():
+    from types import SimpleNamespace
+    from avengine.construction.joint.families.qa07 import entry_edge_prediction_certificate
+    predictions = [SimpleNamespace(state=r["state"], occluded_fraction=0.,
+        evidence={"target_centroid_xy_px": r["target_centroid_xy_px"],
+                  "target_proxy_pixels": 0 if r["state"] == "out_of_view" else 1000})
+        for r in predicted_rows()]
+    clear = entry_edge_prediction_certificate(predictions, [360, 640], "left", first_inside_frame=35)
+    assert clear["status"] == "pass"
+    assert clear["native_pixel_truth_verified"] is False
+    # The final visible frame is identical; only the actual crossing is hidden.
+    predictions[16].occluded_fraction = .9
+    blocked = entry_edge_prediction_certificate(predictions, [360, 640], "left", first_inside_frame=35)
+    assert blocked["status"] == "fail"
+    assert blocked["maximum_edge_proxy_occlusion"] == .9
+
+
+def test_entry_helpers_are_owned_by_shared_core():
+    from avengine.construction.joint import entry
+    from avengine.construction.joint.families import qa07
+    assert qa07.EntryEnvelope is entry.EntryEnvelope
+    assert qa07.tangent_entry_anchors is entry.tangent_entry_anchors
+    assert qa07.entry_timing is entry.entry_timing

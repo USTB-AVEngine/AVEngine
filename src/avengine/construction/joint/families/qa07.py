@@ -8,36 +8,16 @@ native visibility facts or used as an export admission receipt.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 import math
 
 import numpy as np
+
+from avengine.construction.joint.entry import EntryEnvelope, tangent_entry_anchors, entry_timing
 
 REVISION = "qa07-side-first-tangent-v1"
 SIDES = {"left": -1, "right": 1}
 
 
-@dataclass(frozen=True)
-class EntryEnvelope:
-    """Conservative upright body envelope, including pose and root uncertainty."""
-
-    radius_m: float = .4
-    height_m: float = 1.9
-    hfov_deg: float = 85.
-    aspect: float = 16. / 9.
-    edge_margin_deg: float = 2.
-    pixel_margin_px: float = 8.
-    minimum_camera_distance_m: float = 1.5
-    minimum_stable_s: float = .6
-
-    def __post_init__(self):
-        values = (self.radius_m, self.height_m, self.hfov_deg, self.aspect,
-                  self.edge_margin_deg, self.pixel_margin_px,
-                  self.minimum_camera_distance_m, self.minimum_stable_s)
-        if not all(math.isfinite(v) and v > 0 for v in values):
-            raise ValueError("entry envelope needs positive finite dimensions")
-        if self.hfov_deg / 2 + self.edge_margin_deg >= 89.:
-            raise ValueError("entry field of view has no usable side plane")
 
 
 def requested_side(state: Mapping, scene_index: int) -> str:
@@ -52,91 +32,9 @@ def requested_side(state: Mapping, scene_index: int) -> str:
     return "left" if int(scene_index) % 2 == 0 else "right"
 
 
-def tangent_entry_anchors(camera_m, endpoint_m, side: str, *,
-                          final_azimuth_deg: float = 26.,
-                          envelope: EntryEnvelope | None = None) -> dict:
-    """Invert the side-frustum condition to obtain yaw and a straight entry.
-
-    Camera coordinates are right/up/forward, with right = forward x world-up.
-    The target translates towards the centre at constant camera depth. The
-    start's entire envelope lies beyond the chosen side plane. At the end the
-    entire envelope lies within both horizontal and vertical frustum planes.
-    Room support, obstruction and body-to-body spacing are certified by core.
-    """
-    env = envelope or EntryEnvelope()
-    if side not in SIDES:
-        raise ValueError("entry side must be left or right")
-    camera = np.asarray(camera_m, float)
-    endpoint = np.asarray(endpoint_m, float)
-    if camera.shape != (3,) or endpoint.shape != (3,) or not np.isfinite([camera, endpoint]).all():
-        raise ValueError("entry camera and endpoint must be finite XYZ positions")
-    if not 0 < final_azimuth_deg < env.hfov_deg / 2 - env.edge_margin_deg:
-        raise ValueError("entry endpoint needs a noncentral inside azimuth")
-    delta = endpoint - camera
-    radius = float(np.linalg.norm(delta[[0, 2]]))
-    if radius < env.minimum_camera_distance_m:
-        raise ValueError("entry endpoint violates camera standoff")
-    sign = SIDES[side]
-    bearing = math.atan2(float(delta[0]), float(-delta[2]))
-    yaw = bearing - sign * math.radians(final_azimuth_deg)
-    forward = np.array([math.sin(yaw), 0., -math.cos(yaw)])
-    right = np.cross(forward, [0., 1., 0.])
-    depth = float(delta @ forward)
-    lateral = float(delta @ right)
-    body_radius = env.radius_m
-    h_inside = math.tan(math.radians(env.hfov_deg / 2 - env.edge_margin_deg))
-    vfov_half = math.atan(math.tan(math.radians(env.hfov_deg / 2)) / env.aspect)
-    v_inside = math.tan(vfov_half - math.radians(env.edge_margin_deg))
-    near_depth = depth - body_radius
-    vertical = max(abs(float(delta[1])), abs(float(delta[1] + env.height_m)))
-    if near_depth <= 0 or abs(lateral) + body_radius > near_depth * h_inside:
-        raise ValueError("entry endpoint envelope is not wholly inside horizontally")
-    if vertical > near_depth * v_inside:
-        raise ValueError("entry endpoint envelope is not wholly inside vertically")
-    outside_lateral = (depth + body_radius) * math.tan(math.radians(env.hfov_deg / 2 + env.edge_margin_deg)) + body_radius
-    length = outside_lateral - sign * lateral
-    start = endpoint + sign * right * length
-    inward = -sign * right
-    return {
-        "revision": REVISION, "branch": side,
-        "listener_m": camera.tolist(),
-        "camera_yaw_deg": (math.degrees(yaw) + 180.) % 360. - 180.,
-        "camera_forward": forward.tolist(), "camera_right": right.tolist(),
-        "start_m": start.tolist(), "endpoint_m": endpoint.tolist(),
-        "inward_unit_xz": inward[[0, 2]].tolist(), "planning_length_m": length,
-        "depth_m": depth, "final_azimuth_deg": sign * final_azimuth_deg,
-        "body_radius_m": body_radius, "body_height_m": env.height_m,
-        "edge_margin_deg": env.edge_margin_deg,
-        "start_outside_plane_margin_m": (depth + body_radius) * (
-            math.tan(math.radians(env.hfov_deg / 2 + env.edge_margin_deg)) -
-            math.tan(math.radians(env.hfov_deg / 2))),
-        "horizontal_endpoint_plane_margin_m": near_depth * math.tan(math.radians(env.hfov_deg / 2)) - abs(lateral) - body_radius,
-        "vertical_endpoint_plane_margin_m": near_depth * math.tan(vfov_half) - vertical,
-        "capture_camera_moves": False,
-        "evidence_kind": "analytic_body_envelope_prediction",
-        "native_pixel_truth_verified": False,
-    }
 
 
 
-def entry_timing(length_m: float, speed_m_s: float, *, stop_s: float = 7.6,
-                 gait_extension_reserve_m: float = .65) -> dict:
-    """Put the completed entry away from half-overlapping crop boundaries.
-
-    An entry that stops just after t=5 can leave a crop containing only a slow
-    deceleration sliver. Solve the start from length instead: the requested
-    finish is near t=7.6, leaving room for complete-step fitting and a stable
-    first-window entry witness, and real locomotion inside the t=5 crop.
-    """
-    if not math.isfinite(length_m) or length_m <= 0 or not .8 <= speed_m_s <= 1.4:
-        raise ValueError("entry timing needs positive length and legal human speed")
-    start = stop_s-length_m/speed_m_s-.25
-    latest = stop_s+.02+gait_extension_reserve_m/speed_m_s+1/30.
-    if start < .75 or latest > 9.:
-        raise ValueError("entry route cannot fit an outside pause and stable first-window finish")
-    return {"start_s": start, "requested_interval_s": [start, stop_s+.02],
-            "nominal_stop_s": stop_s, "latest_reserved_stop_s": latest,
-            "complete_step_time_is_revalidated_natively": True}
 
 def entry_prediction_certificate(frames: Sequence[Mapping], resolution_hw, side: str,
                                  *, fps: float = 15., minimum_stable_s: float = .6,
@@ -436,6 +334,33 @@ def native_entry_preflight(video, scene, entries):
 
 
 
+def native_entry_acoustic_checks(video, scene, runtime, output_dir):
+    """Apply the producer's original direction gate to the same initial mouths."""
+    import tempfile
+    from pathlib import Path
+    from avengine.construction.joint import CheckResult
+    from avengine.timeline.v7_position_admission import PositionAdmission
+    directory = Path(output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="entry_acoustic_", dir=directory))
+    gate = PositionAdmission(scene, video.motion_house, runtime, directory/"rir_cache",
+                             run/"acoustic_placement_admission.json")
+    try:
+        for entry in video.actors:
+            if entry["declaration"].get("silent_decor"):
+                continue
+            actual = video._apply_entry(entry, scene, frame_index=0)["emitter_position_m"]
+            measured = gate.check(entry["endpoint_id"], np.asarray(actual, float))
+            ok = measured.get("status") in {"pass", "not_applicable_silent_bystander"}
+            yield CheckResult("QA-07:initial_acoustic_position:"+entry["endpoint_id"],
+                              "pass" if ok else "fail",
+                              "unchanged PositionAdmission on actual native emitter",
+                              evidence={"measurement": measured,
+                                        "receipt": str(run/"acoustic_placement_admission.json")})
+    finally:
+        gate.close()
+
+
 def qa07_sound_requirements(scene, program, assets):
     """Declare the selected complete utterances and their measured activity."""
     from avengine.construction.joint.scheduling import SoundRequirement
@@ -455,6 +380,43 @@ def qa07_sound_requirements(scene, program, assets):
             record["sound_class"], tuple((lo/rate, hi/rate) for lo, hi in intervals),
             (start, start), wet_tail_s=.5))
     return tuple(requirements)
+
+def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, first_inside_frame):
+    """Reject an obstructed frustum crossing before spending a native render.
+
+    The body proxy is deliberately a proposal filter, never rendered truth.
+    Its edge interval includes all partially framed poses and a stable pause;
+    this catches furniture that hides the actual first in-frame limb.
+    """
+    rows = []
+    for index, prediction in enumerate(predictions):
+        state = prediction.state
+        evidence = prediction.evidence
+        # The core box can intersect the frame before its projected cylinder.
+        # Empty *proxy* raster evidence is outside only for this prediction.
+        if state == "unknown" and evidence.get("target_proxy_pixels") == 0:
+            state = "out_of_view"
+        rows.append({"frame_index": index, "state": state,
+                     "target_centroid_xy_px": evidence.get("target_centroid_xy_px")})
+    result = entry_prediction_certificate(rows, resolution_hw, branch)
+    transition = result["transitions"][0] if result["transitions"] else None
+    edge = []
+    if transition is not None:
+        end = min(len(predictions), max(first_inside_frame+10, transition["entry_frame"]+18))
+        edge = predictions[transition["entry_frame"]:end]
+    fractions = [p.occluded_fraction for p in edge]
+    clear = bool(fractions) and all(v is not None and math.isfinite(v) and v <= .02 for v in fractions)
+    if not clear:
+        result["reasons"].append("predicted_entry_edge_has_occlusion_or_unknown_depth")
+        result["status"] = "fail"
+    result.update(evidence_kind="proxy_frustum_crossing_proposal_filter",
+                  native_pixel_truth_verified=False,
+                  first_fully_inside_proxy_frame=int(first_inside_frame),
+                  edge_probe_frames=len(edge),
+                  maximum_edge_proxy_occlusion=max((v for v in fractions if v is not None), default=None),
+                  native_mask_transition_still_required=True)
+    return result
+
 
 class QA07Plugin:
     """Family-specific side-plane construction using the shared room/route core."""
@@ -599,6 +561,7 @@ class QA07Plugin:
         # This certifies the side even when the first visible sliver is uncertain.
         offsets = []
         predictions = []
+        first_inside_frame = 449
         seen = {}
         for frame, root in enumerate(actor.positions_m[:900:2]):
             key = tuple(np.round(root, 8))
@@ -608,7 +571,10 @@ class QA07Plugin:
                                     for aid, other in plan.actors.items() if aid != target))
             prediction = seen[key]
             predictions.append(prediction)
-            if framing(camera, root, actor.body)[0] == "outside":
+            framing_state = framing(camera, root, actor.body)[0]
+            if framing_state == "inside":
+                first_inside_frame = min(first_inside_frame, frame)
+            if framing_state == "outside":
                 continue
             uv, depth = project_points(camera, body_box(root, actor.body))
             if np.any(depth <= 0):
@@ -619,6 +585,11 @@ class QA07Plugin:
         margin = min(offsets, default=-math.inf)-max(1., camera.width*.02)
         yield CheckResult("entry_requested_side_projection", "pass" if margin >= 8. else "fail",
                           margin=margin, evidence={"branch": request.branch, "all_projected_body_points_on_side": margin >= 8.})
+        edge = entry_edge_prediction_certificate(predictions, [camera.height, camera.width],
+                                                 request.branch, first_inside_frame=first_inside_frame)
+        yield CheckResult("entry_unobstructed_frustum_crossing", edge["status"],
+                          "predicted edge must lead directly from outside into visible pixels",
+                          evidence=edge)
         outside = sum(p.state == "out_of_view" for p in predictions[:45])
         end = predictions[-1]
         # Core deliberately reports zero for a real-silhouette lower bound
@@ -636,7 +607,7 @@ class QA07Plugin:
 
 
 
-def _entry_row_for_plan(base_row, plan, target, state, catalog, contract):
+def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtime=None):
     """Translate the already solved arrays; no route or timing search here."""
     from copy import deepcopy
     from dataclasses import asdict
@@ -688,6 +659,9 @@ def _entry_row_for_plan(base_row, plan, target, state, catalog, contract):
     row = prepare_scene_motion(row, catalog)
     _request(row, state, "QA-07")
     validate_recipe(row, catalog, contract)
+    if runtime is not None:
+        from avengine.timeline.v7_production_inputs import attach_runtime_contract
+        row = attach_runtime_contract(row, runtime)
     return row
 
 
@@ -734,7 +708,7 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     directory = Path(runtime["joint_cache_directory"])/"qa07"/"native_preflight"/scene_id
 
     def make_row(plan):
-        return _entry_row_for_plan(row, plan, target, state, catalog, contract)
+        return _entry_row_for_plan(row, plan, target, state, catalog, contract, runtime)
 
     def family_native(video, scene, entries):
         report = getattr(video, "family_native_preflights", {}).get("QA-07")
@@ -749,6 +723,8 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
                       "target_asset_id": report.get("target_asset_id"),
                       "transitions": report.get("transitions"),
                       "peak_native_pixels": report.get("peak_actual_visible_pixels")})
+        if ok:
+            yield from native_entry_acoustic_checks(video, scene, runtime, directory/"acoustics")
 
     def oracle(context, requested, plan):
         initial_visible = {aid: 100 for aid, role in plan.metadata["roles"].items() if role == "inside"}
