@@ -9,7 +9,7 @@ from copy import deepcopy
 from pathlib import Path
 import json,math,os,random
 
-DEMAND_REVISION = 'v7-demand-driven-20261015-v1'
+DEMAND_REVISION = 'v7-demand-driven-20261015-v2-concrete-gap-conditions'
 # Priority order follows the owner; vision retains approximately 30% of items.
 TARGET_GROUPS = (
     ('binding', .28, 5, ('QA-01','QA-02','QA-03','QA-12','QA-24','QA-26','QA-27','QA-28','V7-CONTENT-BIND')),
@@ -259,18 +259,31 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
             gender='F' if a.get('visual_gender')=='female' else 'M'
             pool=[r for r in records if r.get('dataset')=='VCTK-Corpus 0.92' and r.get('source_type','recorded')=='recorded'
                   and r.get('gender')==gender and r.get('legacy_library_split')=='train'
-                  and r.get('transcript') and .8<=r.get('duration_s',0)<=2.5]
+                  and r.get('transcript') and (1.7 if focus=='human_motion' else .8)<=r.get('duration_s',0)<=2.3]
             if not pool:raise ValueError('demand lacks admitted short whole recorded speech for '+gender)
             shortest=min(r['duration_s'] for r in pool);pool=[r for r in pool if r['duration_s']<=shortest+.1]
             record=rng.choice(sorted(pool,key=lambda r:r['sound_asset_id']));aid=a['asset_id']
             row['source_classes'][aid]=['speech_playback'];row['proposed_sound_asset_ids'][aid]=record['sound_asset_id']
-            row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in ((.3,2.8) if i==0 else (0.,))]
+            # Put first onsets in different original QA-19 time bands. A
+            # second early call is useful for counting, but the moving body
+            # must have a long measured quiet tail before its next utterance.
+            offsets=(.5,) if focus=='human_motion' or i else (.5,2.8)
+            if i:offsets=(5.5,)
+            row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in offsets]
         for a in humans[2:]:row['silent_asset_ids'].append(a['asset_id'])
         if focus=='human_motion':
             walker=selected[0]
             if not walker.get('walk_allowed'):raise ValueError('demand selected body has no registered walk')
             trend='receding' if row['scene_seed']%2 else 'approaching'
-            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.15,'intervals_s':[[0.,2.5],[8.,9.9],[10.,12.5],[18.,19.9],[20.,22.5],[28.,29.9]],'distance_trend':trend}
+            # One continuous straight route fits a normal legal room. The
+            # first whole utterance occurs while walking; after its measured
+            # wet support ends, the body keeps translating until 8.8s. Later
+            # crops observe the same body at rest rather than inventing a
+            # return route or stretching the room to hold three long walks.
+            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.25,'intervals_s':[[0.,8.8]],'distance_trend':trend}
+            request['required_speaking_motion_contrast']={'moving_asset_id':walker['asset_id'],
+                'static_asset_id':selected[1]['asset_id'],'required_validation_window_s':[0.,10.],
+                'post_sound_motion_end_s':8.8,'status':'proposal; measured wet support and native body readbacks required'}
             request['distance_trend']=trend
         request['count_scope']='all actual human source activity in STARSS class13; no mixed-domain count'
     elif focus=='animal_motion':
@@ -301,7 +314,7 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         silent=[byid[aid] for aid in row.get('silent_asset_ids',[]) if byid.get(aid,{}).get('kind')=='human']
         if audible and silent:
             target=audible[0]['asset_id'];occluder=silent[-1]['asset_id']
-            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:10.,occluder:0.})
+            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:0.,occluder:0.})
             row.setdefault('native_attachment_distance_targets_m',{}).update({target:3.,occluder:1.5})
             row['native_occlusion_relations']=[{'target_asset_id':target,'occluder_asset_id':occluder,
                 'relation':'registered silent foreground human partially occludes the farther speaker',
@@ -311,7 +324,8 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         active=[cl for classes in row.get('source_classes',{}).values() for cl in classes if cl!='speech_playback']
         if active:row['category_focus_class']=rng.choice(sorted(set(active)))
         else:request.setdefault('unresolved_conditions',[]).append('no selected non-speech class34-capable physical source')
-    request.update(proposed_motion_requests=deepcopy(row.get('motion_requests',{})),
+    request.update(required_asset_ids=list(row['asset_ids']),
+                   proposed_motion_requests=deepcopy(row.get('motion_requests',{})),
                    proposed_silent_asset_ids=list(row.get('silent_asset_ids',[])))
     validate_recipe(row,catalog,contract)
     return row
