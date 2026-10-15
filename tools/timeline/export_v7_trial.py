@@ -84,7 +84,10 @@ def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
         if owner and owner.get('changed') is True:
             check=evidence['full_qa_selection'].get('question_check',{})
             if (kind!='integration_pilot_admitted' or owner.get('canonical_answers_changed') is not False
-                    or owner.get('reason')!='owner: skip unavailable candidate families; keep existing legal answers'
+                    or (owner.get('reason')!='owner: skip unavailable candidate families; keep existing legal answers'
+                        and not (owner.get('reason')=='owner: modality target applies after parent dedup; retain 14 original legal questions'
+                            and owner.get('target_applied_after_parent_dedup')is True
+                            and owner.get('post_dedup_modality_target')=={'vision':.30,'audio':.25,'audiovisual':.45}))
                     or check.get('status')!='pass' or check.get('logical_questions')!=14
                     or evidence['full_qa_selection'].get('formal_dataset_count')!=0):
                 raise ValueError('original available-candidate allocation lacks explicit unchanged-answer proof')

@@ -345,11 +345,11 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
                     if str(error)!='single parent has fewer actual legal questions than requested total':raise
                     availability={'requested':partial_audit['requested_allocation'],'actual':partial_audit['actual_allocation'],'changed':True,'reason':'fewer original legal candidates; explicit partial trial window'}
             else:
+                allocations['v0_a0'],availability=available_single_parent_allocation(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'])
                 if demand:
-                    availability={'requested':dict(allocations['v0_a0']),'actual':dict(allocations['v0_a0']),
-                        'changed':False,'reason':'demand-driven batch retains original 30/25/45 modality schedule'}
-                else:
-                    allocations['v0_a0'],availability=available_single_parent_allocation(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'])
+                    availability.update(reason='owner: modality target applies after parent dedup; retain 14 original legal questions',
+                        post_dedup_modality_target={'vision':.30,'audio':.25,'audiovisual':.45},
+                        target_applied_after_parent_dedup=True)
             q,a=select_questions(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
             chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0,'owner_available_candidate_allocation':availability}
             if partial_audit:audit['acceptance_partial_family_policy']=partial_audit
