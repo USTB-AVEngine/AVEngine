@@ -9,14 +9,15 @@ QUIET_SPEEDS={'human_speech':.81,'human_other':.81,'dog_walk':.51,'cat_walk':.31
 def activity(record):
     return record.get('screens',{}).get('automatic_activity',{}).get('activity_intervals_samples') or record.get('source_normalization',{}).get('measured_activity',{}).get('source_activity_intervals_samples') or []
 
-def select_source_program(records,allowed_classes,speed_range):
+def select_source_program(records,allowed_classes,speed_range,*,maximum_program_s=2.4):
     """Longest complete qualified call, with bounded outward source context.
 
     A long recording can supply one complete measured call. Other calls outside
     that crop remain in source evidence; activity inside the crop is never hidden.
-    No waveform is repeated, stretched, or trimmed inside the selected call.
+    Whole calls are preferred. If none fits, the explicit owner-authorized
+    tail crop is faded and remeasured from its actual waveform; speech stays whole.
     """
-    candidates=[];minimum=max(.8,.4/(float(speed_range[0])*.85))
+    candidates=[];minimum=max(.8,.4/(float(speed_range[0])*.85));maximum=min(2.4,float(maximum_program_s))
     for record in records:
         if record.get('sound_class')not in allowed_classes or record.get('source_type')=='author_tts':continue
         sr=int(record.get('header',{}).get('sample_rate_hz',16000));n=int(record.get('header',{}).get('sample_count',round(float(record.get('duration_s',0))*sr)))
@@ -24,7 +25,7 @@ def select_source_program(records,allowed_classes,speed_range):
         spans=activity(record)
         if not spans:continue
         full_span=(spans[-1][1]-spans[0][0])/sr
-        if n/sr<=2.4 and full_span>=minimum:
+        if n/sr<=maximum and full_span>=minimum:
             candidates.append((full_span,record['sound_asset_id'],deepcopy(record),None))
         for index,(lo,hi)in enumerate(spans):
             if (hi-lo)/sr<minimum:continue
@@ -32,12 +33,18 @@ def select_source_program(records,allowed_classes,speed_range):
             # Outward alignment and source availability are required, never pad
             # a cropped physical effect with invented samples.
             end=end//1600*1600
-            if end<hi or not 0<end-begin<=38400:continue
+            if end<hi or not 0<end-begin<=round(maximum*16000):continue
             profile={'crop_start_sample':begin,'sample_count':end-begin,'selected_activity_index':index,
                 'required_activity_intervals_samples':[[int(lo),int(hi)]],
                 'reason':'complete longest measured call; outward 100ms context; all in-crop activity retained'}
             candidates.append(((hi-lo)/sr,record['sound_asset_id'],deepcopy(record),profile))
-    if not candidates:raise ValueError('no complete admitted source/call with >=%.3fs activity and <=2.4s program for '%minimum+str(sorted(allowed_classes)))
+    if not candidates:
+        from .v7_tail_muting import select_muted_program
+        muted=select_muted_program(records,allowed_classes,minimum,maximum)
+        if muted is not None:
+            span,sid,record,profile=muted
+            candidates.append((span,sid,deepcopy(record),profile))
+    if not candidates:raise ValueError('no complete admitted source/call or measured owner-authorized tail crop with >=%.3fs activity for '%minimum+str(sorted(allowed_classes)))
     candidates.sort(key=lambda x:(-x[0],x[1],x[3]is not None))
     span,_,record,profile=candidates[0]
     return {'record':record,'program':profile,'measured_activity_span_s':span,'minimum_designed_radial_change_m':span*speed_range[0]*.85}
