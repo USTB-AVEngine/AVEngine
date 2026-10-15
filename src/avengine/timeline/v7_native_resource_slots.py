@@ -44,11 +44,13 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
         available=psutil.virtual_memory().available
         tree_pss=0
         try:
-            for ancestor in psutil.Process().parents():
-                if 'run_v7_acceptance.py' in ' '.join(ancestor.cmdline()):
-                    tree_pss=sum(p.memory_full_info().pss for p in [ancestor,*ancestor.children(recursive=True)] if p.status()!=psutil.STATUS_ZOMBIE);break
+            owners=[p for p in psutil.Process().parents() if any(name in ' '.join(p.cmdline())
+                for name in ('run_v7_acceptance.py','generate_v7_demand_scenes.py'))]
+            if owners:
+                owner=owners[-1]
+                tree_pss=sum(p.memory_full_info().pss for p in [owner,*owner.children(recursive=True)] if p.status()!=psutil.STATUS_ZOMBIE)
         except psutil.Error:pass
-        pressure=available<20_000_000_000 or tree_pss>40_000_000_000
+        pressure=available<20_000_000_000 or tree_pss>int(policy.get('maximum_task_pss_bytes',40_000_000_000))
         if pressure:
             alert={'time_unix':time.time(),'kind':kind,'pid':os.getpid(),'available_memory_bytes':available,'own_parent_tree_pss_bytes':tree_pss,'action':'pause new native operation; never terminate active work'}
             with(root/'evidence/native_resource_alerts.jsonl').open('a')as stream:stream.write(json.dumps(alert)+'\n')
@@ -60,7 +62,7 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
                 with(directory.parent/'memory_admission.lock').open('a+')as guard:
                     fcntl.flock(guard,fcntl.LOCK_EX)
                     pending=0
-                    for existing in directory.glob('*.lock'):
+                    for existing in directory.parent.glob('*/*.lock'):
                         if existing==Path(stream.name):continue
                         try:
                             # Old processes may leave metadata after unlocking.
@@ -79,7 +81,7 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
                         for process in psutil.process_iter():
                             try:system_pss+=process.memory_full_info().pss
                             except psutil.Error:pass
-                    pss_stop=bool(section.get('maximum_system_pss_bytes') and system_pss+pending+required_increment>int(section['maximum_system_pss_bytes']))
+                    pss_stop=(tree_pss+pending+required_increment>int(policy.get('maximum_task_pss_bytes',40_000_000_000)) or bool(section.get('maximum_system_pss_bytes') and system_pss+pending+required_increment>int(section['maximum_system_pss_bytes'])))
                     if pss_stop or psutil.virtual_memory().available-pending<int(section.get('minimum_available_bytes',30_000_000_000))+required_increment:
                         fcntl.flock(stream,fcntl.LOCK_UN);stream.close();continue
                     stream.seek(0);stream.truncate();stream.write(json.dumps({'pid':os.getpid(),'create_time':psutil.Process().create_time(),'reserved_incremental_bytes':required_increment,'baseline_pss_bytes':psutil.Process().memory_full_info().pss}));stream.flush()

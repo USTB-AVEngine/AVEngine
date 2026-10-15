@@ -1,0 +1,211 @@
+"""Unattended construction uses legal registries, not retained scene recipes."""
+import copy,json,os,time
+from pathlib import Path
+import pytest
+from avengine.timeline.v7_family_constructors import construct_family_scene,choose_authored
+from avengine.timeline.v7_unattended_resources import ResourcePolicy,admission,runtime_resource_view
+pytestmark=pytest.mark.fast_unit
+
+@pytest.fixture
+def inputs():
+    rooms=[];houses={}
+    for i in range(2):
+        key='new_'+str(i);rid='room_'+str(i);polygon={'type':'Polygon','coordinates':[[[-5,-5],[5,-5],[5,5],[-5,5],[-5,-5]]]}
+        rooms.append({'key':key+'::'+rid,'house':key,'room_id':rid,'family':'hm3d','categories':['standing_human'],'listener_m':None})
+        houses[key]={'house':key,'split':'train','acoustic_status':'pass','checked_room_ids':[rid],
+            'checked_rooms':[{'room_label':rid,'floor_polygon':polygon,'placement':{'camera_m':[i*10,1.5,0],
+                'source_1_m':[i*10-1,1.3,-2],'source_2_m':[i*10+1,1.3,-2]}}]}
+    assets=[{'asset_id':g+'_'+color,'kind':'human','controlled_shirt':True,'color':color,
+        'visual_gender':g,'entity_class':'articulated_human','species_id':'human','walk_allowed':True,
+        'allowed_classes':['speech_playback','laughter','coughing'],'attachment_surface':'floor',
+        'dialogue_voice_binding_eligible':True}for color in ('blue','yellow','green')for g in ('female','male')]
+    sounds=[]
+    for scenario in range(3):
+        for role in ('a','b'):
+            for gender in ('female','male'):
+                for voice in (0,1):
+                    sid=f'{scenario}_{role}_{gender}_{voice}'
+                    sounds.append({'sound_asset_id':sid,'scenario_id':str(scenario),'role_id':role,
+                        'transcript':f'complete sentence {scenario} {role}',
+                        'synthesis_readback':{'duration_s':2.,'sample_count':32000},
+                        'voice_reference':{'speaker_id':gender+str(voice),'gender':gender}})
+    contract={'schema':'v7-production-inputs-v1','test_houses':[],'rooms':rooms,'animal_motion':{},'policy':{}}
+    return rooms,houses,assets,{'sounds':sounds},contract
+
+@pytest.mark.parametrize('family',['QA-10','QA-28','QA-21','V7-CLASS34','QA-01','QA-03','QA-19'])
+def test_any_legal_room_retains_required_roles_and_real_source_kinds(inputs,family):
+    rooms,houses,assets,semantic,contract=inputs
+    for room in rooms:
+        result=construct_family_scene(room,houses[room['house']],{},assets,[{'sound_class':'laughter'},{'sound_class':'coughing'}],semantic,contract,{},scene_id='new_scene',seed=43,family=family)
+        row=result['row'];assert row['house']==room['house']and row['room_id']==room['room_id']
+        assert len(row['asset_ids'])==3 and len(set(row['asset_ids']))==3
+        assert len(row['silent_asset_ids'])==1
+        assert row['automatic_construction']['scene_template_files_read']==[]
+        assert 'native_attachment_supports'not in row and 'sampler_template_source'not in row
+        assert all(len(kinds)==1 for kinds in row['source_classes'].values())
+        if family=='QA-10':
+            assert len(row['native_occlusion_relations'])==1
+            relation=row['native_occlusion_relations'][0]
+            assert relation['occluder_asset_id']in row['silent_asset_ids']
+            assert relation['target_asset_id']not in row['silent_asset_ids']
+            assert relation['minimum_stable_seconds']==.5 and relation['minimum_occluded_fraction']==.25
+        if family=='QA-28':
+            for angle in row['semantic_azimuth_targets_deg'].values():
+                margin=(angle+22.5)%45;assert min(margin,45-margin)>=15
+        if family in {'QA-21','V7-CLASS34'}:assert row['category_focus_class']=='laughter'
+        if family in {'QA-03','QA-19'}:assert row['semantic_start_offsets_s'][1]>=2.5
+
+
+def test_content_quartet_has_only_whole_authored_sources_and_fixed_real_voices(inputs):
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    result=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},scene_id='quad',seed=18,family='V7-CONTENT-BIND')
+    row=result['row'];assert result['profile']=='registered'
+    assert row['members']==['v0_a0','v0_a1','v1_a0','v1_a1']
+    assert len(row['production_scenario']['asset_ids'])==3
+    lookup={r['sound_asset_id']:r for r in semantic['sounds']}
+    epochs=row['production_scenario']['semantic_epoch_sound_ids']
+    assert len({lookup[ids[0]]['scenario_id']for ids in epochs})==3
+    voices=[[lookup[sid]['voice_reference']['speaker_id']for sid in ids]for ids in epochs]
+    assert voices[0]==voices[1]==voices[2]and len(set(voices[0]))==2
+    assert row['production_scenario']['environment_sound_classes']==[]
+
+
+def test_original_room_legality_is_not_widened_to_make_a_constructor_fit(inputs):
+    rooms,houses,assets,semantic,contract=inputs
+    wrong=copy.deepcopy(rooms[0]);wrong['categories']=[]
+    with pytest.raises(ValueError,match='three distinct registered'):
+        construct_family_scene(wrong,houses[wrong['house']],{},assets,[],semantic,contract,{},scene_id='bad',seed=4,family='QA-10')
+
+
+def test_bounded_retry_changes_positions_orientations_and_individuals_without_dropping_roles(inputs):
+    from avengine.capture.v7_layout_candidates import order_support_candidates,facing_yaw
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    first=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},scene_id='a',seed=12,family='QA-10')['row']
+    retry=construct_family_scene(room,houses[room['house']],{},assets,[],semantic,contract,{},scene_id='b',seed=12,family='QA-10',attempt=4)['row']
+    assert len(first['asset_ids'])==len(retry['asset_ids'])==3
+    candidates=list(range(80));scene={'automatic_construction':{'candidate_index':4}}
+    ordered=order_support_candidates(scene,candidates);assert set(ordered)==set(candidates)and ordered!=candidates
+    baseline=facing_yaw({},assets[0],[0,0,0],[1,0,1])
+    changed=facing_yaw({'automatic_construction':{'candidate_index':1}},assets[0],[0,0,0],[1,0,1]);assert changed!=baseline
+
+
+def test_resource_expiry_and_pressure_only_change_admission():
+    policy=ResourcePolicy();expiry=policy.temporary_minimum_free_until_unix
+    assert admission(policy,available=40_000_000_000,free=76_000_000_000,now=expiry-1)['status']=='admitted'
+    assert admission(policy,available=40_000_000_000,free=76_000_000_000,now=expiry)['status']=='paused_before_new_job'
+    assert admission(policy,available=29_000_000_000,free=160_000_000_000,now=expiry-1)['status']=='paused_before_new_job'
+    assert admission(policy,available=40_000_000_000,free=160_000_000_000,own_pss=41_000_000_000)['status']=='paused_before_new_job'
+    view=runtime_resource_view({},policy,list(range(16)));assert view['fresh_rir_workers']+1<=16
+
+
+def test_passed_feedback_deduplicates_imports_and_never_counts_failed_or_requested_quota(tmp_path):
+    from avengine.timeline.v7_automatic_feedback import from_passed_exports
+    roots=[tmp_path/'a',tmp_path/'b']
+    for root in roots:
+        (root/'evidence/jobs').mkdir(parents=True);(root/'export/parent_rows').mkdir(parents=True)
+        (root/'evidence/jobs/000.json').write_text(json.dumps({'status':'passed','house':'already_seen'}))
+        (root/'export/parent_rows/000.jsonl').write_text(json.dumps({'independent_parent_scene_id':'p','logical_question_id':'q','qa_id':'V7-CLASS34','canonical_answer':'laughter'})+'\n')
+        (root/'evidence/jobs/001.json').write_text(json.dumps({'status':'failed','house':'failed_seen','requested_questions':99}))
+    state=from_passed_exports(roots);assert state['logical_questions']==1
+    assert state['class34_positive_counts']=={'laughter':1}
+    assert state['family_counts']=={'V7-CLASS34':1}
+
+
+def test_global_entry_refuses_handwritten_scene_fields(tmp_path):
+    from tools.timeline.generate_v7_demand_scenes import load_global
+    config=tmp_path/'bad.json';config.write_text(json.dumps({'schema':'v7-global-family-runtime-v1','parents':[{'position':[1,2,3]}]}))
+    with pytest.raises(ValueError,match='no scene configuration'):load_global(config)
+
+
+def test_new_failed_copy_cleanup_preserves_old_files_all_receipts_and_sealed_checkpoints(tmp_path):
+    from tools.timeline.generate_v7_demand_scenes import cleanup_new_failed
+    native=tmp_path/'native/parents/failure';native.mkdir(parents=True)
+    recent=native/'new.npy';old=native/'old.wav';recent.write_bytes(bytes(1_000_001));old.write_bytes(bytes(1_000_001))
+    now=time.time();os.utime(old,(now-100,now-100));receipt=tmp_path/'automatic_result.json';receipt.write_text('{"status":"failed"}')
+    log=tmp_path/'worker.log';log.write_text('explicit failure saved')
+    result={'status':'failed','automatic_started_unix':now-1}
+    cleanup_new_failed(tmp_path,result,now-2,log)
+    assert not recent.exists()and old.exists()and receipt.exists()and log.exists()
+    audit=json.loads((tmp_path/'failed_large_copy_cleanup.json').read_text());assert audit['removed_bytes']==1_000_001
+    recent.write_bytes(bytes(1_000_001));(native/'integration_seal_completed.json').write_text('{}')
+    cleanup_new_failed(tmp_path,result,now-2,log);assert recent.exists()
+
+
+def test_whole_source_clock_keeps_waveform_binding_and_separates_taxonomy_from_authored_speech(monkeypatch):
+    from avengine.timeline.v7_family_clock import build_constructed_scene
+    from avengine.timeline import v7_phase2_sources
+    scene={'sources':{'voice1':{'mechanism':'human_live_recorded_laughter'},'voice2':{'mechanism':'human_live_recorded'},'voice3':{'mechanism':'visible_silent_bystander'}},
+        'events':[{'event_id':'laugh0','endpoint_id':'voice1','start_tick':5,'end_tick':25},
+                  {'event_id':'tts0','endpoint_id':'voice2','start_tick':0,'end_tick':20}]}
+    program={'records':[{'sound_asset_id':'laugh','source_type':'recorded','header':{'sample_count':64000,'sample_rate_hz':16000}},
+        {'sound_asset_id':'tts','source_type':'author_tts','header':{'sample_count':32000,'sample_rate_hz':16000}}],
+        'events':[{'event_id':'laugh0','sound_asset_id':'laugh','crop_start_sample':1234,'crop_end_sample':33234},
+                  {'event_id':'tts0','sound_asset_id':'tts','crop_start_sample':0,'crop_end_sample':32000}]}
+    assets=[{'asset_id':'laugher','endpoint_id':'voice1'},{'asset_id':'author','endpoint_id':'voice2'},{'asset_id':'quiet','endpoint_id':'voice3'}]
+    monkeypatch.setattr(v7_phase2_sources,'build_phase2_scene',lambda *a:(None,copy.deepcopy(scene),copy.deepcopy(program),assets))
+    row={'scene_id':'candidate','independent_parent_scene_id':'parent','automatic_construction':{'candidate_index':0},
+        'phase2_authored_speech_schedule_s':{'author':[0.,10.,20.]},'automatic_taxonomy_clock':{'asset_id':'laugher'}}
+    _,actual,bindings,kept=build_constructed_scene(row,{},[],[],{})
+    assert set(actual['sources'])==set(scene['sources'])and kept==assets
+    author=[e for e in actual['events']if e['endpoint_id']=='voice2'];laugh=[e for e in actual['events']if e['endpoint_id']=='voice1']
+    assert [(e['start_tick'],e['end_tick'])for e in author]==[(0,20),(100,120),(200,220)]
+    assert [(e['start_tick'],e['end_tick'])for e in laugh]==[(25,45),(125,145),(225,245)]
+    for b in bindings['events']:
+        assert b['crop_start_sample']==(0 if b['sound_asset_id']=='tts'else 1234)
+        assert b['crop_end_sample']==(32000 if b['sound_asset_id']=='tts'else 33234)
+    assert actual['independent_parent_scene_id']=='parent'
+
+
+def test_content_constructor_changes_real_body_gender_instead_of_reducing_complete_epochs(inputs):
+    rooms,houses,assets,semantic,contract=inputs;room=rooms[0]
+    restricted={'sounds':[s for s in semantic['sounds']if s['voice_reference']['gender']=='female'or s['scenario_id']=='0']}
+    for a in assets:a['body_identity_id']=a['visual_gender']+'_registered_body'
+    plan=construct_family_scene(room,houses[room['house']],{},assets,[],restricted,contract,{},scene_id='auto',seed=1,family='V7-CONTENT-BIND')
+    ids=plan['row']['production_scenario']['asset_ids'];lookup={a['asset_id']:a for a in assets}
+    assert all(lookup[aid]['visual_gender']=='female'for aid in ids[:2])
+    assert len({lookup[aid]['body_identity_id']for aid in ids[:2]})==1
+    assert len(plan['row']['production_scenario']['semantic_epoch_sound_ids'])==3
+
+
+def test_public_new_room_entry_never_reads_an_agent_scene_configuration(tmp_path,monkeypatch,inputs):
+    from tools.timeline import generate_v7_demand_scenes as entry
+    from avengine.timeline import v7_family_clock
+    rooms,houses,assets,semantic,contract=inputs;root=tmp_path/'unattended';hand=root/'inputs/planned/000.json'
+    hand.parent.mkdir(parents=True);hand.write_text('{"native_attachment_supports":"forbidden old manual choice"}')
+    config=tmp_path/'global.json';config.write_text(json.dumps({'schema':'v7-global-family-runtime-v1','authorized_output_root':str(tmp_path),'feedback_roots':[]}))
+    original=Path.read_text
+    def guarded(path,*args,**kwargs):
+        if path==hand:raise AssertionError('read a handwritten scene configuration')
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(Path,'read_text',guarded)
+    monkeypatch.setattr(entry,'data',lambda cfg:(contract,assets,{}, {'records':[]},semantic,houses))
+    monkeypatch.setattr(entry,'commit',lambda:'f'*40)
+    monkeypatch.setattr(v7_family_clock,'build_constructed_scene',lambda *args:({}, {'events':[],'sources':{}},{'records':[]},[]))
+    monkeypatch.setattr(entry.os,'environ',dict(os.environ))
+    monkeypatch.setattr(entry.sys,'argv',['automatic','--config',str(config),'--output',str(root),'--plan-only','--parents','2','--families','QA-10','QA-28'])
+    entry.main();result=json.loads((root/'AUTOMATION_RESULT.json').read_text())
+    assert result['native_passed_parents']==0 and result['handwritten_scene_configuration_inputs_read']==[]
+    assert len(list((root/'proposals').glob('*.json')))==2
+
+
+def test_frozen_global_registry_fingerprints_notice_in_place_changes(tmp_path):
+    from tools.timeline.generate_v7_demand_scenes import global_fingerprints
+    path=tmp_path/'assets.json';path.write_text('{"assets":[]}')
+    cfg={'assets':str(path)};before=global_fingerprints(cfg)
+    path.write_text('{"assets":["a new admitted body"]}')
+    assert global_fingerprints(cfg)!=before
+
+
+def test_production_write_guard_uses_the_same_exact_floor_and_never_aborts_admitted_work(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from avengine.timeline import v7_storage_budget as storage
+    from avengine.timeline.v7_unattended_resources import configure_worker
+    monkeypatch.setenv(storage.ENV_KEY,'')
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=60_000_000_000))
+    policy=ResourcePolicy(temporary_minimum_free_until_unix=time.time()+3600)
+    budget=configure_worker(tmp_path,policy,[0,1]);assert budget['admission_only']is True
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=59_000_000_000))
+    # A different user's disk growth must not abort a parent already admitted.
+    record=storage.check_write(tmp_path/'actual_new_native_stage',expected_bytes=8_000_000_000)
+    assert record['resource_limits_enforced_at']=='parent_admission'
+    assert record['free_bytes']==59_000_000_000

@@ -18,14 +18,14 @@ def add_required_condition(row,condition):
 def run_worker(manifest,slot):
     task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve()
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
-    cpus=manifest.get('cpu_ids') or sorted(os.sched_getaffinity(0))
+    cpus=manifest.get('cpu_ids') or manifest.get('cpu_affinity_ids') or sorted(os.sched_getaffinity(0))
     os.sched_setaffinity(0,{cpus[slot%len(cpus)]})
     import avengine
     if not Path(avengine.__file__).resolve().is_relative_to(Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
     from avengine.timeline.v7_storage_budget import ENV_KEY,check_write,launch_minimum_free_bytes
     os.environ[ENV_KEY]=json.dumps({'root':str(root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
-        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':128_000_000,
+        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI',
         'resource_admission_managed':True})
     check_write(root,expected_bytes=0)
@@ -35,7 +35,7 @@ def run_worker(manifest,slot):
     os.environ[ENV_KEY]=json.dumps(active_storage)
     inputs=load(task.get('runtime_input') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     inputs['launch_disk_policy']=manifest.get('launch_disk_policy',{})
-    inputs.update(fresh_rir_workers=min(16,max(1,int(task.get('fresh_rir_workers',manifest.get('fresh_rir_workers',16))))),fresh_rir_cpu_ids=list(cpus))
+    inputs.update(fresh_rir_workers=min(16,max(1,int(task.get('fresh_rir_workers',manifest.get('fresh_rir_workers',inputs.get('fresh_rir_workers',16)))))),fresh_rir_cpu_ids=list(inputs.get('fresh_rir_cpu_ids') or cpus))
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
@@ -55,6 +55,8 @@ def run_worker(manifest,slot):
             row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
         inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
+        if row.get('automatic_construction'):
+            from avengine.timeline.v7_family_clock import generate_constructed_phase2_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         if previous.exists():

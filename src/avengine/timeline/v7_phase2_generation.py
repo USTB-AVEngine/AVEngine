@@ -115,8 +115,12 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     from avengine.qa.v7_visible_truth import validate_additional_items
     root=Path(output)/'parents'/row['scene_id'];check_write(root,expected_bytes=1_000_000_000);root.mkdir(parents=True,exist_ok=True)
     wall=time.perf_counter();cpu=cpu_seconds();semantic=read_json(inputs['semantic_manifest']) if row.get('semantic_scenario_id') else None
-    working,base,program,assets=build_visible_scene(row,house,source_admission['records'],catalog,semantic)
-    if row.get('phase2_authored_speech_schedule_s'):
+    if row.get('automatic_construction'):
+        from avengine.timeline.v7_family_clock import build_constructed_scene
+        working,base,program,assets=build_constructed_scene(row,house,source_admission['records'],catalog,semantic)
+    else:
+        working,base,program,assets=build_visible_scene(row,house,source_admission['records'],catalog,semantic)
+    if row.get('phase2_authored_speech_schedule_s') and not row.get('automatic_construction'):
         from avengine.timeline.v7_conditioned_post_motion import apply_authored_post_schedule
         base,program=apply_authored_post_schedule(row,base,program,assets)
     from avengine.timeline.v7_production_inputs import bind_semantic_registry
