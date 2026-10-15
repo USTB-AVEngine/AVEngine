@@ -54,7 +54,7 @@ class MeshRaycaster:
         self.mesh = mesh
         self.source = source
         self.evidence = dict(evidence or {})
-        self.face_ids = None if face_ids is None else np.asarray(face_ids, dtype=str)
+        self.face_ids = None if face_ids is None else np.asarray(["" if x is None else str(x) for x in face_ids], dtype=str)
         if self.face_ids is not None and len(self.face_ids) != len(mesh.faces):
             raise ValueError("one identity per original face is required")
         try:
@@ -71,7 +71,7 @@ class MeshRaycaster:
         if not np.isfinite(origins).all() or not np.isfinite(directions).all() or np.any(norms <= 0):
             raise ValueError("rays must be finite and nonzero")
         ranges = np.full(len(directions), np.inf)
-        ids = np.full(len(directions), "", dtype="U128")
+        ids = np.full(len(directions), "", dtype=self.face_ids.dtype if self.face_ids is not None else "U1")
         if not len(self.mesh.faces):
             return ranges, ids
         for begin in range(0, len(directions), 16384):
@@ -95,6 +95,7 @@ class CompositeRaycaster:
 
     def first_hit(self, origins, directions):
         ranges, ids = self.raycasters[0].first_hit(origins, directions)
+        ids = ids.astype(object)
         for ray in self.raycasters[1:]:
             r, i = ray.first_hit(origins, directions)
             use = r < ranges
@@ -152,7 +153,7 @@ def build_depth_buffer(camera, raycaster):
                             yy.ravel() + .5 - camera.height / 2)
     ranges, ids = raycaster.first_hit(np.asarray(camera.position_m), directions)
     depth = ranges / np.linalg.norm(directions, axis=1)
-    identity = ids.reshape(yy.shape) if np.any(ids != "") else None
+    identity = ids.astype(str).reshape(yy.shape) if np.any(ids != "") else None
     return DepthBuffer(camera, depth.reshape(yy.shape), identity, raycaster.source,
                        {"method": "original_visual_triangles_pixel_center_rays", **getattr(raycaster, "evidence", {})})
 
@@ -208,7 +209,7 @@ def predict_visibility(camera, root_m, body=BodySpec(), *, depth=None, raycaster
     yy, xx = np.mgrid[y0:y1, x0:x1]
     rays = pixel_rays(camera, xx + .5 - camera.width / 2, yy + .5 - camera.height / 2)
     scene = depth.depth_m[y0:y1, x0:x1].copy()
-    ids = np.full(scene.shape, "", dtype="U128") if depth.object_ids is None else depth.object_ids[y0:y1, x0:x1].astype("U128").copy()
+    ids = np.full(scene.shape, "", dtype=object) if depth.object_ids is None else depth.object_ids[y0:y1, x0:x1].astype(object).copy()
     for entity_id, oc_root, oc_body in occluders:
         od = _cylinder_depth(camera, rays, oc_root, oc_body.radius_m, oc_body.height_m)
         front = od < scene
