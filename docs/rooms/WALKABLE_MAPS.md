@@ -49,23 +49,35 @@ inputs; room polygon and floor identity are compared before cache reuse.
 Unchanged caches are reused across code commits. Cache creation is atomic and
 never replaces an existing map.
 
-The floor algorithm reuses `PhysicalFloor` and `OriginalVerticalStageRay`.
-Every candidate cell has exact original center/corner supports, and every
-supported center is independently read back through native `sim.cast_ray`,
-including the existing 0.1 mm agreement check. The requested cache uses a
-stricter 10 mm reference band; native `PhysicalFloor` remains at 15 mm.
-Support span/adjacent-cell jumps use the existing 15 mm bound. The ground-face
-classification is exactly `TriangleClearance`'s normal cosine >0.98 and
-reference distance <20 mm. Complete nonfloor triangles intersecting the
-0.00101–1.8 m body slab are projected into XZ; this conservatively includes
-all geometry between sampled ray heights, including vertical/degenerate
-triangles. A 20.0001 mm static margin and half-cell diagonal are added to
-species radii. Support masks are eroded across the complete body footprint.
+The v2 construction policy (owner 2026-10-15) reuses PhysicalFloor's
+`OriginalVerticalStageRay` and the same native `sim.cast_ray` origin (+20 cm)
+and length (85 cm). Center/corner supports use a +/-3 cm reference band, with
+at most 4 cm probe span or 3x3 neighbour height change. Native center readback
+uses the map band directly: calling PhysicalFloor's unchanged 15 mm final gate
+here would silently undo this relaxation. Native/mesh differences remain
+recorded as diagnostics. No native admission code is changed.
 
-The map is a conservative cylinder proposal filter. Source meshes can extend
-outside that envelope or above 1.8 m, and moving entities can change after
-planning. The original per-pose skin, foot, floor, reach, spacing, native snap,
-collision, camera, audio and question gates remain authoritative and unchanged.
+Faces within 8 cm of the measured reference and normal cosine >0.9 are ground.
+Only faces with a vertex above 10 cm are obstacles; faces are clipped to the
+10 cm--1.8 m body slab before XZ projection. Vertical and degenerate wall
+triangles remain obstacles. Clearance uses the actual species radius, without
+the old extra static margin, cell-diagonal margin or duplicate NavMesh body
+inflation. The center must still lie inside the polygon and snap horizontally
+within 2 mm. Unknown/outside support counts as unsupported.
+
+Each actual-radius disk needs >=85% supported cells and a supported center.
+This replaces complete binary erosion (which also added ~7 cm to the radius).
+The diagnostic `support_fraction_human/dog/cat` arrays retain these ratios.
+Independent radius coverage ratios need not be nested; metadata
+`footprint_policy=independent-radius-coverage-v2` allows this explicitly while
+cat and slide remain identical. Existing v1 erosion caches keep their nesting
+validation. The NPZ container/version/name remain v1 for compatibility;
+`algorithm_revision=permissive-support-3cm-step4cm-85pct-v2` identifies the policy.
+Use a new output root to regenerate rather than silently reusing v1 maps.
+
+The map is a permissive construction aid. The original per-pose skin, foot,
+floor, reach, spacing, native snap, collision, camera, audio and question gates
+remain authoritative and unchanged. A green map cell is not pose admission.
 Native route fitting adds current qualified actors' expanded world bounding
 boxes and the original >=1.5 m listener distance. Reflection probes and movement
 segments use grid supercover, so they turn at blocked map cells and cannot jump

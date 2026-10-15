@@ -1,4 +1,4 @@
-"""Reusable conservative static room masks; native full-pose gates stay authoritative.
+"""Reusable static room construction masks; native full-pose gates stay authoritative.
 
 Arrays use [z, x]. origin_xz_m is the lower corner of cell [0, 0].
 No native simulator or mesh is imported when reading a map.
@@ -55,7 +55,13 @@ class WalkableMap:
             raise ValueError('unsupported walkable map version')
         if any(metadata.get('species_radii_m', {}).get(s) != r for s, r in SPECIES_RADII_M.items()):
             raise ValueError('walkable map body radius policy mismatch')
-        if np.any(self.layers['human'] & ~self.layers['dog']) or np.any(self.layers['dog'] & ~self.layers['cat']) or not np.array_equal(self.layers['cat'], self.layers['slide']):
+        # Independent 85% disk coverage is not mathematically monotone in radius.
+        # Do not reintroduce false exclusions by forcing the v1 erosion nesting.
+        coverage_policy = metadata.get('footprint_policy') == 'independent-radius-coverage-v2'
+        if not np.array_equal(self.layers['cat'], self.layers['slide']):
+            raise ValueError('walkable map cat/slide layers differ')
+        if not coverage_policy and (np.any(self.layers['human'] & ~self.layers['dog'])
+                                    or np.any(self.layers['dog'] & ~self.layers['cat'])):
             raise ValueError('walkable map species layers are not nested')
 
     @classmethod
