@@ -58,3 +58,37 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         required_distinct_semantic_direction_sectors=False)
     validate_recipe(row,catalog,contract)
     return {'profile':'registered','row':row}
+
+
+def repair_registered_content_geometry(original,ctx,*,scene_id):
+    """Solve a missing visual witness while retaining every person and utterance."""
+    from avengine.timeline.v7_offscreen_construction import joint_offscreen_floor
+    row=deepcopy(original)
+    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,1,row['scene_seed'],visible_people=3,minimum_visible_radial_difference_m=.95)
+    height=sum(p[1]for p in ctx['source_proposals'])/len(ctx['source_proposals'])
+    points=[inside[0],inside[1],outside[0],inside[2]]
+    positions=[[p[0],height,p[1]]for p in points];valid=[]
+    for i,p in enumerate(positions):
+        look=positions[1-i]if i<2 else[2*p[k]-ctx['listener_m'][k]for k in range(3)]
+        delta=[look[k]-p[k]for k in range(3)]
+        valid.append({'position_m':p,'body_yaw_deg':math.degrees(math.atan2(delta[0],-delta[2])),'status':'automatic geometry repair; original native checks required'})
+    row.update(scene_id=scene_id,independent_parent_scene_id=scene_id,listener_m=list(ctx['listener_m']),camera_yaw_deg=yaw,
+        camera_yaw_knots=[{'time_s':t,'yaw_deg':yaw}for t in (0.,30.)],
+        measured_static_layout={'listener_m':list(ctx['listener_m']),'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],'admission_status':'unqualified repaired geometry'},
+        native_endpoint_distance_bands_m={f'voice{i+1}':[inside[i][2]-.15,inside[i][2]+.15]for i in range(2)})
+    row['production_scenario']['camera_yaw_deg']=yaw
+    row['automatic_construction']['geometry_repair']={'source_scene_id':original['scene_id'],'required_visual_witness':'two actual reviewed visible people separated by at least the unchanged 0.5m margin','people_and_complete_utterances_preserved':True}
+    return row
+
+
+def construct_registered_content_repair(room,house,state,catalog,records,semantic,contract,runtime,*,scene_id,seed,family='V7-CONTENT-BIND',attempt=0):
+    import json
+    from pathlib import Path
+    from avengine.timeline.v7_family_constructors import room_context
+    from avengine.timeline.v7_production_inputs import validate_recipe
+    original=json.loads(Path(runtime['registered_content_repair_source']).read_text())['seed_row']
+    if family!='V7-CONTENT-BIND'or original['house']!=room['house']or original['room_id']!=room['room_id']or original['scene_seed']!=seed:
+        raise ValueError('content repair must preserve its original legal cell and base seed')
+    row=repair_registered_content_geometry(original,room_context(room,house,0),scene_id=scene_id)
+    validate_recipe(row,catalog,contract)
+    return {'profile':'registered','row':row}

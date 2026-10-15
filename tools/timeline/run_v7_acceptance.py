@@ -71,6 +71,10 @@ def run_worker(manifest,slot):
     from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
     visual_cpu_policy=configure_cpu_visual(inputs,cpu_ids=[cpu for cpu in(task.get('cpu_ids')or cpus)if cpu in inherited_cpus])
     inputs.update(question_worker_cpu_policy(manifest,task,[cpu for cpu in(task.get('cpu_ids')or cpus)if cpu in inherited_cpus]))
+    if task.get('construction_repair_source'):
+        repair_source=Path(task['construction_repair_source']).resolve()
+        if not repair_source.is_relative_to(root)or not repair_source.is_file():raise ValueError('construction repair source escaped owned output')
+        inputs['registered_content_repair_source']=str(repair_source)
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])

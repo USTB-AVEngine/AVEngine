@@ -18,3 +18,14 @@ def test_requested_depth_follows_physical_role_through_the_colour_swap():
     scene={'native_endpoint_distance_bands_m':{'voice1':[2.6,2.9],'voice2':[3.7,4.0]}}
     assert registered_distance_band(scene,'voice1','green')==registered_distance_band(scene,'voice1','yellow')==[2.6,2.9]
     assert registered_distance_band(scene,'voice2','yellow')==registered_distance_band(scene,'voice2','green')==[3.7,4.0]
+
+
+def test_geometry_repair_preserves_people_voices_and_exact_emission_schedule():
+    from avengine.timeline.v7_content_offscreen_construction import repair_registered_content_geometry
+    old={'scene_id':'failed','scene_seed':42,'asset_ids':['a','b','c','d'],'semantic_sound_ids':['whole_a','whole_b','whole_c'],'semantic_start_offsets_s':[3.,6.5,0.],'production_scenario':{'semantic_epoch_sound_ids':[['a1','b1','c1']]},'automatic_construction':{}}
+    ctx={'room_floor_polygon':box(-6,-6,6,6).__geo_interface__,'listener_m':[0.,1.2,0.],'source_proposals':[[1.,1.5,2.],[-1.,1.5,2.]]}
+    actual=repair_registered_content_geometry(old,ctx,scene_id='fresh_attempt')
+    for key in ['asset_ids','semantic_sound_ids','semantic_start_offsets_s']:
+        assert actual[key]==old[key]
+    assert actual['production_scenario']['semantic_epoch_sound_ids']==old['production_scenario']['semantic_epoch_sound_ids']
+    assert actual['scene_seed']==42 and actual['scene_id']=='fresh_attempt'and old['scene_id']=='failed'
