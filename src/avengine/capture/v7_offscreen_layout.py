@@ -57,9 +57,13 @@ def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100,unconstrain
         if role:
             if role.get('static',True) is False:
                 # Dynamic 'outside' role (QA-07 entry): outside at frame zero, proven on the actual posed mesh in
-                # refresh_actual_offscreen_proofs.  `counts` are whole-clip maxima, so here only the required later
-                # entry is checked (Claude 10-16; qa07 evidence moving_offscreen_view_bug_01.json).
-                if role.get('required_visible_sometime') and count<minimum_visible_pixels:return False
+                # refresh_actual_offscreen_proofs.  Before the walk is compiled (no motion_episode yet) the body
+                # stands at its frame-zero pose, so it must show 0 px; after compilation `counts` are whole-clip
+                # maxima and only the required later entry is checked (Claude 10-16; qa07 evidence
+                # moving_offscreen_view_bug_01.json, dynamic_outside_initial_phase_02.json).
+                if not entry.get('motion_episode'):
+                    if count!=0:return False
+                elif role.get('required_visible_sometime') and count<minimum_visible_pixels:return False
                 continue
             if count!=0:return False
         elif aid in unconstrained and count==0:continue      # naturally off screen; a role is assigned on acceptance
