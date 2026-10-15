@@ -46,7 +46,7 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         raise ValueError('supplement source parent is not admitted')
     recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
     scene=row['scene_id'];root=pointer_path.parent;seal=root/pointer['attempt']
-    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v3_fixed_observer.json')
+    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v4_independent_answer_branches.json')
     if cache.exists():return load(cache)
     prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v1.json')
     prior=None  # Earlier candidates predate the fixed observer and wording policy.
@@ -66,12 +66,15 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         pub=load(qpath);original=load(rpath)
         if original.get('status')!='pass' or original.get('checked_forms')!=len(pub) or original.get('mismatches'):
             raise ValueError('original full-pool replay is incomplete or failed')
-        candidates=[q for q in pub if (q['modality']=='vision'or q['qa_id']in {'QA-06','QA-15','QA-16','QA-17'})and q['form']=='open'and q['question_id']not in known_ids]
+        candidates=[q for q in pub if (q['modality']=='vision'or q['qa_id']in {'QA-06','QA-15','QA-16','QA-17','QA-08','STARSS-FRUSTUM','QA-20','QA-24','QA-04','QA-13','QA-25','QA-28','QA-21','V7-CLASS34'})and q['form']=='open'and q['question_id']not in known_ids]
         if not candidates:continue
         audit=load(apath);all_gold={g['question_id']:g for g in load(pool/'private_answers.json')}
-        if any(not all_gold[q['question_id']].get('authority_question_id')for q in candidates):
-            raise ValueError('visual supplement needs the unchanged original QA authority')
-        replay=validate_v6_items(candidates,[all_gold[q['question_id']]for q in candidates],audit,seed=str(row['scene_seed']))
+        evidence=load(pool/'evidence.json')
+        from avengine.qa.v7_visible_truth import validate_additional_items
+        replay_parts=[validate_v6_items(candidates,[all_gold[q['question_id']]for q in candidates],audit,seed=str(row['scene_seed'])),
+            validate_additional_items(candidates,[all_gold[q['question_id']]for q in candidates],evidence['source_qa_evidence'])]
+        replay={'checked_forms':sum(p['checked_forms']for p in replay_parts),'passed_forms':sum(p['passed_forms']for p in replay_parts),
+            'mismatches':[i for p in replay_parts for i in p['mismatches']],'methods':[p.get('method')for p in replay_parts]}
         if replay['mismatches']or replay['checked_forms']!=len(candidates)or replay['passed_forms']!=len(candidates):
             raise ValueError('supplement original QA truth replay failed')
         replacements=appearance_replacements(recipe['assets'],audit['facts'])
@@ -79,15 +82,21 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         start=evidence.get('source_qa_evidence',{}).get('window_start_s',evidence.get('start_s'))
         if start is None:start=(row.get('acceptance_window_starts_s')or[t/10 for t in row['window_start_ticks']])[int(wid.rsplit('w',1)[1])]
         for q in candidates:
-            q=deepcopy(q);g=all_gold[q['question_id']];item=items[g['authority_question_id']]
-            local={**replacements,**appearance_choice_replacements(item,recipe['assets'],audit['facts'])}
-            authority={item['question_id']:reissue_item_english(item,local)}
-            q['question_en']=relabel_english(q.get('question_en',''),local)
-            for c in q.get('choices',[]):
-                if 'text'in c:c['text']=relabel_english(c['text'],local)
+            q=deepcopy(q);g=all_gold[q['question_id']];authority={}
+            if g.get('authority_question_id'):
+                item=items[g['authority_question_id']]
+                local={**replacements,**appearance_choice_replacements(item,recipe['assets'],audit['facts'])}
+                authority={item['question_id']:reissue_item_english(item,local)}
+                q['question_en']=relabel_english(q.get('question_en',''),local)
+                for c in q.get('choices',[]):
+                    if 'text'in c:c['text']=relabel_english(c['text'],local)
+                bad=score_unified_item(authority[item['question_id']],'__invalid_trial_control_answer__',form=q['form'])
+                if bad.get('status')=='scored'and bad.get('score')==1.:raise ValueError('supplement invalid-answer control was accepted')
+            else:
+                invalid=deepcopy(g);invalid.update(canonical_answer='__invalid_control__',answer='__invalid_control__')
+                control=validate_additional_items([q],[invalid],evidence['source_qa_evidence'])
+                if control['passed_forms']or not control['mismatches']:raise ValueError('native supplement invalid-answer control was accepted')
             answer,check=readable_training_answer(q,g,authority)
-            bad=score_unified_item(authority[item['question_id']],'__invalid_trial_control_answer__',form=q['form'])
-            if bad.get('status')=='scored'and bad.get('score')==1.:raise ValueError('supplement invalid-answer control was accepted')
             english=english_public_question(q);validate_english_model_text({**english,'model_answer':answer})
             folder=Path(receipt.get('delivery_export_prefix',''))/'parents'/scene/'windows'/wid
             training={'question_id':q['question_id'],'logical_question_id':q['logical_question_id'],
@@ -104,7 +113,7 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
                     'original_14_question_seal_preserved':str(pointer_path),'new_renders':0}}
             for name in('video','audio_foa','audio_mono'):
                 if not(output/'export'/training[name]).is_file():raise ValueError('supplement media missing from admitted export')
-            entries.append(_entry(scene,training,g));supplemented+=q['modality']=='vision';motion_supplemented+=q['qa_id']in {'QA-06','QA-15','QA-16','QA-17'}
+            entries.append(_entry(scene,training,g));supplemented+=q['modality']=='vision';motion_supplemented+=q['qa_id']in {'QA-06','QA-15','QA-16','QA-17','QA-08','STARSS-FRUSTUM','QA-20','QA-24','QA-04','QA-13','QA-25','QA-28','QA-21','V7-CLASS34'}
         proofs.append({'window_id':wid,'original_replay':str(rpath),'supplements':len(candidates),
             'truth_replay':replay,'source_pool':str(pool),'CJK_and_ID_gate':'pass','invalid_answer_controls':'pass'})
     result={'entries':entries,'new_visual_candidate_rows':supplemented,'new_motion_candidate_rows':motion_supplemented,'source_seal':str(pointer_path),

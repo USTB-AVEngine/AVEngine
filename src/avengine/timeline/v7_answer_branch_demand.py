@@ -52,3 +52,22 @@ def selection_priority(row,family_counts,branch_counts):
     positive,lo,hi=TARGETS[row['qa_id']];goal=lo if hi==1 else(lo+hi)/2
     debt=goal*(family_counts[row['qa_id']]+1)-branch_counts[(row['qa_id'],positive)]
     return -debt if branch(row)==positive else debt
+
+
+def balance_available_branches(entries,minimum_family=3):
+    """Largest feasible subset in the requested range; never create an answer."""
+    import math
+    keep=set(range(len(entries)));report={}
+    for family,(positive,lo,hi)in TARGETS.items():
+        indices=[i for i,e in enumerate(entries)if e['row']['qa_id']==family]
+        positives=[i for i in indices if branch(entries[i]['row'])==positive]
+        negatives=[i for i in indices if i not in set(positives)]
+        chosen=None;goal=lo if hi==1 else(lo+hi)/2
+        for total in range(len(indices),minimum_family-1,-1):
+            lower=max(0,math.ceil(lo*total-1e-9),total-len(negatives));upper=min(len(positives),math.floor(hi*total+1e-9),total)
+            if lower<=upper:
+                n=max(lower,min(upper,round(goal*total)));chosen=positives[:n]+negatives[:total-n];break
+        if chosen is not None:
+            keep.difference_update(indices);keep.update(chosen)
+        report[family]={'available_positive':len(positives),'available_negative':len(negatives),'selected_before_modality':len(chosen)if chosen is not None else len(indices),'range_feasible':chosen is not None}
+    return [entry for i,entry in enumerate(entries)if i in keep],report

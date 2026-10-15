@@ -37,6 +37,12 @@ def publish_current_parents(root):
         for row in rows:validate_english_model_text(row)
         ids=[r['question_id']for r in rows]
         if len(set(ids))!=len(ids):raise ValueError('duplicate physical parent publication rows')
+        if manifest.get('supplement_answer_branch_candidates')and parents:
+            from avengine.timeline.v7_admitted_pool_reselection import balanced_batch
+            try:
+                rows,_=balanced_batch(parents,root,read_only_source_roots=manifest.get('peer_output_roots',[]))
+            except ValueError as error:
+                if not any(text in str(error)for text in ('30/25/45 batch','modality budget cannot preserve')):raise
         content=''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows);content_sha=hashlib.sha256(content.encode()).hexdigest()
         publication=root/'evidence/PUBLICATION_CURRENT.json'
         table=root/'export/train.jsonl'

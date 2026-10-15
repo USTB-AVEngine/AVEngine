@@ -27,7 +27,8 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
         if previous is None:unique[key]=entry
         elif previous['row']['canonical_answer']!=entry['row']['canonical_answer']:
             raise ValueError('same physical question has inconsistent canonical answers')
-    pool=list(unique.values())
+    from avengine.timeline.v7_answer_branch_demand import balance_available_branches
+    pool,branch_capacity=balance_available_branches(list(unique.values()),minimum_family=minimum_family)
     capacity=Counter(e['row']['modality']for e in pool)
     if set(capacity)-set(WEIGHTS):raise ValueError('unknown model modality')
     units=min(capacity[m]//n for m,n in WEIGHTS.items())
@@ -69,7 +70,7 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
             i=min(candidates,key=lambda j:(families[pool[j]['row']['qa_id']],selection_priority(pool[j]['row'],families,branch_counts),parents[pool[j]['row']['independent_parent_scene_id']],j))
             candidates.remove(i);take(i)
     selected.sort(key=lambda e:(e['row']['independent_parent_scene_id'],float(e['row']['window_start_s']),e['row']['question_id']))
-    report={'revision':REVISION,'input_rows':len(entries),'independent_candidate_rows':len(pool),
+    report={'revision':REVISION,'input_rows':len(entries),'answer_branch_capacity':branch_capacity,'independent_candidate_rows':len(pool),
         'physical_duplicates_dropped':len(entries)-len(pool),'capacity_by_modality':dict(capacity),
         'selected_rows':len(selected),'selected_by_modality':dict(counts),
         'selected_family_counts':dict(families),'available_family_floors':floors,

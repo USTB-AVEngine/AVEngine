@@ -34,3 +34,13 @@ def test_route_retry_evidence_retains_both_attempts(tmp_path):
     assert json.loads(p.read_text())=={'attempt':2}
     evidence=list(tmp_path.glob('motion_route_attempt_summary_*.json'))
     assert {json.loads(path.read_text())['attempt']for path in evidence}=={1,2}
+
+
+def test_branch_balance_uses_real_candidates_and_reports_missing_positive():
+    from avengine.timeline.v7_answer_branch_demand import balance_available_branches
+    entries=[{'row':{'qa_id':'QA-20','canonical_answer':'none_of_visible'if i==0 else str(i)}}for i in range(21)]
+    selected,report=balance_available_branches(entries)
+    assert .20<=sum(x['row']['canonical_answer']=='none_of_visible'for x in selected)/len(selected)<=.30
+    assert all(x in entries for x in selected)and len(selected)>=3
+    only_inside=entries[1:];selected,report=balance_available_branches(only_inside)
+    assert selected==only_inside and not report['QA-20']['range_feasible']
