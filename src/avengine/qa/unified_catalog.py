@@ -6162,8 +6162,8 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             seed=seed,
             question_en=(
                 f"Compared with the source position at the end of {anchor_en}, "
-                f"was the source {span_en[0]} or {span_en[1]} throughout the silent "
-                f"interval {display_en} afterward?"
+                f"was the source {span_en[0]} or {span_en[1]} throughout the later silent "
+                f"interval at {display_en} of the clip?"
             ),
             question_zh=(
                 f"与{anchor_zh}结束时的声源位置相比，在其后的静音时段{display_zh}内，"
@@ -6292,9 +6292,9 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         facts=facts,
         seed=seed,
         question_en=(
-            f"Within the silent interval {display_en} after {anchor_en}, did the "
-            "source move at any point between the event's end and the end of "
-            "that interval?"
+            f"After {anchor_en} ended, did the source move at any point from the "
+            f"end of that sound until the end of the silent interval at {display_en} "
+            "of the clip?"
         ),
         question_zh=(
             f"在{anchor_zh}结束后的静音时段{display_zh}内，直到该时段结束前，"
