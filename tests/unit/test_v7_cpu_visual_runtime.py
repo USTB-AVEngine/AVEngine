@@ -4,6 +4,12 @@ from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual,ENV
 pytestmark=pytest.mark.fast_unit
 
 
+@pytest.fixture(autouse=True)
+def isolate_visual_environment(monkeypatch):
+    monkeypatch.delenv(ENV,raising=False)
+    monkeypatch.setenv('LP_NUM_THREADS','1')
+
+
 def test_visual_threads_can_use_only_the_explicit_admitted_cpu_group(monkeypatch):
     calls=[];monkeypatch.setattr(os,'sched_setaffinity',lambda pid,cpus:calls.append(set(cpus)))
     result=configure_cpu_visual({'cpu_visual_threads':4},cpu_ids=[16,17,18,19,20,21,22,23])
