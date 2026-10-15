@@ -13,7 +13,7 @@ from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers
     from_ue,to_ue,configure_scene_lighting,apply_native_rgb_profile)
 from avengine.timeline.continuous_pilot import write_json
 
-REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v6-mouth-distance-contrast'
+REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v7-measured-basis-load'
 
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
@@ -32,6 +32,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 raise ValueError('registered UE class/material source missing')
         self.house,self.scene,self.assets=deepcopy(house),scene,assets
         self.width,self.height,self.cv2=width,height,cv2
+        self.capture_scale=inputs.get('registered_ue_capture_scale',2)
+        if type(self.capture_scale) is not int or self.capture_scale not in (1,2):
+            raise ValueError('registered UE capture scale must be one or two native pixels per output dimension')
         self.source_material_cache_directory=source_material_cache_directory
         self.ue=bind_histogram_profile(self.house['input']['ue_config'],scene_seed=scene['scene_id'])
         # The camera helper imports the native client; resolve the task-owned
@@ -79,6 +82,10 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.initial_placement_preflight=self._seed_initial_navigation_placements()
         self.physical_environment_bindings={}
         self.current_native_environment=bool(scene.get('require_current_native_environment'))
+        self.suspend_unused_capture_sensors=bool(inputs.get('suspend_unused_registered_capture_sensors',False))
+        self.registered_actor_yaw_offset_deg=float(inputs.get('registered_actor_yaw_offset_deg',90.))
+        self.construct_registered_dialogue_camera=bool(inputs.get('construct_registered_dialogue_camera',False))
+        if not math.isfinite(self.registered_actor_yaw_offset_deg):raise ValueError('registered actor yaw offset must be finite')
         if inputs.get("kujiale_ue_asset_admission"):
             from avengine.capture.kujiale_registered_environment import environment_bindings, require_binding_project
             self.physical_environment_bindings=environment_bindings(scene,house["house"],inputs["kujiale_ue_asset_admission"],{a["endpoint_id"] for a in assets})
@@ -104,12 +111,16 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         start=time.perf_counter()
         try:
             self.instance,self.game,launch=launch_native(self.ue,self.house['input']['ue_map_path'])
-            if self.current_native_environment:
+            if self.current_native_environment or 'physical_gpu_index' in self.ue:
                 from avengine.capture.kujiale_pilot_environment import verify_gpu
                 launch['actual_graphics_gpu']=verify_gpu(self.ue,launch)
             with self.instance.begin_frame():
-                self.camera,self.components=self.spawn(self.game,horizontal_fov_deg=85.,width=width*2,height=height*2)
+                self.camera,self.components=self.spawn(self.game,horizontal_fov_deg=85.,width=width*self.capture_scale,height=height*self.capture_scale)
                 self.foot_camera,self.foot_components=self.spawn(self.game,horizontal_fov_deg=85.,width=1024,height=1024)
+                # Semantic IDs are reconstructed from the complete native
+                # modal/target depth passes; this extra capture is not consumed.
+                if self.suspend_unused_capture_sensors:
+                    self.components['object_ids'].set_property_value(property_name='bCaptureEveryFrame',property_value=False)
                 for name in ['rgb','object_ids']:self.foot_components[name].set_property_value(property_name='bCaptureEveryFrame',property_value=False)
                 apply_camera(self.camera,self._camera())
                 lights=configure_scene_lighting(self.game,self.acceptance,self.ue)
@@ -133,7 +144,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 with self.instance.end_frame():self.read_rgb(self.components['rgb'])
             self.receipt={'backend':'UE/SPEAR registered native standing','graphics_adapter':self.ue['graphics_adapter'],
                 'compute_device':'GPU','launch':launch,'exposure':exposure,'lights':lights,'hfov_deg':85.,'fps':15,
-                'capture_resolution_hw':[height*2,width*2],'resolution_hw':[height,width],
+                'capture_resolution_hw':[height*self.capture_scale,width*self.capture_scale],'resolution_hw':[height,width],
                 'startup_and_warmup_seconds':time.perf_counter()-start,'original_materials':True,
                 'source_material_overrides_applied':False,'source_extra_fill_applied':False,
                 'initial_placement_preflight':self.initial_placement_preflight,
@@ -171,7 +182,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 observed.append(str(objects.GetPathName(Object=material)))
         if set(observed)!=expected:raise ValueError('registered native original material paths differ: '+str(observed)+' expected '+str(expected))
         emitter=attach_emitter_component(self.game,actor_id=d['actor_id'],anchor_root=root,emitter_local_ue_cm=a['registered_native_ue_mouth_local_cm'])
-        return {'anchor':actor,'anchor_root':root,'visual_actor':actor,'component':components[0],
+        from avengine.capture.v7_ue_registered_readback import prepare_readback
+        measured=prepare_readback(self,a,d,actor,root,components)
+        return {**measured,'anchor':actor,'anchor_root':root,'visual_actor':actor,'component':components[0],
             'components':components,'emitter_component':emitter,'motion_model':'rigid_static',
             'original_material_readback':{'status':'pass','paths':observed,'source_registry':a['source_registry'],'material_overrides_applied':False}}
 
@@ -223,8 +236,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         if ep==self.alpha_lower_endpoint:root[1]-=.1
         direction=np.asarray(self.scene['listener_m'])-p
         yaw=math.degrees(math.atan2(direction[0],-direction[2]))
-        # Registered source UE actor +90 degrees corresponds to canonical -Z.
-        return root,yaw+90.
+        # Pose construction remains explicit in the recipe. The admitted GLB
+        # import faces local UE +X; -90 makes it face the actual listener.
+        return root,yaw+self.registered_actor_yaw_offset_deg
 
     def _apply(self,index):
         from avengine.backends.spear_ue.research_runtime import read_scene_component_pose
@@ -235,7 +249,15 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             pose=read_scene_component_pose(native['anchor_root']);emitter=read_scene_component_pose(native['emitter_component']);position=from_ue(pose['location_cm'])
             error=float(np.max(np.abs(np.asarray(position)-root)))
             if error>.0005:raise ValueError('registered UE root readback mismatch')
-            rows.append({'endpoint_id':a['endpoint_id'],'actor_id':self.scene['sources'][a['endpoint_id']]['actor_id'],
+            from avengine.capture.v7_ue_registered_readback import measured_body_matrix
+            matrix,basis_points=measured_body_matrix(native,position)
+            expected=(np.asarray(matrix)@np.r_[a['mouth_local_glb_m'],1.])[:3]
+            if np.linalg.norm(expected-np.asarray(from_ue(emitter['location_cm'])))>.002:raise ValueError('actual UE mouth differs from measured body basis')
+            rows.append({'body_to_world_m':matrix,'body_basis_world_m':basis_points,
+                'native_root_component_pose':pose,'native_load_backend':'ue_spear',
+                'native_load_receipt':native['native_load_receipt'],
+                'loaded_artifact_sha256':native['loaded_artifact_sha256'],'original_glb_sha256':native['original_glb_sha256'],
+                'endpoint_id':a['endpoint_id'],'actor_id':self.scene['sources'][a['endpoint_id']]['actor_id'],
                 'native_actor_id':d['actor_id'],'native_object_id':int(native['visual_actor'].uobject),'asset_id':a['asset_id'],'position_m':position,
                 'emitter_position_m':from_ue(emitter['location_cm']),'moving':False,'action_id':'registered_stand',
                 'action_phase':0.,'root_max_error':error,'joint_state':'registered rigid Blueprint; no joint DOFs',
@@ -277,7 +299,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:self._navigation_foot(p)
                 except ValueError as e:
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)});continue
-                if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
+                if ((self.construct_registered_dialogue_camera or (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'))
                         and a is self.assets[1] and self.assets[0]['endpoint_id'] in self.alpha_standing_refs):
                     from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view
                     first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
@@ -344,7 +366,14 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 self.current_camera_yaw_offset=(current-original+180)%360-180
             from avengine.capture.kujiale_pilot_environment import qualify_scene
             qualify_scene(self,directory.parent/'physical_environment',checks)
-        if self.current_native_environment:
+        if self.construct_registered_dialogue_camera:
+            from avengine.capture.kujiale_pilot_environment import construct_dialogue_camera
+            actual=[self.alpha_standing_refs[a['endpoint_id']]['emitter_position_m']for a in self.assets[:2]]
+            plan=construct_dialogue_camera(self.scene['listener_m'],actual)
+            original=math.degrees(math.atan2(self.scene['camera_forward'][0],-self.scene['camera_forward'][2]))
+            self.current_camera_yaw_offset=(plan['yaw_deg']-original+180.)%360.-180.
+            self.receipt['native_dialogue_camera_construction']=plan
+        if self.current_native_environment or self.suspend_unused_capture_sensors:
             # Static foot support was measured front/rear and with a negative
             # 10-cm control. Every frame still verifies the identical rigid
             # pose/root before reusing that reference; these captures are not
@@ -383,6 +412,16 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             from avengine.capture.kujiale_pilot_environment import finish_scene
             finish_scene(self,result,path)
         result['alignment']=result['native_visibility_alignment'];result['registered_visual_revision']=REGISTERED_UE_VISUAL_REVISION
+        copies=[]
+        for asset in self.assets:
+            frames=[a for f in result['frames']for a in f['actors']if a['asset_id']==asset['asset_id']]
+            copies.append({**deepcopy(asset),'ue_measured_registration':{'house':self.house['house'],'room_id':self.house['room']['room_label'],
+                'frames_checked':len(frames),'first_body_to_world_m':frames[0]['body_to_world_m'],
+                'load_receipt':frames[0]['native_load_receipt'],'loaded_artifact_sha256':frames[0]['loaded_artifact_sha256'],
+                'original_glb_sha256':frames[0]['original_glb_sha256'],'native_visual_evidence':str(Path(path).parent/'native_registered_visual_evidence.json')}})
+        copy_path=Path(path).parent/'native_registered_assets.json'
+        write_json(copy_path,{'schema':'v7-UE-measured-registration-copy-v1','original_registry_modified':False,'assets':copies})
+        result['measured_registration_copy']=str(copy_path)
         write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':result['environmental_emitter_readbacks'],'visual_geometry':'admitted original physical StaticMesh assets' if self.physical_environment_bindings else 'legacy audio-only source points'})
         write_json(Path(path).parent/'native_registered_visual_evidence.json',result)
         return result

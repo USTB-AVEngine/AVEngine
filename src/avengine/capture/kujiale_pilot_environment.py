@@ -225,7 +225,7 @@ def capture_frame(video,index,bgr,normal,semantic,targets,ids,pose_id):
         view=video._camera();vertices=node['current_scene_native_vertices'];world=vertices@rotation(placement['yaw_rad']).T+np.array(placement['root_m'])
         mask,visible=visibility(normal,target,far_range(world,view))
         sid=str(node['source_id']);semantic_id=2001+j
-        targets[sid]=[np.ascontiguousarray(target[::2,::2])];ids[sid]=semantic_id
+        targets[sid]=[np.ascontiguousarray(target[::getattr(video,'capture_scale',2),::getattr(video,'capture_scale',2)])];ids[sid]=semantic_id
         semantic[visible]=semantic_id
         count=int(mask.sum());pixels=int(visible.sum());highlight=float(np.mean(np.all(bgr[visible]>247,axis=1))) if pixels else None
         if highlight is not None and highlight>.02:raise ValueError('current UE physical asset highlights exceed 2%: '+endpoint)
@@ -276,3 +276,26 @@ def current_color_evidence(visual,start):
         expected=aliases.get(record['expected'],record['expected'])
         record.update(measured=measured,status='unlabelled' if expected is None else 'pass' if measured['status']=='pass' and measured['label']==expected else 'reject_color_questions')
     return by_id
+
+
+def construct_dialogue_camera(listener,positions):
+    """Choose an observed-mouth view with distinct unchanged QA direction bins."""
+    from avengine.qa.unified_catalog import _azimuth_sector
+    listener=np.asarray(listener,float);points=np.asarray(positions,float)
+    if points.shape!=(2,3) or not np.isfinite(points).all():
+        raise ValueError('dialogue camera needs two actual native mouth readbacks')
+    center=binding_camera_yaw(listener,points)
+    rays=points-listener;bearings=np.degrees(np.arctan2(rays[:,0],-rays[:,2]));choices=[]
+    for offset in np.arange(-35.,35.01,.5):
+        yaw=center+float(offset);angles=(bearings-yaw+180.)%360.-180.
+        sectors=[_azimuth_sector(float(a))for a in angles]
+        if max(abs(angles))>37. or None in sectors or len(set(sectors))!=2:continue
+        phase=(angles+22.5)%45.;boundary=float(np.min(np.minimum(phase,45.-phase)))
+        margin=min(boundary,float(42.5-max(abs(angles))))
+        choices.append((margin,-abs(float(offset)),float(offset),yaw,angles.tolist(),sectors))
+    if not choices:raise ValueError('native pair needs wider separated placements before dialogue capture')
+    margin,_,offset,yaw,angles,sectors=max(choices,key=lambda x:x[:3])
+    return {'status':'constructed_from_native_mouths','yaw_deg':yaw,'center_yaw_deg':center,
+        'sampling_offset_deg':offset,'source_azimuths_deg':angles,'source_sectors':sectors,
+        'minimum_boundary_or_frustum_margin_deg':margin,'native_mouths_m':points.tolist(),
+        'qa_sector_gate_changed':False,'native_hfov_deg':85.}
