@@ -27,3 +27,8 @@ def event_exception_budget(scene,endpoint,intervals,sample_rate=16000):
         'owner_policy':'2026-10-15 energy/decay/direction differences only near measured visibility flips, <=100ms per source event; geometric QA unchanged',
         'merged_intervals_samples':merged,'per_event':rows,'unscoped_intervals_samples':unscoped,
         'original_raw_metrics_retained':True,'direction_gate_changed_only_at_measured_boundaries':True,'qa_truth_or_scorer_changed':False}
+
+
+def recordable_energy_decay(verdict,boundary_proof=None):
+    """Compatibility for live v5 workers; never waive without ray proof."""
+    return recordable_boundary_difference(verdict,boundary_proof)

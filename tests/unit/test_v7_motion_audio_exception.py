@@ -17,3 +17,8 @@ def test_event_budgets_are_separate_and_unscoped_errors_are_refused():
  scene={'events':[{'event_id':str(i),'endpoint_id':'target','start_tick':i*10,'end_tick':i*10+5}for i in [0,1]]}
  assert event_exception_budget(scene,'target',[(0,1600),(16000,17600)])['status']=='pass'
  assert event_exception_budget(scene,'target',[(9000,9100)])['status']=='fail'
+
+def test_running_worker_legacy_symbol_remains_importable_but_requires_native_proof():
+ from avengine.timeline.v7_motion_audio_exception import recordable_energy_decay
+ assert not recordable_energy_decay({'failures':['0:energy']})
+ assert recordable_energy_decay({'failures':['0:energy']},{'status':'measured','direct_visibility_flips':True})
