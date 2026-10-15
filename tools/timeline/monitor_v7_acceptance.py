@@ -98,21 +98,21 @@ def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, avai
 
 
 def append_progress(o,m,now,active):
- counts={};passed=0;houses=set()
- for path in (o/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
-  d=load(path)
-  if d.get('status')!='passed':continue
-  passed+=1;houses.add(d.get("house"))
-  for family,n in d.get('export',{}).get('question_family_counts',{}).items():counts[family]=counts.get(family,0)+n
- scenes=[m['parents'][slot]['row']['scene_id'] for slot in active]
- with (o/'PROGRESS.md').open('a') as f:
-  f.write(now.isoformat()+' 构造/续跑场景='+','.join(scenes)+'；保留全部必需元素；通过父场景='+str(passed)+'；去重后总题数='+str(sum(counts.values()))+'；房子数='+str(len(houses))+'；达到3道的题族数='+str(sum(n>=3 for n in counts.values()))+'；去重题族计数='+json.dumps(counts,ensure_ascii=False,sort_keys=True)+'\n')
+ report_path=o/'PILOT_SUMMARY.json';report=load(report_path)if report_path.exists()else{}
+ scenes=[m['parents'][slot]['row']['scene_id']for slot in active]
+ with(o/'PROGRESS.md').open('a')as f:
+  f.write(now.isoformat()+' 构造/续跑场景='+','.join(scenes)+'；当前正式去重后模态平衡独立题='+str(report.get('independent_questions',0))+'；房子='+str(report.get('houses',0))+'；>=3题族='+str(report.get('families_at_least_three',0))+'；统计时间='+str(report.get('generated_utc','awaiting first final reader/report'))+'；题数只取PILOT_SUMMARY，原逐父候选/原始表不冒充最终总数。\n')
 
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--smoke-only',action='store_true');a=p.parse_args();m=load(a.manifest);o=Path(m['output_root']);w=Path(m['worktree'])
  pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;last_progress=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={}
  (o/'logs').mkdir(exist_ok=True)
+ if m.get('live_resource_guard_enabled',True):
+  end=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T07:00:00+00:00'))+datetime.timedelta(minutes=30)
+  stream=(o/'logs/live_resource_guard.log').open('a')
+  guard=subprocess.Popen(['nice','-n','10',sys.executable,str(Path(__file__).with_name('guard_v7_live_resources.py')),'--manifest',str(a.manifest),'--until-utc',end.isoformat()],stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
+  stream.close();write(o/'evidence/live_resource_guard_launch.json',{'pid':guard.pid,'source':str(Path(__file__).with_name('guard_v7_live_resources.py')),'until_utc':end.isoformat(),'signals_workers':False})
  for f in (o/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
   d=load(f)
   if d.get('status')=='running':
@@ -155,16 +155,16 @@ def main():
    state=read_demand_state(o/'inputs/demand_state.json');gaps=demand_snapshot(state,next_questions=70)['family_deficits']
    families={'binding':['QA-01','QA-02','QA-03','QA-08','QA-09','QA-20'],'human_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18','QA-19'],'animal_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18'],'count':['QA-22','QA-23','STARSS-SPEAKERS'],'occlusion':['QA-10','QA-03','QA-12'],'taxonomy':['QA-21','V7-CLASS34','STARSS-CLASS13'],'content_binding':['QA-26','QA-27','QA-28','V7-CONTENT-BIND']}
    def demand_order(slot):
-    target=families[m['parents'][slot]['focus']];return (-sum(max(0.,gaps.get(f,0.))for f in target)/len(target),slot)
+    target=families.get(m['parents'][slot]['focus'],['QA-06','QA-15','QA-16','QA-17']);return (-sum(max(0.,gaps.get(f,0.))for f in target)/len(target),slot)
    for slot in sorted(pending,key=demand_order):
     task=m['parents'][slot]
     if task.get('launch_disabled'):continue
     w=Path(task.get('snapshot_worktree',m['worktree']))
-    moving=task.get('focus')in {'human_motion','animal_motion'};ue=task['device']=='ue'
+    moving=task.get('focus')in {'human_motion','animal_motion','motion_quartet_template'};ue=task['device']=='ue'
     if not smoke and (slot!=0 or active or completed):continue
     if a.smoke_only and slot!=0:continue
     if len(active)>=limits["maximum_parents"] or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
-    reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion'}else 7_000_000_000 for s in active)
+    reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion','motion_quartet_template'}else 7_000_000_000 for s in active)
     requested=30_000_000_000 if moving else 7_000_000_000
     if not parent_launch_headroom(reserve,pss,requested,limit,mem):continue
     if pss+peer_pss+requested>int(m.get('maximum_combined_pss_bytes',190_000_000_000)):continue

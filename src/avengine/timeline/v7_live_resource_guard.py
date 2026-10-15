@@ -43,7 +43,8 @@ def observe(manifest):
             tree=processes([pid]);roots.append(pid)
             trees.append({'task':root.name,'owned':root==output,'scene_id':job['scene_id'],'root_pid':pid,
                 'PSS_bytes':sum(p['pss_bytes']for p in tree),'limit_bytes':int(job.get('maximum_parent_tree_pss_bytes',manifest.get('maximum_parent_tree_pss_bytes',30_000_000_000))),
-                'cpu_including_reaped_children_s':sum(p['cpu_s']for p in tree),
+                'root_start_ticks':live['start_ticks'],'cpu_including_reaped_children_s':sum(p['cpu_s']for p in tree),
+                'log_mtime':(root/'logs'/f"parent_{job['slot']:03d}.log").stat().st_mtime if(root/'logs'/f"parent_{job['slot']:03d}.log").exists()else None,
                 'pipe_write_pids':[p['pid']for p in tree if'pipe_write'in p['wchan']],'cmd':live['cmd']})
         records=output_processes([root]);groups[root.name]={'roots':roots,'pss_bytes':sum(p['pss_bytes']for p in records),
             'processes':len(records),'pipe_writers':[p['pid']for p in records if'pipe_write'in p['wchan']]}
