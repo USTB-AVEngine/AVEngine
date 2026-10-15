@@ -235,7 +235,10 @@ def native_entry_route_proposals(video, entry, scene, distance, local_forward, r
     if not np.allclose(scene["camera_forward"], route["camera_forward"], atol=1e-6, rtol=0):
         raise ValueError("QA-07 native camera orientation differs from the solved yaw")
     poly = shape(scene["production_scenario"]["motion_floor_polygon"])
-    if not poly.covers(LineString(positions[:, [0, 2]])):
+    # Original scanned floor polygons can contain nanometre assembly seams.
+    # This is a numerical closure only; the v2 full segment, native 2mm snap,
+    # standoff and subsequent actual full-pose checks are still mandatory.
+    if not poly.buffer(1e-6).covers(LineString(positions[:, [0, 2]])):
         raise ValueError("QA-07 final gait route leaves its original floor polygon")
     wm = load_room_map(route["room_id"], path=route.get("walkable_map_path"))
     if wm is None or not wm.contains_many(positions[:, [0, 2]]).all() or not wm.segment_free(start[[0, 2]], endpoint[[0, 2]]):
