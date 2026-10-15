@@ -45,3 +45,18 @@ def test_whole_animal_clip_retains_length_and_does_not_add_a_human_sound():
     assert recorded_event_layout(row,{'asset_id':'human','kind':'human'},record,False,[.2,5.2])==([.2,5.2],False)
     row['phase2_whole_animal_recordings']['dog']=[28.]
     with pytest.raises(ValueError,match='does not fit'):recorded_event_layout(row,{'asset_id':'dog','kind':'animal'},record,False,[.2])
+
+
+def test_native_verifier_uses_body_root_speed_and_actual_mouth_distance():
+    import numpy as np
+    row,assets,records=fixture();out=prepare_motion_during_row(row,assets,records)
+    ts=np.arange(901)/30.
+    roots=np.column_stack((np.zeros(901),np.zeros(901),4.-.4*ts))
+    mouth=roots+np.column_stack((np.zeros(901),np.zeros(901),.01*np.sin(20*ts)))
+    scene={'listener_m':[0.,0.,0.],'sources':{
+        'target_ep':{'asset_id':'target','trajectory':[{'time_s':float(t),'position_m':p.tolist()}for t,p in zip(ts,mouth)]},
+        'companion_ep':{'asset_id':'companion','trajectory':[{'time_s':0.,'position_m':[3.,0.,3.]},{'time_s':30.,'position_m':[3.,0.,3.]}]}}}
+    assert verify_motion_during_native(out,scene,{})['status']=='fail'
+    visual={'native_motion_admissions':{'target_ep':{'world_roots_m':roots.tolist()}}}
+    report=verify_motion_during_native(out,scene,visual)
+    assert report['status']=='pass',report
