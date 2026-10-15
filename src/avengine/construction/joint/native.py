@@ -275,6 +275,9 @@ def native_plan_checks(video, scene, plan, **kwargs):
     common=native_static_checks(video,scene,replace(plan,actors=frozen),**kwargs)
     checks=list(common.checks)
     entries={e["declaration"]["asset_id"]:e for e in video.actors}
+    support=kwargs.get("standing_checks")
+    if support is None:support=getattr(video,"attachment_checks",[])
+    supported={row.get("asset_id")for row in support if row.get("status")=="pass"}
     for key,actor in plan.actors.items():
         if key not in entries:
             continue
@@ -282,8 +285,16 @@ def native_plan_checks(video, scene, plan, **kwargs):
         moving=bool(np.any(np.linalg.norm(np.diff(p,axis=0),axis=1)>1e-7))
         turning=actor.headings_rad is not None and bool(np.ptp(np.unwrap(actor.headings_rad))>1e-5)
         if not moving and not turning:
+            checks.append(CheckResult("native:"+key+":full_pose_physics","pass"if key in supported else"unknown",
+                "original_static_support_and_complete_mesh_checks",
+                evidence={"authority":"original_qualify_standing","actual_pose_readback_checked_separately":True}))
             continue
         record=entry.get("motion_episode",{})
+        recheck=record.get("final_complete_scene_recheck",{})
+        physics_ok=record.get("status")=="pass" and recheck.get("status")=="pass"
+        checks.append(CheckResult("native:"+key+":full_pose_physics","pass"if physics_ok else"unknown",
+            "original_complete_native_pose_sweep_required",
+            evidence={"native_motion_status":record.get("status"),"final_scene_recheck":recheck}))
         readbacks=record.get("native_30Hz_readbacks",[])
         matrices=np.asarray([r.get("body_to_world_m",[])for r in readbacks],float)
         actual=matrices[:,:3,3] if matrices.shape==(len(p),4,4) else np.empty((0,3))

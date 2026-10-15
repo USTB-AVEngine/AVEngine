@@ -55,9 +55,15 @@ def certify_plan(context, plan):
         if not finite:
             continue
         valid[key] = p
+        fallback=None
         try:
             _, report = validate_track(context, p, actor.body.species, camera=plan.camera, snap=False)
-            check(key+":route", True, **report)
+            fallback=report.get("native_map_fallback")
+            if fallback is not None:
+                checks.append(CheckResult(key+":route","unknown","native_full_pose_required_for_map_fallback",
+                                          evidence={"entity_id":key,**report}))
+            else:
+                check(key+":route", True, **report)
         except ConstructionError as exc:
             check(key+":route", False, exc.reason, **exc.details)
         if actor.headings_rad is not None:
@@ -66,7 +72,7 @@ def certify_plan(context, plan):
         # actual width requires further clearance; never erode the same radius twice.
         from avengine.rooms.walkable_map import SPECIES_RADII_M
         extra = max(0., actor.body.radius_m - SPECIES_RADII_M[actor.body.species])
-        if extra:
+        if extra and fallback is None:
             angles = np.arange(16)*2*math.pi/16
             ok = all(context.walkable_map.contains_many(p[:, [0, 2]]+extra*np.array([math.cos(a), math.sin(a)]), actor.body.species).all()
                      for a in angles)

@@ -122,9 +122,11 @@ def candidate_cameras(room, walkable_map, pathfinder, *, limit=24, heights_m=Non
 class RoomContext:
     def __init__(self, room, *, walkable_map, pathfinder=None, raycaster=None, cache_dir=None,
                  camera_limit=24, grid_step_m=.25, camera_heights_m=None, width=640, height=360,
-                 owned_video=None):
+                 owned_video=None, allow_native_map_fallback=False):
         self.room, self.walkable_map = room, walkable_map
         self.pathfinder, self.raycaster = pathfinder, raycaster
+        self.floor_raycaster = raycaster
+        self.allow_native_map_fallback = bool(allow_native_map_fallback)
         self._owned_video = owned_video
         if walkable_map is None:
             raise ValueError("joint planning requires a room walkable map")
@@ -285,7 +287,7 @@ class RoomContext:
 
 def build_room_context(room, *, house=None, runtime=None, cache_dir=None, walkable_map=None,
                        pathfinder=None, raycaster=None, camera_limit=24, grid_step_m=.25,
-                       camera_heights_m=None, width=640, height=360):
+                       camera_heights_m=None, width=640, height=360, allow_native_map_fallback=False):
     from avengine.rooms.walkable_map import load_room_map, source_identity
     video = None
     if house is not None and house.get("split") != "train":
@@ -308,7 +310,8 @@ def build_room_context(room, *, house=None, runtime=None, cache_dir=None, walkab
                 raycaster = MeshRaycaster(mesh, evidence=evidence)
         return RoomContext(room, walkable_map=walkable_map, pathfinder=pathfinder, raycaster=raycaster,
                            cache_dir=cache_dir, camera_limit=camera_limit, grid_step_m=grid_step_m,
-                           camera_heights_m=camera_heights_m, width=width, height=height, owned_video=video)
+                           camera_heights_m=camera_heights_m, width=width, height=height, owned_video=video,
+                           allow_native_map_fallback=allow_native_map_fallback)
     except Exception:
         if video is not None:
             video.sim.close()
