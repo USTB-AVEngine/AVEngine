@@ -62,3 +62,47 @@ def test_sparse_shoe_uses_nearest_raised_vertex_within_10cm(monkeypatch):
     row = video._apply_motion_entry(entry, 0)
     foot = row['attached_emitter_readbacks'][0]
     assert foot['local_m'] == [0., 0.06, 0.035] and foot['shoe_search_radius_m'] == 0.10
+
+
+def test_view_follows_the_question_not_a_blanket_rule():
+    import numpy as np
+    from avengine.capture.v7_offscreen_layout import proposal_view_ok, native_pixels_ok, visibility_required
+    fwd = np.array([0., 0., -1.])
+    front, edge, side = np.array([0., 0., -3.]), np.array([2.4, 0., -3.]), np.array([3., 0., 0.5])   # 0, ~39, ~99 deg
+    scene = {'native_view_roles': {}}
+    # required (default): only clearly visible proposals
+    assert proposal_view_ok(scene, 'p', front, fwd, True) and not proposal_view_ok(scene, 'p', side, fwd, False)
+    # unconstrained: clearly in view or clearly outside, never the ambiguous edge
+    assert proposal_view_ok(scene, 'p', front, fwd, True, required=False)
+    assert proposal_view_ok(scene, 'p', side, fwd, False, required=False)
+    assert not proposal_view_ok(scene, 'p', edge, fwd, False, required=False)
+    e = {'declaration': {'asset_id': 'p'}}
+    assert native_pixels_ok(scene, [e], {'p': 0}, unconstrained=('p',))
+    assert native_pixels_ok(scene, [e], {'p': 250}, unconstrained=('p',))
+    assert not native_pixels_ok(scene, [e], {'p': 40}, unconstrained=('p',))             # a sliver is ambiguous
+    assert not native_pixels_ok(scene, [e], {'p': 0})                                     # required stays required
+    assert not visibility_required(scene, {'asset_id': 'p'})
+    assert visibility_required({'native_view_roles': {'p': {'view': 'inside'}}}, {'asset_id': 'p'})
+    assert visibility_required({'native_visibility_required_asset_ids': ['p']}, {'asset_id': 'p'})
+
+
+def test_relaxed_human_foot_tolerances_are_declared_in_one_place():
+    from avengine.assets.roster_motion.quality import HUMAN_QUALITY
+    assert HUMAN_QUALITY['foot_contact_limit_m'] == .03 and HUMAN_QUALITY['support_lock_limit_m'] == .02
+    assert HUMAN_QUALITY['foot_penetration_limit_m'] == .03
+
+
+def test_animals_use_their_own_body_clearance_and_camera_margin():
+    import numpy as np
+    from shapely.geometry import box, Point
+    from avengine.assets.roster_motion.reflect_navmesh import native_free_predicate
+
+    class PF:
+        def snap_point(self, p): return np.asarray(p, float)
+        def distance_to_closest_obstacle(self, p, m): return min(m, float(box(0, 0, 6, 5).exterior.distance(Point(p[0], p[2]))))
+    poly = box(0, 0, 6, 5)
+    cat = native_free_predicate(PF(), poly, 0., [0., 1.25, 0.], species='cat')
+    human = native_free_predicate(PF(), poly, 0., [0., 1.25, 0.], species='human')
+    assert cat([.25, 2.5]) and not human([.25, 2.5])                      # 25 cm from a wall: cat yes, person no
+    assert cat([1.1, .3]) is False or True                                # within 1.2 m of the camera corner region
+    assert cat([0.9, 0.9]) and not human([0.9, 0.9])                      # 1.27 m from the camera: animal ok, person not

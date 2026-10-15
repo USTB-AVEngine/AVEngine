@@ -7,8 +7,16 @@ from shapely.geometry import Point, shape, LineString, box
 from .reflect_walk import reflect_walk, schedule_emissions, SPECIES_SPEED_M_S
 
 
-def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(), camera_margin=1.5,
+BODY_CLEARANCE_M={'human':.35,'dog':.25,'cat':.20,'slide':.20}     # same radii as the walkable map layers
+CAMERA_MARGIN_M={'human':1.5}                                         # owner rule is about people; animals 1.0 m
+
+
+def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(), camera_margin=None,
                           walkable_map=None, species='human'):
+    # Claude 10-15: clearance and camera margin follow the body that walks (a cat was held to the human 35 cm /
+    # 1.5 m and found no 2.5 m line in a normal room); construction preferences only, no answer depends on them.
+    if camera_margin is None:camera_margin=CAMERA_MARGIN_M.get(species,1.)
+    clearance_m=BODY_CLEARANCE_M.get(species,.35)
     listener=np.asarray(listener,float)[[0,2]]
     def is_free(xz):
         xz=np.asarray(xz,float)
@@ -20,7 +28,7 @@ def native_free_predicate(pathfinder, polygon, floor_y, listener, *, obstacles=(
         snap=np.asarray(pathfinder.snap_point(p),float)
         if not np.isfinite(snap).all() or np.linalg.norm((snap-p)[[0,2]])>.002:return False
         return (not hasattr(pathfinder,'distance_to_closest_obstacle') or
-                float(pathfinder.distance_to_closest_obstacle(snap,1.))>=.35)
+                float(pathfinder.distance_to_closest_obstacle(snap,1.))>=clearance_m)
     def segment_is_free(a,b):
         if walkable_map is not None and not walkable_map.segment_free(a,b,species):return False
         line=LineString([a,b])
@@ -200,7 +208,7 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
             if not polygon.covers(line):rejected['native_scene_floor_polygon']+=1;continue
             if any(line.intersects(o)for o in obstacles):rejected['qualified_body_expanded_bbox']+=1;continue
             radii=np.linalg.norm(points-listener,axis=1)
-            if float(radii.min())<1.5:rejected['camera_distance_1_5m']+=1;continue
+            if float(radii.min())<CAMERA_MARGIN_M.get(species,1.):rejected['camera_distance_1_5m']+=1;continue
             # Rotating/translating preserves the complete distance-driven gait
             # clock, but every requested radial condition must be rechecked.
             if slot['qa15']:
@@ -208,7 +216,7 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
                 cosine=abs(float(np.dot(delta,towards)))/(np.linalg.norm(delta)*np.linalg.norm(towards)+1e-12)
                 sign=-1 if slot['branch']=='nearer'else 1
                 values=radii[i0:i1+1]
-                if cosine<math.cos(math.radians(30)) or sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):rejected['radial_slot']+=1;continue
+                if cosine<math.cos(math.radians(60)) or sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):rejected['radial_slot']+=1;continue
             positions=np.column_stack((points[:,0],np.full(len(points),floor),points[:,1]))
             if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):rejected['body_centre_spacing']+=1;continue
             unique=np.unique(points,axis=0)

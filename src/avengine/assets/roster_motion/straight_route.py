@@ -19,8 +19,12 @@ from .reflect_walk import SPECIES_SPEED_M_S
 FPS = 30
 FRAMES = 901
 WET_TAIL_S = .5
-POST_S = 2.0          # >= 2 s silent moving after the wet tail (QA-16/QA-17 construction request)
-RADIAL_COS = math.cos(math.radians(30))
+POST_S = 1.6          # >= 1.5 s silent moving after the wet tail (QA-16/QA-17 construction request) + 0.1 s
+# Construction heuristic only: QA-15's judge reads a monotonic >= 0.5 m distance change, not an angle (owner 10-15).
+RADIAL_COS = math.cos(math.radians(60))
+CORNER_FRACTIONS = (.3, .5, .7)
+CORNER_TURNS_DEG = (60., 90., 120., -60., -90., -120.)
+CORNER_RADII_M = (.8, 1.2)      # flat-floor replays 10-15: radius 0.6-2 m and a 180 deg turn all passed the gait gates
 
 
 def stand_walk_stand_distance(w0, w1, speed, ramp):
@@ -31,8 +35,30 @@ def stand_walk_stand_distance(w0, w1, speed, ramp):
     return np.r_[0., np.cumsum((v[1:] + v[:-1]) / 2 / FPS)]
 
 
-def _radial_flags(positions, listener, k, e, q, heading):
-    d = np.array([math.cos(heading), math.sin(heading)])
+def _shape_xy(sig, origin, heading, corner):
+    """Positions and headings at arc lengths `sig` for a straight line or a line with one rounded corner.
+
+    corner = (sigma_c, radius, turn_rad): straight until sigma_c, an arc of `radius` turning `turn_rad`, then straight.
+    The yaw rate on the arc is speed / radius (0.8 m at 0.82 m/s = 59 deg/s).
+    """
+    sig = np.asarray(sig, float); d0 = np.array([math.cos(heading), math.sin(heading)])
+    if corner is None:
+        return origin + np.outer(sig, d0), np.full(len(sig), float(heading))
+    sc, radius, turn = corner; arc = abs(turn) * radius; sign = 1. if turn > 0 else -1.
+    pc = origin + sc * d0; centre = pc + radius * sign * np.array([-d0[1], d0[0]]); v = pc - centre
+    out = np.empty((len(sig), 2)); head = np.empty(len(sig))
+    m1 = sig <= sc; out[m1] = origin + np.outer(sig[m1], d0); head[m1] = heading
+    m2 = (sig > sc) & (sig <= sc + arc); a = sign * (sig[m2] - sc) / radius; c, sn = np.cos(a), np.sin(a)
+    out[m2] = centre + np.column_stack((c * v[0] - sn * v[1], sn * v[0] + c * v[1])); head[m2] = heading + a
+    m3 = sig > sc + arc; d1 = np.array([math.cos(heading + turn), math.sin(heading + turn)])
+    pe = centre + np.array([math.cos(turn) * v[0] - math.sin(turn) * v[1], math.sin(turn) * v[0] + math.cos(turn) * v[1]])
+    out[m3] = pe + np.outer(sig[m3] - sc - arc, d1); head[m3] = heading + turn
+    return out, head
+
+
+def _radial_flags(positions, listener, k, e, q, heading=None):
+    d = positions[min(len(positions) - 1, k + 1)] - positions[k]
+    d = d / (float(np.linalg.norm(d)) + 1e-12)
     r = np.linalg.norm(positions[k:q + 1] - listener, axis=1)
     emit = r[:e - k + 1]
     toward = listener - positions[k]
@@ -55,18 +81,67 @@ def find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', u
     'M2'  : radial during the sound, stops shortly after it (QA-06/15) -- a much shorter line.
     """
     errors = []
-    for families in ('all4', 'M2' if focus == 'M2' else 'M1'):
-        try:
-            return _find_straight_route(room, pathfinder, seed, attempt, species=species, utterance_s=utterance_s,
-                                        focus=focus, families=families, speed_range=speed_range, is_free=is_free,
-                                        grid_m=grid_m, headings=headings, keep=keep, max_grid=max_grid)
-        except ValueError as error:
-            errors.append(str(error))
-    raise ValueError(' | '.join(errors))
+    for index, candidate in enumerate(_rooms_with_cameras(room, pathfinder, species, relocate=is_free is None)):
+        pair = 'M2' if focus == 'M2' else 'M1'
+        for families, corners in (('all4', False), (pair, False), (pair, True)):
+            try:
+                route = _find_straight_route(candidate, pathfinder, seed, attempt, species=species, utterance_s=utterance_s,
+                                             focus=focus, families=families, speed_range=speed_range, is_free=is_free,
+                                             grid_m=grid_m, headings=headings, keep=keep, max_grid=max_grid, corners=corners)
+            except ValueError as error:
+                errors.append(('camera %d: ' % index) + str(error)); continue
+            if index:
+                route['camera_relocation'] = {
+                    'reason': 'owner 10-15: build the scene the question needs; the room camera left no free line',
+                    'room_camera_m': list(room['placement']['camera_m']), 'constructed_camera_m': route['listener_m'],
+                    'candidate_index': index}
+            return route
+    raise ValueError(' | '.join(errors[:4]) + (' | ... %d more' % (len(errors) - 4) if len(errors) > 4 else ''))
+
+
+def _rooms_with_cameras(room, pathfinder, species, relocate=True, limit=12):
+    """The room's own camera first, then fixed cameras 0.5 m inside the room edge, farthest from the centre first.
+
+    A camera in the middle of the floor (e.g. hm3d 00022 R8) leaves no 3 m line outside the 1.5 m person margin.
+    Candidates stand on the human walkable map (not inside furniture) and on the NavMesh; height is kept.
+    """
+    yield room
+    if not relocate:
+        return
+    from copy import deepcopy
+    from shapely.geometry import MultiPolygon
+    polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
+    camera = np.asarray(room['placement']['camera_m'], float); height = float(camera[1])
+    inner = polygon.buffer(-.5)
+    if inner.is_empty:
+        return
+    parts = list(inner.geoms) if isinstance(inner, MultiPolygon) else [inner]
+    ring = max(parts, key=lambda g: g.area).exterior; centre = np.asarray(max(parts, key=lambda g: g.area).centroid.coords[0])
+    walkable_map = None
+    try:
+        from avengine.rooms.walkable_map import load_room_map
+        walkable_map = load_room_map(room.get('room_label', room.get('room_id')), path=room.get('walkable_map_path'),
+                                     floor_reference=floor)
+    except (ValueError, FileNotFoundError):
+        walkable_map = None
+    points = []
+    for d in np.arange(0., ring.length, .5):
+        p = np.asarray(ring.interpolate(d).coords[0], float)
+        if walkable_map is not None and not walkable_map.contains(p, 'human'):
+            continue
+        q = np.array([p[0], floor, p[1]]); s = np.asarray(pathfinder.snap_point(q), float)
+        if not np.isfinite(s).all() or np.linalg.norm((s - q)[[0, 2]]) > .02:
+            continue
+        points.append(p)
+    points.sort(key=lambda p: -float(np.linalg.norm(p - centre)))
+    for p in points[:limit]:
+        moved = deepcopy(room); moved['placement'] = dict(room['placement'], camera_m=[float(p[0]), height, float(p[1])])
+        yield moved
 
 
 def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
-                         families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600):
+                         families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600,
+                         corners=False):
     from .reflect_navmesh import native_free_predicate, SHORT_WALK_LEAD_S, SHORT_WALK_RAMP_S
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
@@ -85,7 +160,9 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
         speed_range = (lo + .02, hi - .02)
     if focus == 'M1':
         speed_range = (.82, .9) if species == 'human' else (lo + .02, hi - .02)
-    speed = float(rng.uniform(max(lo + .01, speed_range[0]), min(hi - .01, speed_range[1])))
+    slow, fast = max(lo + .01, speed_range[0]), min(hi - .01, speed_range[1])
+    # The lower quarter of the owner band: realistic indoor pace and a shorter line for the same timing.
+    speed = float(rng.uniform(slow, slow + .25 * max(0., fast - slow)))
     duration = math.ceil(float(utterance_s) * 10 - 1e-9) / 10
     offset = float(rng.choice([0., 5., 10., 15., 20.]))
     start = offset + round(float(rng.uniform(1., 2.)), 1)
@@ -99,38 +176,46 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
     k, e, q = (int(round(x * FPS)) for x in (start, end, tail))
     total = float(s[-1])
     samples = np.r_[np.arange(0., total, .1), total][::-1]
+    from .reflect_navmesh import CAMERA_MARGIN_M
+    camera_margin = CAMERA_MARGIN_M.get(species, 1.)
     x0, z0, x1, z1 = polygon.bounds
     grid = [np.array([x, z]) for x in np.arange(x0, x1 + 1e-9, grid_m) for z in np.arange(z0, z1 + 1e-9, grid_m)]
-    rng.shuffle(grid); grid = grid[:max_grid]
-    found = []; tested = 0; rejected = {'start_not_free': 0, 'radial_slot': 0, 'line_not_free': 0}
+    rng.shuffle(grid); grid = grid[:max_grid if not corners else min(max_grid, 220)]
+    shapes = [None] if not corners else [(f * total, r, math.radians(t)) for f in CORNER_FRACTIONS
+                                         for r in CORNER_RADII_M for t in CORNER_TURNS_DEG]
+    n_heads = headings if not corners else max(8, headings // 2)
+    found = []; tested = 0; rejected = {'start_not_free': 0, 'camera': 0, 'walkable_map': 0, 'radial_slot': 0, 'line_not_free': 0}
     for p in grid:
         if not is_free(p):
             rejected['start_not_free'] += 1; continue
-        base = float(rng.uniform(0, 2 * math.pi / headings))
-        for j in range(headings):
-            h = base + 2 * math.pi * j / headings
-            d = np.array([math.cos(h), math.sin(h)])
-            origin = p - s[k] * d
-            if families in ('all4', 'M2'):
-                positions = origin + np.outer(s, d)
-                qa15, qa16, _, _ = _radial_flags(positions, L, k, e, q, h)
-                if not qa15 or (families == 'all4' and not qa16):
-                    rejected['radial_slot'] += 1; continue
-            tested += 1
-            if segment_is_free is not None and not segment_is_free(origin, origin + total * d):
-                rejected['line_not_free'] += 1; continue
-            if not all(is_free(origin + c * d) for c in samples):
-                rejected['line_not_free'] += 1; continue
-            found.append((origin, h)); break
+        base = float(rng.uniform(0, 2 * math.pi / n_heads))
+        for j in range(n_heads):
+            h = base + 2 * math.pi * j / n_heads
+            for corner in shapes:
+                pts, _ = _shape_xy(samples, p, h, corner)
+                if np.any(np.linalg.norm(pts - L, axis=1) < camera_margin):
+                    rejected['camera'] += 1; continue
+                if walkable_map is not None and not walkable_map.contains_many(pts, species).all():
+                    rejected['walkable_map'] += 1; continue
+                positions, _ = _shape_xy(s, p, h, corner)
+                if families in ('all4', 'M2'):
+                    qa15, qa16, _, _ = _radial_flags(positions, L, k, e, q)
+                    if not qa15 or (families == 'all4' and not qa16):
+                        rejected['radial_slot'] += 1; continue
+                tested += 1
+                if not all(is_free(x) for x in pts):
+                    rejected['line_not_free'] += 1; continue
+                found.append((p, h, corner)); break
+            if found and found[-1][0] is p:
+                break
         if len(found) >= keep:
             break
     if not found:
-        raise ValueError('straight route: no free straight %.2f m line for %s %s; tested=%d rejected=%s'
-                         % (total, species, families, tested, rejected))
-    origin, heading = found[int(rng.integers(len(found)))]
-    d = np.array([math.cos(heading), math.sin(heading)])
-    positions = origin + np.outer(s, d)
-    qa15, qa16, net, cosv = _radial_flags(positions, L, k, e, q, heading)
+        raise ValueError('straight route: no free %s%.2f m line for %s %s; tested=%d rejected=%s'
+                         % ('cornered ' if corners else 'straight ', total, species, families, tested, rejected))
+    origin, heading, corner = found[int(rng.integers(len(found)))]
+    positions, yaws = _shape_xy(s, origin, heading, corner)
+    qa15, qa16, net, cosv = _radial_flags(positions, L, k, e, q)
     if not post:
         qa16 = False
     frames = (int(round(w0 * FPS)), int(round(w1 * FPS)))      # the whole walk is one straight leg
@@ -140,10 +225,12 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
             'constructed_families': families,
             'kind': 'radial_emission' if qa15 else 'moving_emission', 'offset_s': offset}
     window = {'walk_start_s': w0, 'walk_end_s': w1, 'ramp_s': SHORT_WALK_RAMP_S, 'speed_m_s': speed, 'length_m': total,
-              'emission_s': [start, end], 'silent_query_until_s': tail, 'heading_rad': heading, 'straight_line': True,
+              'emission_s': [start, end], 'silent_query_until_s': tail, 'heading_rad': heading, 'straight_line': corner is None,
+              'shape': None if corner is None else {'corner_at_m': corner[0], 'radius_m': corner[1], 'turn_deg': math.degrees(corner[2]),
+                                                   'maximum_yaw_rate_deg_s': math.degrees(speed / corner[1])},
               'reason': 'owner 10-15: construct deliberately; one free straight stand-walk-stand line found directly'}
     target = np.mean(positions, axis=0) - L
-    return {'reflect_walk': True, 'positions_xz_m': positions.tolist(), 'travel_yaws_rad': [heading] * FRAMES,
+    return {'reflect_walk': True, 'positions_xz_m': positions.tolist(), 'travel_yaws_rad': np.unwrap(yaws).tolist(),
             'short_window_walk': window,
             'walkable_map_path': getattr(walkable_map, 'path', None),
             'walkable_map_version': walkable_map.metadata['version'] if walkable_map is not None else None,

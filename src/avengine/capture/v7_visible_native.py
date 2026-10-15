@@ -329,12 +329,17 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     depth=float(delta@f)
                     if depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=37. and abs(math.degrees(math.atan2(delta[1],depth)))<=24.:return True
                 return False
-            from avengine.capture.v7_offscreen_layout import offscreen_role,proposal_view_ok,native_pixels_ok,native_projection_proof
+            from avengine.capture.v7_offscreen_layout import offscreen_role,proposal_view_ok,native_pixels_ok,native_projection_proof,visibility_required,UNCONSTRAINED_OUTSIDE_AZIMUTH_DEG
             expected_offscreen=offscreen_role(scene,a['asset_id'])
             from avengine.capture.v7_layout_candidates import silent_candidate_local_point
             silent_probe=np.asarray(silent_candidate_local_point(scene,a,entry['original_mesh'].vertices))
             target=scene.get('phase2_semantic_azimuth_targets_deg',{}).get(a['asset_id']) if scene.get('phase2_profile') else None
             distance_target=float(scene.get('native_attachment_distance_targets_m',{}).get(a['asset_id'],2.5)) if scene.get('phase2_profile') else 2.5
+            # owner 10-15: in view only when the question plan needs it (sector target, colour pair, mover, pinned
+            # site, explicit role/list); everyone else stands naturally in or out of view.
+            required_view=(visibility_required(scene,a) or target is not None or bool(entry.get('motion_episode'))
+                or bool(require_pair and a.get('controlled_shirt')) or pinned is not None)
+            dynamic_offscreen=[False]
             def candidate_score(p):
                 p=dict(p)
                 if key=='floor':
@@ -348,7 +353,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_occlusion_demand import proposal_score
                 relation_score=proposal_score(scene,entry,root,placed)
                 preference=scene.get('native_placement_preferences_m',{}).get(a['asset_id'])
-                wanted_view=proposal_view_ok(scene,a['asset_id'],delta,scene['camera_forward'],visible)
+                wanted_view=proposal_view_ok(scene,a['asset_id'],delta,scene['camera_forward'],visible,required=required_view)
                 if preference is not None:
                     return (not wanted_view,float(np.linalg.norm(root[[0,2]]-np.asarray(preference)[[0,2]])))
                 if expected_offscreen:
@@ -358,9 +363,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     return (not visible,(abs((az-float(target)+180)%360-180)/3.4)**2+(abs(float(np.linalg.norm(delta[[0,2]]))-distance_target)/.4)**2)
                 from avengine.capture.v7_social_layout import social_proposal_score
                 social_score=social_proposal_score(scene,a,rep,listener,scene['camera_forward'])
-                if social_score is not None:return (not visible,social_score)
+                if social_score is not None:return (not wanted_view,social_score)
                 separation=min((float(np.min(np.linalg.norm((root-entry_roots(other))[:,[0,2]],axis=1))) for other in placed if a['kind'] in {'human','performer','animal'} and other['declaration']['kind'] in {'human','performer','animal'}),default=1.)
-                return (not visible,-min(separation,2.),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
+                return (not wanted_view,-min(separation,2.),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
             from avengine.capture.v7_layout_candidates import order_support_candidates
             candidates=order_support_candidates(scene,candidates)
@@ -398,7 +403,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if noncollinear_rejection(a,proposed_root,placed):
                     reject('people_arranged_in_one_row');continue
                 proposed_rep=(proposed_root+rotation(proposed_yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else proposed_root+rotation(proposed_yaw)@silent_probe
-                if not proposal_view_ok(scene,a['asset_id'],proposed_rep-listener,scene['camera_forward'],visible_from_path(proposed_rep-listener)):
+                if dynamic_offscreen[0]:
+                    scene.get('native_view_roles',{}).pop(a['asset_id'],None);dynamic_offscreen[0]=False
+                if not proposal_view_ok(scene,a['asset_id'],proposed_rep-listener,scene['camera_forward'],visible_from_path(proposed_rep-listener),required=required_view):
                     reject('outside_observed_camera_path');continue
                 placement=check_support(self.sim,r,meta,support)
                 if placement is None and key=='floor' and a['kind']=='animal':
@@ -438,7 +445,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 horizontal=math.degrees(math.atan2(float(delta@right),depth));vertical=math.degrees(math.atan2(delta[1],max(1e-9,depth)))
                 if target is not None and abs((horizontal-float(target)+180)%360-180)>3.4:
                     reject('outside_requested_distinct_semantic_sector');continue
-                if not proposal_view_ok(scene,a['asset_id'],delta,scene['camera_forward'],visible_from_path(delta)):
+                if not proposal_view_ok(scene,a['asset_id'],delta,scene['camera_forward'],visible_from_path(delta),required=required_view):
                     reject("outside_observed_camera_path");continue
                 if require_pair and a.get('controlled_shirt') and not expected_offscreen and (depth<=0 or abs(horizontal)>35.):
                     reject('outside_color_pair_hold_view');continue
@@ -457,7 +464,14 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 native_attempts+=1
                 entry.update(resolved_root_m=root,resolved_yaw_rad=yaw);self._apply_entry(entry,scene)
                 native_pixels,pixel_views=self._native_observed_pixels(scene,[*placed,entry])
-                if not native_pixels_ok(scene,[*placed,entry],native_pixels):
+                if not required_view and not expected_offscreen and native_pixels.get(a['asset_id'],0)==0:
+                    # Naturally off screen: record it as an intentional off-screen body so the existing projection
+                    # proof and coverage checks treat it exactly like a planned one.
+                    scene.setdefault('native_view_roles',{})[a['asset_id']]={'view':'outside','static':not bool(entry.get('motion_episode')),
+                        'minimum_abs_azimuth_deg':UNCONSTRAINED_OUTSIDE_AZIMUTH_DEG,'real_registered_drawable_required':True,
+                        'construction':'owner 10-15: question does not require this body in view; it stands naturally off screen'}
+                    dynamic_offscreen[0]=True
+                if not native_pixels_ok(scene,[*placed,entry],native_pixels,unconstrained=() if required_view else (a['asset_id'],)):
                     reject('actual_native_registered_or_stage_occlusion');continue
                 offscreen_proof=native_projection_proof(self,scene,entry,native_pixels.get(a['asset_id'],0))
                 if offscreen_proof is not None and offscreen_proof['status']!='pass':
@@ -512,6 +526,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 else:bounds.append((lo,hi))
                 checks.append(accepted);placed.append(entry);break
             if accepted is None:
+                if dynamic_offscreen[0]:scene.get('native_view_roles',{}).pop(a['asset_id'],None);dynamic_offscreen[0]=False
                 write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})
                 from avengine.capture.v7_offscreen_layout import placement_construction_fallback
                 stage=placement_construction_fallback(scene,a,key,target,require_pair)

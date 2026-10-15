@@ -16,21 +16,41 @@ def azimuth_degrees(delta,forward):
     return math.degrees(math.atan2(float(np.asarray(delta)@np.cross(forward,[0.,1.,0.])),float(np.asarray(delta)@forward)))
 
 
-def proposal_view_ok(scene,asset_id,delta,forward,ordinary_visible):
+UNCONSTRAINED_OUTSIDE_AZIMUTH_DEG=60.
+
+
+def visibility_required(scene,declaration):
+    """owner 10-15: the question decides whether a body must be in view, not a blanket all-visible rule.
+
+    Required only by an explicit 'inside' role / required_visible_sometime, an explicit scene list, or a legacy
+    all-visible scene flag.  The placement loop adds requested sectors, colour pairs, movers and pinned sites.
+    """
+    aid=declaration['asset_id'];role=scene.get('native_view_roles',{}).get(aid,{})
+    if role.get('view')=='outside':return False
+    if role.get('view')=='inside' or role.get('required_visible_sometime'):return True
+    if aid in set(scene.get('native_visibility_required_asset_ids',[])):return True
+    return bool(scene.get('native_all_entities_visible'))
+
+
+def proposal_view_ok(scene,asset_id,delta,forward,ordinary_visible,required=True):
     band=scene.get('native_distance_bands_m',{}).get(asset_id)
     if band is not None:
         distance=float(np.linalg.norm(np.asarray(delta)[[0,2]]))
         if not band[0]<=distance<=band[1]:return False
     role=offscreen_role(scene,asset_id)
     if role:return abs(azimuth_degrees(delta,forward))>=float(role.get('minimum_abs_azimuth_deg',60.))
-    return ordinary_visible
+    if required:return ordinary_visible
+    # Unconstrained bodies stand clearly in view or clearly outside it, never on the image edge where "in view"
+    # would be ambiguous for the questions that read visibility from the native pixels.
+    return ordinary_visible or abs(azimuth_degrees(delta,forward))>=UNCONSTRAINED_OUTSIDE_AZIMUTH_DEG
 
 
-def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100):
+def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100,unconstrained=()):
     for entry in entries:
-        count=counts.get(entry['declaration']['asset_id'],0)
-        if offscreen_role(scene,entry['declaration']['asset_id']):
+        aid=entry['declaration']['asset_id'];count=counts.get(aid,0)
+        if offscreen_role(scene,aid):
             if count!=0:return False
+        elif aid in unconstrained and count==0:continue      # naturally off screen; a role is assigned on acceptance
         elif count<minimum_visible_pixels:return False
     return True
 
@@ -117,7 +137,7 @@ def placement_construction_fallback(scene,declaration,surface,target,require_pai
         return 'camera_1_2m'
     movers=set(scene.get('production_scenario',{}).get('motion_requests',{}))
     roles=scene.setdefault('native_view_roles',{})
-    if ('offscreen' not in done and aid not in roles and target is None
+    if ('offscreen' not in done and aid not in roles and target is None and not visibility_required(scene,declaration)
             and not (require_pair and declaration.get('controlled_shirt'))
             and aid not in movers and declaration.get('endpoint_id') not in movers):
         roles[aid]={'view':'outside','static':True,'minimum_abs_azimuth_deg':60.,'real_registered_drawable_required':True,

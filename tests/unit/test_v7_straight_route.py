@@ -61,3 +61,26 @@ def test_shallow_room_falls_back_to_the_short_radial_pair():
     slot = route['emission_slot']
     assert slot['qa15'] and slot['qa06']
     assert slot['constructed_families'] in ('all4', 'M2')
+
+
+def test_rounded_corner_routes_stay_free_with_bounded_turning():
+    from avengine.assets.roster_motion.straight_route import _find_straight_route
+    room, pf = _room(5., 4.5)
+    route = _find_straight_route(room, pf, 5, species='human', utterance_s=1.2, focus='M1', families='M1', corners=True)
+    xz = np.asarray(route['positions_xz_m']); win = route['short_window_walk']
+    assert not win['straight_line'] and win['shape']['radius_m'] >= .8
+    assert all(box(0., 0., 5., 4.5).buffer(-.34).covers(Point(*p)) and np.hypot(p[0] - .4, p[1] - .4) >= 1.5 for p in xz)
+    yaw = np.unwrap(np.asarray(route['travel_yaws_rad'])); rate = np.abs(np.diff(yaw)) * 30
+    assert rate.max() <= route['speed_m_s'] / .8 + 1e-6                      # bounded yaw rate on the arc
+    v = np.linalg.norm(np.diff(xz, axis=0), axis=1) * 30
+    assert abs(float(v.max()) - route['speed_m_s']) < 1e-6                    # constant species speed
+    assert route['emission_slot']['qa06'] and route['emission_slot']['qa17']
+
+
+def test_shape_corner_is_continuous_and_turns_by_the_requested_angle():
+    import math
+    from avengine.assets.roster_motion.straight_route import _shape_xy
+    sig = np.linspace(0, 4, 401)
+    pts, head = _shape_xy(sig, np.zeros(2), 0., (1.5, 1., math.radians(90)))
+    assert np.max(np.linalg.norm(np.diff(pts, axis=0), axis=1)) < .0101       # continuous at 1 cm steps
+    assert abs(head[-1] - math.pi / 2) < 1e-9 and abs(pts[-1][0] - 2.5) < 1e-6

@@ -126,8 +126,9 @@ class TriangleClearance:
                 delta=float(np.min(low[:,1]-levels))
                 self.floor_probe_poses+=1;self.floor_probe_vertices+=len(low)
                 self.floor_worst_delta_m=min(self.floor_worst_delta_m,delta)
-                if delta<-.00101:
-                    raise ValueError('actual original posed skin penetrates original floor beyond native 1mm margin plus 10um epsilon')
+                margin=float(HUMAN_QUALITY.get('foot_penetration_limit_m',.001)) if self.minimum_clearance_m==HUMAN_QUALITY['minimum_nonfloor_clearance_m'] else .001
+                if delta<-(margin+.00001):
+                    raise ValueError('actual original posed skin penetrates original floor beyond the declared foot penetration margin')
         fcl=self.fcl;obj=fcl_model(world,faces) if rigid_object is None else rigid_object;epsilon=.0200001
         inside=np.all(self.lo<=world.max(0)+epsilon,axis=1)&np.all(self.hi>=world.min(0)-epsilon,axis=1)
         others=list(self.bystanders)
@@ -336,7 +337,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     dist,world=clearance.check(v,f,positions[i],float(frame_yaws[i]));minimum=min(minimum,dist)
                     feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
                     quality=HUMAN_QUALITY if inputs.get('phase2')else {'foot_contact_limit_m':.008,'support_lock_limit_m':.003}
-                    if min(x['floor_delta_m']for x in feet)<-.008 or any(
+                    if min(x['floor_delta_m']for x in feet)<-float(quality.get('foot_penetration_limit_m',.008)) or any(
                             abs(x['floor_delta_m'])>quality['foot_contact_limit_m']+1e-12
                             or x['support_lock_error_m']>quality['support_lock_limit_m']+1e-12 for x in contacts):
                         raise ValueError('motion source foot contact or lock violates declared human quality policy')

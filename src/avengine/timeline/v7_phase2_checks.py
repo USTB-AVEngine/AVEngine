@@ -16,7 +16,9 @@ def motion_checks(visual):
         if record.get('status')!='pass' or len(actual)!=901 or len(source)!=901:
             errors.append(ep+':incomplete original pose/native 30Hz sequence');continue
         floor_proof=record.get('original_full_skin_floor_collision',{})
-        if floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-.00101:
+        human_relaxed=(record.get('species_id','human')not in {'dog','cat'} and record.get('quality_policy')==HUMAN_QUALITY)
+        skin_margin=float(HUMAN_QUALITY.get('foot_penetration_limit_m',.001))+.00001 if human_relaxed else .00101
+        if floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-skin_margin:
             errors.append(ep+':missing or failing complete original skin/floor collision proof')
         policy=record.get('production_visual_quality_policy',{})
         owner_quality=(isinstance(policy,dict)
@@ -30,6 +32,8 @@ def motion_checks(visual):
         clearance_limit=HUMAN_QUALITY['minimum_nonfloor_clearance_m']if human_owner_quality else .02
         limit=.012 if owner_quality or record.get('species_id')=='cat' else .008
         support_limit=.015 if owner_quality else .003
+        if human_owner_quality:
+            limit=float(HUMAN_QUALITY['foot_contact_limit_m']);support_limit=float(HUMAN_QUALITY['support_lock_limit_m'])
         quality_limits[ep]={'policy_name':policy.get('policy_name',HUMAN_QUALITY['revision']) if owner_quality else 'original',
             'owner_quality':owner_quality,'contact_limit_m':limit,'support_lock_limit_m':support_limit,
             'truth_and_answer_gates_changed':False}
@@ -64,7 +68,8 @@ def motion_checks(visual):
             if not contact:contact_issue('no actual planted support at frame '+str(index))
             for side,foot in frame['feet'].items():
                 delta=float(foot['floor_delta_m'])
-                minimum=-.00101 if record.get('species_id')=='cat' else -.008
+                minimum=(-float(HUMAN_QUALITY['foot_penetration_limit_m']) if human_owner_quality
+                         else -.00101 if record.get('species_id')=='cat' else -.008)
                 contact_passed=(abs(delta)<=limit+1e-12 if owner_quality else abs(delta)<limit+1e-12)
                 passed=delta>=minimum and (not foot['in_contact'] or contact_passed)
                 lock_error=foot.get('support_lock_error_m',0)
