@@ -256,15 +256,16 @@ def follow_measured_route_floor(roots,floor,reference_y):
     """Construct root height from the same actual floor used by paw/skin gates.
 
     This moves the complete admitted body rigidly with the terrain. It changes
-    no joint, paw vertex, support target, or local pose; the subsequent original
-    rigid-height, full-skin and contact checks independently reject bad terrain.
+    no joint, paw vertex, support target, or local pose. Whole-skin collision
+    stays strict; subsequent paw construction reports unresolved visual gaps.
     """
     roots=np.asarray(roots,float).copy();heights=np.asarray(floor.many(roots),float)
     if heights.shape!=(len(roots),) or not np.isfinite(heights).all():raise ValueError('animal route needs a measured native floor at every root')
     roots[:,1]+=heights-float(reference_y)
     return roots,{'method':'root follows measured original-stage floor; admitted local joint/paw poses unchanged',
         'floor_heights_m':heights.tolist(),'minimum_floor_y_m':float(heights.min()),'maximum_floor_y_m':float(heights.max()),
-        'floor_sample_count':len(heights),'per_paw_or_joint_correction':False,'contact_and_skin_gates_unchanged':True}
+        'floor_sample_count':len(heights),'per_paw_or_joint_correction':False,'skin_floor_gate_unchanged':True,
+        'paw_contact_policy':'owner 2026-10-15: construct first, residual visual quality recorded'}
 
 
 def animal_route_samples(times, origin, yaw, direction, speed, curved_route=None):
