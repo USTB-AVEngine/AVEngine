@@ -3,7 +3,7 @@
 This does not change producer admission, private canonicals, or alpha export.
 """
 from __future__ import annotations
-import argparse, csv, hashlib, json, os
+import argparse, csv, hashlib, json, os, shutil
 from pathlib import Path
 from collections import Counter
 from datetime import datetime, timezone
@@ -43,7 +43,12 @@ def retain(source, target, owned_root, read_only_source_roots=()):
     sha=digest(source)
     if target.exists():
         if digest(target)!=sha: raise ValueError('retained trial payload differs; use a fresh export')
-    else: os.link(source,target)
+    elif source.resolve().is_relative_to(Path(owned_root).resolve()):os.link(source,target)
+    else:
+        # A helper output is read-only, including its inode/link metadata.
+        # Only the new acceptance copy is writable.
+        shutil.copyfile(source,target)
+        if digest(target)!=sha:raise ValueError('read-only helper payload copy differs from original')
     return {'path':str(target),'bytes':target.stat().st_size,'sha256':sha}
 
 

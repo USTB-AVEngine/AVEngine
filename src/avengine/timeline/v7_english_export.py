@@ -5,7 +5,7 @@ from avengine.qa.v7_english_surface import tidy_english
 from avengine.qa.v7_question_wording import natural_question_en
 
 ENGLISH_EXPORT_REVISION='v7-English-model-text-gate-20261015-v2-natural-wording'
-INTERNAL_TERMINOLOGY=re.compile(r'\b(?:STARSS|SAVVY|frustum|protocol|admitted|reviewed appearances?|independent sound events?|v0\.2)\b',re.I)
+INTERNAL_TERMINOLOGY=re.compile(r'\b(?:STARSS(?:23)?|SAVVY|HM3D|MP3D|AVEngine|Kujiale|frustum|protocol|admitted|reviewed appearances?|independent sound events?|v0\.2)\b',re.I)
 CJK=re.compile('[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\U00020000-\U0002ebef]')
 REGISTRATION_NAME=re.compile(r'\bv7_[A-Za-z0-9_]+|\b(?:actor|voice|source|entity|person|man|woman|speaker)[_#\- ]+\d+\b|\badult\s+(?:male|female)\s+\d+\b|\b(?:male|female)_adult_\d+\b|\b(?:floorstanding_speaker|bookshelf_speaker|kitchen_timer|carbon_monoxide_alarm|air_conditioner|desk_telephone|doorbell_chime_unit|security_keypad|wall_clock)\b',re.I)
 MODEL_KEYS={'question_en','question','prompt','instruction','instructions','choices','options','model_answer','answer','caption','description','context'}
