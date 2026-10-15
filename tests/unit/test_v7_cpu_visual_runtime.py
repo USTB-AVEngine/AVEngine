@@ -8,6 +8,7 @@ pytestmark=pytest.mark.fast_unit
 def isolate_visual_environment(monkeypatch):
     monkeypatch.delenv(ENV,raising=False)
     monkeypatch.setenv('LP_NUM_THREADS','1')
+    monkeypatch.setattr('avengine.timeline.v7_cpu_visual_runtime.contain_own_threads',lambda cpus:{'allowed_cpu_ids':sorted(cpus),'threads_rebound':0})
 
 
 def test_visual_threads_can_use_only_the_explicit_admitted_cpu_group(monkeypatch):
