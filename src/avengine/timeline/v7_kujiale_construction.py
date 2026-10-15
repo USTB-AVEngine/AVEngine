@@ -165,10 +165,14 @@ def construct_request(request,house,runtime,catalog,semantic,registration):
     row['measured_static_layout']=construct_layout(house,request['room_id'],runtime,attempt=attempt,eye_height_m=requested_camera_eye_height(request,runtime))
     from avengine.timeline.v7_fixed_camera_layout import natural_person_yaws
     from avengine.capture.kujiale_pilot_environment import construct_dialogue_camera
-    layout=row['measured_static_layout'];yaws=natural_person_yaws([p['position_m']for p in layout['valid']],layout['listener_m'])
-    for point,yaw in zip(layout['valid'],yaws):point['body_yaw_deg']=yaw
+    layout=row['measured_static_layout']
+    from shapely.geometry import shape
+    centroid=shape(layout['room_floor_polygon']).centroid;room_center=[centroid.x,layout['listener_m'][1],centroid.y]
+    yaws,modes=natural_person_yaws([p['position_m']for p in layout['valid']],layout['listener_m'],seed=row['seeds']['pose'],room_center=room_center,return_modes=True)
+    for point,yaw,mode in zip(layout['valid'],yaws,modes):point.update(body_yaw_deg=yaw,initial_orientation_mode=mode)
+    layout['initial_orientation_sampling']={'policy':'seeded per-person mixture of conversation, room center and free direction; no index template','seed':row['seeds']['pose'],'modes':modes,'room_center_m':room_center,'turns':0,'idle_status':'registered static native geometry; skeletal Idle integration not yet verified'}
     camera=construct_dialogue_camera(layout['listener_m'],[p['position_m']for p in layout['valid'][:2]])
-    layout['fixed_camera_yaw_deg']=camera['yaw_deg'];layout['orientation_construction']='mutual dialogue pair with side profiles; bystander toward pair';layout['human_minimum_center_distance_m']=1.0
+    layout['fixed_camera_yaw_deg']=camera['yaw_deg'];layout['orientation_construction']='seeded independent natural mixture; no fixed per-index pose; no turning';layout['human_minimum_center_distance_m']=1.0
     row['production_scenario']={'speaker_count':2,'gender':'F'if gender=='female'else'M','asset_ids':ids,'semantic_scenario_id':scenario,'semantic_sound_ids':sounds,'semantic_sound_subset_ids':sounds,'semantic_role_start_offsets_s':offsets,'environment_sound_classes':[],'camera_policy':'binding_static','camera_yaw_deg':0.,'binding_camera_yaw_offset_deg':0.,'recipe_revision':REVISION,'requested_posture_policy':'registered stand; full original native episode admission mandatory','category_focus_class':None,'non_speech_class':None}
     sounds_by_id={s['sound_asset_id']:s for s in semantic['sounds']}
     speech_end=max(offset+sounds_by_id[sid]['synthesis_readback']['duration_s']for sid,offset in zip(sounds,offsets))

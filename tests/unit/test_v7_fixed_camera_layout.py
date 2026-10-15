@@ -14,9 +14,18 @@ def test_complete_native_camera_cannot_hide_a_late_pan_or_translation():
     with pytest.raises(ValueError):require_fixed_camera_plan({'listener_m':[0.,1.5,0.],'camera_yaw_knots':[{'yaw_deg':0.},{'yaw_deg':90.}]})
 
 
-def test_conversational_pair_and_bystander_do_not_all_face_the_camera():
-    points=np.array([[-1.,1.3,-3.],[1.,1.3,-3.],[0.,1.3,-1.5]]);listener=np.array([0.,1.5,0.]);yaws=natural_person_yaws(points,listener);toward=np.degrees(np.arctan2((listener-points)[:,0],-(listener-points)[:,2]));offset=np.abs((np.asarray(yaws)-toward+180)%360-180)
-    assert all(offset[:2]>25)and offset[2]>90
+def test_initial_orientations_are_seeded_natural_and_not_an_index_template():
+    points=np.array([[-1.,1.3,-3.],[1.,1.3,-3.],[0.,1.3,-1.5]]);listener=np.array([0.,1.5,0.])
+    rows=[];modes=[]
+    for seed in range(128):
+        yaws,selected=natural_person_yaws(points,listener,seed=seed,return_modes=True)
+        assert yaws==natural_person_yaws(points,listener,seed=seed)
+        toward=np.degrees(np.arctan2((listener-points)[:,0],-(listener-points)[:,2]));offset=np.abs((np.asarray(yaws)-toward+180)%360-180)
+        assert not np.all(offset<=25.)
+        rows.append(yaws);modes.append(selected)
+    assert np.all(np.std(rows,axis=0)>60.)
+    for index in range(3):assert {r[index]for r in modes}=={'conversation','room_center','free_direction'}
+    assert len({tuple(round(y,3)for y in row)for row in rows})==128
 
 
 def test_explicit_legacy_review_profile_now_stays_at_one_selected_pose():

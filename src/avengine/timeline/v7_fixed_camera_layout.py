@@ -4,17 +4,25 @@ import numpy as np
 POLICY='owner-fixed-camera-natural-layout-20261015-v2'
 
 
-def natural_person_yaws(positions,listener):
-    points=np.asarray(positions,float);listener=np.asarray(listener,float);result=[]
-    def unit(v):
-        v=np.asarray(v,float).copy();v[1]=0.;return v/max(np.linalg.norm(v),1e-12)
-    for i,p in enumerate(points):
-        if i<2:direction=.6*unit(points[1-i]-p)+.4*unit(listener-p)
-        else:
-            direction=unit(points[:2].mean(axis=0)-p)
-            if np.linalg.norm(direction)<1e-9:direction=unit(points[0]-p)
-        result.append(math.degrees(math.atan2(direction[0],-direction[2])))
-    return result
+def natural_person_yaws(positions,listener,*,seed=0,room_center=None,return_modes=False):
+    """Seeded natural orientations without assigning a pose by person index."""
+    points=np.asarray(positions,float);listener=np.asarray(listener,float);rng=np.random.default_rng(int(seed));center=np.asarray(room_center,float)if room_center is not None else points.mean(axis=0)
+    for _ in range(128):
+        result=[];modes=[]
+        for i,p in enumerate(points):
+            mode=str(rng.choice(['conversation','room_center','free_direction'],p=[.4,.3,.3]));modes.append(mode)
+            if mode=='free_direction':yaw=float(rng.uniform(-180.,180.))
+            else:
+                if mode=='conversation'and len(points)>1:
+                    peer=int(rng.choice([j for j in range(len(points))if j!=i]));direction=points[peer]-p
+                else:direction=center-p
+                if np.linalg.norm(direction[[0,2]])<1e-9:yaw=float(rng.uniform(-180.,180.))
+                else:yaw=math.degrees(math.atan2(direction[0],-direction[2]))+float(rng.normal(0.,12.))
+            result.append((yaw+180.)%360.-180.)
+        y=np.radians(result);spread=float(np.degrees(np.ptp(np.angle(np.exp(1j*(y-y[0]))))))
+        toward=listener-points;bearings=np.arctan2(toward[:,0],-toward[:,2]);frontal=np.abs(np.angle(np.exp(1j*(y-bearings))))<=math.radians(25.)
+        if (len(points)<2 or spread>=30.)and not frontal.all():return(result,modes)if return_modes else result
+    raise ValueError('could not construct diverse natural initial orientations')
 
 
 def require_fixed_camera_plan(scene):
