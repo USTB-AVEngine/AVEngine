@@ -32,3 +32,42 @@ def test_registered_qualification_reuses_exact_original_physics_but_checks_actua
     assert consume_registered_qualification(video,scene,tmp_path/'encoded/standing')is video.standing_checks
     assert calls==[('voice1',[1.,2.,3.])]
     with pytest.raises(ValueError,match='original world'):consume_registered_qualification(video,{},tmp_path/'bad')
+
+
+def test_registered_generator_encodes_original_prepared_scene_without_constructor_or_qualify(tmp_path,monkeypatch):
+    import avengine.timeline.v7_registered_generation as generation
+    row={'scene_id':'p','members':['v0_a0','v0_a1','v1_a0','v1_a1']};house={};program={'records':[],'events':[]};assets=[];seen={}
+    class StopAfterFirstEncode(Exception):pass
+    class Video:
+        standing_checks=[{'status':'pass'}]
+        def encode(self,scene,path,**kwargs):
+            assert scene is worlds['v0'].scene and self._prepared_registered_scene is scene
+            seen['encoded']=True;return {'wall_seconds':0.}
+        def close(self):seen['closed']=True
+    class Payload:
+        def __init__(self,number):
+            self.closed=False;self.row=row;self.house=house;self.scene={'world':number};self.program=program;self.assets=assets;self.video=Video();self.directory=tmp_path/number;self.certificate=SimpleNamespace(passed=True)
+        def close(self):self.closed=True;self.video.close()
+    worlds={'v0':Payload('v0'),'v1':Payload('v1')}
+    monkeypatch.setattr('avengine.registry.kujiale_room_categories.bind_formal_room_category',lambda row,inputs,*args:(row,inputs,None))
+    monkeypatch.setattr('avengine.timeline.v7_production_inputs.attach_runtime_contract',lambda row,inputs:row)
+    monkeypatch.setattr('avengine.timeline.v7_production_inputs.validate_registered_sampling_row',lambda *args:None)
+    monkeypatch.setattr(generation,'choose_assets',lambda *args:pytest.fail('reselected prepared assets'))
+    monkeypatch.setattr(generation,'qualify_licenses',lambda *args:[])
+    monkeypatch.setattr(generation,'build_registered_scene',lambda *args,**kwargs:pytest.fail('rebuilt registered scene'))
+    monkeypatch.setattr(generation,'parent_dry',lambda *args:({}, {'endpoint_speaker_ids':{}}))
+    monkeypatch.setattr(generation,'derive_native_appearance_evidence',lambda *args:{'status':'pass','review':{'actors':{}}})
+    monkeypatch.setattr('avengine.capture.v7_registered_native.NativeRegisteredVideo',lambda *args,**kwargs:pytest.fail('created another native world'))
+    class Gate:
+        def __init__(self,scene,working,inputs,*args):
+            assert scene is worlds['v0'].scene and inputs['fresh_rir_workers']==8
+        def check(self,*args):return {'status':'pass'}
+        def close(self):pass
+    monkeypatch.setattr('avengine.timeline.v7_position_admission.PositionAdmission',Gate)
+    def stage(root,name,recipe,callback):
+        assert name=='visual_v0'and recipe['scene']is worlds['v0'].scene
+        d=root/'actual_visual';d.mkdir();callback(d);raise StopAfterFirstEncode()
+    monkeypatch.setattr(generation,'stage',stage)
+    with pytest.raises(StopAfterFirstEncode):
+        generation.generate_registered_parent(row,house,{'render_backend':'cpu_llvmpipe','fresh_rir_workers':8},[],{}, {},str(tmp_path/'output'),prepared_visuals=worlds)
+    assert seen['encoded']and seen['closed']and worlds['v0'].closed
