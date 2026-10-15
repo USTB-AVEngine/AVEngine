@@ -36,10 +36,10 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
           if any(not len(ids)or segments[ids[0]]<0 or np.any(segments[ids]!=segments[ids[0]])for ids in slices):continue
           patterns.append((offset,p,tangent))
         if not patterns:continue
-        headings=[template['heading_rad']] if template else np.arange(16)*math.pi/8
+        headings=[template['heading_rad']+math.radians(d)for d in (0.,-2.5,2.5,-5.,5.)] if template else np.arange(16)*math.pi/8
         for heading in headings:
           rotation=np.array([[math.cos(heading),-math.sin(heading)],[math.sin(heading),math.cos(heading)]])
-          selected_centres=[Point(*template['centre_xz_m'])] if template else centres
+          selected_centres=([Point(template['centre_xz_m'][0]+dx,template['centre_xz_m'][1]+dz)for dx,dz in sorted([(i*.2,j*.2)for i in range(-4,5)for j in range(-4,5)],key=lambda v:v[0]**2+v[1]**2)] if template else centres)
           for centre in selected_centres:
             for offset,p,tangent in patterns:
               xz=p@rotation.T+[centre.x,centre.y];line=LineString(xz)
@@ -61,6 +61,9 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
               if not visible:continue
               snaps=np.asarray([video.pathfinder.snap_point(p)for p in positions]);errors=np.linalg.norm((snaps-positions)[:,[0,2]],axis=1)
               if not np.isfinite(snaps).all()or errors.max()>.002:continue
+              if hasattr(video.pathfinder,'distance_to_closest_obstacle'):
+                margin_native=.18 if entry['declaration']['kind']=='human'else .08
+                if any(video.pathfinder.distance_to_closest_obstacle(snaps[i],margin_native+.01)<margin_native for i in np.linspace(0,len(snaps)-1,17,dtype=int)):continue
               positions[:,[0,2]]=snaps[:,[0,2]];links=[]
               for i,j in zip(np.linspace(0,len(snaps)-1,9,dtype=int)[:-1],np.linspace(0,len(snaps)-1,9,dtype=int)[1:]):
                 path=video.hs.ShortestPath();path.requested_start=snaps[i];path.requested_end=snaps[j]
