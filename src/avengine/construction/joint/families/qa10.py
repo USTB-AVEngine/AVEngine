@@ -378,12 +378,9 @@ def prepare_qa10_native_candidate(plan, row, house, catalog, records, semantic, 
                                   *, context, request, demand, output_dir):
     """QA-10 native predicate adapter; the core owns preparation and geometry."""
     from pathlib import Path
-    import os, time, psutil
-    from copy import deepcopy
     from avengine.construction.joint import CheckResult
     from avengine.construction.joint.native import prepare_static_native
     from avengine.capture.v7_occlusion_demand import measure_requested_relations
-    from avengine.timeline.v7_position_admission import PositionAdmission
     from avengine.timeline.continuous_pilot import write_json
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=False)
@@ -397,30 +394,6 @@ def prepare_qa10_native_candidate(plan, row, house, catalog, records, semantic, 
         write_json(directory/"native_occlusion_witness.json", witness)
         yield CheckResult("qa10:native_unique_partial_occluder", relation["status"],
                           ";".join(relation["errors"]), evidence=relation)
-        # Preserve the original native five-degree source-direction predicate.
-        cache = directory.parent/"rir_by_camera"/plan.camera.camera_id
-        gate = PositionAdmission(scene, video.motion_house, video.motion_inputs,
-                                 cache, directory/"acoustic_placement_admission.json")
-        timings = []
-        try:
-            for entry in entries:
-                endpoint = entry["endpoint_id"]
-                if endpoint not in gate.active:
-                    continue
-                point = np.asarray(video._apply_entry(entry, scene)["emitter_position_m"], float)
-                wall, cpu = time.monotonic(), time.process_time()
-                before = deepcopy(gate.cache.stats)
-                direction = gate.check(endpoint, point)
-                timings.append({"endpoint_id": endpoint, "wall_s": time.monotonic()-wall,
-                    "cpu_self_s": time.process_time()-cpu, "pid": os.getpid(),
-                    "psr": psutil.Process().cpu_num(), "cpu_affinity": sorted(os.sched_getaffinity(0)),
-                    "cache_before": before, "cache_after": deepcopy(gate.cache.stats)})
-                yield CheckResult("qa10:actual_source_direction:"+endpoint,
-                                  "pass" if direction["status"]=="pass" else "fail",
-                                  "unchanged_native_5deg_gate", evidence=direction)
-        finally:
-            gate.close()
-            write_json(directory/"rir_cpu_observations.json", {"measurements": timings})
     minimum = {aid: 100 for aid in plan.actors}
     minimum[demand.target_asset_id] = demand.minimum_visible_pixels
     prepared = prepare_static_native(
@@ -428,12 +401,12 @@ def prepare_qa10_native_candidate(plan, row, house, catalog, records, semantic, 
         house=house, catalog=catalog, records=records, semantic=semantic,
         runtime=runtime, output_dir=directory/"core",
         family_check=family_check, roles={aid:"inside" for aid in plan.actors},
-        minimum_visible_pixels=minimum, appearance_ids=tuple(plan.actors))
+        minimum_visible_pixels=minimum, appearance_ids=tuple(plan.actors),
+        acoustic_preflight=True)
     if prepared.payload is not None:
         payload = prepared.payload
         payload.row["automatic_construction"]["native_preflight"] = {
             "status": "pass", "certificate_path": str(payload.directory/"native_certificate.json"),
             "formal_render_support_proposal_limit": 1, "native_execution_must_not_replan": True,
             "scope": "same live prepared scene; final 450-frame stream remains required"}
-        payload.qa10_acoustic_cache_directory = str(directory.parent/"rir_by_camera"/plan.camera.camera_id)
     return prepared
