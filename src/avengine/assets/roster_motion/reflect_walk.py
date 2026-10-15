@@ -196,3 +196,22 @@ def plan_mover(is_free, listener_xz, speed, *, seeds=64, duration_s=30.0, rng=No
         if slots and best is None:
             best = (w, slots)
     return best
+
+def schedule_moving_windows(walk, *, utterance_s, post_s=1.5, wet_tail_s=0.5, lead_s=0.7, step_s=0.5):
+    """QA-06/QA-17 slots that may span reflections: the source keeps moving (speed > 0) for the whole utterance and
+    for wet_tail_s + post_s after it.  Neither family's judge needs a straight path, only a stable motion state.
+    """
+    fps = walk.fps
+    n = len(walk.positions)
+    slots = []
+    t = lead_s
+    total = float(utterance_s) + wet_tail_s + post_s
+    while t + total + lead_s <= (n - 1) / fps:
+        i0 = int(round(t * fps)); i1 = int(round((t + total) * fps))
+        if np.all(walk.speeds[i0:i1 + 1] > 0):
+            slots.append({'start_s': t, 'end_s': t + float(utterance_s), 'leg': None,
+                          'window_frames': (max(0, i0 - int(round(lead_s * fps))), min(n - 1, i1 + int(round(lead_s * fps)))),
+                          'post_until_s': t + total, 'radial_change_m': 0.0, 'branch': None, 'radial_cos': None,
+                          'qa06': True, 'qa15': False, 'qa16': False, 'qa17': True, 'kind': 'moving_emission'})
+        t += step_s
+    return slots
