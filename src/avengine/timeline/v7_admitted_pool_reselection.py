@@ -47,7 +47,7 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         raise ValueError('supplement source parent is not admitted')
     recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
     scene=row['scene_id'];root=pointer_path.parent;seal=root/pointer['attempt']
-    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v5_all_legal_families.json')
+    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v6_owner_count_scope.json')
     if cache.exists():return load(cache)
     prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v1.json')
     prior=None  # Earlier candidates predate the fixed observer and wording policy.
@@ -117,7 +117,22 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
             entries.append(_entry(scene,training,g));supplemented+=q['modality']=='vision';motion_supplemented+=q['qa_id']in {'QA-06','QA-15','QA-16','QA-17','QA-08','STARSS-FRUSTUM','QA-20','QA-24','QA-04','QA-13','QA-25','QA-28','QA-21','V7-CLASS34'}
         proofs.append({'window_id':wid,'original_replay':str(rpath),'supplements':len(candidates),
             'truth_replay':replay,'source_pool':str(pool),'CJK_and_ID_gate':'pass','invalid_answer_controls':'pass'})
-    result={'entries':entries,'new_visual_candidate_rows':supplemented,'new_motion_candidate_rows':motion_supplemented,'source_seal':str(pointer_path),
+    from avengine.timeline.v7_count_scope_review import review_qa22_scope
+    count_reviews=[];eligible=[];scope_facts={}
+    for entry in entries:
+        training=entry['row']
+        if training['qa_id']=='QA-22':
+            wid=training['window_id']
+            if wid not in scope_facts:
+                member=wid.rsplit('__',2)[-2]
+                marker=load(root/f'selected_windows_{member}_completed.json')
+                audit_path=Path(marker['recipe']['pool_directory'])/wid/'candidate_audit.json';permitted(audit_path)
+                scope_facts[wid]=load(audit_path)['facts']
+            review=review_qa22_scope(training,scope_facts[wid]);count_reviews.append({'question_id':training['question_id'],**review})
+            if review['status']=='answer_scope_requires_reconstruction':continue
+        eligible.append(entry)
+    entries=eligible
+    result={'entries':entries,'owner_qa22_scope_reviews':count_reviews,'new_visual_candidate_rows':supplemented,'new_motion_candidate_rows':motion_supplemented,'source_seal':str(pointer_path),
         'source_seal_sha256':sha(pointer_path),'proofs':proofs,'scene_delivery_policy':scene_policy}
     save(cache,result);return result
 
