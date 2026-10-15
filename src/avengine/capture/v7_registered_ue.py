@@ -32,6 +32,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 raise ValueError('registered UE class/material source missing')
         from avengine.registry.kujiale_ue_measurements import read_registration
         self.native_measurement_registration,self.native_measurement_registration_receipt=read_registration(inputs.get('kujiale_native_measurement_registration'))
+        from avengine.capture.kujiale_registered_room_floor import bind_room_floor
+        house=bind_room_floor(house,house['room']['room_label'],self.native_measurement_registration,inputs.get('production_input_contract'))
         self.house,self.scene,self.assets=deepcopy(house),scene,assets
         self.width,self.height,self.cv2=width,height,cv2
         self.capture_scale=inputs.get('registered_ue_capture_scale',2)

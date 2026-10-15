@@ -31,6 +31,9 @@ def run_worker(manifest,slot):
         gpu=int(task['ue_physical_gpu']);house=deepcopy(house)
         house['input']['ue_config'].update(physical_gpu_index=gpu,graphics_adapter=0,unreal_editor=str(root/'scripts'/f'ue_gpu{gpu}'))
         os.sched_setaffinity(0,{12+slot%4})
+    if task.get('automatic_registered_room'):
+        from avengine.capture.kujiale_registered_room_floor import bind_room_floor
+        house=bind_room_floor(house,row['room_id'],contract=contract)
     from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,add_scene_demand,record_selected_parent
     if task.get('automatic_registered_room') and row.get('required_sound_classes'):
         from avengine.timeline.v7_kujiale_environment_construction import bind_inventory_project

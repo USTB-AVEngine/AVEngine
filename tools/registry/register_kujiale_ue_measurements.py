@@ -9,8 +9,10 @@ from avengine.registry.kujiale_ue_measurements import SCHEMA,sha256,loaded_map_p
 def load(path):return json.loads(Path(path).read_text())
 def build(manifest):
     root=Path(manifest['output_root']);houses=load(manifest['houses_ue'])['houses'];rooms={}
+    contract=load(manifest['contract']);legality_source=contract['inputs']['room_kujiale'];legality=load(legality_source['path']);legal_rows=legality['rooms'].values()if isinstance(legality['rooms'],dict)else legality['rooms'];floor_by_room={(r['house'],r['room_id']):r['native_floor_surface']for r in legal_rows}
     for h in houses:
         for rid in h['checked_room_ids']:rooms[h['house']+'/'+rid]={'house':h['house'],'room_id':rid,'measurement_status':'not_run','smoke_status':'not_run','measurements':[],'independent_questions':0,'reason':'current full UE capture and parent smoke pending'}
+    for entry in rooms.values():entry['native_floor_surface']=floor_by_room[(entry['house'],entry['room_id'])];entry['room_legality_source']=legality_source
     assets={};jobs={}
     for path in sorted((root/'evidence/jobs').glob('[0-9][0-9][0-9].json')):
         job=load(path);task=next((t for t in manifest['parents']if t['slot']==job['slot']),None)
