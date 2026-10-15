@@ -231,13 +231,14 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
             'reserve_tail_s':.5,'wet_tail_planning_bound_s':None,'minimum_distance_change_m':.5})
     demand=deepcopy(row.get('scene_demand',{}))
     demand.update(focus='motion_quartet',requested_conditions=['motion_quartet'],
-                  condition_families={'motion_quartet':list(MOTION_FAMILIES)},
+                  condition_families={'motion_quartet':[r['qa_id']for r in requests]},
                   constructor=REVISION)
     row['scene_demand']=demand
     row['motion_during_condition_requests'] = requests
     try:
         row=prepare_motion_during_row(row,catalog,list(source_records)+measured)
     except ValueError as error:
+        __import__('logging').getLogger(__name__).warning('Original motion solver rejected reflection schedule; reconstructing: %s',error)
         retries=int(base_row.get('_motion_solver_construction_retry',0))
         if retries>=31:raise MotionTemplateUnavailable('original solver rejected 32 automatic reflection schedules: '+str(error)) from error
         retry=deepcopy(base_row);retry['_motion_solver_construction_retry']=retries+1
