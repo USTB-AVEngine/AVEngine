@@ -49,3 +49,22 @@ def test_real_human_playback_tracks_distance_during_acceleration_and_pauses():
   assert min(abs((phase[pause]%1.)-v)for v in [0.,.5,1.])<1e-10
   assert not moving[pause]
  assert proof['maximum_clock_distance_error_s']==0
+
+
+def test_native_stadium_turns_outside_both_original_solver_windows():
+ from avengine.assets.roster_motion.straight_window_routes import straight_window_routes
+ class Path:pass
+ class Pathfinder:
+  def snap_point(self,p):return np.asarray(p,float)
+  def find_path(self,p):p.geodesic_distance=float(np.linalg.norm(p.requested_end-p.requested_start));return True
+ entry={'applied_root_input':np.eye(4),'declaration':{'kind':'human','emitter_local_m':[0.,1.5,0.]}}
+ video=SimpleNamespace(actors=[entry],pathfinder=Pathfinder(),hs=SimpleNamespace(ShortestPath=Path))
+ scene={'listener_m':[8.,1.3,0.],'camera_yaw_knots':[{'yaw_deg':-90.}], 'production_scenario':{'motion_floor_polygon':{'type':'Polygon','coordinates':[[[-10,-10],[10,-10],[10,10],[-10,10],[-10,-10]]]}}}
+ windows=[[.4,2.5],[7.6,9.65]]
+ request={'speed_m_s':.9,'straight_motion_windows_s':windows,'sounding_straight_windows_s':[windows[0]],'distance_trend':'approaching','distance_trend_intervals_s':[windows[0]],'minimum_distance_change_m':1.5}
+ times=np.arange(901)/30.;route=next(straight_window_routes(video,entry,scene,times*.9,np.array([0,0,-1]),request))
+ for lo,hi in windows:
+  selected=(times>=lo)&(times<=hi)
+  assert np.ptp(route.yaws[selected])<1e-9
+ assert np.ptp(route.yaws)>1.0
+ assert route.receipt['maximum_horizontal_snap_error_m']==0.
