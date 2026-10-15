@@ -361,7 +361,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if key=='floor':
                     from avengine.capture.v7_layout_candidates import facing_yaw
                     support['yaw_rad']=facing_yaw(scene,a,listener,support['point'])
-                    support['yaw_rad']=body_yaw(support['yaw_rad'],a,person_index,support.get('_body_yaw_retry',0))
+                    if not(scene.get('automatic_construction')or scene.get('owner_social_layout')):
+                        support['yaw_rad']=body_yaw(support['yaw_rad'],a,person_index,support.get('_body_yaw_retry',0))
                 # Pure candidate filtering: the support transform is identical
                 # to check_support's proposed root. Every surviving candidate
                 # still runs all original rays, contacts and real native pixels.
