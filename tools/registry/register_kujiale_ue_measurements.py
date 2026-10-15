@@ -13,7 +13,8 @@ def build(manifest):
     for h in houses:
         for rid in h['checked_room_ids']:rooms[h['house']+'/'+rid]={'house':h['house'],'room_id':rid,'measurement_status':'not_run','smoke_status':'not_run','measurements':[],'independent_questions':0,'reason':'current full UE capture and parent smoke pending'}
     for entry in rooms.values():entry['native_floor_surface']=floor_by_room[(entry['house'],entry['room_id'])];entry['room_legality_source']={k:legality_source[k]for k in ['path','sha256']}
-    assets={};jobs={}
+    from avengine.registry.kujiale_ue_measurements import DEFAULT_REGISTRATION
+    bootstrap=Path(manifest.get('formal_kujiale_registration',DEFAULT_REGISTRATION));assets={a['asset_id']:a for a in load(bootstrap).get('assets',[])}if bootstrap.exists()else{};jobs={}
     def repair(reason):
         if 'support face is not room floor'in reason:return '已接通正式登记内原有逐三角形地板来源；保持原身份/接触检查，自动重跑'
         if 'geometry construction'in reason:return '同房细化网格、真实地板基准和最多128个原生Nav镜头自动搜索'
@@ -29,6 +30,10 @@ def build(manifest):
         if job['status']=='passed'and entry['smoke_status']!='pass':
             entry.update(smoke_status='pass',independent_questions=job['independent_questions'],scene_id=job['scene_id'],families=job['export']['question_family_counts'],parent_receipt={'path':str(path),'sha256':sha256(path)},reader=job['reader'],english_status='pass',reason='')
         elif entry['smoke_status']!='pass':entry.update(smoke_status=job['status'],reason=job.get('reason','current complete parent pending'),scene_id=job['scene_id'])
+        if job['status']=='passed'and job.get('new_current_native_category_qualification'):
+            qualification=job['new_current_native_category_qualification'];all_qualifications=entry.setdefault('current_native_category_qualifications',[])
+            if qualification not in all_qualifications:all_qualifications.append(qualification)
+            entry.setdefault('current_native_category_qualification',qualification)
         native=Path(task.get('native_output_root')or root/'native')/'parents'/row['scene_id']
         house=next(h for h in houses if h['house']==row['house'])
         for marker in sorted(native.glob('visual_*_completed.json')):

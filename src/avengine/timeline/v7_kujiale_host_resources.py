@@ -21,12 +21,25 @@ def subtree_pss(sample,pid):
         selected|=descendants
     return sum(records[p]['pss_bytes']for p in selected if p in records)
 
+def legacy_guard_processes(sample,cutover_unix):
+    boot=next(int(s.split()[1])for s in Path('/proc/stat').read_text().splitlines()if s.startswith('btime '));hz=os.sysconf('SC_CLK_TCK');old=[]
+    for row in sample['processes']:
+        parts=row.get('command','').split()
+        if not parts or 'python'not in Path(parts[0]).name or not any(s in row['command']for s in ['run_v7_acceptance.py','spawn_main','run_guarded_check.py']):continue
+        if boot+int(row['start_ticks'])/hz<cutover_unix:old.append(row['pid'])
+    return old
+
+
 class LegacyAdmissionBridge:
     """Pause only unclaimed CPU leases while old isolated workers drain."""
     def __init__(self,root):self.root=Path(root);self.held={}
     def update(self,sample):
         import fcntl
         from avengine.timeline.v7_kujiale_cpu_phases import legacy_workers,phase_memory_estimate
+        scope_path=self.root/'inputs/task_scope.json';scope=json.loads(scope_path.read_text())if scope_path.exists()else {};cutover=scope.get('host_pss_admission_cutover_unix')
+        if cutover is not None and not legacy_guard_processes(sample,cutover):
+            for stream in self.held.values():fcntl.flock(stream,fcntl.LOCK_UN);stream.close()
+            self.held.clear();atomic_write(self.root/'evidence/legacy_admission_bridge.json',{'time_utc':sample['time_utc'],'PSS_bytes':sample['PSS_bytes'],'old_admission_workers':[],'compatibility_bridge_retired':True,'new_host_PSS_CPU_phase_guard_remains_active':True,'running_workers_stopped':False});return
         directory=self.root/'evidence/cpu_slots';directory.mkdir(parents=True,exist_ok=True)
         with(directory/'queue.lock').open('a+')as guard:
             fcntl.flock(guard,fcntl.LOCK_EX);free={};busy=[]

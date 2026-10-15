@@ -18,6 +18,8 @@ REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v7-measu
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
     def __init__(self,house,scene,inputs,assets,*,width=1280,height=720,source_material_cache_directory=None):
+        from avengine.timeline.v7_fixed_camera_layout import require_fixed_camera_plan
+        require_fixed_camera_plan(scene)
         import cv2
         from avengine.capture.kujiale_native_exposure import (bind_histogram_profile,
             require_authored_light_audit,require_histogram_room_visual_qa,PARAMETERS)
@@ -99,7 +101,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.current_native_environment=bool(scene.get('require_current_native_environment'))
         self.suspend_unused_capture_sensors=bool(inputs.get('suspend_unused_registered_capture_sensors',False))
         self.registered_actor_yaw_offset_deg=float(inputs.get('registered_actor_yaw_offset_deg',90.))
-        self.construct_registered_dialogue_camera=bool(inputs.get('construct_registered_dialogue_camera',False))
+        self.construct_registered_dialogue_camera=False  # owner fixed camera; no runtime recenter
         if not math.isfinite(self.registered_actor_yaw_offset_deg):raise ValueError('registered actor yaw offset must be finite')
         if inputs.get("kujiale_ue_asset_admission"):
             from avengine.capture.kujiale_registered_environment import environment_bindings, require_binding_project
@@ -172,16 +174,6 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 'registered_content_copy_receipt':inputs['native_registered_content_receipt'],
                 'action_scope':'actual original registered static Blueprint; no walk/sit substitution'}
         except BaseException:self.close();raise
-
-    def _camera(self):
-        view=super()._camera()
-        view['yaw_deg']+=getattr(self,'current_camera_yaw_offset',0.)
-        return view
-
-    def _expected_camera_yaw(self,time_s):
-        # The qualified binding view rotates the planned pan as a whole.
-        # Retain the exact native pose tolerance; FOA and truth use readbacks.
-        return super()._expected_camera_yaw(time_s)+getattr(self,'current_camera_yaw_offset',0.)
 
     def _spawn_registered(self,a,d):
         from avengine.backends.spear_ue.research_runtime import attach_emitter_component
@@ -256,10 +248,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.native_support_floor_y[ep]=float(root[1])
         root[1]+=float(self.vertical_root_offsets.get(ep,0.))
         if ep==self.alpha_lower_endpoint:root[1]-=.1
-        direction=np.asarray(self.scene['listener_m'])-p
-        yaw=math.degrees(math.atan2(direction[0],-direction[2]))
-        # Pose construction remains explicit in the recipe. The admitted GLB
-        # import faces local UE +X; -90 makes it face the actual listener.
+        yaw=float(spec['body_yaw_deg'])
+        if not math.isfinite(yaw):raise ValueError('constructed body orientation is not finite')
+        # Preserve the explicitly constructed conversational/side/back pose.
         return root,yaw+self.registered_actor_yaw_offset_deg
 
     def _apply(self,index):
@@ -328,6 +319,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                     first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
                     if not binding_pair_fits_view(self.scene['listener_m'],first,p):
                         attempts.append({'endpoint_id':ep,'candidate':p,'reason':'both active speakers need separated bearings within the production binding view'});continue
+                if any(np.linalg.norm((np.asarray(p)-saved['position_m'])[[0,2]])<1.0-1e-9 for saved in self.alpha_standing_refs.values()):
+                    attempts.append({'endpoint_id':ep,'candidate':p,'reason':'owner human center spacing must be at least1.0m'});continue
                 self.placement_overrides[ep]=p
                 try:
                     with self.instance.begin_frame():actor=next(x for x in self._apply(0) if x['endpoint_id']==ep)
@@ -380,22 +373,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 if result['status']!='blocked':success=True;break
             if not success:raise ValueError('registered UE environmental emitter direction not admitted')
         if self.current_native_environment:
-            if self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage':
-                points=[np.array(self.alpha_standing_refs[a['endpoint_id']]['position_m']) for a in self.assets[:2]]
-                listener=np.array(self.scene['listener_m'])
-                from avengine.capture.kujiale_pilot_environment import binding_camera_yaw
-                current=binding_camera_yaw(listener,points)
-                original=math.degrees(math.atan2(self.scene['camera_forward'][0],-self.scene['camera_forward'][2]))
-                self.current_camera_yaw_offset=(current-original+180)%360-180
             from avengine.capture.kujiale_pilot_environment import qualify_scene
             qualify_scene(self,directory.parent/'physical_environment',checks)
-        if self.construct_registered_dialogue_camera:
-            from avengine.capture.kujiale_pilot_environment import construct_dialogue_camera
-            actual=[self.alpha_standing_refs[a['endpoint_id']]['emitter_position_m']for a in self.assets[:2]]
-            plan=construct_dialogue_camera(self.scene['listener_m'],actual)
-            original=math.degrees(math.atan2(self.scene['camera_forward'][0],-self.scene['camera_forward'][2]))
-            self.current_camera_yaw_offset=(plan['yaw_deg']-original+180.)%360.-180.
-            self.receipt['native_dialogue_camera_construction']=plan
+        self.receipt['native_dialogue_camera_construction']={'policy':'owner fixed planned camera; no native recenter','runtime_yaw_offset_deg':0.}
         if self.current_native_environment or self.suspend_unused_capture_sensors:
             # Static foot support was measured front/rear and with a negative
             # 10-cm control. Every frame still verifies the identical rigid

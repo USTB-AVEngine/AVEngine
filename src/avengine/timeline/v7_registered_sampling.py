@@ -99,7 +99,8 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     layout=row['measured_static_layout'];starts=[t/10 for t in row['window_start_ticks'][:row['window_count']]]
     event_starts=[0.,10.,20.] if starts==[0.,5.,10.,15.,20.] else starts
     yaw=float(plan['camera_yaw_deg']);angle=math.radians(yaw)
-    camera_policy=plan.get('camera_policy','uniform_static')
+    # Owner2026-10-15: all registered producers use one fixed camera.
+    camera_policy='binding_static'
     if camera_policy not in {'uniform_static','binding_static','binding_sweep','review_sweep_360','pilot_binding_coverage'}:raise ValueError('unsupported camera policy')
     knots=[{'time_s':float(i),'yaw_deg':yaw+(36*i if camera_policy=='review_sweep_360' else 0)} for i in range(31)]
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],'split':row['split'],'duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':layout['listener_m'],'camera_forward':[math.sin(angle),0.,-math.cos(angle)],'camera_yaw_knots':knots,'window_starts_s':starts,'sources':{},'events':[],'production_scenario':plan,'source_motion_policy':'registered standing only; independent objects require separate motion admission','sampling_limitations':['walk/sit/seat pending complete episode admission','unadmitted old sound classes are not generated','moving object episode intake pending','profile requests are not measured realized marginals']}
@@ -108,31 +109,10 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     if camera_policy in {'binding_static','binding_sweep','pilot_binding_coverage'}:
         vectors=[np.asarray(p['position_m'])-np.asarray(layout['listener_m']) for p in placements[:2]]
         forward=sum(v/np.linalg.norm(v) for v in vectors);forward[1]=0.;forward/=np.linalg.norm(forward)
-        yaw=math.degrees(math.atan2(forward[0],-forward[2]))+float(plan.get('binding_camera_yaw_offset_deg',7.))
+        yaw=float(layout.get('fixed_camera_yaw_deg',math.degrees(math.atan2(forward[0],-forward[2]))+float(plan.get('binding_camera_yaw_offset_deg',0.))))
         a=math.radians(yaw);scene['camera_forward']=[math.sin(a),0.,-math.cos(a)]
         scene['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]
-        if camera_policy=='binding_sweep':
-            # Keep a common observed binding interval, then acquire real entry
-            # and exit evidence. Camera and FOA both use these same knots.
-            peak=float(plan.get('camera_sweep_peak_deg',60.))
-            if not math.isfinite(peak) or not 0.<peak<=120.:raise ValueError('invalid native review camera sweep')
-            track={0.:yaw,30.:yaw}
-            for start in event_starts:
-                schedule=plan.get('camera_sweep_schedule',[(0.,0.),(4.,0.),(6.,peak),(8.,-peak),(10.,0.)])
-                if len(schedule)<2 or schedule[0][0]!=0 or schedule[-1][0]!=10 or any(not math.isfinite(float(x))for row in schedule for x in row)or any(not 0<=row[0]<=10 or abs(row[1])>120 for row in schedule)or any(b[0]<=a[0]for a,b in zip(schedule[:-1],schedule[1:])):raise ValueError('invalid native shared camera sweep schedule')
-                for offset,delta in schedule:
-                    track[start+offset]=yaw+delta
-            scene['camera_yaw_knots']=[{'time_s':t,'yaw_deg':v} for t,v in sorted(track.items())]
-        if camera_policy=='pilot_binding_coverage':
-            if not plan.get('native_environment'):raise ValueError('pilot camera needs physical environment')
-            # Keep the original production binding interval; acquire all
-            # azimuths with actual native frames near the end of each window.
-            track={0.:yaw,30.:yaw}
-            for start in event_starts:
-                for offset,delta in ((0.,0.),(7.5,0.),(9.9,360.),(10.,360.)):
-                    track[start+offset]=yaw+delta
-            scene['camera_yaw_knots']=[{'time_s':t,'yaw_deg':v} for t,v in sorted(track.items())]
-        scene['camera_sampling']='explicit native-visible binding review stratum; not an aggregate profile fit'
+        scene['camera_sampling']='one fixed camera for the complete30s; owner20261015'
     else:scene['camera_sampling']=camera_policy
     from shapely.geometry import shape,Point
     floor_poly=shape(layout['room_floor_polygon']).buffer(-.3)

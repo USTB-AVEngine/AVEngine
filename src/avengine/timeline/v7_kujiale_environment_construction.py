@@ -78,11 +78,12 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
                     matrix,rotated,proposed_root,low,high=support_poses.pose(support,yaw)
                     if not _separated(low,high,envelopes):rejected['actual_human_or_required_entity_envelope_prefilter']+=1;continue
                     center=(low+high)/2;ray=center-listener;length=np.linalg.norm(ray);horizontal=np.linalg.norm(ray[[0,2]])
+                    if any(np.linalg.norm((center-np.asarray(p['root_m']))[[0,2]])<1.0 for p in row['measured_static_layout']['valid']):rejected['owner_human_animal_center_spacing']+=1;continue
                     if not _separated(low,high,envelopes)or horizontal<.2 or abs(math.degrees(math.atan2(ray[1],horizontal)))>23 or not _clear_segment(listener,center,envelopes):rejected['listener_view_or_human_separation']+=1;continue
                     from avengine.capture.kujiale_pilot_environment import binding_camera_yaw
-                    yaw_center=binding_camera_yaw(listener,[p['position_m']for p in row['measured_static_layout']['valid'][:2]])
+                    yaw_center=row['measured_static_layout'].get('fixed_camera_yaw_deg',binding_camera_yaw(listener,[p['position_m']for p in row['measured_static_layout']['valid'][:2]]))
                     bearing=math.degrees(math.atan2(ray[0],-ray[2]));offset=(bearing-yaw_center+180)%360-180
-                    if abs(offset)>110:rejected['required_camera_sweep_span']+=1;continue
+                    if abs(offset)>35:rejected['required_camera_sweep_span']+=1;continue
                     if geometry.ray(listener,ray/length,length-.04)is not None:rejected['native_camera_to_entity_ray']+=1;continue
                     place=geometry.placement(vertices,support,yaw,tolerance)
                     if place is None:rejected['original_native_support_contact_collision_or_negative_control']+=1;continue

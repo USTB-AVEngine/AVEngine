@@ -21,6 +21,7 @@ def test_position_retry_uses_new_geometry_without_removing_people():
     candidates=[{'position_m':[x,1.3,z],'root_m':[x,0,z],'body_yaw_deg':0}for x in [-2,-1,0,1,2]for z in [-4,-3,-2,-1]]
     a=select_group(candidates,[0,1.5,0],0);b=select_group(candidates,[0,1.5,0],1)
     assert len(a)==len(b)==3 and a!=b
+    assert {tuple(p['root_m'])for p in a[:2]}.isdisjoint(tuple(p['root_m'])for p in b[:2])
     assert all(min(np.linalg.norm((np.array(p['root_m'])-q['root_m'])[[0,2]])for q in group if q is not p)>=.85 for group in [a,b]for p in group)
 
 def test_resource_pressure_queues_only_new_parents_and_gpu0_is_excluded(tmp_path):
@@ -45,3 +46,21 @@ def test_camera_can_occupy_clear_air_above_furniture_without_inventing_a_human_f
     eyes=air_camera_proposals(box(0,0,2,2),.03,.5)
     assert any(p[0]>.8 and p[2]>.8 for p in eyes)
     assert all(p[1]==1.53 for p in eyes)
+
+
+def test_small_room_keeps_its_only_legal_pair_when_diversity_is_exhausted():
+    candidates=[{'position_m':[x,1.3,z],'root_m':[x,0.,z],'body_yaw_deg':0.}for x,z in [(-.8,-2.),(.8,-2.),(0.,-1.2)]]
+    first=select_group(candidates,[0.,1.5,0.],0)
+    assert select_group(candidates,[0.,1.5,0.],2)==first
+    assert len(first)==3
+
+
+def test_low_registered_body_constructs_a_fixed_lower_native_camera(tmp_path):
+    import json
+    from shapely.geometry import box
+    from avengine.timeline.v7_kujiale_construction import requested_camera_eye_height,air_camera_proposals
+    inventory=tmp_path/'native.json';inventory.write_text(json.dumps({'assets':[{'ue_native_physical_status':'pass','attachment_surface':'floor','dimensions_m':[.5,.3,.7],'allowed_v7_classes_candidate':['dog_bark']}]}));inputs={'kujiale_ue_asset_admission':str(inventory)}
+    height=requested_camera_eye_height({'required_sound_classes':['dog_bark']},inputs)
+    assert height==1.0 and all(p[1]==1.03 for p in air_camera_proposals(box(0,0,2,2),.03,.5,height))
+    assert requested_camera_eye_height({},inputs)==1.5
+    assert requested_camera_eye_height({'required_sound_classes':['ceiling_sound']},inputs)==1.5

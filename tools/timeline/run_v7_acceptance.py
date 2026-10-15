@@ -75,10 +75,13 @@ def run_worker(manifest,slot):
         if task.get('automatic_registered_room'):
             from avengine.timeline.v7_kujiale_category_qualification import qualify_missing_humans
             from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase
-            cell=next(r for r in contract['rooms']if r['key']==row['house']+'::'+row['room_id'])
-            if 'human.standing'not in cell['categories']:
-                with cpu_phase(root,'new_native_category',estimate_bytes=2500000000):
-                    inputs,category=qualify_missing_humans(row,house,inputs,catalog,source,human,contract,root)
+            from avengine.registry.kujiale_room_categories import bind_formal_room_category,required_category_witnesses
+            row,inputs,formal_category=bind_formal_room_category(row,inputs,native_root)
+            if formal_category:receipt['formal_native_room_category_binding']=formal_category
+            current_contract=load(inputs['production_input_contract']);cell=next(r for r in current_contract['rooms']if r['key']==row['house']+'::'+row['room_id']);missing=set(required_category_witnesses(row,inputs))-set(cell['categories'])
+            if missing:
+                with cpu_phase(root,'new_native_category',estimate_bytes=16000000000 if missing-{'human.standing'}else 12000000000):
+                    inputs,category=qualify_missing_humans(row,house,inputs,catalog,source,human,current_contract,root)
             else:category=None
             if category:receipt['new_current_native_category_qualification']=category
         if task.get('automatic_registered_room'):
@@ -138,9 +141,15 @@ def main():
     a=p.parse_args();m=load(a.manifest)
     if m.get('dataset_role')!='acceptance_only' or m.get('training_dataset_merge')is not False or m.get('CCI_transfer')is not False:
         raise ValueError('explicit isolated acceptance scope required')
+    started=datetime.datetime.now(datetime.timezone.utc).isoformat();start=time.monotonic();cpu=time.process_time()
     try:code=run_worker(m,a.worker)
     except Exception as exc:
-        write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':m['parents'][a.worker]['row']['scene_id'],'reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})
+        path=Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json'
+        receipt=load(path)if path.exists()else {'slot':a.worker,'scene_id':m['parents'][a.worker]['row']['scene_id'],'pid':os.getpid(),'started_utc':started}
+        # Construction can fail before the normal generation try/except.
+        # Retain its original PID/code/start provenance instead of erasing it.
+        receipt.update(status='failed',reason=str(exc),error_type=type(exc).__name__,traceback=traceback.format_exc(),wall_seconds=time.monotonic()-start,cpu_seconds=time.process_time()-cpu,finished_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),max_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        write(path,receipt)
         traceback.print_exc();code=2
     raise SystemExit(code)
 

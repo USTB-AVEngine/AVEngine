@@ -78,6 +78,8 @@ def _verify_window(folder):
 
 
 def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None,prepare_native_inputs_only=False):
+    from avengine.registry.kujiale_room_categories import bind_formal_room_category
+    row,inputs,_=bind_formal_room_category(row,inputs,output)
     from avengine.timeline.v7_production_inputs import attach_runtime_contract
     row=attach_runtime_contract(row,inputs)
     if inputs.get('render_backend')=='ue_spear':

@@ -10,7 +10,7 @@ from pathlib import Path
 import hashlib,itertools,json,math
 import numpy as np
 
-REVISION='kujiale-room-binding-construction-v1'
+REVISION='kujiale-fixed-natural-construction-v2'
 FACTORS=('appearance','audio','camera','event_schedule','pose','questions','trajectory','window')
 
 def factor_seeds(seed):return {key:int.from_bytes(hashlib.sha256(f'{seed}/{key}'.encode()).digest()[:8],'big')for key in FACTORS}
@@ -48,22 +48,38 @@ def select_group(candidates,listener,attempt=0):
     listener=np.asarray(listener,float);ordered=sorted(candidates,key=lambda p:(abs(np.linalg.norm((np.asarray(p['position_m'])-listener)[[0,2]])-2.4),p['position_m']))
     if len(ordered)<3:raise ValueError('no clear separated three-person group')
     roots=np.asarray([p['root_m']for p in ordered])[:,[0,2]];rays=np.asarray([p['position_m']for p in ordered])-listener;radii=np.linalg.norm(rays[:,[0,2]],axis=1);bearings=np.degrees(np.arctan2(rays[:,0],-rays[:,2]));distance=np.linalg.norm(roots[:,None,:]-roots[None,:,:],axis=2);angles=np.abs((bearings[:,None]-bearings[None,:]+180)%360-180)
-    compatible=(distance>=.85-1e-9)&(np.abs(radii[:,None]-radii[None,:])>=.6-1e-9)&(angles>=8.-1e-7);bits=[int.from_bytes(np.packbits(row,bitorder='little').tobytes(),'little')for row in compatible];pairs=(distance>=.85-1e-9)&(angles>=16.-1e-7)&(angles<=60.+1e-7);found=0
-    for i,first in enumerate(ordered):
-        for j in np.flatnonzero(pairs[i,i+1:])+i+1:
-            common=bits[i]&bits[j]
-            if not common:continue
-            second=ordered[j]
-            if np.linalg.norm(roots[i]-roots[j])<.85 or not binding_pair_fits_view(listener,first['position_m'],second['position_m']):continue
-            indices=[]
-            while common:
-                lowest=common&-common;index=lowest.bit_length()-1;common-=lowest
-                if min(np.linalg.norm(roots[index]-roots[k])for k in [i,j])>=.85:indices.append(index)
-            other=[ordered[k]for k in indices];thirds=comparison_person_candidates(listener,[first['position_m'],second['position_m']],[c['position_m']for c in other])
-            for third in thirds[:3]:
-                if found==attempt:
-                    c=next(c for c in other if c['position_m']==third);return [deepcopy(first),deepcopy(second),deepcopy(c)]
-                found+=1
+    compatible=(distance>=1.0-1e-9)&(np.abs(radii[:,None]-radii[None,:])>=.6-1e-9)&(angles>=8.-1e-7);bits=[int.from_bytes(np.packbits(row,bitorder='little').tobytes(),'little')for row in compatible];pairs=(distance>=1.0-1e-9)&(angles>=16.-1e-7)&(angles<=60.+1e-7)
+    # A failed appearance may belong to either speaker. Prefer a completely
+    # new speaking pair before reusing a location; never require extra room
+    # clearance or remove a person when only overlapping alternatives exist.
+    used_pairs=set();used_roots=set();last_legal=None
+    for choice in range(attempt+1):
+        best=None;best_shared=3
+        for i,first in enumerate(ordered):
+            for j in np.flatnonzero(pairs[i,i+1:])+i+1:
+                if (i,int(j))in used_pairs:continue
+                shared=int(i in used_roots)+int(j in used_roots)
+                if shared>=best_shared:continue
+                common=bits[i]&bits[j]
+                if not common:continue
+                second=ordered[j]
+                if np.linalg.norm(roots[i]-roots[j])<1.0 or not binding_pair_fits_view(listener,first['position_m'],second['position_m']):continue
+                indices=[]
+                while common:
+                    lowest=common&-common;index=lowest.bit_length()-1;common-=lowest
+                    if min(np.linalg.norm(roots[index]-roots[k])for k in [i,j])>=1.0:
+                        axis=roots[j]-roots[i];delta=roots[index]-roots[i];side=abs(axis[0]*delta[1]-axis[1]*delta[0])/np.linalg.norm(axis)
+                        if side>=.25:indices.append(index)
+                other=[ordered[k]for k in indices];thirds=comparison_person_candidates(listener,[first['position_m'],second['position_m']],[c['position_m']for c in other])
+                if not thirds:continue
+                c=next(c for c in other if c['position_m']==thirds[0]);best=(i,int(j),[deepcopy(first),deepcopy(second),deepcopy(c)]);best_shared=shared
+                if shared==0:break
+            if best_shared==0:break
+        if best is None:
+            if last_legal is not None:return last_legal
+            raise ValueError('no clear separated three-person group for this room/camera construction attempt')
+        if choice==attempt:return best[2]
+        last_legal=best[2];used_pairs.add(best[:2]);used_roots.update(best[:2])
     raise ValueError('no clear separated three-person group for this room/camera construction attempt')
 
 def visible_candidates(mesh,listener,candidates):
@@ -77,13 +93,13 @@ def visible_candidates(mesh,listener,candidates):
     return [candidates[i]for i in order if not blocked[i,1]and .65<=radii[i]<=10.]
 
 
-def air_camera_proposals(polygon,native_floor_y,step):
+def air_camera_proposals(polygon,native_floor_y,step,eye_height_m=1.5):
     from shapely.geometry import Point
     x0,z0,x1,z1=polygon.bounds
-    return [[float(x),float(native_floor_y)+1.5,float(z)]for x in np.arange(x0+.05,x1,step)for z in np.arange(z0+.05,z1,step)if polygon.covers(Point(x,z))]
+    return [[float(x),float(native_floor_y)+float(eye_height_m),float(z)]for x in np.arange(x0+.05,x1,step)for z in np.arange(z0+.05,z1,step)if polygon.covers(Point(x,z))]
 
 
-def construct_layout(house,room_id,runtime,*,attempt=0):
+def construct_layout(house,room_id,runtime,*,attempt=0,eye_height_m=1.5):
     from shapely.geometry import shape,Point
     from avengine.acoustics.runtime import load_habitat_runtime
     from avengine.capture.native_floor_reference import NativeFloorReference
@@ -106,9 +122,16 @@ def construct_layout(house,room_id,runtime,*,attempt=0):
             if cap['status']!='pass':statistics['capsule_rejected']+=1;continue
             all_candidates.append({'position_m':(root+[0,1.3,0]).tolist(),'root_m':root.tolist(),'capsule_check':cap})
         views=[room['placement']['camera_m'],*[w['placement']['camera_m']for w in room.get('native_witnesses',[])]]
+        if eye_height_m!=1.5:
+            lowered=[]
+            for eye in views:
+                eye=[eye[0],floor.room_floor_y_m+eye_height_m,eye[2]]
+                cap=query_capsule(floor.mesh,{'witness_index':0,'role':'camera','capsule':{'radius_cm':25.,'half_height_cm':25.,'center_ue_cm':to_ue(eye)}})
+                if cap['status']=='pass':lowered.append(eye)
+            views=lowered
         # Add the same legal room's native-navigation camera positions. The
         # old witness often offers three nearly identical collinear views.
-        camera_eyes=[(np.asarray(p['root_m'])+[0,1.5,0]).tolist()for p in all_candidates]+air_camera_proposals(polygon,floor.room_floor_y_m,step)
+        camera_eyes=[(np.asarray(p['root_m'])+[0,eye_height_m,0]).tolist()for p in all_candidates]+air_camera_proposals(polygon,floor.room_floor_y_m,step,eye_height_m)
         for eye in camera_eyes:
             cap=query_capsule(floor.mesh,{'witness_index':0,'role':'camera','capsule':{'radius_cm':25.,'half_height_cm':25.,'center_ue_cm':to_ue(eye)}})
             if cap['status']=='pass':views.append(list(eye))
@@ -122,26 +145,38 @@ def construct_layout(house,room_id,runtime,*,attempt=0):
                 p=np.asarray(candidate['position_m']);candidate['body_yaw_deg']=math.degrees(math.atan2(listener[0]-p[0],-(listener[2]-p[2])))
             try:selected=select_group(candidates,listener,attempt%3)
             except ValueError:failures.append({'camera_m':listener.tolist(),'clear_candidates':len(candidates)});continue
-            return {'house':house['house'],'room_id':room_id,'status':'CPU native geometry constructed; complete UE readback required','construction_revision':REVISION,'construction_attempt':attempt,'listener_m':listener.tolist(),'center_yaw_deg':0.,'valid':selected,'native_candidates':[p['position_m']for p in candidates],'candidate_count':statistics['proposed'],'clear_candidate_count':len(candidates),'search_rejections':statistics,'camera_candidates_tested':camera_index+1,'native_room_floor_y_m':floor.room_floor_y_m,'camera_construction':'actual 25cm native air clearance; camera has no standing-foot/NavMesh requirement','room_floor_polygon':declaration['floor_polygon'],'frozen_source_clearance_m':.15,'capsule_radius_m':.2,'capsule_half_height_m':.75,'admission_thresholds_changed':False}
+            return {'house':house['house'],'room_id':room_id,'status':'CPU native geometry constructed; complete UE readback required','construction_revision':REVISION,'construction_attempt':attempt,'listener_m':listener.tolist(),'center_yaw_deg':0.,'valid':selected,'native_candidates':[p['position_m']for p in candidates],'candidate_count':statistics['proposed'],'clear_candidate_count':len(candidates),'search_rejections':statistics,'camera_candidates_tested':camera_index+1,'native_room_floor_y_m':floor.room_floor_y_m,'native_camera_eye_height_m':eye_height_m,'camera_construction':'actual 25cm native air clearance; camera has no standing-foot/NavMesh requirement','room_floor_polygon':declaration['floor_polygon'],'frozen_source_clearance_m':.15,'capsule_radius_m':.2,'capsule_half_height_m':.75,'admission_thresholds_changed':False}
     raise ValueError('no native geometry construction after expanded same-room search: '+json.dumps({'rejections':statistics,'native_body_candidates':len(all_candidates),'camera_failures':failures}))
+
+def requested_camera_eye_height(request,inputs):
+    required=set(request.get('required_sound_classes',[]))
+    if not required:return 1.5
+    inventory=json.loads(Path(inputs['kujiale_ue_asset_admission']).read_text());assets=inventory['assets'].values()if isinstance(inventory['assets'],dict)else inventory['assets']
+    low=any(a.get('ue_native_physical_status')=='pass'and a.get('attachment_surface')=='floor'and a['dimensions_m'][1]<.9 and required.intersection(a.get('allowed_v7_classes_candidate',[]))for a in assets)
+    # A fixed lower listener/camera keeps the complete static RIR/FOA model,
+    # while putting a low physical body inside the unchanged vertical view.
+    return 1.0 if low else 1.5
+
 
 def construct_request(request,house,runtime,catalog,semantic,registration):
     seed=int(request['scene_seed']);attempt=int(request.get('construction_attempt',0));ids,gender=registered_people(catalog,registration,seed);scenario,sounds,offsets=authored_pair(semantic,gender,seed,latest_end_s=4.8)
     row={'schema':'v7-recorded-registered-standing-v1','house':house['house'],'room_id':request['room_id'],'scene_id':request['scene_id'],'independent_parent_scene_id':request['scene_id'],'scene_seed':seed,'scene_index':seed,'seeds':factor_seeds(seed),'split':{'development':'dev'}.get(house['split'],house['split']),'duration_s':30,'members':['v0_a0','v0_a1','v1_a0','v1_a1'],'window_count':5,'window_start_ticks':[0,50,100,150,200],'questions_per_window':14,'question_quota_base':int(request.get('question_quota_base',0)),'counterfactual_plan':'appearance_x_emitter_association','allowed_member_changes':['actor_appearance_assignment','dry_bus_to_emitter_assignment'],'assignment_status':'admitted','render_path':'ue_spear','shared_factors':['house','room','materials','camera','background','trajectory','event_times'],'construction_request':deepcopy(request)}
-    row['measured_static_layout']=construct_layout(house,request['room_id'],runtime,attempt=attempt)
+    row['generation_policy']='owner-fixed-camera-natural-layout-20261015-v2'
+    row['measured_static_layout']=construct_layout(house,request['room_id'],runtime,attempt=attempt,eye_height_m=requested_camera_eye_height(request,runtime))
+    from avengine.timeline.v7_fixed_camera_layout import natural_person_yaws
+    from avengine.capture.kujiale_pilot_environment import construct_dialogue_camera
+    layout=row['measured_static_layout'];yaws=natural_person_yaws([p['position_m']for p in layout['valid']],layout['listener_m'])
+    for point,yaw in zip(layout['valid'],yaws):point['body_yaw_deg']=yaw
+    camera=construct_dialogue_camera(layout['listener_m'],[p['position_m']for p in layout['valid'][:2]])
+    layout['fixed_camera_yaw_deg']=camera['yaw_deg'];layout['orientation_construction']='mutual dialogue pair with side profiles; bystander toward pair';layout['human_minimum_center_distance_m']=1.0
     row['production_scenario']={'speaker_count':2,'gender':'F'if gender=='female'else'M','asset_ids':ids,'semantic_scenario_id':scenario,'semantic_sound_ids':sounds,'semantic_sound_subset_ids':sounds,'semantic_role_start_offsets_s':offsets,'environment_sound_classes':[],'camera_policy':'binding_static','camera_yaw_deg':0.,'binding_camera_yaw_offset_deg':0.,'recipe_revision':REVISION,'requested_posture_policy':'registered stand; full original native episode admission mandatory','category_focus_class':None,'non_speech_class':None}
     sounds_by_id={s['sound_asset_id']:s for s in semantic['sounds']}
     speech_end=max(offset+sounds_by_id[sid]['synthesis_readback']['duration_s']for sid,offset in zip(sounds,offsets))
-    row['production_scenario'].update(camera_policy='binding_sweep',camera_sweep_schedule=[[0.,0.],[round(speech_end+.1,6),0.],[6.6,90.],[8.,90.],[9.4,0.],[10.,0.]])
+    row['production_scenario'].update(camera_policy='binding_static',camera_yaw_deg=layout['fixed_camera_yaw_deg'])
     required=request.get('required_sound_classes',[])
     if required:
         from avengine.timeline.v7_kujiale_environment_construction import construct_environment,separate_environment_schedule
         plans=construct_environment(row,house,runtime,required)
         row['production_scenario'].update(native_environment=plans,environment_sound_classes=list(required),category_focus_class=required[0])
         end,effect_start=separate_environment_schedule(row,semantic)
-        from avengine.capture.kujiale_pilot_environment import binding_camera_yaw
-        listener=np.asarray(row['measured_static_layout']['listener_m']);center=(np.asarray(plans[0]['placement']['native_world_bounds_m'][0])+plans[0]['placement']['native_world_bounds_m'][1])/2
-        delta=center-listener;bearing=math.degrees(math.atan2(delta[0],-delta[2]));base=binding_camera_yaw(listener,[p['position_m']for p in row['measured_static_layout']['valid'][:2]]);offset=(bearing-base+180)%360-180
-        peak=90. if offset>=0 else -90.
-        row['production_scenario']['camera_sweep_schedule']=[[0.,0.],[round(end+.1,6),0.],[effect_start,offset],[effect_start+2.,offset],[8.35,peak],[8.8,peak],[9.4,0.],[10.,0.]]
     return row
