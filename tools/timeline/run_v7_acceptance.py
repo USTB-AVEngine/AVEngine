@@ -48,7 +48,9 @@ def run_worker(manifest,slot):
         'code_commit':manifest['code_commit'],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     try:
-        result=generate(row,house,inputs,catalog,source,human,str(root/'native'))
+        native_root=Path(task.get('native_output_root') or root/'native').resolve()
+        if not native_root.is_relative_to(root):raise ValueError('native output must remain inside this authorized task root')
+        result=generate(row,house,inputs,catalog,source,human,str(native_root))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
         if not admitted:raise ValueError('native producer did not admit the parent')
         parent=Path(result['delivery_directory']).parent

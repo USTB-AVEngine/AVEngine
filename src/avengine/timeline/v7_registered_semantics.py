@@ -3,6 +3,8 @@ from copy import deepcopy
 from pathlib import Path
 
 def dialogue_evidence(scene,program,receipt,visual,manifest,start,retained_visual):
+    from avengine.timeline.v7_registered_dialogue_scope import registered_dialogue_view
+    visual,other_scope=registered_dialogue_view(scene,visual)
     first=round(start*15);frame=visual['frames'][first];instances=[]
     missing=[{'actor_id':a['actor_id'],'missing':[k for k in ['body_to_world_m','loaded_artifact_sha256']if k not in a]}for a in frame['actors']if any(k not in a for k in ['body_to_world_m','loaded_artifact_sha256'])]
     if missing:
@@ -30,4 +32,4 @@ def dialogue_evidence(scene,program,receipt,visual,manifest,start,retained_visua
         lo=event['start_tick']/10-start;hi=event['end_tick']/10-start;actor=actor_by_id[event['source_id']]
         placements[eid]={'status':'pass','source':retained_visual,'event_id':eid,'actor_id':event['source_id'],'window_start_s':lo,'window_end_s':hi,'native_emitter_world_m':actor['emitter_position_m'],'emitter_point_kind':'mouth','source_sample_count':binding['waveform_sample_count'],'source_sample_rate_hz':16000,'source_audio_sha256':sound['sha256'],'full_content_preserved':binding['semantic_content_complete'],'trimmed_or_repeated':False}
         roles[eid]={'status':'pass','source':retained_visual,'actor_id':event['source_id'],'scenario_id':sound['scenario_id'],'role':sound['role_id']}
-    return {'semantic_manifest':deepcopy(manifest),'native_dialogue_evidence':{'registered_actors':instances,'placements':placements,'roles':roles},'semantic_wording_variant':'standard'}
+    return {'semantic_manifest':deepcopy(manifest),'native_dialogue_evidence':{'registered_actors':instances,'placements':placements,'roles':roles,'other_physical_scope':other_scope},'semantic_wording_variant':'standard'}
