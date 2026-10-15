@@ -91,8 +91,8 @@ def test_bounded_retry_changes_positions_orientations_and_individuals_without_dr
 
 def test_resource_expiry_and_pressure_only_change_admission():
     policy=ResourcePolicy();expiry=policy.temporary_minimum_free_until_unix
-    assert admission(policy,available=40_000_000_000,free=76_000_000_000,now=expiry-1)['status']=='admitted'
-    assert admission(policy,available=40_000_000_000,free=76_000_000_000,now=expiry)['status']=='paused_before_new_job'
+    assert admission(policy,available=40_000_000_000,free=46_000_000_000,now=expiry-1)['status']=='admitted'
+    assert admission(policy,available=40_000_000_000,free=46_000_000_000,now=expiry)['status']=='paused_before_new_job'
     assert admission(policy,available=29_000_000_000,free=160_000_000_000,now=expiry-1)['status']=='paused_before_new_job'
     assert admission(policy,available=40_000_000_000,free=160_000_000_000,own_pss=41_000_000_000)['status']=='paused_before_new_job'
     view=runtime_resource_view({},policy,list(range(16)));assert view['fresh_rir_workers']+1<=16
@@ -201,14 +201,14 @@ def test_production_write_guard_uses_the_same_exact_floor_and_never_aborts_admit
     from avengine.timeline import v7_storage_budget as storage
     from avengine.timeline.v7_unattended_resources import configure_worker
     monkeypatch.setenv(storage.ENV_KEY,'')
-    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=60_000_000_000))
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=40_000_000_000))
     policy=ResourcePolicy(temporary_minimum_free_until_unix=time.time()+3600)
     budget=configure_worker(tmp_path,policy,[0,1]);assert budget['admission_only']is True
-    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=59_000_000_000))
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=39_000_000_000))
     # A different user's disk growth must not abort a parent already admitted.
     record=storage.check_write(tmp_path/'actual_new_native_stage',expected_bytes=8_000_000_000)
     assert record['resource_limits_enforced_at']=='parent_admission'
-    assert record['free_bytes']==59_000_000_000
+    assert record['free_bytes']==39_000_000_000
 
 
 def test_whole_recorded_triplet_keeps_one_voice_distinct_transcripts_and_complete_short_clips():
@@ -235,7 +235,7 @@ def test_shared_task_cache_remains_in_scope_without_rechecking_an_admitted_paren
     root=tmp_path/'run';root.mkdir();policy=ResourcePolicy(temporary_minimum_free_until_unix=time.time()+3600)
     configure_worker(root,policy,[0,1])
     # A parent already admitted keeps going after another task consumes space.
-    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=59_000_000_000))
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=39_000_000_000))
     attempt=root/'attempts/one';attempt.mkdir(parents=True)
     configured=configure_parent_storage({'storage_budget_root':str(root),'storage_admission_prechecked':True},attempt)
     assert configured['root']==str(root)
@@ -256,3 +256,77 @@ def test_taxonomy_rotation_constructs_a_new_capable_entity_and_keeps_every_human
     assert row['category_focus_class']=='telephone_bell_ringing'
     assert len(row['silent_asset_ids'])==2 and len(row['semantic_human_asset_ids'])==1
     assert row['automatic_construction']['required_role_count']==4
+
+
+def test_path_guard_reports_resolved_actual_path_and_declared_root(tmp_path,monkeypatch):
+    from avengine.timeline import v7_storage_budget as storage
+    root=tmp_path/'own_run';outside=tmp_path/'sibling_cache/materials'
+    monkeypatch.setenv(storage.ENV_KEY,json.dumps({'root':str(root)}))
+    with pytest.raises(storage.StorageBudgetExceeded)as caught:
+        storage.check_write(outside,expected_bytes=64_000_000)
+    message=str(caught.value)
+    assert 'path='+str(outside.resolve())in message
+    assert 'root='+str(root.resolve())in message
+    assert not outside.exists()
+
+
+def test_runtime_relocates_the_exact_engine_material_cache_key_into_the_declared_root(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from avengine.timeline import v7_storage_budget as storage
+    from avengine.timeline.v7_unattended_resources import configure_worker
+    root=tmp_path/'own_run';root.mkdir();outside=tmp_path/'shared_sibling_cache'
+    inherited={'source_material_cache_directory':str(outside),'source_material_cache':'ignored_wrong_alias'}
+    monkeypatch.setenv(storage.ENV_KEY,'')
+    policy=ResourcePolicy(temporary_minimum_free_until_unix=time.time()+3600)
+    monkeypatch.setattr(storage.shutil,'disk_usage',lambda path:SimpleNamespace(free=80_000_000_000))
+    configure_worker(root,policy,[0,1])
+    view=runtime_resource_view(inherited,policy,[0,1],cache_root=root)
+    assert view['source_material_cache_directory']==str(root/'cache/source_materials')
+    assert 'source_material_cache'not in view
+    assert inherited['source_material_cache_directory']==str(outside)
+    assert storage.check_write(view['source_material_cache_directory'],expected_bytes=64_000_000)
+    with pytest.raises(storage.StorageBudgetExceeded):storage.check_write(outside)
+
+
+def test_repeated_cause_counter_ignores_attempt_paths_and_stops_on_second_failure():
+    from tools.timeline.generate_v7_demand_scenes import failure_stop
+    history={}
+    first={'status':'failed','error_type':'RuntimeError','reason':'native mask missing at /task/parent000/mask.npy'}
+    second={**first,'reason':'native mask missing at /task/parent001/mask.npy'}
+    assert failure_stop(first,history)is None
+    stopped=failure_stop(second,history)
+    assert stopped['same_cause_occurrences']==2
+    assert stopped['status']=='stopped_before_next_candidate'
+
+
+@pytest.mark.parametrize('error_type,expected_dispatches',[('StorageBudgetExceeded',1),('RuntimeError',2)])
+def test_public_coordinator_stops_the_entire_batch_instead_of_only_the_current_parent(tmp_path,monkeypatch,inputs,error_type,expected_dispatches):
+    from tools.timeline import generate_v7_demand_scenes as entry
+    from avengine.timeline import v7_unattended_resources as resources
+    rooms,houses,assets,semantic,contract=inputs;root=tmp_path/'automatic'
+    config=tmp_path/'global.json';config.write_text(json.dumps({'schema':'v7-global-family-runtime-v1',
+        'authorized_output_root':str(tmp_path),'feedback_roots':[]}))
+    monkeypatch.setattr(entry,'data',lambda cfg:(contract,assets,{}, {'records':[]},semantic,houses))
+    monkeypatch.setattr(entry,'commit',lambda:'f'*40)
+    monkeypatch.setattr(entry,'child_env',lambda cfg,root:dict(os.environ))
+    monkeypatch.setattr(resources,'admission',lambda policy:{'status':'admitted'})
+    monkeypatch.setattr(resources,'idle_cpu_order',lambda:list(range(16)))
+    monkeypatch.setattr(entry.os,'environ',dict(os.environ))
+    dispatched=[]
+    class FailedWorker:
+        def __init__(self,command,**kwargs):
+            attempt=Path(command[command.index('--output')+1]);dispatched.append(attempt)
+            self.pid=10000+len(dispatched);self.returncode=2
+            entry.write(attempt/'automatic_result.json',{'status':'failed','error_type':error_type,
+                'reason':'write escaped the declared own task output root: path=/old/cache; root=/new/task'if error_type=='StorageBudgetExceeded'else'original native layout rejected',
+                'automatic_attempt_root':str(attempt),'scene_id':attempt.name,'automatic_started_unix':time.time()})
+        def poll(self):return self.returncode
+    monkeypatch.setattr(entry.subprocess,'Popen',FailedWorker)
+    monkeypatch.setattr(entry.sys,'argv',['automatic','--config',str(config),'--output',str(root),
+        '--parents','3','--maximum-candidates','1','--families','QA-10'])
+    entry.main()
+    assert len(dispatched)==expected_dispatches
+    result=entry.read(root/'AUTOMATION_RESULT.json');stopped=entry.read(root/'AUTOMATION_STOP.json')
+    assert result['stop_requested']is True and result['native_passed_parents']==0
+    assert len(result['outcomes'])==expected_dispatches
+    assert stopped['same_cause_occurrences']==expected_dispatches

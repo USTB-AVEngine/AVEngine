@@ -71,7 +71,7 @@ def check_write(path,*,expected_bytes=0):
     if not raw:return None
     policy=json.loads(raw);root=Path(policy["root"]).resolve();path=Path(path).resolve()
     if not path.is_relative_to(root):
-        raise StorageBudgetExceeded("write escaped the declared own task output root")
+        raise StorageBudgetExceeded(f"write escaped the declared own task output root: path={path}; root={root}")
     free=shutil.disk_usage(policy["filesystem"]).free
     requested=max(0,int(expected_bytes));margin=policy.get("concurrent_write_margin_bytes",0)
     # Some owner-authorized batches check headroom before launching a parent.
