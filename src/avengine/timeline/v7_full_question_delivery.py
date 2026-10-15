@@ -164,6 +164,8 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
             'wet_support_event_ids':sorted({r['event_id'] for r in raw['audio_readback']['wet_tail_intervals']}),
             'status':'measured_candidates; unfulfilled requests remain deficits',
             'answer_and_modality_gates_changed':False}
+    from avengine.timeline.v7_native_color_references import bind_native_color_references
+    audit['structured_native_colour_references']=bind_native_color_references(public,private,raw)
     audit['native_bundle']=raw
     audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
     return public,private,audit
