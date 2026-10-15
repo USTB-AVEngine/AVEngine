@@ -40,18 +40,23 @@ def validate_track(context, positions_m, species="human", *, camera=None, snap=T
         if not m.segment_free(segment[:2], segment[2:], species):
             raise ConstructionError("walkable_map_segment", {"segment_xz_m": segment.tolist()})
     q, max_snap = p.copy(), 0.
+    nav_y_offset = None
     if context.pathfinder is not None:
         unique, inverse = np.unique(p, axis=0, return_inverse=True)
         snapped = np.asarray([context.pathfinder.snap_point(v) for v in unique], float)
         if snapped.shape != unique.shape or not np.isfinite(snapped).all():
             raise ConstructionError("navmesh_snap_nonfinite")
         horizontal = np.linalg.norm((snapped-unique)[:, [0, 2]], axis=1)
-        vertical = np.abs(snapped[:, 1]-unique[:, 1])
+        # Recast NavMesh Y can be elevated above the physical scan floor (e.g.
+        # 0.166m in HM3D 00591). It is NOT a root/sole height measurement.
+        # Keep actual floor Y; native execution likewise gates horizontal drift.
+        nav_y_offset = [float((snapped[:, 1]-unique[:, 1]).min()),
+                        float((snapped[:, 1]-unique[:, 1]).max())]
         max_snap = float(horizontal.max())
-        if max_snap > .02 or float(vertical.max()) > .08:
-            raise ConstructionError("navmesh_snap_tolerance", {"horizontal_m": max_snap, "vertical_m": float(vertical.max())})
+        if max_snap > .002:
+            raise ConstructionError("navmesh_snap_tolerance", {"horizontal_m": max_snap, "navmesh_y_offset_range_m": nav_y_offset})
         if snap:
-            q = snapped[inverse]
+            q[:, [0, 2]] = snapped[inverse][:, [0, 2]]
             if not m.contains_many(q[:, [0, 2]], species).all():
                 raise ConstructionError("snapped_route_outside_map")
             for seg in np.unique(np.concatenate((q[:-1, [0, 2]], q[1:, [0, 2]]), axis=1), axis=0):
@@ -67,7 +72,8 @@ def validate_track(context, positions_m, species="human", *, camera=None, snap=T
             raise ConstructionError("camera_standoff", {"minimum_m": distance, "required_m": required})
     return q, {"map_full_frames": len(q), "map_supercover_segments": len(segments),
                "navmesh_checked": context.pathfinder is not None, "max_snap_horizontal_m": max_snap,
-               "minimum_camera_distance_m": distance}
+               "minimum_camera_distance_m": distance, "navmesh_y_offset_range_m": nav_y_offset,
+               "vertical_authority": "physical_scan_floor_not_navmesh_height"}
 
 
 def route_between(context, start_m, end_m, *, species="human", max_expansions=100000):
