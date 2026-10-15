@@ -239,7 +239,11 @@ def prepare_native(context, request, plan, *, row_factory, house, catalog, recor
         video = NativePhase2Video(working,scene,native_runtime,assets,
                     source_material_cache_directory=native_runtime["source_material_cache_directory"])
         standing = video.qualify_standing(scene,directory/"standing")
-        common = native_plan_checks(video,scene,plan,roles=roles,
+        from .certification import certify_plan
+        pending=certify_plan(context,plan)
+        sweep_ids={c.evidence.get("entity_id")for c in pending.checks
+                   if c.reason=="native_full_pose_required_for_map_fallback"}
+        common = native_plan_checks(video,scene,plan,roles=roles,required_full_sweep_ids=sweep_ids,
                     minimum_visible_pixels=minimum_visible_pixels,appearance_ids=appearance_ids,
                     standing_checks=standing)
         extra = tuple(family_check(video,scene,video.actors)) if family_check is not None and common.passed else ()
@@ -270,6 +274,7 @@ def prepare_native(context, request, plan, *, row_factory, house, catalog, recor
 def native_plan_checks(video, scene, plan, **kwargs):
     """Match every prepared native root/yaw sample to the selected plan clock."""
     from dataclasses import replace
+    required_sweeps=set(kwargs.pop("required_full_sweep_ids",()))
     frozen={key:replace(actor,positions_m=np.repeat(np.asarray(actor.positions_m)[:1],len(actor.positions_m),axis=0))
             for key,actor in plan.actors.items()}
     common=native_static_checks(video,scene,replace(plan,actors=frozen),**kwargs)
@@ -291,10 +296,23 @@ def native_plan_checks(video, scene, plan, **kwargs):
             continue
         record=entry.get("motion_episode",{})
         recheck=record.get("final_complete_scene_recheck",{})
-        physics_ok=record.get("status")=="pass" and recheck.get("status")=="pass"
-        checks.append(CheckResult("native:"+key+":full_pose_physics","pass"if physics_ok else"unknown",
-            "original_complete_native_pose_sweep_required",
-            evidence={"native_motion_status":record.get("status"),"final_scene_recheck":recheck}))
+        collisions=record.get("recorded_intersections",0)
+        count=len(collisions)if isinstance(collisions,(list,tuple,dict))else int(collisions or 0)
+        policy=str(record.get("collision_policy",""))
+        sampled="stride" in policy and "stride_1_" not in policy
+        full=(not sampled or int(recheck.get("checked_pose_frames",0))>=len(p))
+        physics_ok=(record.get("status")=="pass" and recheck.get("status")=="pass" and count==0 and full)
+        observation={"native_motion_status":record.get("status"),"final_scene_recheck":recheck,
+                     "collision_policy":policy,"recorded_intersections":count,
+                     "complete_zero_intersection_sweep_proved":physics_ok}
+        if physics_ok or key in required_sweeps:
+            checks.append(CheckResult("native:"+key+":full_pose_physics",
+                "pass"if physics_ok else("fail"if count else"unknown"),
+                "original_complete_native_pose_sweep_required",evidence=observation))
+        else:
+            checks.append(CheckResult("native:"+key+":geometry_observation",
+                "pass"if record.get("status")=="pass"else"fail",
+                "original_admission_record_is_not_a_complete_zero_intersection_proof",evidence=observation))
         readbacks=record.get("native_30Hz_readbacks",[])
         matrices=np.asarray([r.get("body_to_world_m",[])for r in readbacks],float)
         actual=matrices[:,:3,3] if matrices.shape==(len(p),4,4) else np.empty((0,3))
