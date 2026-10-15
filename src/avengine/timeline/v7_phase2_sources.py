@@ -45,7 +45,7 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     from avengine.timeline.v7_production_inputs import validate_sampling_row
     production_intake=validate_sampling_row(row,catalog)
     motion=row.get('motion_requests',{})
-    stub=deepcopy(row);stub['schema']=SCHEMA;stub.pop('motion_requests',None)
+    stub=deepcopy(row);stub['schema']=SCHEMA;stub['phase2_moving_asset_ids']=list(motion);stub.pop('motion_requests',None)
     # The public production interface names this canonical field explicitly.
     # Accept the earlier private pilot alias only by translating it before
     # production compilation, so recorded speech ordering is physically real.
