@@ -59,14 +59,15 @@ def noncollinear_rejection(declaration, root, others):
     return bool(singular[1] < .25)
 
 
-def body_yaw(base_yaw, declaration, person_index, retry=0):
-    if not is_person(declaration):
-        return float(base_yaw)
-    offset = (0., -25., 75., 155., -95.)[person_index % 5] + (0., -15., 15.)[retry % 3]
-    return float(base_yaw)+math.radians(offset)
+def body_yaw(base_yaw,declaration,person_index=0,retry=0,*,seed=0,root=None,listener=None,room_center=None,other_people=(),furniture=()):
+    if not is_person(declaration):return float(base_yaw)
+    from avengine.timeline.v7_natural_orientation import sample_initial_orientation
+    point=[0.,0.,0.]if root is None else root
+    origin=[0.,0.,0.]if listener is None else listener
+    return sample_initial_orientation(declaration,seed,point,origin,room_center,other_people,furniture,retry)['yaw_rad']
 
 
-def separated_layout(layout, count):
+def separated_layout(layout, count, *, seed=None):
     """Use all room regions as proposals; physical admission is still required."""
     from copy import deepcopy
     from shapely.geometry import shape, Point
@@ -80,6 +81,10 @@ def separated_layout(layout, count):
                   for z in np.arange(z0,z1,.4) if polygon.covers(Point(x,z))]
     selected = []
     listener = np.asarray(layout['listener_m'])
+    if seed is None:
+        import hashlib,json
+        seed=int(hashlib.blake2b(json.dumps([layout['listener_m'],layout['room_floor_polygon']],sort_keys=True).encode(),digest_size=8).hexdigest(),16)
+    centre=polygon.representative_point();room_center=[centre.x,floor,centre.y]
     while pool and len(selected) < count:
         def score(p):
             root = np.asarray(p['position_m'])
@@ -94,7 +99,14 @@ def separated_layout(layout, count):
             points=np.asarray([p['position_m'] for p in selected]+[candidate['position_m']])[:,[0,2]]
             if np.linalg.svd(points-points.mean(0),compute_uv=False)[1]<.25:continue
         delta=listener-root;base=math.atan2(-delta[0],-delta[2])
-        candidate['body_yaw_deg']=math.degrees(body_yaw(base,{'kind':'human'},len(selected)))
+        from avengine.timeline.v7_natural_orientation import sample_initial_orientation,all_people_face_camera
+        for retry in range(12):
+            orientation=sample_initial_orientation({'kind':'human'},seed,root,listener,room_center,[{'position_m':p['position_m'],'yaw_rad':math.radians(p['body_yaw_deg'])}for p in selected],retry=retry)
+            proposed=[{'position_m':p['position_m'],'yaw_rad':math.radians(p['body_yaw_deg'])}for p in selected]+[{'position_m':root,'yaw_rad':orientation['yaw_rad']}]
+            if len(selected)+1<count or not all_people_face_camera(proposed,listener):break
+        else:continue
+        candidate['body_yaw_deg']=math.degrees(orientation['yaw_rad'])
+        candidate['natural_orientation']=orientation
         candidate['status']='candidate_requires_original_native_admission'
         selected.append(candidate)
     if len(selected)<count:

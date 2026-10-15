@@ -194,6 +194,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         return maximum,observed
 
     def qualify_standing(self,scene,directory):
+        from avengine.timeline.v7_spatial_layout import is_person,entry_roots
+        from avengine.timeline.v7_natural_orientation import all_people_face_camera
         from shapely.geometry import shape,Point,Polygon,MultiPolygon
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
         r=SimpleNamespace(habitat_sim=self.hs,magnum=self.mn,pathfinder=self.pathfinder)
@@ -308,6 +310,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             from avengine.timeline.v7_spatial_layout import body_yaw,spacing_rejection,noncollinear_rejection,is_person,entry_roots
             person_index=next(i for i,e in enumerate(e for e in self.actors if is_person(e['declaration'])) if e is entry) if is_person(a) else 0
             listener=np.asarray(scene['listener_m']);rejections={}
+            from avengine.timeline.v7_natural_orientation import sample_initial_orientation,all_people_face_camera
+            centre=poly.representative_point();room_center=[centre.x,floor,centre.y]
+            people=[{'position_m':entry_roots(e)[0].tolist(),'yaw_rad':float(e['resolved_yaw_rad'])}for e in placed if is_person(e['declaration'])]
+            furniture=[entry_roots(e)[0].tolist()for e in placed if e['declaration']['kind']=='object']
+
             def reject(reason):rejections[reason]=rejections.get(reason,0)+1
             from avengine.capture.v7_alpha_native import forward_at
             camera_path_vectors=[(forward_at(scene,k['time_s']),None) for k in scene['camera_yaw_knots']]
@@ -368,14 +375,17 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     search_exhausted=True;reject('bounded_support_proposal_search_exhausted');break
                 support=dict(support);support['original_surface_point_m']=support['point'];support['point']=(np.asarray(support['point'])+np.asarray(support['normal'])*support['_outward_clearance_m']).tolist()
                 if key=='floor':
-                    from avengine.capture.v7_layout_candidates import facing_yaw
-                    support['yaw_rad']=facing_yaw(scene,a,listener,support['point'])
-                    if not(scene.get('automatic_construction')or scene.get('owner_social_layout')):
-                        support['yaw_rad']=body_yaw(support['yaw_rad'],a,person_index,support.get('_body_yaw_retry',0))
+                    delta=listener-np.asarray(support['point'])
+                    support['yaw_rad']=math.atan2(-delta[0],-delta[2]) if a['kind'] in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
+                    if is_person(a):
+                        orientation=sample_initial_orientation(a,int(scene['seed']),support['point'],listener,room_center,people,furniture,support.get('_body_yaw_retry',0))
+                        support['yaw_rad']=orientation['yaw_rad'];support['_natural_orientation']=orientation
                 # Pure candidate filtering: the support transform is identical
                 # to check_support's proposed root. Every surviving candidate
                 # still runs all original rays, contacts and real native pixels.
                 proposed_root,proposed_yaw,_,_=support_points(meta,support)
+                if is_person(a) and len(people)+1==sum(is_person(e['declaration'])for e in self.actors) and all_people_face_camera([*people,{'position_m':proposed_root,'yaw_rad':proposed_yaw}],listener):
+                    reject('all_people_face_camera');continue
                 spacing=spacing_rejection(a,proposed_root,placed,camera_position=scene['listener_m'])
                 if spacing:
                     reject(spacing['reason']);continue
@@ -466,7 +476,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     if any(n<100 for n in pixels.values()):
                         reject('actual_native_color_pair_occlusion');continue
                     placed_pair.append(entry)
-                accepted={'status':'pass','asset_id':a['asset_id'],'endpoint_id':a['endpoint_id'],
+                entry['initial_orientation_policy']=support.get('_natural_orientation')
+                accepted={'status':'pass','asset_id':a['asset_id'],'endpoint_id':a['endpoint_id'],'initial_orientation_policy':entry['initial_orientation_policy'],
                           'attachment_surface':a['attachment_surface'],'support_type':support['surface'],
                           'attachment_worst_error_m':max(abs(v) for v in placement['contact_deltas_m']),
                           'contact_tolerance_m':.015,'placement':placement,**native_contacts,
@@ -495,6 +506,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             pixels=self._native_pair_pixels(scene,paired)
             write_json(directory/'simultaneous_controlled_pair.json',{'status':'pass' if all(n>=100 for n in pixels.values()) else 'fail','native_semantic_pixels':pixels,'frame_time_s':0.,'minimum_pixels':100})
             if any(n<100 for n in pixels.values()):raise ValueError('final registered scene occludes a required simultaneous color pair')
+        actual_people=[{'position_m':entry_roots(e)[0].tolist(),'yaw_rad':float(e['resolved_yaw_rad'])}for e in self.actors if is_person(e['declaration'])]
+        if all_people_face_camera(actual_people,scene['listener_m']):raise ValueError('all people face camera after native pose admission; reconstruct placement or route')
         self.standing_checks=checks;self.attachment_checks=checks;self.camera_frame_readbacks=[];self.environment_frame_readbacks=[]
         write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts})
         return checks
@@ -541,6 +554,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         from avengine.timeline.v7_camera_evidence import assert_static_camera
         assert_static_camera(scene)
         result=super().encode(scene,path,**kwargs)
+        result['initial_person_orientations']=[{'asset_id':e['declaration']['asset_id'],'endpoint_id':e['endpoint_id'],'proposal':e.get('initial_orientation_policy'),'native_initial_yaw_deg':math.degrees(float(e['motion_episode'].get('yaw_rad_per_frame',[e['motion_episode']['yaw_rad']])[0]if e.get('motion_episode')else e['resolved_yaw_rad'])),'pose_or_route_admission_overrides_proposal':bool(e.get('motion_episode'))}for e in self.actors if e['declaration']['kind']in {'human','performer'}]
         from avengine.assets.v7_visible_color import rebuild_appearance_review
         assets=[e['declaration'] for e in self.actors]
         review,eligibility=rebuild_appearance_review(self.color_checks,assets,
