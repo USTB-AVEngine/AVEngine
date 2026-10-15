@@ -7,7 +7,7 @@ The QA authority rechecks every pair, physical capability and public domain.
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
-import json,os,sqlite3
+import json,os,sqlite3,time
 import numpy as np
 import soundfile as sf
 from avengine.timeline.continuous_pilot import write_json
@@ -21,7 +21,13 @@ MEMBERS=('v0_a0','v0_a1','v1_a0','v1_a1')
 def retain_readback(path,value):
     path=Path(path)
     if path.exists():
-        if read_json(path)!=value:raise ValueError('immutable content witness changed')
+        previous=read_json(path)
+        if previous!=value:
+            keys=sorted(k for k in set(previous)|set(value) if previous.get(k)!=value.get(k))
+            diagnostic=path.with_name(path.name+f'.rejected_{time.time_ns()}.json')
+            write_json(diagnostic,{'status':'rejected','original_witness_preserved':True,
+                'original_path':str(path),'changed_fields':keys,'previous':previous,'proposed':value})
+            raise ValueError('immutable content witness changed: '+', '.join(keys))
     else:write_json(path,value)
 
 
