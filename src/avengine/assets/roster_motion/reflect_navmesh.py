@@ -34,26 +34,36 @@ def _short_window_walk(walk,slot):
     interval (QA-16/17) or after the emission (QA-06/15), along the straight leg the slot was scheduled on, with
     smooth SHORT_WALK_RAMP_S speed ramps that stay outside the emission and query intervals.
     """
-    fps=walk.fps;n=len(walk.positions);a,b=slot['leg']
+    fps=walk.fps;n=len(walk.positions)
     start=float(slot['start_s']);end=float(slot['end_s'])
     tail=slot.get('post_until_s') if (slot.get('qa17') or slot.get('qa16')) and slot.get('post_until_s') else end+.6
-    w0=max(a/fps,start-SHORT_WALK_LEAD_S);w1=min(b/fps,float(tail)+SHORT_WALK_LEAD_S)
+    if slot.get('leg') is not None:
+        a,b=slot['leg'];w0=max(a/fps,start-SHORT_WALK_LEAD_S);w1=min(b/fps,float(tail)+SHORT_WALK_LEAD_S)
+    else:
+        a,b=slot['window_frames'];w0=a/fps;w1=b/fps
     i0=int(round(w0*fps));i1=int(round(w1*fps))
-    p0=walk.positions[i0];direction=walk.positions[i1]-p0;length=float(np.linalg.norm(direction))
+    # Follow the walked path itself (straight leg, or reflections for QA-06/QA-17 windows) by arc length.
+    path=walk.positions[i0:i1+1];steps=np.linalg.norm(np.diff(path,axis=0),axis=1);arc=np.r_[0.,np.cumsum(steps)]
+    length=float(arc[-1])
     if length<1e-6:raise ValueError('short window walk has no length')
-    direction/=length;speed=float(np.median(walk.speeds[i0:i1+1][walk.speeds[i0:i1+1]>0])) if np.any(walk.speeds[i0:i1+1]>0) else length/max(1e-6,(i1-i0)/fps)
     t=np.arange(n)/fps;v=np.zeros(n)
-    inside=(t>=w0)&(t<=w1);v[inside]=speed
+    inside=(t>=w0)&(t<=w1);v[inside]=walk.speeds[np.clip(np.arange(n)[inside],0,n-1)]
     r=SHORT_WALK_RAMP_S
-    up=(t>=w0)&(t<w0+r);v[up]=speed*np.clip((t[up]-w0)/r,0,1)
-    down=(t>w1-r)&(t<=w1);v[down]=speed*np.clip((w1-t[down])/r,0,1)
-    # Exact species speed on the leg; the ramps only shorten the walked distance slightly (never speed it up).
-    s=np.r_[0.,np.cumsum((v[1:]+v[:-1])/2/fps)]
-    positions=p0[None,:]+s[:,None]*direction[None,:]
-    heading=math.atan2(direction[1],direction[0])
-    yaws=np.full(n,heading)
+    up=(t>=w0)&(t<w0+r);v[up]=v[up]*np.clip((t[up]-w0)/r,0,1)
+    down=(t>w1-r)&(t<=w1);v[down]=v[down]*np.clip((w1-t[down])/r,0,1)
+    # Exact species speeds along the path; the ramps only shorten the walked distance slightly (never speed up).
+    s=np.minimum(np.r_[0.,np.cumsum((v[1:]+v[:-1])/2/fps)],length)
+    positions=np.column_stack((np.interp(s,arc,path[:,0]),np.interp(s,arc,path[:,1])))
+    d=np.diff(positions,axis=0);heading_steps=np.arctan2(d[:,1],d[:,0]);moving=np.linalg.norm(d,axis=1)>1e-6
+    yaws=np.zeros(n);first=float(np.arctan2(*(path[min(len(path)-1,1)]-path[0])[::-1]))
+    current=first
+    for i in range(n):
+        if i<n-1 and moving[i]:current=float(heading_steps[i])
+        yaws[i]=current
+    yaws=np.unwrap(yaws)
+    speed=float(np.median(v[v>0])) if np.any(v>0) else 0.
     return positions,yaws,{'walk_start_s':w0,'walk_end_s':w1,'ramp_s':r,'speed_m_s':speed,'length_m':length,
-                           'emission_s':[start,end],'silent_query_until_s':float(tail),'heading_rad':heading,
+                           'emission_s':[start,end],'silent_query_until_s':float(tail),'heading_rad':float(yaws[i0]),
                            'reason':'owner 10-15: many paths; walk only where the question needs motion'}
 
 
@@ -77,14 +87,19 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
         walk=reflect_walk(is_free,start,heading,speed,min_speed=lo+.005,duration_s=30.,rng=rng)
         if walk is None:trials.append({'attempt':k+1,'reason':'boxed in or native free predicate failed'});continue
         slots=schedule_emissions(walk,listener[[0,2]],utterance_s=(duration,duration),post_s=1.5,wet_tail_s=.5,min_radial_m=.5,margin_s=SHORT_WALK_LEAD_S)
+        if focus=='M1':
+            # QA-06/QA-17 only need a stable moving state, so long sounds may span reflections.
+            from .reflect_walk import schedule_moving_windows
+            slots=slots+schedule_moving_windows(walk,utterance_s=duration,post_s=2.0,wet_tail_s=.5,lead_s=SHORT_WALK_LEAD_S)
         # The original solver runs in one of the five 10-second delivery crops.
         for slot in slots:
             slot['start_s']=math.ceil(slot['start_s']*10-1e-8)/10
             slot['end_s']=slot['start_s']+duration
             fits=[o for o in (0.,5.,10.,15.,20.) if 0.<=slot['start_s']-o<=7. and slot['end_s']+.6<=o+10]
             if not fits:continue
-            offset=max(fits,key=lambda o:min(slot['leg'][1]/30.,o+10)-slot['end_s'])
-            available=min(slot['leg'][1]/30.-.1,offset+9.8)-slot['end_s']
+            leg_end=(slot['leg'][1] if slot.get('leg') is not None else slot['window_frames'][1])/30.
+            offset=max(fits,key=lambda o:min(leg_end,o+10)-slot['end_s'])
+            available=min(leg_end-.1,offset+9.8)-slot['end_s']
             slot['qa17']=bool(slot['qa17'] and available>=2.0)
             slot['qa16']=bool(slot['qa16'] and slot['qa17'])
             slot['offset_s']=offset
