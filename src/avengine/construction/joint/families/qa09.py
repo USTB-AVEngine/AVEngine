@@ -324,7 +324,10 @@ def native_qa09_route_proposals(video: Any, entry: Mapping[str, Any], scene: Map
     heading = math.atan2(float(direction[1]), float(direction[0]))
     local = np.asarray(local_forward)
     yaw = math.atan2(float(local[2]), float(local[0])) - heading
-    yield SimpleNamespace(positions=positions, yaws=np.full(901, yaw), receipt={
+    planned_yaws = np.asarray(solved.get("native_yaws_rad", np.full(901, yaw)), float)
+    if planned_yaws.shape != (901,) or not np.isfinite(planned_yaws).all():
+        raise ValueError("QA-09 requires all planned native yaw samples")
+    yield SimpleNamespace(positions=positions, yaws=planned_yaws.copy(), receipt={
         "route_kind": "joint QA-09 crossing anchored at registered full-shadow stop",
         "answer_requested": solved["answer"], "root_samples": 901,
         "hidden_interval_s": list(solved.get("hidden_interval_s", [4.5, 5.5])),
@@ -359,7 +362,7 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
     intervals = [[1.5, 3.3]] + ([[6., 7.8]] if answer == "yes" else [])
     d, b, action, lineage = admitted_master(
         {"declaration": asset, "prepared_glb": asset["habitat_glb"]}, runtime, house)
-    key_data = {"revision": "qa09-flat-gait-1", "asset_id": asset["asset_id"],
+    key_data = {"revision": "qa09-arc-gait-2" if answer == "yes" else "qa09-flat-gait-1", "asset_id": asset["asset_id"],
                 "master_sha256": lineage["master_sha256"], "clip": lineage["admitted_clip"],
                 "intervals_s": intervals, "speed_m_s": 1.0}
     key = hashlib.sha256(json.dumps(key_data, sort_keys=True).encode()).hexdigest()[:24]
@@ -379,9 +382,12 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
     if not double:
         raise ValueError("admitted QA-09 gait lacks observed double support")
     times, moving, velocity, distance, clock, receipt = human_distance_driven_clock(ts, double, 1., intervals)
-    positions = np.zeros((901, 3))
-    positions[:, 0] = distance - distance[135]
-    yaws = np.full(901, -math.pi / 2)
+    from avengine.assets.roster_motion.straight_route import _shape_xy
+    anchor = float(distance[135])
+    corner = (anchor, .8, (float(distance[-1])-anchor)/.8) if answer == "yes" else None
+    xz, headings = _shape_xy(distance, np.array([-anchor, 0.]), 0., corner)
+    positions = np.column_stack((xz[:, 0], np.zeros(901), xz[:, 1]))
+    yaws = -math.pi/2-headings
 
     class FlatPlanningFloor:
         # Match native phase2's numerical sole-switch policy while explicitly
@@ -420,23 +426,6 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
             if os.path.exists(temporary):
                 os.unlink(temporary)
     return result
-
-
-def pinned_floor_support(asset: Mapping[str, Any], root_m: Any, yaw_rad: float) -> dict[str, Any]:
-    """Invert the *existing* attachment anchor so native support preserves root/yaw."""
-    import numpy as np
-    from avengine.capture.v7_visible_mesh import indexed_static_mesh
-    from avengine.capture.v7_visible_native import attachment_template
-    from avengine.capture.v7_visible_attachment import rotation
-    mesh = indexed_static_mesh(asset["habitat_glb"])
-    anchor, _, _ = attachment_template(np.asarray(mesh.vertices), "floor", asset["kind"],
-                                       asset.get("landmarks_local_m"), mesh)
-    point = np.asarray(root_m, float) + rotation(yaw_rad) @ anchor
-    return {"surface": "floor", "normal": [0., 1., 0.], "floor_y": float(point[1]),
-            "original_surface_point_m": point.tolist(), "yaw_rad": float(yaw_rad),
-            "_outward_clearance_m": 0., "joint_solved_pose": True, "joint_no_search": True,
-            "joint_expected_root_m": np.asarray(root_m, float).tolist(),
-            "joint_root_tolerance_m": .002, "joint_yaw_tolerance_rad": 1e-5}
 
 
 def _mesh_instance(asset_id, raycaster, root, yaw):
@@ -567,17 +556,17 @@ class QA09Plugin:
         for frame in range(demand.frame_count):
             position = plan.actors[aid].positions_m[frame * 2]
             ray = self._target_ray(frame)
-            key = (id(ray), tuple(position))
+            key = (id(ray), tuple(position), float(plan.actors[aid].metadata["native_yaw_rad_per_frame"][frame*2]))
             if key not in cache:
                 cache[key] = predict_mesh_visibility(plan.camera,
-                    _mesh_instance(aid, ray, position, yaws[aid]), scene_depth=depth, occluders=occluders)
+                    _mesh_instance(aid, ray, position, float(plan.actors[aid].metadata["native_yaw_rad_per_frame"][frame*2])), scene_depth=depth, occluders=occluders)
             predictions.append(cache[key])
         return predictions
 
     def candidates(self, context, request):
         import time
         import numpy as np
-        from avengine.construction.joint import CameraPose, ActorPlan, ScenePlan, static_actor, certify_plan, framing
+        from avengine.construction.joint import CameraPose, ActorPlan, ScenePlan, static_actor, certify_plan, framing, bind_distance_clock, straight_then_arc, ConstructionError
         from avengine.timeline.v7_family_constructors import stable_seed
         demand = ReappearanceDemand(self.target["asset_id"], self.foreground["asset_id"], request.branch)
         started = time.monotonic()
@@ -610,30 +599,60 @@ class QA09Plugin:
                 right = np.array([-f[1], f[0]])
                 yaw = math.degrees(math.atan2(f[0], -f[1]))
                 camera = CameraPose(pos, yaw, width=original.width, height=original.height)
-                for side in (1., -1.):
+                for side in ((1.,) if request.branch == "yes" else (1., -1.)):
                     # Diagonal passage makes the final planted gait narrower in
                     # projection than a broadside walk, without changing its mesh.
                     direction = .5 * side * right + math.sqrt(.75) * f
                     body_yaw = -math.pi/2-math.atan2(direction[1], direction[0])
                     route = {"answer": request.branch, "shadow_root_m": shadow.tolist(),
                              "cross_direction_xz": direction.tolist(), "hidden_interval_s": [4.5, 5.5]}
-                    track = clock_anchored_positions(distance, route)
-                    if not context.walkable_map.contains_many(track[:, [0, 2]], "human").all():
-                        rejected("target_track_map"); continue
+                    anchor = float(distance[135])
+                    origin = shadow.copy(); origin[[0, 2]] -= anchor*direction
+                    # Ask the shared original-visual-mesh raycaster for the actual
+                    # start floor, rather than borrowing the distant shadow cell Y.
+                    if context.raycaster is None:
+                        rejected("missing_original_visual_floor"); continue
+                    ray_origin = origin + [0., .2, 0.]
+                    hit, _ = context.raycaster.first_hit(ray_origin, np.array([[0., -1., 0.]]))
+                    if not np.isfinite(hit[0]) or not .12 <= hit[0] <= .28:
+                        rejected("start_physical_floor_level"); continue
+                    origin[1] = shadow[1] = ray_origin[1] - hit[0]
+                    route["shadow_root_m"] = shadow.tolist()
+                    try:
+                        if request.branch == "yes":
+                            moving_actor = straight_then_arc(context, shadow, direction, distance, anchor,
+                                turn_radius_m=.8, turn_sign=1, camera=camera, entity_id=tids[0],
+                                body=self.bodies[tids[0]], ramp_s=.3)
+                        else:
+                            moving_actor = bind_distance_clock(context, distance, origin_m=origin,
+                                heading_rad=math.atan2(direction[1], direction[0]), camera=camera,
+                                entity_id=tids[0], body=self.bodies[tids[0]], ramp_s=.3)
+                    except ConstructionError as exc:
+                        rejected("core_route:" + exc.reason); continue
+                    track = moving_actor.positions_m
+                    native_yaws = -math.pi/2-np.asarray(moving_actor.headings_rad)
+                    body_yaw = float(native_yaws[0])
+                    moving_actor.metadata.update(native_yaw_rad=body_yaw,
+                        native_yaw_rad_per_frame=native_yaws.tolist())
                     if not all(framing(camera, track[i], self.bodies[tids[0]])[0] == "inside" for i in (0, 135, 299, 900)):
                         rejected("target_rest_framing"); continue
                     for foredepth in (2.8, 3.0):
                         foreground = np.array([pos[0]+f[0]*foredepth, shadow[1], pos[2]+f[1]*foredepth])
+                        fore_origin = foreground + [0., .2, 0.]
+                        fore_hit, _ = context.raycaster.first_hit(fore_origin, np.array([[0., -1., 0.]]))
+                        if not np.isfinite(fore_hit[0]) or not .12 <= fore_hit[0] <= .28:
+                            rejected("foreground_physical_floor_level"); continue
+                        foreground[1] = fore_origin[1] - fore_hit[0]
                         if not context.walkable_map.contains(foreground[[0, 2]], "human"):
                             rejected("foreground_map"); continue
                         if framing(camera, foreground, self.bodies[tids[1]])[0] != "inside":
                             rejected("foreground_framing"); continue
                         if radii[point_index] - foredepth < 2.1 - 1e-8:
                             rejected("foreground_target_separation_margin"); continue
-                        actors = {tids[0]: ActorPlan(tids[0], track, self.bodies[tids[0]],
-                                  metadata={"walk_intervals_s": intervals, "ramp_s": .3}),
+                        actors = {tids[0]: moving_actor,
                                   tids[1]: static_actor(tids[1], foreground, self.bodies[tids[1]])}
                         yaws = {tids[0]: body_yaw, tids[1]: body_yaw}
+                        actors[tids[1]].metadata["native_yaw_rad"] = body_yaw
                         if self.companion is not None:
                             preferred = np.array([pos[0], pos[2]]) + f*3.1 + side*right*1.7
                             ordering = np.argsort(np.linalg.norm(points[:, [0, 2]]-preferred, axis=1))
@@ -651,6 +670,7 @@ class QA09Plugin:
                                 rejected("no_companion_site"); continue
                             actors[tids[2]] = static_actor(tids[2], companion, self.bodies[tids[2]])
                             yaws[tids[2]] = math.radians(stable_seed(self.seed, "companion_yaw") % 360)
+                            actors[tids[2]].metadata["native_yaw_rad"] = yaws[tids[2]]
                         plan = ScenePlan(camera, actors, sounds=self.sounds, metadata={"body_yaws_rad": yaws, "qa09_route": route,
                                          "qa09_demand": asdict(demand)})
                         self.diagnostics["geometric_layouts"] += 1
@@ -668,7 +688,9 @@ class QA09Plugin:
                         else:
                             plan.metadata["qa09_prediction_check"] = asdict(family)
                             plan.metadata["qa09_prediction_states"] = [p.state for p in predictions]
+                            yielded_at = time.monotonic()
                             yield plan
+                            started += time.monotonic()-yielded_at  # Core owns the native preparation budget.
                         if time.monotonic()-started >= self.geometry_budget_s:
                             return
                 if time.monotonic()-started >= self.geometry_budget_s:
@@ -688,6 +710,7 @@ def build_qa09_row(room, house, state, catalog, contract, plan, certificate, rol
     from copy import deepcopy
     from avengine.timeline.v7_family_constructors import _request
     from avengine.timeline.v7_production_inputs import validate_recipe
+    from avengine.construction.joint import strict_native_bindings
     from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION
     if not certificate.passed:
         raise ValueError("QA-09 row requires the joint planning certificate")
@@ -698,6 +721,7 @@ def build_qa09_row(room, house, state, catalog, contract, plan, certificate, rol
     yaws = plan.metadata["body_yaws_rad"]
     route = deepcopy(plan.metadata["qa09_route"])
     route.update(planned_distance_m=gait["distance"].tolist(), positions_m=plan.actors[ids[0]].positions_m.tolist(),
+        native_yaws_rad=plan.actors[ids[0]].metadata["native_yaw_rad_per_frame"],
         camera=asdict(plan.camera), target_body=asdict(plan.actors[ids[0]].body),
         room_id=room["room_id"], walkable_map_path=str(walkable_map_path),
         static_actors={aid: {"root_m": plan.actors[aid].positions_m[0].tolist(),
@@ -716,9 +740,6 @@ def build_qa09_row(room, house, state, catalog, contract, plan, certificate, rol
             "minimum_listener_horizontal_distance_m": 1.5, "scene_speed_range_m_s": [.8, 1.4],
             "motion_execution_revision": EXECUTION_REVISION, "joint_qa09_route": route}},
         "motion_execution_revision": EXECUTION_REVISION,
-        "native_attachment_supports": {a["asset_id"]: pinned_floor_support(
-            a, plan.actors[a["asset_id"]].positions_m[0], yaws[a["asset_id"]]) for a in roles},
-        "native_placement_preferences_m": {aid: plan.actors[aid].positions_m[0].tolist() for aid in ids},
         "native_view_roles": {aid: {"view": "inside", "static": aid != ids[0],
                                     "required_visible_sometime": True} for aid in ids},
         "native_dynamic_occlusion_relations": [demand.relation()],
@@ -734,6 +755,7 @@ def build_qa09_row(room, house, state, catalog, contract, plan, certificate, rol
         "owner_social_layout": {"minimum_human_center_distance_m": 1.,
             "minimum_human_camera_distance_m": 1.5, "human_orientation": "seed-selected before joint geometry certification",
             "distribution": "passing target and registered foreground speaker"}}
+    row.update(strict_native_bindings(plan, roles))
     _request(row, state, "QA-09")
     row["scene_demand"]["requested_answer"] = demand.answer
     row["scene_demand"]["requested_conditions"] = ["registered_full_occluder", "stable_mask_intervals",
@@ -747,13 +769,19 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
     """Joint camera, actual gait silhouette, registered foreground, and answer."""
     import os
     from pathlib import Path
-    from avengine.construction.joint import build_room_context, solve, FamilyRequest, SoundEvent
+    from avengine.construction.joint import build_room_context, solve, FamilyRequest, SoundEvent, Certificate, CheckResult, certify_plan, prepare_native
     from avengine.rooms.walkable_map import room_map_path
     from avengine.timeline.v7_family_constructors import room_context, choose_authored, ConstructionUnavailable
     if family != "QA-09":
         raise ConstructionUnavailable("QA09 plugin received another family")
     if room["family"] not in {"hm3d", "mp3d"}:
         raise ConstructionUnavailable("QA09 plugin requires the admitted native Habitat route")
+    geometric_only = bool(runtime.get("qa09_geometric_only", False))
+    if not geometric_only and not runtime.get("qa09_oracle_only"):
+        import inspect
+        from avengine.timeline.v7_phase2_generation import generate_phase2_parent
+        if "prepared_native" not in inspect.signature(generate_phase2_parent).parameters:
+            raise ConstructionUnavailable("QA09 formal generation requires the shared prepared_native consumer API")
     target, foreground = roles = select_roles(room, catalog, contract, state, seed)
     companion = foreground
     answer = str(runtime.get("qa09_requested_answer") or requested_answer(state, seed))
@@ -775,11 +803,100 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
             cache_dir=Path(cache)/room["room_id"] if cache else None,
             camera_limit=int(runtime.get("qa09_camera_limit", 72)), grid_step_m=.3,
             camera_heights_m=[1.1, 1.25], width=1280, height=720) as context:
-        result = solve(context, FamilyRequest("QA-09", answer, (target["asset_id"], foreground["asset_id"])),
-                       plugin, budget_s=float(runtime.get("qa09_geometry_budget_s", 120.))+5, max_candidates=32)
-    if result.status != "certified":
-        import json
-        raise ConstructionUnavailable("QA09 joint geometry " + result.status + ": " +
-            json.dumps({"reasons": result.reasons, "diagnostics": plugin.diagnostics}, sort_keys=True))
-    return build_qa09_row(room, house, state, catalog, contract, result.plan, result.certificate,
-                         roles, authored, gait, path, scene_id=scene_id, seed=seed)
+        def make_row(plan):
+            cert = Certificate(certify_plan(context, plan).checks + tuple(plugin.verify(context, request, plan)))
+            result = build_qa09_row(room, house, state, catalog, contract, plan, cert,
+                                   roles, authored, gait, path, scene_id=scene_id, seed=seed)
+            from avengine.assets.roster_motion.navmesh_execution import prepare_scene_motion
+            return prepare_scene_motion(result["row"], catalog)
+
+        def family_native_checks(video, scene, entries):
+            report = getattr(video, "family_native_preflights", {}).get("QA-09", {})
+            certificates = [r.get("native_complete_window_certificate", {}) for r in report.get("relations", [])
+                            if r.get("target_asset_id") == target["asset_id"]]
+            passed = (report.get("status") == "pass" and len(certificates) == 1
+                      and certificates[0].get("status") == "pass"
+                      and certificates[0].get("observed_answer") == answer)
+            yield CheckResult("native:QA09:complete_window", "pass" if passed else "fail",
+                "original_predicates_on_complete_native_mask_stream",
+                evidence={"requested_answer": answer, "certificates": certificates})
+            if passed:
+                yield strict_motion_sweep(video, entries)
+
+        request = FamilyRequest("QA-09", answer, (target["asset_id"], foreground["asset_id"]),
+                                {"require_native_preflight": not geometric_only})
+        def native_oracle(ctx, req, plan):
+            if not cache:
+                raise ConstructionUnavailable("QA09 native preparation requires its owned cache directory")
+            return prepare_native(ctx, req, plan, row_factory=make_row, house=house, catalog=catalog,
+                records=records, semantic=semantic, runtime=dict(runtime, phase2=True, integration_pilot=True),
+                output_dir=Path(cache)/"qa09_native"/scene_id,
+                family_check=family_native_checks,
+                roles={a["asset_id"]: "inside" for a in roles},
+                minimum_visible_pixels={target["asset_id"]: 100, foreground["asset_id"]: 100},
+                appearance_ids=(target["asset_id"],))
+        result = solve(context, request, plugin,
+            budget_s=float(runtime.get("qa09_geometry_budget_s", 120.))+5 if geometric_only
+                     else float(runtime.get("qa09_solver_budget_s", 1200.)),
+            max_candidates=32, prepare_and_verify=None if geometric_only else native_oracle,
+            max_native_preparations=int(runtime.get("qa09_max_native_preparations", 8)))
+        if result.status != "certified":
+            import json
+            raise ConstructionUnavailable("QA09 joint geometry " + result.status + ": " +
+                json.dumps({"reasons": result.reasons, "diagnostics": plugin.diagnostics,
+                            "solver_diagnostics": result.diagnostics}, sort_keys=True))
+        if result.prepared is not None:
+            payload = result.prepared.payload
+            return {"profile": "phase2", "row": payload.row, "prepared_native": payload}
+        row = make_row(result.plan)
+        row["automatic_construction"]["prototype_validation_only"] = True
+        return {"profile": "phase2", "row": row}
+
+
+def strict_motion_sweep(video, entries):
+    """Delegate every actual posed frame to the original full-triangle verifier.
+
+    The legacy final recheck samples every tenth pose and records collisions.
+    A construction certificate for these scenes requires no known furniture
+    penetration, so use the existing strict verifier, with no skipped poses.
+    """
+    import numpy as np
+    from avengine.construction.joint import CheckResult
+    from avengine.assets.roster_motion.episode import TriangleClearance
+    from avengine.capture.v7_visible_mesh import indexed_static_mesh
+    evidence = []
+    for entry in entries:
+        record = entry.get("motion_episode")
+        if not record:
+            continue
+        paths = record["pose_glbs"]
+        matrices = np.asarray([r.get("body_to_world_m", []) for r in record.get("native_30Hz_readbacks", [])], float)
+        if matrices.shape != (901, 4, 4):
+            return CheckResult("native:QA09:full_physics", "fail", "missing_actual_native_root_readbacks")
+        roots = matrices[:, :3, 3]
+        yaws = np.arctan2(matrices[:, 0, 2], matrices[:, 0, 0])
+        if len(paths) != 901 or roots.shape != (901, 3) or yaws.shape != (901,):
+            return CheckResult("native:QA09:full_physics", "fail", "incomplete_original_pose_sweep")
+        verifier = TriangleClearance(video, video.motion_house, record["physical_ground_y_m"], entry)
+        verifier.record_only = False
+        verifier.stride = 1
+        minimum = float("inf")
+        meshes = {}
+        for index, path in enumerate(paths):
+            if path not in meshes:
+                if len(meshes) >= 16:
+                    meshes.pop(next(iter(meshes)))
+                meshes[path] = indexed_static_mesh(path)
+            mesh = meshes[path]
+            try:
+                distance, _ = verifier.check(mesh.vertices, mesh.faces, roots[index], float(yaws[index]))
+            except ValueError as exc:
+                return CheckResult("native:QA09:full_physics", "fail", str(exc), evidence={
+                    "asset_id": entry["declaration"]["asset_id"], "failed_frame_30hz": index,
+                    "checked_pose_frames": index+1, "stride": 1, "record_only": False})
+            minimum = min(minimum, distance)
+        evidence.append({"asset_id": entry["declaration"]["asset_id"], "checked_pose_frames": len(paths),
+            "stride": 1, "record_only": False, "recorded_intersections": 0,
+            "minimum_nonfloor_clearance_m": minimum, "floor": verifier.floor_certificate()})
+    return CheckResult("native:QA09:full_physics", "pass" if evidence else "fail",
+                       "original_triangle_verifier_every_actual_pose", evidence={"actors": evidence})
