@@ -83,3 +83,10 @@ def test_owner_temporary_disk_floor_expires_at_1230_singapore():
     assert acceptance_minimum_free_bytes(after)==100_000_000_000
     assert policy_minimum_free_bytes({'root':'/own/v7_acceptance_20261015','minimum_free_bytes':100_000_000_000},before)==60_000_000_000
     assert policy_minimum_free_bytes({'root':'/other/review','minimum_free_bytes':100_000_000_000},before)==100_000_000_000
+
+
+def test_temporary_floor_never_reintroduces_a_write_guard_for_admitted_job():
+    from avengine.timeline.v7_storage_budget import policy_minimum_free_bytes
+    policy={'root':'/own/v7_gap_motion_20261015','minimum_free_bytes':0}
+    assert policy_minimum_free_bytes(policy,datetime.datetime(2026,10,15,2,tzinfo=datetime.timezone.utc))==0
+    assert policy_minimum_free_bytes(policy,datetime.datetime(2026,10,15,5,tzinfo=datetime.timezone.utc))==0

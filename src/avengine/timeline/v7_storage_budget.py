@@ -20,6 +20,7 @@ def acceptance_minimum_free_bytes(now=None):
 
 
 def policy_minimum_free_bytes(policy,now=None):
+    if policy['minimum_free_bytes']==0:return 0  # admitted producers retain their write permission
     if Path(policy['root']).name in ACCEPTANCE_ROOT_NAMES:
         return acceptance_minimum_free_bytes(now)
     return policy['minimum_free_bytes']
