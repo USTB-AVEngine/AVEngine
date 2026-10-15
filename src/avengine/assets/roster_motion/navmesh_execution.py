@@ -11,7 +11,7 @@ from avengine.assets.roster_motion.distance_constraints import matches_radial_wi
 from itertools import islice
 from shapely.geometry import shape,LineString,Point,box
 REVISION='species-scene-speeds-native-curved-waypoints-v1'
-SPEED_RANGES={'human':(.8,1.4),'dog':(.5,1.2),'cat':(.3,.8),'slide':(.2,.5)}
+from avengine.timeline.v7_motion_speed import SPEED_RANGES
 
 def motion_yaw(record,index):
     values=record.get('yaw_rad_per_frame')
@@ -19,9 +19,10 @@ def motion_yaw(record,index):
 
 def prepare_scene_motion(row,catalog):
     if row.get('motion_quartet_template_revision'):return row
-    if row.get('motion_execution_revision')!=REVISION:return row
+    if not any(r.get('action')=='walk' for r in row.get('motion_requests',{}).values()):return row
     row=deepcopy(row);assets={a['asset_id']:a for a in catalog}
     for number,(aid,request)in enumerate(sorted(row.get('motion_requests',{}).items())):
+        if request.get('action')!='walk':continue
         mode=request.get('animal_motion_admission',{}).get('mode');species=assets[aid].get('species_id') or 'human'
         kind='slide'if mode=='slide_no_animation'else species
         if kind not in SPEED_RANGES:raise ValueError('scene locomotion speed species missing')
@@ -75,6 +76,8 @@ def curved_route_proposals(video,entry,scene,distance,local_forward,request):
                     positions=np.column_stack((centre.x+radius*np.cos(theta),np.full(len(theta),start[1]),centre.y+radius*np.sin(theta)))
                     line=LineString(positions[:,[0,2]])
                     if not free.covers(line)or any(line.intersects(o)for o in obstacles):continue
+                    from avengine.timeline.v7_spatial_layout import spacing_rejection
+                    if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):continue
                     if np.min(np.linalg.norm(positions[:,[0,2]]-np.asarray(scene['listener_m'])[[0,2]],axis=1))<.6:continue
                     snaps=np.asarray([video.pathfinder.snap_point(p)for p in positions]);errors=np.linalg.norm((snaps-positions)[:,[0,2]],axis=1)
                     if not np.isfinite(snaps).all()or float(errors.max())>.002:continue

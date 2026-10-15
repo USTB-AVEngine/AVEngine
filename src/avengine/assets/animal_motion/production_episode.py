@@ -241,8 +241,10 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION,curved_route_proposals
     curved_motion=request.get('motion_execution_revision')==EXECUTION_REVISION
     speed = float(request.get('speed_m_s', source_speed))
-    maximum_scene_speed=(.5 if mode=='slide_no_animation' else 1.2 if entry['declaration']['species_id']=='dog' else .8) if curved_motion else .08
-    if not 0 < speed <= maximum_scene_speed or source_speed <= 1e-6:
+    from avengine.timeline.v7_motion_speed import SPEED_RANGES
+    speed_kind='slide' if mode=='slide_no_animation' else entry['declaration']['species_id']
+    minimum_scene_speed,maximum_scene_speed=SPEED_RANGES[speed_kind]
+    if not minimum_scene_speed <= speed <= maximum_scene_speed or source_speed <= 1e-6:
         raise ValueError('unsupported admitted animal route speed')
     # Re-time actual saved joint poses with the translated distance. No new
     # deformation, inferred skeleton, or gait is invented for a slide.

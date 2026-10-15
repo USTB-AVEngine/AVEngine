@@ -64,7 +64,7 @@ def _snap(pathfinder, point):
     snapped = np.asarray(pathfinder.snap_point(np.asarray(point, float)), float)
     return snapped if np.isfinite(snapped).all() and np.linalg.norm((snapped-point)[[0, 2]]) <= .002 else None
 
-def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.2),quiet_speed=.4):
+def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.2),quiet_speed=.8):
     from avengine.assets.roster_motion.straight_window_routes import stadium_samples
     from avengine.assets.roster_motion.timed_straight_clock import timed_straight_clock
     rng = np.random.default_rng(seed)

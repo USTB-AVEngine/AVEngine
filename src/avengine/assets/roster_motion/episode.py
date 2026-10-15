@@ -228,8 +228,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     d,b,action,lineage=admitted_master(entry,inputs,house)
     from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION,curved_route_proposals
     curved_motion=request.get('motion_execution_revision')==EXECUTION_REVISION
-    times=np.arange(901)/30.;speed=float(request.get('speed_m_s',.5))
-    if not .15<=speed<=(1.4 if curved_motion else 1.2):raise ValueError('human walking speed outside explicit slow-to-normal production support')
+    times=np.arange(901)/30.;speed=float(request.get('speed_m_s',.8))
+    if not .8<=speed<=1.4:raise ValueError('human walking speed outside owner production range [0.8, 1.4] m/s')
     moving=np.zeros(len(times),bool);velocity=np.zeros(len(times))
     for lo,hi in request.get('intervals_s',[[2.,6.],[16.,20.]]):
         if not 0<=lo<hi<=30:raise ValueError('motion interval outside continuous world')
