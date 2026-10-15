@@ -42,7 +42,7 @@ def _rank_points(points, camera, preferred=3.8, limit=48):
     return np.array(chosen)
 
 
-def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max_candidates=256):
+def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max_candidates=256, floor_clearance_m=.002):
     """Solve requested role geometry, then let the family apply original predicates.
 
     A pair's overlap is an explicit target, solved by depth ratio and lateral
@@ -51,8 +51,12 @@ def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max
     """
     if set(bodies) != set(roles) or any(v not in {"inside", "outside", "any"} for v in roles.values()):
         raise ValueError("one valid framing role per body required")
+    if not math.isfinite(floor_clearance_m) or not 0<=floor_clearance_m<=.014:
+        raise ValueError("planned floor clearance must stay within original 15mm support tolerance")
     if not bodies or max_candidates < 1:
         return
+    candidate_points=context.points_m.copy()
+    candidate_points[:,1]+=floor_clearance_m
     if occlusion_pair is not None:
         target, foreground, lower, upper = occlusion_pair
         if target == foreground or not {target, foreground} <= set(bodies) or not 0 <= lower <= upper <= 1:
@@ -77,14 +81,16 @@ def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max
                     allowed &= context.walkable_map.contains_many(context.points_m[:,[0,2]]+
                                 extra*np.array([math.cos(angle),math.sin(angle)]),body.species)
             allowed &= grid.distances_m >= (1.5 if body.species == "human" else .5) + .02
+            frame_states = (np.asarray([framing(camera,p,body)[0]for p in candidate_points])
+                            if floor_clearance_m else grid.frustum_state)
             if roles[key] != "any":
-                allowed &= grid.frustum_state == roles[key]
+                allowed &= frame_states == roles[key]
             else:
-                allowed &= grid.frustum_state != "edge"
+                allowed &= frame_states != "edge"
             if roles[key] == "inside":
                 # Ranking filter only: missing rays are retained for explicit unknown.
                 allowed &= ~np.isfinite(grid.visible_fraction) | (grid.visible_fraction > .25)
-            domains[key] = _rank_points(context.points_m[allowed], camera)
+            domains[key] = _rank_points(candidate_points[allowed], camera)
         if any(not len(points) for points in domains.values()):
             continue
 
@@ -133,7 +139,7 @@ def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max
                                 cell = np.floor((fp[[0,2]]-context.walkable_map.origin)/context.walkable_map.resolution).astype(int)
                                 if 0<=cell[0]<context.walkable_map.shape[1] and 0<=cell[1]<context.walkable_map.shape[0]:
                                     y=context.walkable_map.floor_y[cell[1],cell[0]]
-                                    if math.isfinite(y):fp[1]=y
+                                    if math.isfinite(y):fp[1]=y+floor_clearance_m
                             if not context.walkable_map.contains(fp[[0, 2]], fb.species):
                                 continue
                             if np.linalg.norm((fp-np.asarray(camera.position_m))[[0, 2]]) < (1.5 if fb.species == "human" else .5)+.02:
@@ -164,6 +170,8 @@ def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max
                     continue
                 remaining.append(iterator)
                 actors = {key: static_actor(key, point, bodies[key]) for key, point in positions.items()}
+                for actor in actors.values():
+                    actor.metadata["planned_floor_clearance_m"]=floor_clearance_m
                 yield ScenePlan(camera, actors, metadata={"construction": "shared_static_role_domains",
                     "roles": dict(roles), "occlusion_pair": occlusion_pair, "native_pixel_preflight_required": True})
                 yielded += 1
