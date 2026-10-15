@@ -16,6 +16,7 @@ def publish_current_parents(root):
         for path in sorted((root/'evidence/jobs').glob('[0-9][0-9][0-9].json')):
             receipt=json.loads(path.read_text())
             if receipt.get('status')!='passed':continue
+            if receipt.get('scene_id')in manifest.get('delivery_excluded_parent_scene_ids',{}):continue
             source_policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
             from avengine.timeline.v7_export_window_policy import scope_receipt_windows
             receipt,policy=scope_receipt_windows(receipt,source_policy,enabled=manifest.get('drop_invalid_speed_windows',True))

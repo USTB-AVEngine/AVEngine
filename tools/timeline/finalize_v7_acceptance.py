@@ -20,6 +20,9 @@ def admitted_receipts(manifest):
         if not path.exists():continue
         receipt=json.loads(path.read_text())
         if receipt.get('status')!='passed':continue
+        if receipt.get('scene_id')in manifest.get('delivery_excluded_parent_scene_ids',{}):
+            excluded.append({'scene_id':receipt['scene_id'],'slot':receipt['slot'],'reasons':['explicit_delivery_exclusion:'+str(manifest['delivery_excluded_parent_scene_ids'][receipt['scene_id']])]})
+            continue
         if receipt.get('reader',{}).get('status')!='pass':raise ValueError('passed parent lacks completed actual media reader')
         pointer=json.loads(Path(receipt['export']['source_seal']).read_text());recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
         reasons=[]
@@ -54,6 +57,7 @@ def delivery_fingerprint(manifest):
         'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
         'family_question_minimums':manifest.get('family_question_minimums',{}),
         'family_protocol_panels':manifest.get('family_protocol_panels',{}),
+        'delivery_excluded_parent_scene_ids':manifest.get('delivery_excluded_parent_scene_ids',{}),
         'scene_delivery_policy':__import__('avengine.timeline.v7_export_scene_policy',fromlist=['REVISION']).REVISION,
         'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False),
         'minimum_family_distinct_houses':manifest.get('minimum_family_distinct_houses',0),
