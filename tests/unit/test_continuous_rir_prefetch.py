@@ -47,3 +47,23 @@ def test_invalid_position_fails_before_any_native_render(tmp_path):
         with pytest.raises(ValueError):c.prefetch([[float('nan'),0,0]])
         assert r.calls==[]
     finally:c.db.close()
+
+
+def test_fresh_batch_preserves_each_complete_native_tail(tmp_path,monkeypatch):
+    from avengine.timeline.v7_phase2_fresh_rir import FreshNativeContextRenderer
+    r=FreshNativeContextRenderer({'fresh_rir_workers':2},{},{},{},tmp_path/'native')
+    def render_one(position,role,trial):
+        size=8 if position[0]==0 else 17
+        return np.arange(4*size,dtype=float).reshape(4,size),'report_'+str(size),1.
+    monkeypatch.setattr(r,'_render_one',render_one)
+    batch=r.render([[0,0,0],[1,0,0]])
+    assert [x.shape for x in batch.samples]==[(4,8),(4,17)]
+    np.testing.assert_array_equal(batch.samples[1],np.arange(68,dtype=float).reshape(4,17))
+    assert batch.native_process_evidence==['report_8','report_17']
+
+
+def test_one_fresh_kernel_retains_the_scalar_batch_shape(tmp_path,monkeypatch):
+    from avengine.timeline.v7_phase2_fresh_rir import FreshNativeContextRenderer
+    r=FreshNativeContextRenderer({},{},{},{},tmp_path/'native')
+    monkeypatch.setattr(r,'_render_one',lambda p,role,trial:(np.ones((4,11)),'report',1.))
+    assert r.render([[0,0,0]]).samples.shape==(1,4,11)

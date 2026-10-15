@@ -13,18 +13,28 @@ import numpy as np
 from avengine.timeline.continuous_pilot import PositionRIRCache,write_json
 
 
+def _plan_path(root):
+    plans=[p for p in [root/'prefetch_plan.json',*root.glob('prefetch_plan_[0-9][0-9][0-9].json')]if p.is_file()]
+    return sorted(plans)[-1]if plans else None
+
+
+def _plan_identifier(plan):
+    plan_id=plan['plan_id']
+    if not plan_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-'for c in plan_id):
+        raise ValueError('invalid prefetch plan ID')
+    return plan_id
+
+
 def run_prefetch_plan(request_path, request, setup_report):
     root=Path(request_path).resolve().parent.parent
-    plan_path=root/'prefetch_plan.json'
-    if not plan_path.is_file():return None
+    plan_path=_plan_path(root)
+    if plan_path is None:return None
     plan=json.loads(plan_path.read_text())
     if plan.get('schema')!='v7-fresh-rir-prefetch-plan-v1':raise ValueError('unknown fresh RIR prefetch plan')
     if plan.get('separate_coordinator_required') and Path(sys.argv[0]).name!='v7_phase2_rir_prefetch.py':
         return None  # Retained measuring workers must never become cache readers.
 
-    plan_id=plan['plan_id']
-    if not plan_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-'for c in plan_id):
-        raise ValueError('invalid prefetch plan ID')
+    plan_id=_plan_identifier(plan)
     parent=root.parent.parent
     if Path(plan['parent_directory']).resolve()!=parent:raise ValueError('prefetch plan parent differs from its active request')
     cache_root=Path(plan['cache_directory']).resolve()
@@ -94,9 +104,11 @@ def run_prefetch_plan(request_path, request, setup_report):
 def maybe_schedule_prefetch(request_path, request, setup_report):
     """Keep the measuring native process separate from the cache coordinator."""
     path=Path(request_path).resolve();root=path.parent.parent
-    if not(root/'prefetch_plan.json').is_file():return None
+    plan_path=_plan_path(root)
+    if plan_path is None:return None
     if int(request.get('inputs',{}).get('fresh_rir_workers',1))!=1:return None
-    finished=root/'prefetch_finished.json'
+    plan_id=_plan_identifier(json.loads(plan_path.read_text()))
+    finished=root/('prefetch_finished_'+plan_id+'.json')
     if finished.is_file():return json.loads(finished.read_text()).get('receipt')
     setup=path.parent/'prefetch_setup.json';write_json(setup,setup_report)
     with(path.parent/'prefetch_scheduler.log').open('xb')as log:
@@ -113,7 +125,8 @@ if __name__=='__main__':
     args=p.parse_args();path=Path(args.request).resolve();request=json.loads(path.read_text())
     receipt=run_prefetch_plan(path,request,json.loads(Path(args.setup_report).read_text()))
     if receipt is not None:
-        finished=path.parent.parent/'prefetch_finished.json'
+        plan_id=_plan_identifier(json.loads(_plan_path(path.parent.parent).read_text()))
+        finished=path.parent.parent/('prefetch_finished_'+plan_id+'.json')
         write_json(finished,{'receipt':receipt,'scheduler_pid':os.getpid(),
             'scheduler_process_cpu_seconds':time.process_time(),
             'native_descendant_cpu_seconds':resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime+resource.getrusage(resource.RUSAGE_CHILDREN).ru_stime})
