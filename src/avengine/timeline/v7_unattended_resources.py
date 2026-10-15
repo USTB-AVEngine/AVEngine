@@ -110,7 +110,7 @@ def configure_parent_storage(manifest,output_root):
             raise ValueError('prechecked storage policy does not match the admitted task')
         return policy
     policy={'root':str(budget_root),'filesystem':'/data','maximum_task_bytes':manifest.get('maximum_task_bytes',60_000_000_000),
-        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
+        'minimum_free_bytes':int(manifest.get('launch_disk_policy',{}).get('minimum_free_bytes',100_000_000_000)),'concurrent_write_margin_bytes':manifest.get('concurrent_write_margin_bytes',128_000_000),
         'policy':'owner CPU acceptance only; no training merge or CCI'}
     for key in ('temporary_minimum_free_bytes','temporary_minimum_free_until_unix'):
         if key in manifest:policy[key]=manifest[key]
