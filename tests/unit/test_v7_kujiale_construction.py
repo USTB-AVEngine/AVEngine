@@ -53,7 +53,9 @@ def test_camera_can_occupy_clear_air_above_furniture_without_inventing_a_human_f
 def test_small_room_keeps_its_only_legal_pair_when_diversity_is_exhausted():
     candidates=[{'position_m':[x,1.3,z],'root_m':[x,0.,z],'body_yaw_deg':0.}for x,z in [(-.8,-2.),(.8,-2.),(0.,-1.2)]]
     first=select_group(candidates,[0.,1.5,0.],0)
-    assert select_group(candidates,[0.,1.5,0.],2)==first
+    later=select_group(candidates,[0.,1.5,0.],2)
+    assert {tuple(p['root_m'])for p in later}=={tuple(p['root_m'])for p in first}
+    assert all(np.linalg.norm(np.asarray(p['root_m'])[[0,2]])>=1.2-1e-9 for p in later)
     assert len(first)==3
 
 
