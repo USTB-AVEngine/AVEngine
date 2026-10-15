@@ -445,16 +445,17 @@ def repeat_bouts(actor, offsets_s=(0.,10.), *, fps=30., duration_s=30., source_w
     return ActorPlan(actor.entity_id,positions,actor.body,headings,metadata)
 
 
-def out_and_back(context, origin_m, tangent_xz, distance_m, turn_distance_m, *,
-                 turn_interval_s=(4.8,5.8), turn_sign=1, species="human", camera=None,
-                 entity_id="target", body=None, fps=30., ramp_s=.5):
-    """Bind a supplied two-bout clock to the same line, with an explicit paused turn.
+def out_and_back_shape(origin_m, tangent_xz, distance_m, turn_distance_m, *,
+                       turn_interval_s=(4.8,5.8), turn_sign=1, fps=30.):
+    """Return positions and tangent headings for an unchanged out-and-back clock.
 
-    Global clock 0..L..2L maps to spatial progress 0..L..0. The clock is never
-    scaled. A native full-pose check must still verify the stationary 180deg turn.
+    This pure shape has no room, NavMesh, floor, gait or native certification.
+    It can key canonical pose caches; actual routes must still use
+    out_and_back/validate_track and the original full native pose checks.
     """
     distance=np.asarray(distance_m,float);origin=np.asarray(origin_m,float);direction=np.asarray(tangent_xz,float)
     if (distance.ndim!=1 or len(distance)<2 or not np.isfinite(distance).all()or np.any(np.diff(distance)<-1e-9)
+            or not math.isfinite(fps) or fps<=0 or not math.isfinite(turn_distance_m)
             or distance[0]<-1e-9 or turn_distance_m<=0 or distance[-1]>2*turn_distance_m+1e-7
             or origin.shape!=(3,)or not np.isfinite(origin).all()or direction.shape!=(2,)
             or not np.isfinite(direction).all()or np.linalg.norm(direction)<1e-9 or turn_sign not in {-1,1}):
@@ -471,6 +472,24 @@ def out_and_back(context, origin_m, tangent_xz, distance_m, turn_distance_m, *,
     positions=np.repeat(origin[None],len(distance),axis=0);positions[:,[0,2]]+=progress[:,None]*direction
     theta=math.atan2(direction[1],direction[0]);u=np.clip((times-a)/(b-a),0,1)
     headings=theta+turn_sign*math.pi*(u*u*(3-2*u))
+    return positions,headings
+
+
+def out_and_back(context, origin_m, tangent_xz, distance_m, turn_distance_m, *,
+                 turn_interval_s=(4.8,5.8), turn_sign=1, species="human", camera=None,
+                 entity_id="target", body=None, fps=30., ramp_s=.5):
+    """Bind a supplied two-bout clock to the same line, with an explicit paused turn.
+
+    Global clock 0..L..2L maps to spatial progress 0..L..0. The clock is never
+    scaled. A native full-pose check must still verify the stationary 180deg turn.
+    """
+    if not math.isfinite(ramp_s) or not 0<=ramp_s<=.5:
+        raise ConstructionError("invalid_out_and_back_ramp")
+    positions,headings=out_and_back_shape(origin_m,tangent_xz,distance_m,turn_distance_m,
+        turn_interval_s=turn_interval_s,turn_sign=turn_sign,fps=fps)
+    distance=np.asarray(distance_m,float)
+    times=np.arange(len(distance))/fps
+    a,b=map(float,turn_interval_s)
     positions,validation=validate_track(context,positions,species,camera=camera,snap=False)
     moving=np.diff(distance)>1e-8;edges=np.diff(np.r_[False,moving,False].astype(int))
     intervals=[[x/fps,y/fps]for x,y in zip(np.flatnonzero(edges==1),np.flatnonzero(edges==-1))]
