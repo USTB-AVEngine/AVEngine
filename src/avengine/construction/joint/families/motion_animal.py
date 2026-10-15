@@ -261,8 +261,15 @@ class MotionAnimalPlugin:
                         if request.options.get('require_static_negative_comparator'):
                             self.rejections[str(error)]=self.rejections.get(str(error),0)+1
                         continue
-                    target_starts=[offset+1.3 for offset in offsets]+[21.3]
-                    silence=((4.2,6.6),(14.2,16.6),(24.2,26.6))
+                    target_starts=[];silence=[]
+                    for j,offset in enumerate(offsets):
+                        branch=request.branch if j%2==0 else('farther'if request.branch=='nearer'else'nearer')
+                        local=round(max(1.3,3.3-duration),1)if request.options.get('closer_nearer_call')and branch=='nearer'else 1.3
+                        target_starts.append(offset+local)
+                        quiet=max(4.2,local+duration+.6)if request.options.get('closer_nearer_call')else 4.2
+                        silence.append((offset+quiet,offset+6.6))
+                    target_starts.append(21.3)
+                    silence=tuple(silence)+((24.2,26.6),)
                     requirements=[]
                     for i,t in enumerate(target_starts):
                         allowed=(t-.2,t+duration+.3)
@@ -329,7 +336,8 @@ class MotionAnimalPlugin:
                             plan=ScenePlan(camera,{mover:actor,companion:speaker},schedule.events,metadata={
                                 'animal_route':route,'source_file_starts_s':file_starts,'movement_offsets_s':offsets,
                                 'walk_intervals_s':actor.metadata['walk_intervals_s'],'roles':{mover:'inside',companion:'outside'},
-                                'third_static_call_s':file_starts[mover][-1],'sound_schedule':schedule.diagnostics})
+                                'third_static_call_s':file_starts[mover][-1],'sound_schedule':schedule.diagnostics,
+                                'planned_silent_intervals_s':silence,'closer_nearer_call':bool(request.options.get('closer_nearer_call'))})
                             if request.options.get('require_static_negative_comparator'):
                                 from avengine.assets.animal_motion.negative_witness import companion_motion_request
                                 plan.metadata['negative_companion_motion_request']=companion_motion_request(
@@ -373,6 +381,17 @@ class MotionAnimalPlugin:
         for index,slot in enumerate(plan.metadata['animal_route']['emission_slots']):
             start=slot['start_s']+d['animal_activity_s'][0][0]
             stop=slot['start_s']+d['animal_activity_s'][-1][1]
+            if plan.metadata.get('closer_nearer_call')and slot['branch']=='nearer':
+                actual=radial[(clock>=start)&(clock<=stop)]
+                baseline_start=slot['offset_s']+1.3+d['animal_activity_s'][0][0]
+                baseline_stop=slot['offset_s']+1.3+d['animal_activity_s'][-1][1]
+                baseline=radial[(clock>=baseline_start)&(clock<=baseline_stop)]
+                closer=bool(len(actual)and len(baseline)and float(actual.max())<=float(baseline.max())+1e-6)
+                yield CheckResult('animal:nearer_call_range:%d'%index,'pass'if closer else'fail',
+                    'same_prepared_muzzle_moves_emission_toward_observer',
+                    evidence={'actual_peak_m':float(actual.max())if len(actual)else None,
+                              'original_clock_peak_m':float(baseline.max())if len(baseline)else None,
+                              'native_audio_energy_gate_still_required':True})
             measured=distance_trend_during_window(facts,mover,[math.floor(start*15),math.ceil(stop*15)],min_net_change_m=.5)
             ok=measured['verdict']==slot['branch']
             family_all['QA-15']=family_all['QA-15'] and ok
@@ -450,7 +469,8 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
         'require_native_preflight':True,'movement_bouts':int(runtime.get('motion_animal_movement_bouts',1)),
         'candidate_limit':int(runtime.get('joint_candidate_limit',24)),
         'families':FAMILIES,'later_static_call':True,
-        'require_static_negative_comparator':bool(runtime.get('motion_animal_static_negative_comparator',False))})
+        'require_static_negative_comparator':bool(runtime.get('motion_animal_static_negative_comparator',False)),
+        'closer_nearer_call':bool(runtime.get('motion_animal_closer_nearer_call',False))})
     plugin=MotionAnimalPlugin(data,base,catalog,records,contract,house,runtime,output/'geometry')
     with build_room_context(room,house=house,runtime=runtime,cache_dir=output/'room_cache',
             camera_limit=36,grid_step_m=.25,camera_heights_m=(1.1,),width=1280,height=720)as context:
