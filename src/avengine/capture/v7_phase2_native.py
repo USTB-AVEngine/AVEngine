@@ -1,7 +1,7 @@
 """Phase-two native integration; immutable phase-one profile remains available."""
 from copy import deepcopy
 from avengine.capture.v7_visible_native import NativeVisibleVideo
-PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v16-explicit-Habitat-EGL-device'
+PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v17-fixed-observer-source-bound-foot-emitters-explicit-EGL'
 
 def requires_foot_emitters(scene,endpoint):
     return any(source.get('owner_endpoint_id')==endpoint

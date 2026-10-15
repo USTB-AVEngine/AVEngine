@@ -127,8 +127,10 @@ def worker(a,cfg,root):
         result['machine_compiled_cache']=str(cache)
         if result.get('status')=='passed':
             parent=Path(native['producer_result']['delivery_directory']).parent
-            result['actual_voice_ids']=authored_voice_ids(read(parent/'input_recipe.json'))
-            result['actual_voice_ids_source']=str(parent/'input_recipe.json')+'#recorded_program.records'
+            native_recipe=read(parent/'input_recipe.json')
+            result['actual_voice_ids']=authored_voice_ids(native_recipe)
+            voice_key='recorded_program'if 'recorded_program'in native_recipe else'program'
+            result['actual_voice_ids_source']=str(parent/'input_recipe.json')+'#'+voice_key+'.records'
         if global_fingerprints(cfg)!=frozen_inputs or commit()!=a.source_commit or not clean_source():
             result.update(status='source_changed_not_a_frozen_rehearsal',reason='worktree or global registry changed during the unattended native attempt')
     except Exception as error:
