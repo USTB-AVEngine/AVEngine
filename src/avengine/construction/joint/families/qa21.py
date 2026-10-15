@@ -495,30 +495,12 @@ def solved_native_supports(plan, assets, seed, room):
     return result['native_attachment_supports']
 
 
-def native_family_obligations(video, scene, entries, *, runtime, output_root):
-    """QA21 appearance and the unchanged actual native 5-degree RIR gate."""
+def native_family_obligations(video, scene, entries):
+    """Family appearance checks; joint_core owns the actual native RIR gate."""
     from avengine.construction.joint import CheckResult
-    from avengine.timeline.v7_position_admission import PositionAdmission
-    from pathlib import Path
-    import os, tempfile
     observed = native_candidate_check(video,scene,entries,video._native_pair_pixels(scene,entries))
     yield CheckResult('native:qa21:appearance_and_pixels', 'pass' if observed['status']=='pass' else 'fail',
         evidence=observed)
-    if observed['status']!='pass':return
-    folder=Path(tempfile.mkdtemp(prefix='family_rir_',dir=output_root))
-    acoustic=dict(runtime)
-    acoustic['fresh_rir_cpu_ids']=list(runtime.get('fresh_rir_cpu_ids') or sorted(os.sched_getaffinity(0)))
-    acoustic['fresh_rir_workers']=min(int(runtime.get('fresh_rir_workers',1)),max(1,len(acoustic['fresh_rir_cpu_ids'])-1))
-    gate=PositionAdmission(scene,video.motion_house,acoustic,folder/'rir_cache',folder/'admission.json')
-    try:
-        for entry in entries:
-            asset=entry['declaration']
-            if asset.get('silent_decor'):continue
-            point=video._apply_entry(entry,scene)['emitter_position_m']
-            result=gate.check(entry['endpoint_id'],np.asarray(point))
-            yield CheckResult('native:qa21:rir:'+asset['asset_id'], 'pass' if result['status']=='pass' else 'fail',
-                'unchanged_native_5deg_position_admission', evidence=result)
-    finally:gate.close()
 
 
 def construct_qa21_scene(room, house, state, catalog, records, semantic, contract, runtime,
@@ -551,7 +533,7 @@ def construct_qa21_scene(room, house, state, catalog, records, semantic, contrac
         return prepare_static_native(context,request,plan,row_factory=row_factory,house=house,catalog=catalog,
             records=records,semantic=semantic,runtime=runtime,output_dir=root,roles=roles,
             minimum_visible_pixels={aid:MINIMUM_TARGET_PIXELS for aid in target_ids},appearance_ids=tuple(target_ids),
-            family_check=lambda video,scene,entries:native_family_obligations(video,scene,entries,runtime=runtime,output_root=root))
+            family_check=native_family_obligations)
     try:
         request=FamilyRequest('QA-21','|'.join(targets.values()),tuple(target_ids),{'require_native_preflight':not geometry_only})
         plugin=Qa21Plugin(bodies,roles,target_ids[0],targets[target_ids[0]],sounds=sounds,targets=targets,assets=assets,seed=seed,room=ctx['original_room'])
