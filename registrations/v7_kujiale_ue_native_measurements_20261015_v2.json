@@ -1,7 +1,7 @@
 {
   "schema": "v7-kujiale-ue-native-measurements-v1",
   "revision": "20261015-native-measured-v1",
-  "updated_utc": "2026-10-15T14:07:47.037225+00:00",
+  "updated_utc": "2026-10-15T14:19:27.768906+00:00",
   "original_registrations_modified": false,
   "runtime_authority": "production reads these measured native bases and original package hashes; world matrices remain measured per new frame",
   "scope": {
@@ -10772,7 +10772,7 @@
           }
         }
       ],
-      "independent_questions": 78,
+      "independent_questions": 68,
       "reason": "",
       "native_floor_surface": {
         "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0031/native_editor_audit.json",
@@ -10784,37 +10784,32 @@
         "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
         "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
       },
-      "scene_id": "v7_kujiale_fixed_v2_kujiale_0031_R0_a05",
-      "selected_smoke_slot": 58,
+      "scene_id": "v7_kujiale_fixed_v2_required_dog_bark_kujiale_0031_R0_q60_a01",
+      "selected_smoke_slot": 61,
       "selected_smoke_policy": "latest completely passed request slot; earlier fresh media retained",
       "families": {
-        "QA-02": 8,
+        "QA-02": 16,
         "QA-12": 8,
         "QA-19": 8,
-        "QA-11": 1,
         "QA-14": 4,
         "STARSS-FRUSTUM": 1,
-        "QA-05": 1,
-        "QA-04": 1,
         "QA-28": 2,
-        "QA-08": 1,
+        "V7-CLASS34": 1,
+        "STARSS-SPEAKERS": 1,
+        "QA-08": 3,
         "QA-26": 8,
         "QA-27": 8,
-        "QA-25": 2,
-        "STARSS-SPEAKERS": 1,
         "QA-01": 1,
-        "QA-20": 1,
-        "STARSS-CLASS13": 1,
-        "V7-CONTENT-BIND": 12,
-        "QA-23": 2,
-        "QA-03": 2,
         "QA-22": 1,
+        "QA-05": 1,
+        "QA-25": 1,
         "QA-18": 2,
-        "QA-13": 2
+        "QA-04": 1,
+        "STARSS-CLASS13": 1
       },
       "parent_receipt": {
-        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/evidence/jobs/058.json",
-        "sha256": "479a9d673352f0a438b45f7807a0e4a3d15bb56a6c90e03474258f4f6bf7c587"
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/evidence/jobs/061.json",
+        "sha256": "41c3895ede0bafabca13db55955f03f09df719d9c0ccb3f93ee64144f3fa7cd9"
       },
       "reader": {
         "status": "pass",
@@ -10829,70 +10824,70 @@
       "current_owner_scene_policy": {
         "revision": "v7-fixed-observer-natural-layout-measured-speed-standoff-v2",
         "status": "pass",
-        "source_seal": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0031_R0_a05/alpha_seal_completed.json",
+        "source_seal": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_required_dog_bark_kujiale_0031_R0_q60_a01/alpha_seal_completed.json",
         "reasons": [],
         "member_listener": {
           "v0_a0": {
             "yaw_range_deg": 0.0,
             "position_diameter_m": 0.0,
             "samples": 750,
-            "forward_range_deg": 8.537736462515939e-07,
+            "forward_range_deg": 0.0,
             "status": "pass"
           },
           "v0_a1": {
             "yaw_range_deg": 0.0,
             "position_diameter_m": 0.0,
             "samples": 750,
-            "forward_range_deg": 8.537736462515939e-07,
+            "forward_range_deg": 0.0,
             "status": "pass"
           },
           "v1_a0": {
             "yaw_range_deg": 0.0,
             "position_diameter_m": 0.0,
             "samples": 750,
-            "forward_range_deg": 8.537736462515939e-07,
+            "forward_range_deg": 0.0,
             "status": "pass"
           },
           "v1_a1": {
             "yaw_range_deg": 0.0,
             "position_diameter_m": 0.0,
             "samples": 750,
-            "forward_range_deg": 8.537736462515939e-07,
+            "forward_range_deg": 0.0,
             "status": "pass"
           }
         },
         "original_native_evidence": [
           {
-            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0031_R0_a05/visual_v0_attempt_b1d115de4fd54645b7604d5280778f2d/native_registered_visual_evidence.json",
-            "sha256": "ba6ffd6e1c0200a2796b590f7b375bfe862049064cd2246f082679f091616cc8"
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_required_dog_bark_kujiale_0031_R0_q60_a01/visual_v0_attempt_c5bd4c70f62144439530db52a0941c73/native_registered_visual_evidence.json",
+            "sha256": "100e62e6317e0e32ffb8bc1aa03559e9d7c781fc6cf2292fe0fd3e024eccc309"
           },
           {
-            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_kujiale_0031_R0_a05/visual_v1_attempt_336a34c472614650bf64863dcb7d297d/native_registered_visual_evidence.json",
-            "sha256": "9cebfdc3d5c39d9d1f84d11adfd2128f80f077aeec2a16c8698324b2d61fc62a"
+            "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/native/parents/v7_kujiale_fixed_v2_required_dog_bark_kujiale_0031_R0_q60_a01/visual_v1_attempt_654d35f6f5a94556b1963fee614ca5fe/native_registered_visual_evidence.json",
+            "sha256": "f8ef3ab9c5d65ca609e021caf98e02a209ab96dcf21b3035ee8f9ee7b1b8974d"
           }
         ],
         "native_layout": {
           "v0": {
             "status": "pass",
-            "minimum_human_centre_distance_m": 1.0421697498294413,
-            "minimum_human_camera_distance_m": 1.6677678337570105,
+            "minimum_human_centre_distance_m": 1.5702808381234832,
+            "minimum_human_camera_distance_m": 1.652097284319331,
             "human_camera_distance_basis": "horizontal XZ root-to-camera; all actual frames",
             "minimum_human_animal_centre_distance_m": null,
             "orientation": {
-              "line_cross_track_rms_m": 0.23745780765568394,
-              "heading_spread_deg": 126.23294720857585
+              "line_cross_track_rms_m": 0.5294619492442396,
+              "heading_spread_deg": 124.80877330803052
             },
             "reasons": []
           },
           "v1": {
             "status": "pass",
-            "minimum_human_centre_distance_m": 1.0421697498294413,
-            "minimum_human_camera_distance_m": 1.6677678337570105,
+            "minimum_human_centre_distance_m": 1.5702808381234832,
+            "minimum_human_camera_distance_m": 1.652097284319331,
             "human_camera_distance_basis": "horizontal XZ root-to-camera; all actual frames",
             "minimum_human_animal_centre_distance_m": null,
             "orientation": {
-              "line_cross_track_rms_m": 0.23745780765568394,
-              "heading_spread_deg": 126.23294720857585
+              "line_cross_track_rms_m": 0.5294619492442396,
+              "heading_spread_deg": 124.80877330803052
             },
             "reasons": []
           }
