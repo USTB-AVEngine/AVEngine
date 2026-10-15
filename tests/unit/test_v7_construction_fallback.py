@@ -116,6 +116,9 @@ def test_mover_without_view_requirement_may_stay_out_of_view():
     scene = {'production_scenario': {'motion_requests': {'voice1': {}}}, 'native_view_roles': {}}
     assets = [{'asset_id': 'walker', 'endpoint_id': 'voice1'}, {'asset_id': 'stander', 'endpoint_id': 'voice2'}]
     assert coverage_errors(scene, assets, {}, {'walker': 0, 'stander': 12}) == []
+    assert coverage_errors(scene, assets, {}, {'walker': 0, 'stander': 0}) == []       # nobody required in view
+    scene['phase2_semantic_azimuth_targets_deg'] = {'stander': 20.}
     assert coverage_errors(scene, assets, {}, {'walker': 0, 'stander': 0}) == ['registered entity never reached 100 native visible pixels']
+    scene['phase2_semantic_azimuth_targets_deg'] = {}
     scene['native_visibility_required_asset_ids'] = ['walker']
     assert coverage_errors(scene, assets, {}, {'walker': 0, 'stander': 12}) == ['registered entity never reached 100 native visible pixels']

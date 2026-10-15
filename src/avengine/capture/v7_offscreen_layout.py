@@ -100,12 +100,12 @@ def coverage_errors(scene,assets,visual,visible_frame_counts):
         role=offscreen_role(scene,aid)
         if not role:
             if not count:
-                movers=set(scene.get('production_scenario',{}).get('motion_requests',{}))
                 declaration=byid.get(aid,{'asset_id':aid})
-                if ((aid in movers or declaration.get('endpoint_id') in movers)
-                        and not visibility_required(scene,declaration)):
-                    # owner 10-15: a mover the question plan does not need in view may walk out of (or never into)
-                    # the fixed view; its native motion admission and readback still prove it is a real body.
+                if (not visibility_required(scene,declaration)
+                        and aid not in scene.get('phase2_semantic_azimuth_targets_deg',{})):
+                    # owner 10-15: only bodies the question plan needs in view must appear; a mover may walk out of
+                    # (or never into) the fixed view and a bystander may stand off screen.  Their native placement,
+                    # contact and readback still prove they are real registered bodies; visibility truths read pixels.
                     continue
                 errors.append('registered entity never reached 100 native visible pixels')
             continue
