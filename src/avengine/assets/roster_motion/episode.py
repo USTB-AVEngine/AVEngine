@@ -272,9 +272,16 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
     import time
     route_cpu_started=time.process_time()
+    native_trial_limit=max(24,min(256,int(request.get('maximum_native_route_attempts',32))))
+    last_route_receipt={}
+    def save_route_trials(selected=None):
+        write_json(directory/'motion_route_attempt_summary.json',{'minimum_full_trials_before_exhaustion':24,'full_gate_attempted':prefilter['full_gate_attempted'],'prefilter':prefilter,'failures':failures,'selected_full_trial':selected,'last_candidate_receipt':last_route_receipt,'cpu_seconds':time.process_time()-route_cpu_started,'required_gate_unchanged':True})
     proposals=curved_route_proposals(video,entry,scene,distance,np.array([0.,0.,-1.]),request) if curved_motion else None
     candidate_stream=((route.positions[0],route)for route in proposals) if curved_motion else ((point,None)for point in candidates[:512])
     for p0,curved_route in candidate_stream:
+        if curved_route is not None:last_route_receipt=curved_route.receipt
+        if request.get('motion_quartet_route')and prefilter['full_gate_attempted']>=native_trial_limit:break
+        if request.get('motion_quartet_route')and time.process_time()-route_cpu_started>max(1800.,300.*native_trial_limit):break
         if inputs.get('phase2') and not curved_motion and time.process_time()-route_cpu_started>1800:
             failures.append({'reason':'bounded new-house CPU route-search budget exhausted (1800s); no gate relaxed'})
             break
@@ -298,6 +305,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 prefilter['polygon_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
             prefilter['full_gate_attempted']+=1
+            probe_frame_index=-1
             try:
                 snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
                 if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
@@ -320,6 +328,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     support_repairs=prepared_solver[1]
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
+                    probe_frame_index=i
                     qualified_globals,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
                     if inputs.get('phase2') and not curved_motion and moving[i] and any(p['endpoint_id']==entry['endpoint_id'] for p in scene.get('planned_footsteps',[])) and not clear_native_foot_sound_paths(
                             video,scene['listener_m'],v,ev['feet'],positions[i],yaw,
@@ -339,12 +348,19 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     geometry.append(qualified_globals);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
                 accepted=(positions,yaw,frame_yaws,curved_route,geometry,frames,floor_y,nav,clearance,minimum);break
             except ValueError as error:
-                failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
+                failures.append({'candidate_full_trial':prefilter['full_gate_attempted'],'start_m':p0.tolist(),'yaw_rad':yaw,'frame_index':None if probe_frame_index<0 else probe_frame_index,'failed_root_m':positions[max(0,probe_frame_index)].tolist(),'reason':str(error)})
+                if curved_route is not None and hasattr(curved_route,'report_failure'):curved_route.report_failure(str(error),positions[max(0,probe_frame_index)])
+                save_route_trials()
+                if 'IK reach or pelvis' in str(error) and float(request['speed_m_s'])>.800001 and not request.get('native_lower_speed_retry'):
+                    revised=__import__('copy').deepcopy(request);revised.update(speed_m_s=.8,native_lower_speed_retry=True)
+                    return compile_walking(video,entry,scene,house,inputs,directory/'native_speed_lower_bound_retry',revised)
                 with(directory/'motion_route_search.jsonl').open('a')as stream:
                     stream.write(__import__('json').dumps({'candidate':len(failures),'cpu_seconds':time.process_time()-route_cpu_started,**failures[-1]})+'\n')
         if accepted:break
     if not accepted:
+        save_route_trials()
         write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted human has no fully qualified new-house walking route')
+    save_route_trials(prefilter['full_gate_attempted'])
     positions,yaw,frame_yaws,curved_route,parts_list,frames,floor_y,nav,clearance,minimum=accepted
     folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
     for i,qualified_globals in enumerate(parts_list):

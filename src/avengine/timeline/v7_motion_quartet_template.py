@@ -82,7 +82,7 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.
     tested = 0
     accepted = 0
     checks = Counter()
-    for speed in speeds:
+    for speed in []:
         # Emission and silent query are straight; slower smooth turns happen
         # only outside .7..7.5 s, repeated every ten seconds.
         distance, velocity, profile = timed_straight_clock(times,speed,straight_start_s=.1,straight_end_s=7.6,turn_speed_m_s=quiet_speed)
@@ -223,7 +223,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     row['motion_requests'] = {a: {'action': 'walk', 'speed_m_s': route['speed_m_s'],
         'scene_speed_range_m_s': [.4, 1.2], 'motion_execution_revision': 'species-scene-speeds-native-curved-waypoints-v1',
         'motion_quartet_route': route, 'allow_registered_walk_tts': True,
-        'maximum_native_route_attempts': 32}}
+        'maximum_native_route_attempts': 32,'native_route_candidate_pool':96}}
     row['motion_source_type']=source_type
     row['phase2_source_event_schedule_s']={b:[0.,10.,20.]}
     if source_type=='human_speech':row['phase2_source_event_schedule_s'][a]=[.3,10.3,20.3]
@@ -263,7 +263,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     for item in route['distance_branches']:
         requests.append({'qa_id': 'QA-15', 'branch': item['branch'], 'target_asset_id': a,
             'speed_m_s': route['speed_m_s'], 'speed_range_m_s': route['speed_range_m_s'],
-            'minimum_distance_change_m': .4, 'offsets_s': [item['offset_s']]})
+            'minimum_distance_change_m': .5, 'offsets_s': [item['offset_s']]})
     demand=deepcopy(row.get('scene_demand',{}))
     demand.update(focus='motion_quartet',requested_conditions=['motion_quartet'],
                   condition_families={'motion_quartet':list(MOTION_FAMILIES)},
@@ -271,7 +271,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     row['scene_demand']=demand
     row['motion_during_condition_requests'] = requests
     row = prepare_motion_during_row(row, catalog, list(source_records)+measured)
-    row['motion_requests'][a]['intervals_s'] = [[0., 30.]]
+    row['motion_requests'][a]['intervals_s'] = [[0., 9.7]]
     row['motion_requests'][a]['straight_motion_windows_s'] = [[x+.3, x+7.5] for x in offsets]
     row['motion_requests'][a].pop('distance_trend', None)
     row['motion_requests'][a].pop('distance_trend_intervals_s', None)

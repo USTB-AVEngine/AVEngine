@@ -86,6 +86,12 @@ def semantic_record(sound,gender):
     if blockers:raise ValueError('natural authored source blocked: '+str(blockers))
     ref=record['voice_reference'];record['speaker_id']=ref['speaker_id'];engine=record['synthesis_readback']['engine']
     record['screens']={'license':{'license':engine['model_license']+' + '+ref['license_spdx'],'original_id':record['original_id'],'source_uri':record['source_uri'],'retained_text':engine['model_license_path']}}
+    import numpy as np,soundfile as sf
+    samples,sr=sf.read(record['normalized_path'],dtype='float64')
+    if sr!=16000 or samples.ndim!=1:raise ValueError('authored source needs the admitted actual 16kHz mono clock')
+    active=np.flatnonzero(samples!=0.)
+    if not len(active):raise ValueError('authored source has no actual emitted samples')
+    record['screens']['automatic_activity']={'activity_intervals_samples':[[int(active[0]),int(active[-1]+1)]],'method':'actual nonzero source waveform envelope; complete utterance retained'}
     return record
 
 def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,camera_evidence_policy=None):

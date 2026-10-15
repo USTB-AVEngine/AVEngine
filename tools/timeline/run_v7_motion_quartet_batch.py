@@ -54,8 +54,8 @@ def main():
             'parent':{'slots':6,'minimum_available_bytes':30_000_000_000},
             'motion_capture':{'slots':4,'minimum_available_bytes':30_000_000_000,'maximum_system_pss_bytes':190_000_000_000}})
     policy=load(policy_path)
-    policy['template_visual']={'slots':1,'minimum_available_bytes':30_000_000_000,
-        'expected_incremental_bytes':16_000_000_000,'maximum_system_pss_bytes':190_000_000_000}
+    policy['template_visual']={'slots':2,'minimum_available_bytes':30_000_000_000,
+        'expected_incremental_bytes':12_000_000_000,'maximum_task_pss_bytes':40_000_000_000,'maximum_system_pss_bytes':190_000_000_000}
     save(policy_path,policy)
     manifest_path=out/'inputs/motion_quartet_batch.json'
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.worktree,text=True).strip()
@@ -93,7 +93,7 @@ def main():
     prior_active=load(out/'ACTIVE_JOBS.json')if(out/'ACTIVE_JOBS.json').exists()else[]
     for entry in prior_active:
         adopted=AdoptedProcess(entry['pid'],entry['create_time'])
-        if adopted.poll()is None:active[entry['slot']]={**{k:v for k,v in entry.items()if k!='slot'},'process':adopted}
+        if adopted.poll()is None:active[entry['slot']]={**{k:v for k,v in entry.items()if k!='slot'},'process':adopted,'adopted':True}
     def report():
         totals=Counter();passed=[];failures=Counter();rows=[];attempted=0;native_attempted=0;typed={}
         for task in manifest['parents']:
@@ -115,10 +115,13 @@ def main():
                 counted=load(type_receipt);row['question_source_type_counts']=counted
                 for kind,family_counts in counted['counts_by_actual_question_target_source_type'].items():typed.setdefault(kind,Counter()).update(family_counts)
             elif receipt['status']=='failed':failures[(receipt.get('reason')or'unknown').split(':')[0]]+=1
+            row['code_commit']=receipt.get('code_commit',task.get('code_commit',manifest['code_commit']))
+            motion_parent=out/'native/parents'/task['row']['scene_id']
+            row['native_route_trials']=[{'source':str(p),**load(p)}for p in motion_parent.glob('**/motion_route_attempt_summary.json')]
             rows.append(row)
         distinct={t['row']['house']for t in passed};families={t['family']for t in passed}
         meets=len(distinct)>=a.minimum_houses and {'hm3d','mp3d'}<=families and all(totals[f]>=a.minimum_per_family for f in FAMILIES)
-        data={'time_utc':now(),'status':'complete'if meets else'running','code_commit':manifest['code_commit'],
+        data={'time_utc':now(),'status':'complete'if meets else'running','code_commit':commit,'execution_commits':sorted({r['code_commit']for r in rows}),
               'independent_motion_family_counts':dict(totals),'distinct_passed_houses':len(distinct),
               'house_families':sorted(families),'construction_attempts_completed':attempted,'native_parent_attempts_completed':native_attempted,
               'counts_by_actual_question_target_source_type':{kind:dict(c)for kind,c in typed.items()},
@@ -149,7 +152,7 @@ def main():
                     else:return
         if result['status']=='complete' and not active:return
         completed=sum(r['status']in {'passed','failed'}for r in result['parents'])
-        while pending and len(active)<(1 if a.first_only else a.workers) and len(manifest['parents'])<a.maximum_attempts and result['status']!='complete':
+        while pending and len(active)<(1+sum(bool(j.get('adopted'))for j in active.values())if a.first_only else a.workers) and len(manifest['parents'])<a.maximum_attempts and result['status']!='complete':
             if a.launch_deadline_utc and datetime.datetime.now(datetime.timezone.utc)>=datetime.datetime.fromisoformat(a.launch_deadline_utc.replace('Z','+00:00')):pending.clear();break
             if psutil.virtual_memory().available<30_000_000_000 or shutil.disk_usage('/data').free<launch_minimum_free_bytes(manifest['disk_launch_policy']):break
             house,room,attempt=pending.pop(0);slot=len(manifest['parents'])

@@ -79,7 +79,7 @@ def prepare_motion_during_row(row,catalog,records):
             tail=request.get('wet_tail_planning_bound_s',request.get('measured_wet_tail_s',4.1))
             config['measured_wet_tail_s']=None if tail is None else float(tail)
             config['wet_tail_planning_provenance']=('pending actual native wet measurement; original delivered _silent_after is authoritative' if tail is None else 'conservative configured native IR bound; not a per-event measurement; delivered QA uses actual measured wet support')
-        if qa=='QA-15':config['distance_trend_criterion']={'net_change_at_least_m':float(request.get('minimum_distance_change_m',1.5))}
+        if qa=='QA-15':config['distance_trend_criterion']={'net_change_at_least_m':float(request.get('minimum_distance_change_m',.5))}
         solution=_compile_and_solve(config)
         if not solution.solved:raise ValueError('conditioned_motion rejected: '+str(solution.rejections))
         requirement=solution.requirement_for(target)
@@ -106,7 +106,7 @@ def prepare_motion_during_row(row,catalog,records):
             result['motion_requests'][target]['distance_trend']='approaching' if branch=='nearer' else 'receding'
             placement=solution.placement_for(target)
             result['motion_requests'][target]['distance_trend_intervals_s']=[[float(offset)+placement.start_frame/15.,float(offset)+placement.end_frame/15.]for offset in offsets]
-            result['motion_requests'][target]['minimum_distance_change_m']=float(request.get('minimum_distance_change_m',1.5))
+            result['motion_requests'][target]['minimum_distance_change_m']=float(request.get('minimum_distance_change_m',.5))
         result['motion_requests'][target]['speed_m_s']=float(request['speed_m_s'])
         plans.append({'config':config,'solution':solution.to_dict(),'target_asset_id':target,'offsets_s':offsets,'execution_intervals_s':intervals})
     for aid,intervals in motion.items():

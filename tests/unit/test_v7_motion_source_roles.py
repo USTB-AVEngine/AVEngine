@@ -32,3 +32,20 @@ def test_question_source_classification_distinguishes_other_voice_feet_and_slide
     assert classify_source_type({'species_id':'human','sound_class':'laughter'})=='human_other'
     assert classify_source_type({'species_id':'human','sound_class':'footsteps'})=='human_footsteps'
     assert classify_source_type({'species_id':'cat','motion_metadata':{'mode':'slide_no_animation'}})=='animal_slide'
+
+def test_construction_distance_keeps_half_metre_margin_and_original_reversal_tolerance():
+    from avengine.assets.roster_motion.construction_distance import accepts_distance_trend
+    assert accepts_distance_trend([3.,2.7,2.74,2.49],-1)
+    assert not accepts_distance_trend([3.,2.7,2.76,2.4],-1)
+    assert not accepts_distance_trend([3.,2.6],-1)
+
+def test_native_route_pool_exceeds_twenty_four_and_ranks_clearance(monkeypatch):
+    import numpy as np
+    from types import SimpleNamespace
+    from avengine.assets.roster_motion import straight_window_routes as routes
+    proposed=[SimpleNamespace(positions=np.array([[i,0.,0.],[i,.0,.1]]),receipt={'proposal':i+1})for i in range(32)]
+    monkeypatch.setattr(routes,'_unsorted_straight_window_routes',lambda *a:iter(proposed))
+    video=SimpleNamespace(pathfinder=SimpleNamespace(distance_to_closest_obstacle=lambda point,limit:.35+point[0]*.01))
+    actual=list(routes.straight_window_routes(video,None,None,None,None,{}))
+    assert len(actual)==32 and actual[0].receipt['proposal']==32
+    assert all(r.receipt['prequalified_candidate_count']==32 for r in actual)
