@@ -90,5 +90,8 @@ def native_template_candidate_counts(row,parent):
                 key,_=independence_key(row['scene_id'],q,gold[q['question_id']]);unique.setdefault(key,q['qa_id'])
     counts.update(unique.values());required=row.get('scene_demand',{}).get('required_actual_candidate_families',MOTION_FAMILIES)
     missing=[f for f in required if not counts[f]]
-    if missing:raise ValueError('motion quartet missing measured legal candidates: '+','.join(missing))
-    return {'status':'pass','independent_legal_family_counts':dict(counts),'original_QA_predicates_changed':False}
+    # owner 10-15: a family that did not realize (e.g. a long measured wet tail removed the post-sound window) is
+    # dropped and recorded; the parent fails only when no motion family realized at all.
+    if not any(counts[f] for f in MOTION_FAMILIES):raise ValueError('motion quartet realized no measured legal motion candidate: '+','.join(missing))
+    return {'status':'pass','independent_legal_family_counts':dict(counts),'missing_declared_families':missing,
+            'original_QA_predicates_changed':False}
