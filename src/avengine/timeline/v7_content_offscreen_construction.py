@@ -5,7 +5,7 @@ import math
 
 def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,catalog,room,contract):
     from avengine.timeline.v7_family_constructors import eligible_humans,choose_authored,stable_seed,ConstructionUnavailable,_request
-    from avengine.timeline.v7_offscreen_construction import plan_offscreen_floor
+    from avengine.timeline.v7_offscreen_construction import joint_offscreen_floor
     from avengine.timeline.v7_demand import plan_registered_content_demand
     from avengine.timeline.v7_production_inputs import validate_recipe
     used={a['asset_id']for a in people};colors={a['color']for a in people}
@@ -18,7 +18,7 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         break
     else:raise ConstructionUnavailable('pure authored quartet needs a fourth legal registered body and three complete distinct fixed voices across three scenarios; no person or member is removed')
     if len(ctx['source_proposals'])<2:raise ConstructionUnavailable('whole native quartet needs the original legal room height proposals')
-    yaw,inside,outside=plan_offscreen_floor(ctx,1,row['scene_seed']+attempt)
+    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,1,row['scene_seed']+attempt)
     floor_height=sum(p[1]for p in ctx['source_proposals'])/len(ctx['source_proposals'])
     points=[inside[0],inside[1],outside[0],inside[2]]
     positions=[[p[0],floor_height,p[1]]for p in points];ids=[a['asset_id']for a in actual];extra_id=ids[2]
@@ -29,7 +29,7 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         valid.append({'position_m':position,'body_yaw_deg':math.degrees(math.atan2(delta[0],-delta[2])),
             'status':'automatic floor proposal; actual native complete-mesh contact and pixels remain required'})
     row=deepcopy(row);row.update(schema='v7-recorded-registered-standing-v1',duration_s=30,assignment_status='admitted',
-        asset_ids=ids,silent_asset_ids=[ids[3]],source_classes={aid:['speech_playback']for aid in ids[:3]},
+        listener_m=list(ctx['listener_m']),asset_ids=ids,silent_asset_ids=[ids[3]],source_classes={aid:['speech_playback']for aid in ids[:3]},
         semantic_human_asset_ids=ids[:3],semantic_scenario_id=epochs[0][0]['scenario_id'],
         semantic_sound_ids=[s['sound_asset_id']for s in epochs[0]],semantic_start_offsets_s=[3.,6.5,0.],
         camera_yaw_deg=yaw,camera_yaw_knots=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}],
