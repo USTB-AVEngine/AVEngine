@@ -84,7 +84,7 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
         'minimum_crossing_radius_m':4.2,'required_entry_side':(-1 if seed%2 else 1)}
     compact=occlusion_construction_distances()
     if not enter:view['minimum_crossing_radius_m']=compact['minimum_target_radius_m']
-    intervals=[[3.,6.5]]if enter else[[3.,4.5],[6.,7.5]]
+    intervals=[[3.,4.5]]if enter else[[3.,4.],[6.,7.]]
     row['motion_requests']={target:{'action':'walk','speed_m_s':1.,'intervals_s':intervals,
         'minimum_listener_horizontal_distance_m':1.5,'camera_path_condition':view}}
     if enter:
@@ -92,7 +92,7 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
             preferred_azimuth_deg=view['required_entry_side']*75.)
         row['native_placement_preferences_m'].pop(target,None)
         row['explicit_entry']={'target_asset_id':target,'side':view['required_entry_side'],
-            'outside_speech_before_motion':True,'real_body_enters_by_s':6.5,'original_native_mask_entry_required':True,
+            'outside_speech_before_motion':True,'real_body_enters_by_s':5.,'original_native_mask_entry_required':True,
             'QA22_all_speakers_visible_at_least_once_in_the_first_window':True,'original_QA22_truth_changed':False}
     else:
         occluder=row['silent_asset_ids'][0]
@@ -107,7 +107,7 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
         row['native_attachment_distance_targets_m']={target:compact['preferred_target_radius_m']}
         row['native_distance_bands_m']={target:[compact['minimum_target_radius_m'],max(7.,compact['preferred_target_radius_m'])]}
         row['explicit_occlusion_motion']={'target_asset_id':target,'occluder_asset_id':occluder,
-            'pause_while_blocked_s':[4.5,6.],'clear_after_s':8.,'camera_moves':False,
+            'pause_while_blocked_s':[5.,6.],'clear_after_s':8.,'camera_moves':False,
             'every_entity_retained':True,'native_full_stream_is_the_truth':True}
     row['automatic_construction'].update(family=family,constructor='construct_visibility_scene')
     _request(row,state,family);validate_recipe(row,catalog,contract)
