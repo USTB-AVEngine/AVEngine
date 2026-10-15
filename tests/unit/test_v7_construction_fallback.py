@@ -140,6 +140,6 @@ def test_planned_mover_collision_is_light_and_record_only():
     import numpy as np
     from avengine.assets.roster_motion.episode import TriangleClearance
     tc = object.__new__(TriangleClearance)
-    tc.record_only = True; tc.stride = 10; tc.cache = {}
-    calls = [tc.check_world(np.zeros((3, 3)), np.zeros((1, 3), int)) for _ in range(9)]  # frames 2..10 skipped
-    assert tc._calls == 9 and all(c > .02 for c in calls[1:]) or True
+    tc.record_only = True; tc.stride = 10; tc.cache = {}; tc._calls = 1     # pose 1 was fully checked
+    calls = [tc.check_world(np.zeros((3, 3)), np.zeros((1, 3), int)) for _ in range(9)]  # poses 2..10 skipped
+    assert tc._calls == 10 and all(abs(c - .0200001) < 1e-12 for c in calls)
