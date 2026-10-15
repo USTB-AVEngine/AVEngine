@@ -57,6 +57,16 @@ def admission_limits(m,now):
          "maximum_parents":int(m.get("maximum_parents",16)),"maximum_cpu_processes":80}
 
 
+def output_processes(outputs):
+ outputs=[str(Path(output).resolve())for output in outputs]
+ roots=[]
+ for path in Path("/proc").iterdir():
+  if not path.name.isdigit():continue
+  live=proc(int(path.name))
+  if live and live["state"]!="Z"and any(output in live["cmd"]for output in outputs):roots.append(live["pid"])
+ return processes(roots)
+
+
 def peer_processes(m):
  # Helpers may own independent SDK prefetch processes as well as their parent
  # worker. Match only the three explicitly declared helper output roots, and
@@ -109,7 +119,7 @@ def main():
   m=load(a.manifest)
   pending=sorted(set(pending)|{slot for slot in range(len(m['parents']))if slot not in active and not (o/'evidence/jobs'/f'{slot:03d}.json').exists()})
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
-  records=processes([v['process'].pid for v in active.values()]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=len(records)+len(peers)+2
+  records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=len(records)+len(peers)+2
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
   resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss+peer_pss,limit=limit,free=free,allocated_size=size,available_memory=mem)
@@ -150,7 +160,7 @@ def main():
     if len(active)>=limits["maximum_parents"] or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
     reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion'}else 7_000_000_000 for s in active)
     requested=30_000_000_000 if moving else 7_000_000_000
-    if combined_peak_budget(reserve,pss,requested,peer_pss)>limit-5_000_000_000:continue
+    if combined_peak_budget(reserve,pss,requested,peer_pss)>limit:continue
     if forecast_cpu+4>limits["maximum_cpu_processes"]:continue
     env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
     if ue:

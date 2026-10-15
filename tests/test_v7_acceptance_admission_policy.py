@@ -105,3 +105,14 @@ def test_owner_explicit_parallel_increase_retains_cpu_and_memory_guards():
     assert launch_pause_reason(**fields)=='memory_headroom_no_new_jobs'
     fields.update(available_memory=31_000_000_000,pss=180_000_000_000)
     assert launch_pause_reason(**fields)=='PSS_limit_no_new_jobs'
+
+
+def test_independent_own_auxiliary_sdk_is_in_the_resource_budget(tmp_path):
+    import subprocess,sys
+    from tools.timeline.monitor_v7_acceptance import output_processes
+    root=tmp_path/'own_acceptance';root.mkdir()
+    child=subprocess.Popen([sys.executable,'-c','import sys;sys.stdin.read()',str(root)],stdin=subprocess.PIPE)
+    try:
+        assert any(p['pid']==child.pid for p in output_processes([root]))
+    finally:
+        child.stdin.close();child.wait(timeout=5)
