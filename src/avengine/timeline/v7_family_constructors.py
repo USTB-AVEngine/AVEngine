@@ -205,6 +205,10 @@ def _construct_post(row,people,state,catalog,records,semantic,contract,runtime,h
         row.get(key,{}).pop(companion,None)
     row['scene_demand']=original_request
     row['scene_demand']['distance_trend']=('approaching','receding')[(len(state.get('parents',{}))+row['automatic_construction']['candidate_index'])%2]
+    # Compile three full 10-second epochs, preserving real recording IDs.
+    original_ids=row['phase2_recorded_sound_ids'][target]
+    row['phase2_recorded_sound_ids'][target]=[original_ids[i%len(original_ids)]for i in range(3)]
+    row.setdefault('phase2_recorded_speech_schedule_s',{})[target]=[0.,10.,20.]
     _,scene,program,assets=build_phase2_scene(row,house,records,catalog,semantic)
     lookup={r['sound_asset_id']:r for r in program['records']};bindings={e['event_id']:e for e in program['events']};by_asset={}
     for aid in (target,companion):
@@ -212,7 +216,7 @@ def _construct_post(row,people,state,catalog,records,semantic,contract,runtime,h
         events=sorted((e for e in scene['events']if e['endpoint_id']==ep),key=lambda e:e['start_tick'])
         by_asset[aid]=[lookup[bindings[e['event_id']]['sound_asset_id']]for e in events]
     registry=registered_human_motion_registry(people[:2],runtime,house)
-    row=plan_post_sound_motion(row,qa_id=family,target=target,companion=companion,assets=assets,registry=registry,records_by_asset=by_asset)
+    row=plan_post_sound_motion(row,qa_id=family,target=target,companion=companion,assets=assets,registry=registry,records_by_asset=by_asset,epochs_s=(0.,10.,20.))
     return {'profile':'phase2','row':row}
 
 
