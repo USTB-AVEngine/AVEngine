@@ -23,6 +23,10 @@ def run_worker(manifest,slot):
         'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':128_000_000,
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
     check_write(root,expected_bytes=0)
+    # Owner 2026-10-15: resource thresholds pause launches. A running parent
+    # must be allowed to finish its writes after passing the launch check.
+    active_storage=json.loads(os.environ[ENV_KEY]);active_storage['minimum_free_bytes']=0
+    os.environ[ENV_KEY]=json.dumps(active_storage)
     inputs=load(task.get('runtime_input') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
