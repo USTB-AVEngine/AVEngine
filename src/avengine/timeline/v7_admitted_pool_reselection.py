@@ -158,7 +158,7 @@ def _collect_parent_job(arguments):
     return parent_entries(receipt,output,read_only_source_roots=roots)
 
 
-def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_minimums=None):
+def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_minimums=None,minimum_houses_per_family=0):
     entries=[];parents=[]
     if workers>1:
         import multiprocessing
@@ -170,7 +170,7 @@ def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_
         entries.extend(result['entries']);parents.append({'scene_id':receipt['scene_id'],
             'slot':receipt['slot'],'new_visual_candidate_rows':result['new_visual_candidate_rows'],'new_motion_candidate_rows':result.get('new_motion_candidate_rows',0),
             'source_seal':result['source_seal'],'proofs':result['proofs']})
-    rows,report=select_independent_rows(entries,family_minimums=family_minimums)
+    rows,report=select_independent_rows(entries,family_minimums=family_minimums,minimum_houses_per_family=minimum_houses_per_family)
     report.update(original_admitted_independent_rows=sum(r['independent_questions']for r in receipts),
         time_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),parents=parents,
         visual_supplements_actually_selected=sum('post_dedup_supplement'in r and r['modality']=='vision'for r in rows),motion_supplements_actually_selected=sum('post_dedup_supplement'in r and r['qa_id']in {'QA-06','QA-15','QA-16','QA-17'}for r in rows),

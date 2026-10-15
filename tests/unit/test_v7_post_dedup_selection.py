@@ -95,3 +95,26 @@ def test_contradictory_answers_are_still_rejected_in_partial_batches():
     entries=candidates();bad=deepcopy(entries[0]);bad['row']['canonical_answer']='wrong'
     with pytest.raises(ValueError,match='inconsistent canonical'):
         select_independent_rows(entries+[bad])
+
+
+def test_family_house_floor_keeps_independent_support_from_two_houses():
+    entries=candidates()
+    for e in entries:e['row']['house']='h0'
+    for e in entries[-5:]:e['row']['qa_id']='rare'
+    entries[-1]['row'].update(house='h1',independent_parent_scene_id='p4')
+    entries[-1]['key'][0]='p4'
+    entries[31]['row'].update(house='h1',independent_parent_scene_id='p4')
+    entries[31]['key'][0]='p4'
+    rows,report=select_independent_rows(entries,minimum_houses_per_family=2)
+    assert {r['house']for r in rows if r['qa_id']=='rare'}=={'h0','h1'}
+    assert report['selected_family_house_counts']['rare']==2
+    assert Counter(r['modality']for r in rows)=={'vision':30,'audio':25,'audiovisual':46}
+    assert all(r['canonical_answer']=='yes'for r in rows)
+
+
+def test_house_floor_reports_the_available_single_house_without_inventing_one():
+    entries=candidates()
+    for e in entries:e['row']['house']='only_real_house'
+    rows,report=select_independent_rows(entries,minimum_houses_per_family=2)
+    assert report['available_family_house_floors']=={'vision':1,'audio':1,'audiovisual':1}
+    assert set(r['house']for r in rows)=={'only_real_house'}
