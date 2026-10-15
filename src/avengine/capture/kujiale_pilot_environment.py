@@ -135,6 +135,7 @@ def human_clear_of_environment(video,low,high):
         if node.get('physical'):
             lo,hi=node['native_evidence']['placement']['native_world_bounds_m']
             if np.all(np.minimum(high,hi)>np.maximum(low,lo)):return False
+            if node['native_evidence'].get('intentional_offscreen_role'):continue
             # Disjoint bodies can still hide a small animal completely.
             # Reject a standing placement blocking the measured listener's
             # segment to any physical environment body's center.
@@ -241,18 +242,29 @@ def capture_frame(video,index,bgr,normal,semantic,targets,ids,pose_id):
             'mask_bbox_xyxy':[int(x.min()),int(y.min()),int(x.max()),int(y.max())] if len(x) else None,
             'entity_class':'static_object' if row['category']=='object' else 'static_animal','species_id':None if row['category']=='object' else row['category'],
             'silent_decor':row['silent_decor'],'native_foot_contact':{**contact,'method':'current joint UE LOD0 attachment rays, per-frame native root/yaw verified'}}
+        projection_proof=None
+        if native.get('intentional_offscreen_role'):
+            projection_proof=actual_offscreen_projection(world,view,target.shape,pixels,int(node['runtimes'][0]['visual_actor'].uobject))
+            if projection_proof['status']!='pass':raise ValueError('actual registered offscreen body entered native camera projection')
+            actors['intentional_offscreen_proof']=projection_proof
         rows.append(actors)
         records.append({'endpoint_id':endpoint,'source_id':node['source_id'],'asset_id':row['asset_id'],'frame_index':index,
             'physical_mesh_count':len(node['runtimes']),'source_geometry_present':True,'emitter_position_m':point,'root_error_m':root_error,
             'target_pixels':count,'visible_pixels':pixels,'visible_fraction':float(pixels/count) if count else None,
-            'highlight_ratio':highlight,'highlight_previous_limit_exceeded':highlight_warning,'highlight_gate_enforced':False,'color':color,'registered_color_label':row.get('label_color')})
+            'intentional_offscreen_proof':projection_proof,'highlight_ratio':highlight,'highlight_previous_limit_exceeded':highlight_warning,'highlight_gate_enforced':False,'color':color,'registered_color_label':row.get('label_color')})
     video.current_environment_frames.append({'frame_index':index,'entities':records})
     return rows
 
 def finish_scene(video,result,path):
     frames=video.current_environment_frames
     if len(frames)!=450 or [f['frame_index'] for f in frames]!=list(range(450)):raise ValueError('physical native frame clock incomplete')
-    for endpoint in video.environment_nodes:
+    for endpoint,node in video.environment_nodes.items():
+        if node['native_evidence'].get('intentional_offscreen_role'):
+            actual=[e for f in frames for e in f['entities'] if e['endpoint_id']==endpoint]
+            if len(actual)!=450 or any(not e['source_geometry_present'] or e['visible_pixels']!=0 or
+                    (e.get('intentional_offscreen_proof') or {}).get('status')!='pass' for e in actual):
+                raise ValueError('offscreen fallback lacks 450 actual drawable/projection readbacks: '+endpoint)
+            continue
         if not any(e['visible_pixels']>=80 for f in frames for e in f['entities'] if e['endpoint_id']==endpoint):
             raise ValueError('physical asset never appears in the produced native video: '+endpoint)
     proof={'status':'pass','frame_count':450,'current_joint_admission':video.current_environment_admission,'frames':frames,
@@ -308,3 +320,25 @@ def construct_dialogue_camera(listener,positions,*,additional_positions=None):
         'additional_required_positions_m':extra.tolist(),
         'additional_required_azimuths_deg':((extra_bearings-yaw+180.)%360.-180.).tolist(),
         'construction_only_all_required_bodies_in_fixed_view':True}
+
+
+def actual_offscreen_projection(vertices,view,image_shape,visible_pixels,native_object_id):
+    """Whole actual posed mesh outside a fixed native camera clipping plane.
+
+    Camera pose is the same readback used by the modal and isolated captures.
+    Zero pixels alone cannot prove a real offscreen body.
+    """
+    from avengine.qa.kujiale_native_depth import basis
+    from avengine.capture.v7_offscreen_layout import vertices_outside_camera
+    forward,right,up=basis(view);world_to_camera=np.eye(4)
+    world_to_camera[:3,:3]=np.asarray([right,up,-forward])
+    world_to_camera[:3,3]=-world_to_camera[:3,:3]@np.asarray(view['position_m'])
+    h,w=image_shape[:2];scale=1/math.tan(math.radians(view.get('hfov_deg',85.))/2)
+    projection=np.array([[scale,0,0,0],[0,scale*w/h,0,0],[0,0,-1.,-.02],[0,0,-1.,0]])
+    outside=vertices_outside_camera(vertices,world_to_camera,projection)
+    good=outside and visible_pixels==0 and native_object_id is not None
+    return {'status':'pass' if good else 'fail','native_object_id':native_object_id,
+            'native_visible_pixels':int(visible_pixels),'original_mesh_vertices':len(vertices),
+            'all_vertices_outside_native_frustum_plane':outside,'source_is_real_drawable':True,
+            'native_world_to_camera':world_to_camera.tolist(),'native_projection_matrix':projection.tolist(),
+            'QA_visibility_overridden':False,'method':'Claude ddce1120 whole-drawable clipping proof; actual UE pose and masks'}

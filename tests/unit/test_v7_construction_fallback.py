@@ -1,0 +1,55 @@
+"""Claude 10-15: construct instead of failing a scene on one unplaceable entity."""
+from avengine.capture.v7_offscreen_layout import placement_construction_fallback, proposal_view_ok, offscreen_role
+import pytest
+pytestmark=pytest.mark.fast_unit
+
+
+def test_person_first_relaxes_camera_then_goes_offscreen_once():
+    scene = {'production_scenario': {'motion_requests': {'voice1': {}}}}
+    person = {'asset_id': 'p2', 'endpoint_id': 'voice2', 'kind': 'human'}
+    assert placement_construction_fallback(scene, person, 'floor', None, False) == 'camera_1_2m'
+    assert scene['native_person_camera_construction_m']['p2'] == 1.2
+    assert placement_construction_fallback(scene, person, 'floor', None, False) == 'offscreen'
+    assert offscreen_role(scene, 'p2')['minimum_abs_azimuth_deg'] == 60.
+    assert placement_construction_fallback(scene, person, 'floor', None, False) is None
+
+
+def test_requirements_that_define_the_question_are_kept():
+    scene = {'production_scenario': {'motion_requests': {'voice1': {}}}}
+    mover = {'asset_id': 'p1', 'endpoint_id': 'voice1', 'kind': 'human'}
+    assert placement_construction_fallback(scene, mover, 'floor', None, False) == 'camera_1_2m'
+    assert placement_construction_fallback(scene, mover, 'floor', None, False) is None      # movers stay in view
+    sector = {'asset_id': 'p3', 'endpoint_id': 'voice3', 'kind': 'human'}
+    placement_construction_fallback(scene, sector, 'floor', 30., False)
+    assert placement_construction_fallback(scene, sector, 'floor', 30., False) is None      # requested sector kept
+    pair = {'asset_id': 'p4', 'endpoint_id': 'voice4', 'kind': 'human', 'controlled_shirt': True}
+    placement_construction_fallback(scene, pair, 'floor', None, True)
+    assert placement_construction_fallback(scene, pair, 'floor', None, True) is None        # colour pair kept
+    wall = {'asset_id': 'o1', 'endpoint_id': 'obj1', 'kind': 'object'}
+    assert placement_construction_fallback(scene, wall, 'wall', None, False) is None
+
+
+
+
+def test_actual_ue_offscreen_requires_the_whole_drawable_and_zero_native_pixels():
+    import numpy as np
+    from avengine.capture.kujiale_pilot_environment import actual_offscreen_projection
+    view={'position_m':[0.,1.,0.],'yaw_deg':0.,'pitch_deg':0.,'hfov_deg':85.}
+    body=np.array([[x,y,z]for x in [-3.,-2.] for y in [0.,1.] for z in [-.2,.2]])
+    result=actual_offscreen_projection(body,view,(720,1280),0,123)
+    assert result['status']=='pass' and result['native_object_id']==123
+    assert result['source_is_real_drawable'] and not result['QA_visibility_overridden']
+    assert actual_offscreen_projection(body,view,(720,1280),1,123)['status']=='fail'
+    assert actual_offscreen_projection(body,view,(720,1280),0,None)['status']=='fail'
+    body[:,0]*=-1
+    assert actual_offscreen_projection(body,view,(720,1280),0,123)['status']=='fail'
+
+
+def test_offscreen_human_clearance_keeps_collision_but_does_not_require_an_in_view_animal():
+    import numpy as np
+    from types import SimpleNamespace
+    from avengine.capture.kujiale_pilot_environment import human_clear_of_environment
+    evidence={'placement':{'native_world_bounds_m':[[-.2,0.,-4.],[.2,.4,-3.6]]},'intentional_offscreen_role':{'view':'outside'}}
+    video=SimpleNamespace(environment_nodes={'environment1':{'physical':True,'native_evidence':evidence}},scene={'listener_m':[0.,1.,0.]})
+    assert human_clear_of_environment(video,np.array([-.4,0,-2.]),np.array([.4,1.9,-1.6]))
+    assert not human_clear_of_environment(video,np.array([-.4,0,-4.]),np.array([.4,1.9,-3.5]))
