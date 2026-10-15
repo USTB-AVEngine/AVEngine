@@ -28,17 +28,26 @@ def minimum_track_distance(a, b):
     return float(np.linalg.norm(delta[:-1] + t[:, None]*v, axis=1).min())
 
 
-def validate_track(context, positions_m, species="human", *, camera=None, snap=True):
+def validate_track(context, positions_m, species="human", *, camera=None, snap=True, allow_map_fallback=None):
     p = np.asarray(positions_m, float)
     if p.ndim != 2 or p.shape[1] != 3 or not len(p) or not np.isfinite(p).all():
         raise ConstructionError("invalid_route_points")
     m = context.walkable_map
-    if not m.contains_many(p[:, [0, 2]], species).all():
-        raise ConstructionError("walkable_map_cells", {"rejected_frames": int((~m.contains_many(p[:, [0, 2]], species)).sum())})
-    segments = np.unique(np.concatenate((p[:-1, [0, 2]], p[1:, [0, 2]]), axis=1), axis=0)
+    misses=[]
+    if not m.contains_many(p[:,[0,2]],species).all():
+        misses.append("walkable_map_cells")
+    segments=np.unique(np.concatenate((p[:-1,[0,2]],p[1:,[0,2]]),axis=1),axis=0)
     for segment in segments:
-        if not m.segment_free(segment[:2], segment[2:], species):
-            raise ConstructionError("walkable_map_segment", {"segment_xz_m": segment.tolist()})
+        if not m.segment_free(segment[:2],segment[2:],species):
+            misses.append("walkable_map_segment")
+            break
+    fallback=None
+    allow = getattr(context,"allow_native_map_fallback",False) if allow_map_fallback is None else bool(allow_map_fallback)
+    if misses:
+        if not allow:
+            raise ConstructionError(misses[0],{"map_failures":misses})
+        fallback=_native_map_fallback(context,p,species)
+        fallback["map_failures"]=misses
     q, max_snap = p.copy(), 0.
     nav_y_offset = None
     if context.pathfinder is not None:
@@ -57,10 +66,10 @@ def validate_track(context, positions_m, species="human", *, camera=None, snap=T
             raise ConstructionError("navmesh_snap_tolerance", {"horizontal_m": max_snap, "navmesh_y_offset_range_m": nav_y_offset})
         if snap:
             q[:, [0, 2]] = snapped[inverse][:, [0, 2]]
-            if not m.contains_many(q[:, [0, 2]], species).all():
+            if fallback is None and not m.contains_many(q[:, [0, 2]], species).all():
                 raise ConstructionError("snapped_route_outside_map")
             for seg in np.unique(np.concatenate((q[:-1, [0, 2]], q[1:, [0, 2]]), axis=1), axis=0):
-                if not m.segment_free(seg[:2], seg[2:], species):
+                if fallback is None and not m.segment_free(seg[:2], seg[2:], species):
                     raise ConstructionError("snapped_segment_outside_map")
     if np.max(np.abs(q[:, 1]-m.floor_reference)) > .08:
         raise ConstructionError("route_changes_floor")
@@ -73,7 +82,48 @@ def validate_track(context, positions_m, species="human", *, camera=None, snap=T
     return q, {"map_full_frames": len(q), "map_supercover_segments": len(segments),
                "navmesh_checked": context.pathfinder is not None, "max_snap_horizontal_m": max_snap,
                "minimum_camera_distance_m": distance, "navmesh_y_offset_range_m": nav_y_offset,
-               "vertical_authority": "physical_scan_floor_not_navmesh_height"}
+               "vertical_authority": "physical_scan_floor_not_navmesh_height", "native_map_fallback": fallback}
+
+
+def _native_map_fallback(context, positions, species):
+    """A proposal screen only; final native full-pose physics is still pending."""
+    from avengine.rooms.walkable_map import SPECIES_RADII_M
+    pf=context.pathfinder
+    ray=getattr(context,"floor_raycaster",getattr(context,"raycaster",None))
+    if pf is None or not hasattr(pf,"distance_to_closest_obstacle"):
+        raise ConstructionError("map_fallback_requires_original_navmesh_clearance")
+    if ray is None or getattr(ray,"source",None)!="visual_mesh":
+        raise ConstructionError("map_fallback_requires_original_visual_floor")
+    # Check continuous subsegments at <=2.5cm, not only the 30Hz endpoints.
+    counts=np.ceil(np.linalg.norm(np.diff(positions[:,[0,2]],axis=0),axis=1)/.025)
+    if counts.sum()+len(positions)>100000:
+        raise ConstructionError("map_fallback_continuous_sampling_budget")
+    samples=[positions]
+    for a,b in zip(positions[:-1],positions[1:]):
+        n=math.ceil(float(np.linalg.norm((b-a)[[0,2]]))/.025)
+        if n>1:
+            samples.append(a+np.arange(1,n)[:,None]/n*(b-a))
+    points=np.unique(np.concatenate(samples),axis=0)
+    snapped=np.asarray([pf.snap_point(v)for v in points],float)
+    if snapped.shape!=points.shape or not np.isfinite(snapped).all():
+        raise ConstructionError("map_fallback_navmesh_nonfinite")
+    error=float(np.linalg.norm((snapped-points)[:,[0,2]],axis=1).max())
+    if error>.002:
+        raise ConstructionError("map_fallback_navmesh_horizontal",{"maximum_error_m":error})
+    clearance=np.asarray([pf.distance_to_closest_obstacle(q,1.)for q in snapped],float)
+    clearance=np.minimum(clearance,1.)
+    required=SPECIES_RADII_M[species]
+    if not np.isfinite(clearance).all() or clearance.min()<required-1e-8:
+        raise ConstructionError("map_fallback_body_clearance",{"minimum_m":float(clearance.min()),"required_radius_m":required})
+    distance,_=ray.first_hit(points+[0,.2,0],np.tile([0.,-1.,0.],(len(points),1)))
+    floor_y=points[:,1]+.2-distance
+    error_y=np.abs(points[:,1]-floor_y)
+    if not np.isfinite(distance).all() or np.any(distance>.85) or np.any(error_y>.03+1e-7):
+        raise ConstructionError("map_fallback_physical_floor",{"maximum_root_floor_gap_m":float(error_y.max())})
+    return {"status":"pending_native_sweep","continuous_samples":len(points),
+            "maximum_navmesh_horizontal_error_m":error,"minimum_native_clearance_m":float(clearance.min()),
+            "body_radius_m":required,"maximum_original_scan_floor_gap_m":float(error_y.max()),
+            "original_walkable_map_modified":False,"full_native_pose_and_final_scene_checks_required":True}
 
 
 def route_between(context, start_m, end_m, *, species="human", max_expansions=100000):
