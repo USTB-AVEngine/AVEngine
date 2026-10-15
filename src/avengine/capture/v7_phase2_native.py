@@ -14,6 +14,7 @@ class NativePhase2Video(NativeVisibleVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
         from avengine.timeline.v7_camera_evidence import set_static_camera
         set_static_camera(scene)
+        self._phase2_scene=scene
         super().__init__(house,scene,inputs,assets,**kwargs)
         self._pose_context_configuration={'arguments':(house,scene,inputs,assets),'keywords':kwargs}
         self._pose_resources_in_context=set();self._last_primary_frame=None
@@ -41,6 +42,17 @@ class NativePhase2Video(NativeVisibleVideo):
             return self._apply_motion_entry(entry,0 if frame_index is None else frame_index*2)
         return super()._apply_entry(entry,scene,frame_index)
 
+    def _phase2_needs_foot_emitters(self,entry):
+        """Foot emitters exist only for this walker's footstep sources (owner 10-15: one sound type per person).
+
+        A speaking (or silent) walker has no footstep source, so there is no foot emitter to place or gate.
+        """
+        scene=getattr(self,'_phase2_scene',None)
+        if scene is None:return True
+        ep=entry['endpoint_id']
+        return any(v.get('owner_endpoint_id')==ep and v.get('emitter_part') in {'foot_L','foot_R'}
+                   for v in scene.get('sources',{}).values())
+
     def _apply_motion_entry(self,entry,index):
         import numpy as np
         row=super()._apply_motion_entry(entry,index)
@@ -60,7 +72,7 @@ class NativePhase2Video(NativeVisibleVideo):
         # Only actual footstep sources need native shoe-surface children.
         # Speech keeps its observed mouth emitter; silent walking has none.
         # Original floor/contact certification remains in compile_walking.
-        feet=frame.get('feet',{})if entry.get('phase2_required_foot_emitters',True)else{}
+        feet=frame.get('feet',{})if entry.get('phase2_required_foot_emitters',True)and self._phase2_needs_foot_emitters(entry)else{}
         for side,foot in feet.items():
             if side not in {'L','R'}:continue
             if 'sole_local_m' not in foot:raise ValueError('posed original sole coordinates missing')
