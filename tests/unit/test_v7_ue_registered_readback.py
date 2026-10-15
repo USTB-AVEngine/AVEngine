@@ -78,3 +78,27 @@ def test_native_dialogue_camera_constructs_distinct_observable_sectors():
     assert len(set(plan['source_sectors']))==2
     assert max(abs(a)for a in plan['source_azimuths_deg'])<42.5
     assert all(_azimuth_sector(a)==s for a,s in zip(plan['source_azimuths_deg'],plan['source_sectors']))
+
+def test_namespace_reuse_rechecks_changed_frames_and_original_files(tmp_path,monkeypatch):
+    from copy import deepcopy
+    from avengine.qa import v7_roster_intake
+    from avengine.timeline.v7_registry_snapshot import qualify_namespace,_NAMESPACE_CACHE
+    glb=tmp_path/'body.glb';glb.write_bytes(b'original body');sha=digest(glb)
+    registry=tmp_path/'registry.json';registry.write_text('{}');visual_path=tmp_path/'native.json';visual_path.write_text('{}')
+    calls=[]
+    def intake(path):
+        calls.append(path)
+        return {'source_registry_sha256':'registry','records':[{'asset_id':'human','standing_registered_qualified':True,
+            'mouth_local_glb_m':[0.,1.,0.],'habitat_glb':str(glb),'actual_artifact_sha256':{str(glb):digest(glb)}}]}
+    monkeypatch.setattr(v7_roster_intake,'intake_roster',intake)
+    actor={'actor_id':1,'asset_id':'human','source_registry_sha256':'registry','loaded_artifact_sha256':sha,
+        'moving':False,'action_id':'stand','body_to_world_m':np.eye(4).tolist(),'emitter_position_m':[0.,1.,0.]}
+    visual={'frames':[{'actors':[deepcopy(actor)]}for _ in range(450)]};target=tmp_path/'receipt.json';_NAMESPACE_CACHE.clear()
+    qualify_namespace(visual,registry,'registry',target,visual_path)
+    qualify_namespace(visual,registry,'registry',target,visual_path)
+    assert len(calls)==1
+    visual['frames'][0]['actors'][0]['emitter_position_m']=[0.,1.1,0.]
+    with pytest.raises(ValueError,match='2mm'):qualify_namespace(visual,registry,'registry',target,visual_path)
+    visual['frames'][0]['actors'][0]['emitter_position_m']=[0.,1.,0.];glb.write_bytes(b'changed body')
+    with pytest.raises(ValueError,match='native GLB differs'):qualify_namespace(visual,registry,'registry',target,visual_path)
+    assert len(calls)==3
