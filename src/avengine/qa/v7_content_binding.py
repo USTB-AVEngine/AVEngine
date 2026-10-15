@@ -10,6 +10,7 @@ import math
 import hashlib
 import json
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 PANEL_ID = 'V7-CONTENT-BIND'
@@ -218,6 +219,15 @@ def question_text(query, wording_variant='standard'):
         return text.replace('指定的这个人', query['subject_descriptor_zh']).replace('指定的画面人物', query['subject_descriptor_zh'])
     return text
 
+@lru_cache(maxsize=128)
+def _native_video_probe(path,media_sha256):
+    """Reuse decoding only for the same path and freshly verified file bytes."""
+    result=subprocess.run(['ffprobe','-v','error','-count_frames','-select_streams','v:0',
+      '-show_entries','stream=codec_name,width,height,nb_read_frames,avg_frame_rate,duration',
+      '-of','json',path],capture_output=True,text=True,check=True)
+    return result.stdout
+
+
 def validate_modality_witness(pair, axis):
     """Recompute both answers and actual media equality for one native witness."""
     if axis not in {'same_V_different_A_answer_flip','same_A_different_V_answer_flip'}:
@@ -261,10 +271,10 @@ def validate_modality_witness(pair, axis):
                             or abs(info.duration-expected)>1/info.samplerate):
                         reasons.append('actual_audio_is_not_complete_four_channel_window')
                 else:
-                    result=subprocess.run(['ffprobe','-v','error','-count_frames','-select_streams','v:0',
-                      '-show_entries','stream=codec_name,width,height,nb_read_frames,avg_frame_rate,duration',
-                      '-of','json',str(path)],capture_output=True,text=True,check=True)
-                    streams=json.loads(result.stdout).get('streams') or []
+                    # The digest above is recomputed on every check. Every
+                    # truth/domain/modality predicate below still runs; only
+                    # repeated decoding of identical native media is reused.
+                    streams=json.loads(_native_video_probe(str(path.resolve()),observed[key])).get('streams') or []
                     if len(streams)!=1 or streams[0].get('width',0)<=0 or streams[0].get('height',0)<=0:
                         reasons.append('actual_video_has_no_decodable_native_frames')
                     else:
