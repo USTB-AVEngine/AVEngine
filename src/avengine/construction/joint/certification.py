@@ -76,7 +76,17 @@ def certify_plan(context, plan):
             angles = np.arange(16)*2*math.pi/16
             ok = all(context.walkable_map.contains_many(p[:, [0, 2]]+extra*np.array([math.cos(a), math.sin(a)]), actor.body.species).all()
                      for a in angles)
-            check(key+":extra_body_width", ok, additional_radius_m=extra)
+            if not ok and getattr(context,"allow_native_map_fallback",False):
+                from .routes import _native_map_fallback
+                try:
+                    screen=_native_map_fallback(context,p,actor.body.species)
+                    checks.append(CheckResult(key+":extra_body_width","unknown",
+                        "native_full_pose_required_for_map_fallback",
+                        evidence={"entity_id":key,"extra_radius_m":extra,"coarse_rejection":"circular_extra_body_width",**screen}))
+                except ConstructionError as exc:
+                    check(key+":extra_body_width",False,exc.reason,**exc.details)
+            else:
+                check(key+":extra_body_width", ok, additional_radius_m=extra)
         speed = np.linalg.norm(np.diff(p[:, [0, 2]], axis=0), axis=1)*plan.frame_rate_hz
         lo, hi = SPEED_BANDS[actor.body.species]
         mid = (np.arange(len(speed))+.5)/plan.frame_rate_hz
