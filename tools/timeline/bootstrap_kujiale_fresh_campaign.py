@@ -45,6 +45,8 @@ def bootstrap(source_manifest,output):
             if key=='native_room_visual_qa':
                 record=json.loads(source.read_text());source=Path(record.get('prior_admission_provenance',{}).get('qa',source))
             target=inputs/'original_house_authority'/house['house']/source.name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target);config[key]=str(target)
+            if key=='native_room_visual_qa':
+                qa=json.loads(target.read_text());capture=Path(qa['inputs']['capture'])/'result.json';own_capture=target.parent/'capture/result.json';own_capture.parent.mkdir(exist_ok=True);shutil.copy2(capture,own_capture);qa.setdefault('prior_admission_provenance',{})['capture']=str(capture);qa['inputs']['capture']=str(own_capture.parent);atomic_write(target,qa)
     atomic_write(inputs/'houses_ue.json',houses);new['houses_ue']=str(inputs/'houses_ue.json');runtime['houses']=houses['houses'];runtime=remap(runtime)
     for key in ['semantic_manifest','dry_source_admission','animal_motion_admission','kujiale_ue_asset_admission']:
         if runtime.get(key):
