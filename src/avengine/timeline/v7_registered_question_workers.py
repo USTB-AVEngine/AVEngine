@@ -66,9 +66,11 @@ def collect_content_window(job):
 
 class RegisteredQuestionWorkers:
     def __init__(self,inputs):
-        self.workers=int(inputs.get('registered_question_workers',1));self.enabled=self.workers>1
+        requested=os.environ.get('AVENGINE_REGISTERED_QUESTION_WORKERS')
+        self.workers=int(requested or inputs.get('registered_question_workers',1));self.enabled=self.workers>1
         if not 1<=self.workers<=5:raise ValueError('registered question workers must be between one and five')
-        self.cpu_ids=tuple(int(x)for x in inputs.get('registered_question_cpu_ids',range(8,8+self.workers)))
+        assigned=os.environ.get('AVENGINE_REGISTERED_QUESTION_CPUS')
+        self.cpu_ids=tuple(int(x)for x in (assigned.split(',') if assigned else inputs.get('registered_question_cpu_ids',range(8,8+self.workers))))
         if len(self.cpu_ids)<self.workers or len(set(self.cpu_ids))!=len(self.cpu_ids):raise ValueError('independent CPU IDs required')
         self.futures=[];self.pool=None
     def __enter__(self):
