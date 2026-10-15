@@ -45,3 +45,21 @@ def test_static_camera_and_one_human_sound_source_are_preserved():
     with pytest.raises(ValueError,match='one speaking source'):
         plan_post_sound_motion(r,qa_id='QA-17',target='target',companion='companion',
             assets=ASSETS,registry=REGISTRY,records_by_asset={'target':[record('t')]*3,'companion':[record('c')]*3})
+
+
+def test_authored_companion_uses_all_three_solver_epochs_without_changing_full_words():
+    from avengine.timeline.v7_conditioned_post_motion import apply_authored_post_schedule
+    source={'sound_asset_id':'authored','source_type':'author_tts',
+        'header':{'sample_rate_hz':16000,'sample_count':32000},'transcript':'Keep these complete words.'}
+    scene={'events':[{'event_id':'a','endpoint_id':'voice2','start_tick':0,'end_tick':20},
+                     {'event_id':'b','endpoint_id':'voice2','start_tick':150,'end_tick':170},
+                     {'event_id':'other','endpoint_id':'voice1','start_tick':23,'end_tick':45}]}
+    programme={'records':[source],'events':[{'event_id':x,'sound_asset_id':'authored','crop_start_sample':0} for x in ('a','b')]+[{'event_id':'other','sound_asset_id':'recorded'}]}
+    result,bound=apply_authored_post_schedule({'phase2_authored_speech_schedule_s':{'companion':[0.,10.,20.]}},
+        scene,programme,[{'asset_id':'companion','endpoint_id':'voice2'}])
+    assert [e['start_tick'] for e in result['events'] if e['endpoint_id']=='voice2']==[0,100,200]
+    assert next(e for e in result['events'] if e['event_id']=='other')==scene['events'][2]
+    assert bound['records']==programme['records']
+    assert bound['records'][0]['transcript']=='Keep these complete words.'
+    assert all(b['crop_start_sample']==0 for b in bound['events'] if b['sound_asset_id']=='authored')
+    assert [e['start_tick'] for e in scene['events'] if e['endpoint_id']=='voice2']==[0,150]
