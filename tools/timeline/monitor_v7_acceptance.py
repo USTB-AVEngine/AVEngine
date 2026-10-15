@@ -85,14 +85,14 @@ def peer_processes(m):
  return processes(roots)
 
 
-def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory,combined_pss=0,combined_limit=None,disk_policy=None):
+def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory,combined_pss=0,combined_limit=None,disk_policy=None,maximum_task_bytes=60_000_000_000):
  if now >= deadline:return 'delivery_deadline_no_new_jobs'
  if pss >= limit:return 'PSS_limit_no_new_jobs'
  if combined_limit is not None and combined_pss>=combined_limit:return 'combined_PSS_limit_no_new_jobs'
  if available_memory<20_000_000_000:return 'critical_memory_ranked_alert_no_new_jobs'
  from avengine.timeline.v7_storage_budget import launch_minimum_free_bytes
  if free < launch_minimum_free_bytes(disk_policy,now):return 'disk_headroom_no_new_jobs'
- if allocated_size >= 60_000_000_000:return 'task_disk_limit_no_new_jobs'
+ if allocated_size >= maximum_task_bytes:return 'task_disk_limit_no_new_jobs'
  if available_memory < 30_000_000_000:return 'memory_headroom_no_new_jobs'
  return ''
 
@@ -150,7 +150,7 @@ def main():
   records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=__import__('avengine.timeline.v7_cpu_budget',fromlist=['compute_process_count']).compute_process_count([*records,*peers])+2
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
-  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000),disk_policy=m.get('launch_disk_policy'))
+  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000),disk_policy=m.get('launch_disk_policy'),maximum_task_bytes=m.get('maximum_task_bytes',60_000_000_000))
   if resource_pause=='delivery_deadline_no_new_jobs':pending=[]
   from tools.timeline.finalize_v7_acceptance import delivery_fingerprint
   delivered=o/'evidence/FINAL_MODEL_READER.json'
@@ -160,7 +160,7 @@ def main():
    if entry.is_file():
     env=dict(os.environ);env['PYTHONPATH']=str(current/'src')+os.pathsep+str(current)+os.pathsep+env.get('PYTHONPATH','')
     log=(o/'logs/finalize_model_export.log').open('a');finalizer=subprocess.Popen(['nice','-n','10',sys.executable,str(entry),'--manifest',str(a.manifest)],env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True);log.close();last_finalize=time.monotonic()
-  if time.monotonic()-last_progress>=900 or not last_progress:
+  if time.monotonic()-last_progress>=m.get('progress_interval_seconds',900) or not last_progress:
    append_progress(o,m,now,active);last_progress=time.monotonic()
   for slot,v in list(active.items()):
    rc=v['process'].poll()
@@ -218,6 +218,13 @@ def main():
      fcntl.flock(launch_lock,fcntl.LOCK_EX)
      current=load(a.manifest);task=current['parents'][slot]
      if task.get('launch_disabled'):continue
+     if current.get('cpu_group_size'):
+      used={cpu for active_slot in active for cpu in current['parents'][active_slot].get('cpu_ids',[])}
+      free_cpus=[cpu for cpu in current.get('cpu_affinity_ids',[]) if cpu not in used]
+      width=int(current['cpu_group_size'])
+      if len(free_cpus)<width:continue
+      task['cpu_ids']=free_cpus[:width]
+      write(a.manifest,current)
      w=Path(task.get('snapshot_worktree',current['worktree']))
      env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
      if ue:
@@ -227,8 +234,10 @@ def main():
       for n in ['nvidiactl','nvidia2','nvidia-uvm','nvidia-uvm-tools']:
        if Path('/dev/'+n).exists():prefix+=['--dev-bind','/dev/'+n,'/dev/'+n]
       cmd=prefix+['--chdir',str(w)]+cmd
-     stream=(o/'logs'/f'parent_{slot:03d}.log').open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
+     stream=(o/'logs'/f'parent_{slot:03d}.log').open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,stdin=subprocess.DEVNULL)
      active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(o/'logs'/f'parent_{slot:03d}.log'),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
+    target=task.get('target_family')
+    if target:active_families[target]+=1
     if not smoke and m.get('require_single_parent_smoke',True):break
   if not smoke and completed and m.get('require_single_parent_smoke',True):
    if completed[0]['status']=='passed':write(o/'SMOKE_PASSED.json',completed[0]);smoke=True
