@@ -538,3 +538,10 @@ def test_explicit_owner_layout_policy_also_applies_without_automatic_driver_meta
     first=facing_yaw(scene,a,[0,1.5,0],[0,0,-3]);second=facing_yaw(scene,b,[0,1.5,0],[0,0,-3])
     assert abs((first-second+math.pi)%(2*math.pi)-math.pi)>math.radians(30)
     assert silent_candidate_local_point(scene,a,[[-.3,0,-.2],[.3,1.8,.2]])==[0.,.9,0.]
+
+
+def test_new_post_sound_construction_defaults_request_owner_legal_human_speed():
+    import inspect
+    from avengine.timeline.v7_conditioned_post_motion import solve_post_sound_window,plan_post_sound_motion
+    for function in (solve_post_sound_window,plan_post_sound_motion):
+        assert .8<=inspect.signature(function).parameters['speed_m_s'].default<=1.4

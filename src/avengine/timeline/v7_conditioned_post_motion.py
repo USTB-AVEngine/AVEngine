@@ -58,7 +58,7 @@ def prepared_sound(record):
 
 
 def solve_post_sound_window(qa_id,*,target,companion,assets,registry,records,
-        speed_m_s=.15,minimum_motion_s=2.,measured_wet_tail_s=None):
+        speed_m_s=1.0,minimum_motion_s=2.,measured_wet_tail_s=None):
     if qa_id not in POST_SOUND_FAMILIES:raise ValueError('post-sound adapter only owns QA-13/16/17')
     instances=[{'entity_instance_id':a['asset_id'],'asset_id':a['asset_id'],
         'source_class':a['entity_class'],'role':'anchor' if a['asset_id']==target else 'candidate'}
@@ -107,7 +107,7 @@ def solve_post_sound_window(qa_id,*,target,companion,assets,registry,records,
 
 
 def plan_post_sound_motion(row,*,qa_id,target,companion,assets,registry,
-        records_by_asset,speed_m_s=.15,minimum_motion_s=2.,epochs_s=(0.,10.,20.)):
+        records_by_asset,speed_m_s=1.0,minimum_motion_s=2.,epochs_s=(0.,10.,20.)):
     row=deepcopy(row)
     knots=row.get('camera_yaw_knots',[])
     if (not knots or any(abs((float(k['yaw_deg'])-float(knots[0]['yaw_deg'])+180)%360-180)>1e-9 for k in knots)
