@@ -212,3 +212,36 @@ def test_solver_transfers_the_same_live_native_world_to_render():
     assert not bound  # the core's immutable binding must not be written twice
     assert result["row"]["joint_solution"] is provenance
     assert row["automatic_construction"]["joint_solver"]["native_execution_must_not_replan"]
+
+@pytest.mark.parametrize("angles_deg,changed", [
+    ((11.53047840712298, 26.539337872332872), True),
+    ((.1, 29.9), True), ((44.9, 44.9), True), ((11., 90.), False),
+])
+def test_camera_facing_group_is_solved_before_native_yaw_pins(angles_deg, changed):
+    import math
+    import numpy as np
+    from avengine.construction.joint import BodySpec, CameraPose, ScenePlan, static_actor
+    from avengine.construction.joint.native import native_yaw
+    from avengine.construction.joint.families.qa10 import (
+        _vary_human_headings, _human_facing_angles, _camera_facing_angle,
+    )
+    camera = CameraPose((0., 1.1, 0.), 0.)
+    roots = {"target": np.array([0., 0., -4.2]), "companion": np.array([1.5, 0., -3.5])}
+    actors = {}
+    for (aid, root), angle in zip(roots.items(), angles_deg):
+        delta = np.asarray(camera.position_m) - root
+        heading = math.atan2(delta[2], delta[0]) + math.radians(angle)
+        actors[aid] = static_actor(aid, root, BodySpec("human", .4, 1.8), facing_rad=heading)
+    plan = ScenePlan(camera, actors)
+    before = {aid: a.headings_rad.copy() for aid, a in actors.items()}
+    _vary_human_headings(plan, "companion")
+    assert max(_human_facing_angles(plan).values()) >= 45.
+    assert np.array_equal(plan.actors["target"].headings_rad, before["target"])
+    assert (not np.array_equal(plan.actors["companion"].headings_rad, before["companion"])) == changed
+    for aid, actor in plan.actors.items():
+        assert np.array_equal(actor.positions_m, np.repeat(roots[aid][None], 901, axis=0))
+        assert np.all(actor.headings_rad == actor.headings_rad[0])
+        yaw = native_yaw(actor, {"kind": "human"})
+        actual_forward = [-math.sin(yaw), 0., -math.cos(yaw)]
+        native_angle = _camera_facing_angle(actor.positions_m[0], actual_forward, camera.position_m)
+        assert native_angle == pytest.approx(_human_facing_angles(plan)[aid], abs=1e-9)
