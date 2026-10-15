@@ -532,11 +532,18 @@ class QA07Plugin:
                     # All companion station selection and floor clearance is
                     # delegated to the core, with this same fixed camera.
                     view = copy(context); view.cameras = (camera,)
+                    # Declare the opposite-side domain BEFORE the shared
+                    # layout beam ranks nearby points; post-ranking rejection
+                    # can otherwise consume all 24 slots on the wrong side.
+                    relative = context.points_m-np.asarray(camera.position_m)
+                    azimuths = np.degrees(np.arctan2(relative@camera.right, relative@camera.forward))
+                    opposite = SIDES[request.branch]*azimuths <= -10.
+                    point_masks = {aid: opposite for aid in companions}
                     companion_selected = False
                     for companion_view in ("outside", "inside"):
                         for layout in enumerate_static_layouts(view, companions,
                                 {aid: companion_view for aid in companions},
-                                max_candidates=24, floor_clearance_m=.002):
+                                max_candidates=24, floor_clearance_m=.002, point_masks=point_masks):
                             companions_ready = {}
                             for aid, actor in layout.actors.items():
                                 delta = actor.positions_m[0]-np.asarray(camera.position_m)
