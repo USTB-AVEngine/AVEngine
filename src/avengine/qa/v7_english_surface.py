@@ -36,7 +36,7 @@ def tidy_english(text):
 
 def protocol_question_en(family,evidence):
     if family=='QA-23':
-        return 'How many continuous sound-activity segments occur in this 10-second clip? Count a segment already active at the start once; a missing 100-ms activity frame starts a new segment. Count segments, not people or actions.'
+        return 'How many sound-activity segments occur in this 10-second clip? Count each footstep bout once: adjacent steps up to 0.6 seconds apart form one bout. For other sounds, a missing 100-ms activity frame starts a new segment. Count a segment already active at the start once; count segments, not people or actions.'
     if family=='STARSS-SPEAKERS':
         return 'How many different people produce live speech at any time in this 10-second clip? Count each person once, including speech already active at the start. Exclude speech played by a device.'
     anchor=float(evidence.get('anchor_s',0))
