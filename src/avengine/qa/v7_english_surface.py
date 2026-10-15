@@ -111,6 +111,13 @@ def reissue_item_english(item,replacements):
     labels(result.get('model_input',{}));labels(result.get('forms',{}))
     if isinstance(result.get('truth'),dict) and 'label' in result['truth']:
         result['truth']['label']=relabel_english(result['truth']['label'],replacements)
+    if item.get('qa_id')in {'QA-21','V7-CLASS34'}:
+        from avengine.qa.unified_catalog import _sound_class_phrases
+        for form in result.get('forms',{}).values():
+            for canonical,aliases in form.get('classes',{}).items():
+                if isinstance(aliases,list):
+                    label=_sound_class_phrases(str(canonical))[0]
+                    form['classes'][canonical]=list(dict.fromkeys([*aliases,label]))
     if canonical_values(result)!=before:raise ValueError('English presentation changed canonical truth')
     return result
 

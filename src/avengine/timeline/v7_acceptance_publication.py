@@ -71,3 +71,28 @@ def publish_current_parents(root):
         publication.write_text(json.dumps({'revision':REVISION,'model_table_sha256':content_sha})+'\n')
         with(root/'PROGRESS.md').open('a')as stream:stream.write(result['generated_utc']+' PARTIAL_EXPORT_READY 独立题='+str(len(rows))+' 房子='+str(result['houses'])+' 达到3题族='+str(result['families_at_least_three'])+'/33；'+str(table)+'；各父四项门禁/reader通过，批次模态补选待最终汇总。\n')
         return result
+
+
+def publish_admitted_parent(root,receipt_path):
+    """Keep a native/reader admission when an unrelated batch update needs retry.
+
+    The batch table still requires every original gate. A newer scene-policy
+    rejection already written by publication is never restored to passed.
+    """
+    import traceback
+    from avengine.timeline.v7_admitted_pool_reselection import save
+    root=Path(root);receipt_path=Path(receipt_path)
+    assert_new_generation_output(root)
+    if not receipt_path.resolve().is_relative_to(root.resolve()):raise ValueError('parent receipt escaped the owned output')
+    try:return publish_current_parents(root)
+    except Exception as error:
+        failure={'status':'pending_retry','time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'error_type':type(error).__name__,'reason':str(error),'traceback':traceback.format_exc()}
+        current=json.loads(receipt_path.read_text())
+        if current.get('status')=='passed':
+            current['batch_publication']=failure;save(receipt_path,current)
+        with(root/'evidence/batch_publication_errors.jsonl').open('a')as stream:
+            stream.write(json.dumps({'parent_receipt':str(receipt_path),**failure},ensure_ascii=False)+'\n')
+        with(root/'PROGRESS.md').open('a')as stream:
+            stream.write(failure['time_utc']+' BATCH_PUBLICATION_PENDING parent='+str(current.get('scene_id'))+' error='+type(error).__name__+':'+str(error)+'; original parent admission retained; no unvalidated batch rows added\n')
+        return failure

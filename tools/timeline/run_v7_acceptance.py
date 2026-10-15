@@ -160,15 +160,30 @@ def run_worker(manifest,slot):
         finished_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),max_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     if receipt['status']=='passed':
-        from avengine.timeline.v7_acceptance_publication import publish_current_parents
-        publish_current_parents(root)
+        from avengine.timeline.v7_acceptance_publication import publish_admitted_parent
+        publish_admitted_parent(root,root/'evidence/jobs'/f'{slot:03d}.json')
+        receipt=load(root/'evidence/jobs'/f'{slot:03d}.json')
     print(json.dumps({k:v for k,v in receipt.items()if k not in ['producer_result','export','reader','traceback']},ensure_ascii=False),flush=True)
     return 0 if receipt['status']=='passed'else 2
 
 
+
+def bind_worker_snapshot(manifest,slot,entry_root):
+    from copy import deepcopy
+    from avengine.timeline.v7_frozen_code import source_commit,verify_source
+    source=Path(entry_root).resolve();task=manifest['parents'][slot]
+    expected=Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()
+    if source!=expected:raise ValueError('executing worker differs from its frozen task snapshot')
+    actual=source_commit(source)
+    if task.get('snapshot_commit',manifest['code_commit'])!=actual or not verify_source(source):
+        raise ValueError('executing worker source does not match the admitted committed snapshot')
+    effective=deepcopy(manifest);effective.update(worktree=str(source),code_commit=actual)
+    return effective
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--worker',type=int,required=True)
-    a=p.parse_args();m=load(a.manifest)
+    a=p.parse_args();m=bind_worker_snapshot(load(a.manifest),a.worker,Path(__file__).resolve().parents[2])
     if m.get('dataset_role')!='acceptance_only' or m.get('training_dataset_merge')is not False or m.get('CCI_transfer')is not False:
         raise ValueError('explicit isolated acceptance scope required')
     started=datetime.datetime.now(datetime.timezone.utc).isoformat();start=time.monotonic();cpu=time.process_time()

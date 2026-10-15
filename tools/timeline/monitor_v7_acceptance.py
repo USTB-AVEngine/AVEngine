@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Admit and inspect acceptance jobs; resource guards never terminate active work."""
-import argparse,datetime,json,os,signal,subprocess,sys,time,shutil
+import argparse,datetime,json,os,signal,subprocess,sys,time,shutil,fcntl
 from pathlib import Path
 
 
@@ -104,6 +104,17 @@ def append_progress(o,m,now,active):
   f.write(now.isoformat()+' 构造/续跑场景='+','.join(scenes)+'；当前正式去重后模态平衡独立题='+str(report.get('independent_questions',0))+'；房子='+str(report.get('houses',0))+'；>=3题族='+str(report.get('families_at_least_three',0))+'；统计时间='+str(report.get('generated_utc','awaiting first final reader/report'))+'；题数只取PILOT_SUMMARY，原逐父候选/原始表不冒充最终总数。\n')
 
 
+
+def construction_priority(task,observed,gaps,visual_gap,active_families,focus_families):
+ from avengine.timeline.v7_demand import VISUAL_CONSTRUCTION_FAMILIES
+ explicit=task.get('target_family')
+ targets=[explicit]if explicit else focus_families.get(task.get('focus'),['QA-06','QA-15','QA-16','QA-17'])
+ floor=max((max(0,3-observed.get(f,0))for f in targets),default=0)
+ in_flight=sum(active_families.get(f,0)for f in targets)/len(targets)
+ visual_priority=visual_gap if any(f in VISUAL_CONSTRUCTION_FAMILIES for f in targets)else 0.
+ return (-floor,in_flight,-visual_priority,-sum(max(0.,gaps.get(f,0.))for f in targets)/len(targets),task['slot'])
+
+
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--smoke-only',action='store_true');a=p.parse_args();m=load(a.manifest);o=Path(m['output_root']);w=Path(m['worktree'])
  pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;last_progress=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={};finalizer=None;last_finalize=0.
@@ -181,15 +192,15 @@ def main():
    from avengine.timeline.v7_demand import read_demand_state,demand_snapshot
    state=read_demand_state(o/'inputs/demand_state.json');demand=demand_snapshot(state,next_questions=70);gaps=demand['family_deficits']
    families={'binding':['QA-01','QA-02','QA-03','QA-08','QA-09','QA-20'],'human_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18','QA-19'],'animal_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18'],'count':['QA-22','QA-23','STARSS-SPEAKERS'],'occlusion':['QA-10','QA-03','QA-12'],'taxonomy':['QA-21','V7-CLASS34','STARSS-CLASS13'],'content_binding':['QA-26','QA-27','QA-28','V7-CONTENT-BIND']}
+   from collections import Counter
+   active_families=Counter()
+   for active_slot in active:
+    active_task=m['parents'][active_slot];target=active_task.get('target_family')
+    if target:active_families[target]+=1
+    elif active_task.get('constructor')=='motion_quartet_template':active_families.update(['QA-06','QA-15','QA-16','QA-17'])
    def demand_order(slot):
-    task=m['parents'][slot];explicit=task.get('target_family')
-    target=[explicit]if explicit else families.get(task['focus'],['QA-06','QA-15','QA-16','QA-17'])
-    observed=state.get('family_counts',{})
-    floor=max((max(0,3-observed.get(f,0))for f in target),default=0)
-    from avengine.timeline.v7_demand import VISUAL_CONSTRUCTION_FAMILIES
-    visual_gap=demand.get('modality_deficits',{}).get('vision',0.)
-    visual_priority=visual_gap if any(f in VISUAL_CONSTRUCTION_FAMILIES for f in target)else 0.
-    return (-floor,-visual_priority,-sum(max(0.,gaps.get(f,0.))for f in target)/len(target),slot)
+    return construction_priority(m['parents'][slot],state.get('family_counts',{}),gaps,
+        demand.get('modality_deficits',{}).get('vision',0.),active_families,families)
    for slot in sorted(pending,key=demand_order):
     task=m['parents'][slot]
     if task.get('launch_disabled'):continue
@@ -203,16 +214,21 @@ def main():
     if not parent_launch_headroom(reserve,pss,requested,limit,mem):continue
     if pss+peer_pss+requested>int(m.get('maximum_combined_pss_bytes',190_000_000_000)):continue
     if forecast_cpu+4>limits["maximum_cpu_processes"]:continue
-    env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
-    if ue:
-     for k in ['LD_PRELOAD','LIBGL_ALWAYS_SOFTWARE','MESA_LOADER_DRIVER_OVERRIDE','EGL_PLATFORM','__EGL_VENDOR_LIBRARY_FILENAMES']:env.pop(k,None)
-     env.update(CUDA_VISIBLE_DEVICES='2',VK_ICD_FILENAMES='/etc/vulkan/icd.d/nvidia_icd.json')
-     prefix=['/usr/bin/bwrap','--unshare-user','--ro-bind','/','/','--dev','/dev','--proc','/proc','--bind',str(o),str(o),'--bind',str(o/'ue_tmp'),'/tmp','--bind',str(o/'ue_shm'),'/dev/shm','--bind',str(o/'ue_config'),'/data/jzy/.config']
-     for n in ['nvidiactl','nvidia2','nvidia-uvm','nvidia-uvm-tools']:
-      if Path('/dev/'+n).exists():prefix+=['--dev-bind','/dev/'+n,'/dev/'+n]
-     cmd=prefix+['--chdir',str(w)]+cmd
-    stream=(o/'logs'/f'parent_{slot:03d}.log').open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
-    active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(o/'logs'/f'parent_{slot:03d}.log'),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
+    with(o/'inputs/plan.lock').open('a')as launch_lock:
+     fcntl.flock(launch_lock,fcntl.LOCK_EX)
+     current=load(a.manifest);task=current['parents'][slot]
+     if task.get('launch_disabled'):continue
+     w=Path(task.get('snapshot_worktree',current['worktree']))
+     env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
+     if ue:
+      for k in ['LD_PRELOAD','LIBGL_ALWAYS_SOFTWARE','MESA_LOADER_DRIVER_OVERRIDE','EGL_PLATFORM','__EGL_VENDOR_LIBRARY_FILENAMES']:env.pop(k,None)
+      env.update(CUDA_VISIBLE_DEVICES='2',VK_ICD_FILENAMES='/etc/vulkan/icd.d/nvidia_icd.json')
+      prefix=['/usr/bin/bwrap','--unshare-user','--ro-bind','/','/','--dev','/dev','--proc','/proc','--bind',str(o),str(o),'--bind',str(o/'ue_tmp'),'/tmp','--bind',str(o/'ue_shm'),'/dev/shm','--bind',str(o/'ue_config'),'/data/jzy/.config']
+      for n in ['nvidiactl','nvidia2','nvidia-uvm','nvidia-uvm-tools']:
+       if Path('/dev/'+n).exists():prefix+=['--dev-bind','/dev/'+n,'/dev/'+n]
+      cmd=prefix+['--chdir',str(w)]+cmd
+     stream=(o/'logs'/f'parent_{slot:03d}.log').open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
+     active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(o/'logs'/f'parent_{slot:03d}.log'),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
     if not smoke and m.get('require_single_parent_smoke',True):break
   if not smoke and completed and m.get('require_single_parent_smoke',True):
    if completed[0]['status']=='passed':write(o/'SMOKE_PASSED.json',completed[0]);smoke=True

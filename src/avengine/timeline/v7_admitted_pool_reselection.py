@@ -176,4 +176,6 @@ def record_batch_selection(path,rows,*,source_usage=None):
         for parent in state['parents'].values():counts.update(parent['family_counts']);modalities.update(parent.get('modality_counts',{}))
         state.update(logical_questions=sum(counts.values()),family_counts=dict(counts),modality_counts=dict(modalities),
             post_dedup_selection_revision=REVISION)
+        state['class34_positive_counts']=dict(Counter(str(r['canonical_answer'])for r in rows if r['qa_id']=='V7-CLASS34'))
+        state['live_speaker_count_counts']=dict(Counter(str(r['canonical_answer'])for r in rows if r['qa_id']=='STARSS-SPEAKERS'))
         demand_snapshot(state);save(path,state)

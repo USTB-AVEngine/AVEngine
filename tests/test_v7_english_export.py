@@ -41,3 +41,13 @@ def test_class34_form_truth_is_reissued_without_fabricating_a_top_level_truth():
     for answer,expected in [('laughter',1.),('__invalid_control__',0.)]:
         assert score_unified_item(original,answer,form='open')['score']==expected
         assert score_unified_item(result,answer,form='open')['score']==expected
+
+
+def test_class34_model_answer_uses_a_natural_english_label_accepted_by_original_scorer():
+    from avengine.timeline.v7_alpha_delivery import readable_training_answer
+    item={'status':'pass','qa_id':'V7-CLASS34','forms':{'open':{'answer_type':'closed_set','closed_set_policy':'token_negation_v2',
+        'classes':{'dog_bark':['dog_bark'],'cat_meow':['cat_meow']},'truth':'dog_bark'}}}
+    q={'qa_id':'V7-CLASS34','form':'open'};g={'authority_question_id':'authority','canonical_answer':'dog_bark'}
+    answer,proof=readable_training_answer(q,g,{'authority':item})
+    assert answer=='dog bark'and proof['result']['score']==1.
+    assert g['canonical_answer']=='dog_bark'

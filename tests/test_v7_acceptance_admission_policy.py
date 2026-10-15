@@ -144,3 +144,24 @@ def test_no_explicit_disk_exception_uses_normal_behavior_for_any_directory(tmp_p
     assert resolve_launch_disk_policy(root=tmp_path/'never-configured')=={}
     assert acceptance_minimum_free_bytes()==100_000_000_000
     assert policy_minimum_free_bytes({'root':str(tmp_path/'arbitrary-task'),'minimum_free_bytes':100_000_000_000})==100_000_000_000
+
+
+def test_missing_family_gets_a_slot_before_repeating_an_inflight_visual_family():
+    from tools.timeline.monitor_v7_acceptance import construction_priority
+    visual={'slot':1,'target_family':'QA-07'};motion={'slot':2,'target_family':'QA-15'}
+    observed={};gaps={'QA-07':100.,'QA-15':50.};active={'QA-07':2}
+    assert construction_priority(motion,observed,gaps,100.,active,{})<construction_priority(visual,observed,gaps,100.,active,{})
+    observed['QA-15']=3
+    assert construction_priority(visual,observed,gaps,100.,active,{})<construction_priority(motion,observed,gaps,100.,active,{})
+
+
+def test_worker_keeps_its_frozen_snapshot_after_global_manifest_advances(tmp_path,monkeypatch):
+    from tools.timeline.run_v7_acceptance import bind_worker_snapshot
+    old=tmp_path/'old';new=tmp_path/'new';old.mkdir();new.mkdir()
+    monkeypatch.setattr('avengine.timeline.v7_frozen_code.source_commit',lambda root:'old_sha')
+    monkeypatch.setattr('avengine.timeline.v7_frozen_code.verify_source',lambda root:True)
+    manifest={'worktree':str(new),'code_commit':'new_sha','parents':[{'snapshot_worktree':str(old),'snapshot_commit':'old_sha'}]}
+    actual=bind_worker_snapshot(manifest,0,old)
+    assert actual['code_commit']=='old_sha'and actual['worktree']==str(old)
+    assert manifest['code_commit']=='new_sha'
+    with pytest.raises(ValueError,match='differs from its frozen task'):bind_worker_snapshot(manifest,0,new)

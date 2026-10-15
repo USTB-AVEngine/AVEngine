@@ -44,13 +44,15 @@ def main():
         media.append({'window_id':win['window_id'],'video':str(folder/'video.mp4'),'audio_foa':str(folder/'audio_foa.wav'),'audio_mono':str(folder/'audio_mono.wav')})
     (readroot/'train.jsonl').write_text(''.join(json.dumps(r)+'\n'for r in media));reader=open_delivered_media(readroot)
     if reader['status']!='pass':raise ValueError('fresh imported media reader failed')
-    receipt={**native,'slot':slot,'status':'passed','scene_id':scene,'house':row['house'],'room_id':row['room_id'],'export':export,'reader':reader,
+    from avengine.timeline.v7_frozen_code import source_commit
+    revalidation_commit=source_commit(Path(__file__).resolve().parents[2])
+    receipt={**native,'revalidation_code_commit':revalidation_commit,'slot':slot,'status':'passed','scene_id':scene,'house':row['house'],'room_id':row['room_id'],'export':export,'reader':reader,
         'origin_helper_receipt':str(a.source_receipt),'origin_helper':source.name,'original_native_code_commit':native.get('code_commit'),
         'independent_questions':export['independent_questions'],'raw_questions':export['raw_export_questions'],
         'fresh_import_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'fresh_import_seconds':time.monotonic()-started,'old_media_or_seals_reused':False}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
-    from avengine.timeline.v7_acceptance_publication import publish_current_parents
-    publish_current_parents(root)
+    from avengine.timeline.v7_acceptance_publication import publish_admitted_parent
+    publish_admitted_parent(root,root/'evidence/jobs'/f'{slot:03d}.json')
     print(json.dumps({'slot':slot,'scene_id':scene,'independent_questions':receipt['independent_questions'],'policy':export['scene_delivery_policy']['status']}),flush=True)
 
 if __name__=='__main__':main()

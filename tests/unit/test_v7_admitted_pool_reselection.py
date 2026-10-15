@@ -28,3 +28,15 @@ def test_rejects_candidate_supplement_when_original_full_pool_replay_is_not_comp
 def test_never_reads_evidence_outside_authorized_output_roots(tmp_path):
     with pytest.raises(ValueError,match='escaped authorized'):
         parent_entries({'slot':0,'export':{'source_seal':'/unrelated/other-task/seal.json'}},tmp_path)
+
+
+def test_actual_positive_taxonomy_and_speaker_feedback_is_replaced_not_accumulated(tmp_path):
+    from avengine.timeline.v7_admitted_pool_reselection import record_batch_selection
+    p=tmp_path/'state.json'
+    def row(qid,family,answer):return {'question_id':qid,'independent_parent_scene_id':'p','qa_id':family,'canonical_answer':answer,'modality':'audio'}
+    rows=[row('a','V7-CLASS34','dog_bark'),row('b','STARSS-SPEAKERS',3)]
+    record_batch_selection(p,rows);record_batch_selection(p,rows)
+    state=json.loads(p.read_text());assert state['class34_positive_counts']=={'dog_bark':1}
+    assert state['live_speaker_count_counts']=={'3':1}
+    record_batch_selection(p,[row('c','V7-CLASS34','cat_meow')])
+    assert json.loads(p.read_text())['class34_positive_counts']=={'cat_meow':1}
