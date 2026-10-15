@@ -39,3 +39,10 @@ __all__ += ["bind_distance_clock", "straight_then_arc", "repeat_bouts"]
 
 from .native import PreparedNativeScene, native_plan_checks, prepare_native
 __all__ += ["PreparedNativeScene", "native_plan_checks", "prepare_native"]
+
+from .entry import EntryEnvelope, tangent_entry_anchors, entry_timing
+from .gait import admitted_human_clock_source, complete_human_gait_clock
+__all__ += ["EntryEnvelope", "tangent_entry_anchors", "entry_timing", "admitted_human_clock_source", "complete_human_gait_clock"]
+
+from .grounding import floor_contact_variants
+__all__ += ["floor_contact_variants"]
