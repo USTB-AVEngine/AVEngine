@@ -414,3 +414,44 @@ def plan_registered_content_demand(row,state,catalog,semantic_manifest):
             ('QA-26','QA-27','QA-28','V7-CONTENT-BIND')},
         taxonomy_scene_policy='class34 uses a separate registered emitting device; live TTS is not device playback')
     return row
+
+
+def assign_authored_tts(row,catalog,manifest,*,rotation_index=0):
+    """Construct whole authored speech on standing bodies; retain every body/action."""
+    row=deepcopy(row);byid={a['asset_id']:a for a in catalog}
+    speakers=[aid for aid in row['asset_ids'] if byid[aid]['kind']=='human'
+              and aid not in row.get('silent_asset_ids',[])
+              and row.get('motion_requests',{}).get(aid,{}).get('action','stand')=='stand'
+              and row.get('source_classes',{}).get(aid,['speech_playback'])==['speech_playback']]
+    if not speakers:raise ValueError('authored TTS demand needs a standing speaking body alongside the retained motion')
+    selected=speakers[:2];genders=[byid[aid]['visual_gender']for aid in selected]
+    groups={}
+    for sound in manifest['sounds']:
+        if sound['voice_reference']['gender']in genders:
+            groups.setdefault(sound['scenario_id'],[]).append(sound)
+    voices=sorted({s['voice_reference']['speaker_id'] for ss in groups.values()for s in ss})
+    preferred=voices[int(rotation_index)%len(voices)];choices=[]
+    for scenario,sounds in sorted(groups.items()):
+        for first in sounds:
+            if first['voice_reference']['gender']!=genders[0]:continue
+            if len(selected)==1:pairs=[[first]]
+            else:pairs=[[first,second]for second in sounds if second['voice_reference']['gender']==genders[1]
+                        and second['role_id']!=first['role_id']
+                        and second['voice_reference']['speaker_id']!=first['voice_reference']['speaker_id']]
+            for pair in pairs:
+                ids=[s['voice_reference']['speaker_id']for s in pair]
+                if preferred not in ids:continue
+                if any(float(s['synthesis_readback']['duration_s'])>6.4 for s in pair):continue
+                choices.append((scenario,tuple(s['sound_asset_id']for s in pair),pair))
+    if not choices:raise ValueError('whole authored speech lacks the requested voice, genders and distinct roles')
+    chosen=min(choices,key=lambda t:t[:2])[-1]
+    row.update(semantic_scenario_id=chosen[0]['scenario_id'],semantic_sound_ids=[s['sound_asset_id']for s in chosen],
+               semantic_human_asset_ids=selected,semantic_start_offsets_s=[.5,3.5][:len(selected)])
+    row['phase2_authored_speech_schedule_s']={aid:[epoch+.5+3*i for epoch in (0.,10.,20.)]for i,aid in enumerate(selected)}
+    for aid in selected:
+        for field in ('phase2_recorded_speech_schedule_s','phase2_recorded_sound_ids','proposed_sound_asset_ids'):
+            row.get(field,{}).pop(aid,None)
+    row['authored_voice_rotation']={'rotation_index':int(rotation_index),'bank_voice_count':len(voices),
+        'speaker_ids':[s['voice_reference']['speaker_id']for s in chosen],
+        'whole_authored_transcripts':[s['transcript']for s in chosen]}
+    return row

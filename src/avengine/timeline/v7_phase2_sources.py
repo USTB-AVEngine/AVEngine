@@ -34,6 +34,27 @@ def _validate_recorded_speech_voice(record, original):
             or record.get('gender')!=original.get('gender') or record['sound_class']!='speech_playback'):
         raise ValueError('recorded sequence must preserve the same admitted whole speaking voice')
 
+def schedule_authored_speech(scene,program,assets,schedules):
+    byid={a['asset_id']:a for a in assets};bindings={b['event_id']:b for b in program['events']}
+    records={r['sound_asset_id']:r for r in program['records']}
+    for aid,starts in schedules.items():
+        a=byid[aid];ep=a['endpoint_id'];events=[e for e in scene['events']if e['endpoint_id']==ep]
+        if a['kind']!='human' or not events:raise ValueError('authored schedule needs a real speaking human')
+        first=events[0];binding=bindings[first['event_id']];record=records[binding['sound_asset_id']]
+        if record.get('source_type')!='author_tts' or binding.get('crop_start_sample',0)!=0:
+            raise ValueError('authored schedule cannot relabel or crop recorded speech')
+        duration=math.ceil(record['header']['sample_count']/1600)
+        ticks=[round(float(start)*10)for start in starts]
+        if not ticks or any(not math.isfinite(float(t))or float(t)<0 or abs(float(t)*10-round(float(t)*10))>1e-7 for t in starts)or ticks!=sorted(set(ticks))or any(t+duration>300 for t in ticks):
+            raise ValueError('each whole authored utterance must fit its real scene schedule')
+        doomed={e['event_id']for e in events};scene['events']=[e for e in scene['events']if e['event_id']not in doomed]
+        program['events']=[b for b in program['events']if b['event_id']not in doomed]
+        for i,tick in enumerate(ticks):
+            eid='authored_speech_'+ep+'_'+str(i)
+            scene['events'].append({**deepcopy(first),'event_id':eid,'start_tick':tick,'end_tick':tick+duration})
+            program['events'].append({**deepcopy(binding),'event_id':eid})
+
+
 def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if row.get('schema')!=PHASE2_SCHEMA:raise ValueError('explicit phase-two schema required')
     from avengine.timeline.v7_production_inputs import validate_sampling_row
@@ -50,7 +71,9 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     silent=set(row.get('silent_asset_ids',[]))
     stub['asset_ids']=[aid for aid in row['asset_ids'] if aid not in silent]
     walkers=[aid for aid,req in motion.items() if req.get('action')=='walk' and row.get('source_classes',{}).get(aid)==['footsteps']]
-    footstep_walkers=walkers+[aid for aid in row.get('phase2_include_footsteps_asset_ids',[])if aid not in walkers]
+    footstep_walkers=walkers
+    if any(aid not in walkers for aid in row.get('phase2_include_footsteps_asset_ids',[])):
+        raise ValueError('one human has one sound source: assign footsteps explicitly without speech')
     if any(motion.get(aid,{}).get('action')!='walk'for aid in footstep_walkers):raise ValueError('footsteps require actual requested walking')
     if row.get('semantic_scenario_id'):
         stub['asset_ids']=[aid for aid in stub['asset_ids'] if aid not in walkers]
@@ -156,6 +179,7 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
             eid='recorded_speech_'+ep+'_'+str(i)
             scene['events'].append({**deepcopy(first),'event_id':eid,'start_tick':lo,'end_tick':lo+duration})
             program['events'].append({**deepcopy(binding),'event_id':eid,'sound_asset_id':sid})
+    schedule_authored_speech(scene,program,assets,row.get('phase2_authored_speech_schedule_s',{}))
     if row.get('phase2_single_animal_utterance_crop'):
         bindings={b['event_id']:b for b in program['events']}
         records_by_id={r['sound_asset_id']:r for r in program['records']}

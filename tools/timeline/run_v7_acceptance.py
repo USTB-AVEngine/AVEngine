@@ -44,6 +44,9 @@ def run_worker(manifest,slot):
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         row=load(previous) if previous.exists() else plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
+        if manifest.get('require_authored_tts_per_new_parent') and not previous.exists():
+            from avengine.timeline.v7_demand import assign_authored_tts
+            row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
         inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:
