@@ -165,7 +165,7 @@ def _collect_parent_job(arguments):
     return parent_entries(receipt,output,read_only_source_roots=roots)
 
 
-def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_minimums=None,minimum_houses_per_family=0):
+def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_minimums=None,minimum_houses_per_family=0,family_protocol_panels=None):
     entries=[];parents=[]
     if workers>1:
         import multiprocessing
@@ -177,7 +177,18 @@ def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_
         entries.extend(result['entries']);parents.append({'scene_id':receipt['scene_id'],
             'slot':receipt['slot'],'new_visual_candidate_rows':result['new_visual_candidate_rows'],'new_motion_candidate_rows':result.get('new_motion_candidate_rows',0),
             'source_seal':result['source_seal'],'proofs':result['proofs']})
+    excluded_panels=Counter()
+    if family_protocol_panels:
+        retained=[]
+        for entry in entries:
+            row=entry['row'];required=family_protocol_panels.get(row['qa_id'])
+            if required is not None and row.get('protocol_panel')!=required:
+                excluded_panels[row['qa_id']+':'+str(row.get('protocol_panel'))]+=1
+            else:retained.append(entry)
+        entries=retained
     rows,report=select_independent_rows(entries,family_minimums=family_minimums,minimum_houses_per_family=minimum_houses_per_family)
+    report['family_protocol_panels']=dict(family_protocol_panels or {})
+    report['candidate_rows_outside_requested_family_panel']=dict(excluded_panels)
     report.update(original_admitted_independent_rows=sum(r['independent_questions']for r in receipts),
         time_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),parents=parents,
         visual_supplements_actually_selected=sum('post_dedup_supplement'in r and r['modality']=='vision'for r in rows),motion_supplements_actually_selected=sum('post_dedup_supplement'in r and r['qa_id']in {'QA-06','QA-15','QA-16','QA-17'}for r in rows),

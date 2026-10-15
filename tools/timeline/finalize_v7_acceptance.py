@@ -53,6 +53,7 @@ def delivery_fingerprint(manifest):
     inputs={'parents':parents,'code_commit':manifest['code_commit'],
         'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
         'family_question_minimums':manifest.get('family_question_minimums',{}),
+        'family_protocol_panels':manifest.get('family_protocol_panels',{}),
         'scene_delivery_policy':__import__('avengine.timeline.v7_export_scene_policy',fromlist=['REVISION']).REVISION,
         'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False),
         'minimum_family_distinct_houses':manifest.get('minimum_family_distinct_houses',0),
@@ -74,7 +75,7 @@ def finalize(manifest_path):
             return result
         from avengine.timeline.v7_post_dedup_selection import manifest_family_minimums
         minimums=manifest_family_minimums(manifest)
-        rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums,minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)))
+        rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums,minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)),family_protocol_panels=manifest.get('family_protocol_panels',{}))
         for row in rows:validate_english_model_text(row)
         if len({r['question_id']for r in rows})!=len(rows):raise ValueError('duplicate final question IDs')
         index=root/'export/train.jsonl';temporary=index.with_name(index.name+f'.{os.getpid()}.tmp')
