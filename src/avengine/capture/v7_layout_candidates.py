@@ -18,7 +18,7 @@ def order_support_candidates(scene,candidates):
 def facing_yaw(scene,asset,listener,point):
     dx=float(listener[0])-float(point[0]);dz=float(listener[2])-float(point[2])
     base=math.atan2(-dx,-dz)if asset['kind']in {'human','performer','animal'}else math.atan2(-dz,dx)
-    if not scene.get('automatic_construction'):return base
+    if not(scene.get('automatic_construction')or scene.get('owner_social_layout')):return base
     offset=(0.,15.,-15.,30.)[candidate_index(scene)%4]
     from avengine.capture.v7_social_layout import is_human,varied_human_yaw_offset
     return base+math.radians(offset)+(varied_human_yaw_offset(asset)if is_human(asset)else 0.)
@@ -31,7 +31,7 @@ def silent_candidate_local_point(scene,asset,vertices):
     standing person's actual body is visible. Final native pixel, contact,
     support and collision admission remains in the existing caller.
     """
-    if not scene.get('automatic_construction')or not asset.get('silent_decor'):
+    if not(scene.get('automatic_construction')or scene.get('owner_social_layout'))or not asset.get('silent_decor'):
         return [0.,.5,0.]
     import numpy as np
     points=np.asarray(vertices,dtype=float)

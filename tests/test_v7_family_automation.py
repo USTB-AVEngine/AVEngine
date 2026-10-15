@@ -528,3 +528,13 @@ def test_layout_retry_changes_room_only_inside_the_original_legal_cell(inputs):
     assert room_for_candidate(rooms[0],pairs,1)[1]['room_id']==rooms[1]['room_id']
     incompatible={**rooms[1],'room_id':'wrong_family','family':'mp3d'}
     assert room_for_candidate(rooms[0],[pairs[0],(2,incompatible)],1)[1]['room_id']==rooms[0]['room_id']
+
+
+def test_explicit_owner_layout_policy_also_applies_without_automatic_driver_metadata():
+    import math
+    from avengine.capture.v7_layout_candidates import facing_yaw,silent_candidate_local_point
+    scene={'owner_social_layout':{'minimum_human_center_distance_m':1.}}
+    a={'kind':'human','native_instance_id':1,'silent_decor':True};b={**a,'native_instance_id':2}
+    first=facing_yaw(scene,a,[0,1.5,0],[0,0,-3]);second=facing_yaw(scene,b,[0,1.5,0],[0,0,-3])
+    assert abs((first-second+math.pi)%(2*math.pi)-math.pi)>math.radians(30)
+    assert silent_candidate_local_point(scene,a,[[-.3,0,-.2],[.3,1.8,.2]])==[0.,.9,0.]
