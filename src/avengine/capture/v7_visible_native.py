@@ -289,7 +289,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             from avengine.capture.v7_occlusion_demand import relation_roles
             targets,foreground=relation_roles(scene,a['asset_id'])
             if targets:priority=2.55
-            if foreground:priority=2.85
+            if foreground:priority=2.6
             extent=np.ptp(np.asarray(entry['original_mesh'].vertices),axis=0)
             return priority,-float(np.prod(extent))
         for entry in sorted(self.actors,key=layout_order):
