@@ -291,3 +291,11 @@ def test_entry_helpers_are_owned_by_shared_core():
     assert qa07.EntryEnvelope is entry.EntryEnvelope
     assert qa07.tangent_entry_anchors is entry.tangent_entry_anchors
     assert qa07.entry_timing is entry.entry_timing
+
+
+def test_declared_answer_branch_does_not_change_after_other_parent_finishes():
+    state = {"answer_counts": {"QA-07": {"left": 7, "right": 0}}}
+    assert requested_side(state, 1, declared_side="left") == "left"
+    assert requested_side(state, 0, declared_side="right") == "right"
+    with pytest.raises(ValueError, match="declared QA-07"):
+        requested_side(state, 0, declared_side="up")
