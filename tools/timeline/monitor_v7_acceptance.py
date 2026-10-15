@@ -133,7 +133,10 @@ def main():
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
   resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000),disk_policy=m.get('launch_disk_policy'))
   if resource_pause=='delivery_deadline_no_new_jobs':pending=[]
-  if m.get('post_dedup_modality_balance')and (finalizer is None or finalizer.poll()is not None)and time.monotonic()-last_finalize>=300:
+  from tools.timeline.finalize_v7_acceptance import delivery_fingerprint
+  delivered=o/'evidence/FINAL_MODEL_READER.json'
+  unchanged=delivered.is_file() and load(delivered).get('input_fingerprint')==delivery_fingerprint(m)
+  if m.get('post_dedup_modality_balance')and not unchanged and (finalizer is None or finalizer.poll()is not None)and time.monotonic()-last_finalize>=300:
    current=Path(m['worktree']);entry=current/'tools/timeline/finalize_v7_acceptance.py'
    if entry.is_file():
     env=dict(os.environ);env['PYTHONPATH']=str(current/'src')+os.pathsep+str(current)+os.pathsep+env.get('PYTHONPATH','')

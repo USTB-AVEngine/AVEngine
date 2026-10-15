@@ -33,6 +33,19 @@ def admitted_receipts(manifest):
     return receipts,excluded
 
 
+def delivery_fingerprint(manifest):
+    root=Path(manifest['output_root']);parents=[]
+    for task in manifest['parents']:
+        path=root/'evidence/jobs'/f"{task['slot']:03d}.json"
+        if not path.is_file():continue
+        data=path.read_bytes();receipt=json.loads(data)
+        if receipt.get('status')=='passed':parents.append((task['slot'],hashlib.sha256(data).hexdigest()))
+    inputs={'parents':parents,'code_commit':manifest['code_commit'],
+        'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
+        'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False)}
+    return hashlib.sha256(json.dumps(inputs,sort_keys=True).encode()).hexdigest()
+
+
 def finalize(manifest_path):
     manifest_path=Path(manifest_path);manifest=json.loads(manifest_path.read_text());root=Path(manifest['output_root'])
     if manifest.get('dataset_role')!='acceptance_only'or manifest.get('training_dataset_merge')is not False or manifest.get('CCI_transfer')is not False:
@@ -49,7 +62,7 @@ def finalize(manifest_path):
         if reader['status']!='pass':raise ValueError('final post-dedup model reader failed')
         record_batch_selection(root/'inputs/demand_state.json',rows)
         result={'status':'pass','time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'dataset_role':'acceptance_only','independent_questions':len(rows),'native_admitted_parents':len(receipts),
+            'input_fingerprint':delivery_fingerprint(manifest),'dataset_role':'acceptance_only','independent_questions':len(rows),'native_admitted_parents':len(receipts),
             'houses':len({r['house']for r in rows}),'modality_counts':dict(Counter(r['modality']for r in rows)),
             'family_counts':dict(Counter(r['qa_id']for r in rows)),'selection':{k:v for k,v in selection.items()if k!='parents'},
             'excluded_historical_parents':excluded,'actual_media_reader':reader,'model_text_CJK_rows':0,'registration_name_rows':0,
