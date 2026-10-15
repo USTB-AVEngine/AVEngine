@@ -347,8 +347,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 failures.append({'candidate_full_trial':prefilter['full_gate_attempted'],'start_m':p0.tolist(),'yaw_rad':yaw,'frame_index':None if probe_frame_index<0 else probe_frame_index,'failed_root_m':positions[max(0,probe_frame_index)].tolist(),'reason':str(error)})
                 if curved_route is not None and hasattr(curved_route,'report_failure'):curved_route.report_failure(str(error),positions[max(0,probe_frame_index)])
                 save_route_trials()
-                if 'IK reach or pelvis' in str(error) and float(request['speed_m_s'])>.800001 and not request.get('native_lower_speed_retry'):
-                    revised=__import__('copy').deepcopy(request);revised.update(speed_m_s=.8,native_lower_speed_retry=True)
+                if 'IK reach or pelvis' in str(error) and float(request['speed_m_s'])>.820001 and not request.get('native_lower_speed_retry'):
+                    revised=__import__('copy').deepcopy(request);revised.update(speed_m_s=.82,native_lower_speed_retry=True)
                     return compile_walking(video,entry,scene,house,inputs,directory/'native_speed_lower_bound_retry',revised)
                 with(directory/'motion_route_search.jsonl').open('a')as stream:
                     stream.write(__import__('json').dumps({'candidate':len(failures),'cpu_seconds':time.process_time()-route_cpu_started,**failures[-1]})+'\n')
