@@ -429,7 +429,7 @@ def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, fir
     return result
 
 
-def entry_stage_seed_preview(context, camera, actor):
+def entry_stage_seed_preview(context, camera, actor, *, occluders=()):
     """Screen the same edge obligation before a seed consumes the camera beam.
 
     This is only a necessary subset of the later complete family prediction.
@@ -447,7 +447,7 @@ def entry_stage_seed_preview(context, camera, actor):
     predictions = {}
     def predict(index):
         if index not in predictions:
-            predictions[index] = context.predict(camera, roots[index], actor.body)
+            predictions[index] = context.predict(camera, roots[index], actor.body, occluders=occluders)
         return predictions[index]
     while first <= inside and not predict(first).evidence.get("target_proxy_pixels"):
         first += 1
@@ -480,7 +480,7 @@ class QA07Plugin:
         from copy import copy
         from avengine.construction.joint import CameraPose, ScenePlan
         from avengine.construction.joint.geometry import framing
-        from avengine.construction.joint.routes import bind_distance_clock, ConstructionError
+        from avengine.construction.joint.routes import bind_distance_clock, ConstructionError, minimum_track_distance
         from avengine.construction.joint.layouts import enumerate_static_layouts
         from avengine.construction.joint.context import camera_legal
         from avengine.construction.joint.grounding import floor_contact_variants
@@ -590,7 +590,14 @@ class QA07Plugin:
                     relative = context.points_m-np.asarray(camera.position_m)
                     azimuths = np.degrees(np.arctan2(relative@camera.right, relative@camera.forward))
                     opposite = SIDES[request.branch]*azimuths <= -10.
-                    point_masks = {aid: opposite for aid in companions}
+                    # This family seed is a monotone straight tangent route.
+                    # Core's continuous endpoint-segment distance is therefore
+                    # the exact static-person/whole-route centre distance.
+                    separated = np.asarray([
+                        minimum_track_distance(mover.positions_m[[0, -1]], point) >= 1.05
+                        for point in context.points_m], bool)
+                    companion_domain = separated if self.silent_target else separated & opposite
+                    point_masks = {aid: companion_domain for aid in companions}
                     companion_selected = False
                     companion_views = ("inside", "outside") if self.silent_target else ("outside", "inside")
                     for companion_view in companion_views:
@@ -603,7 +610,7 @@ class QA07Plugin:
                                 azimuth = math.degrees(math.atan2(float(delta@camera.right), float(delta@camera.forward)))
                                 # A real other emitter on the opposite side
                                 # supplies the producer's 20deg negative control.
-                                if SIDES[request.branch]*azimuth > -10.:
+                                if not self.silent_target and SIDES[request.branch]*azimuth > -10.:
                                     break
                                 policy = sample_initial_orientation(self.assets[aid], self.seed,
                                     actor.positions_m[0], camera.position_m,
@@ -622,11 +629,15 @@ class QA07Plugin:
                                     break
                                 refined.metadata["entry_counterfactual_opposite_side"] = {
                                     "azimuth_deg": azimuth, "entry_side": request.branch,
-                                    "original_wrong_registered_pose_still_required": True}
+                                    "original_wrong_registered_pose_still_required": not self.silent_target}
                                 companions_ready[aid] = refined
                             if len(companions_ready) != len(companions):
                                 continue
                             actors = {target: mover, **companions_ready}
+                            if not entry_stage_seed_preview(context, camera, mover, occluders=tuple(
+                                    (aid, other.positions_m[0], other.body)
+                                    for aid, other in companions_ready.items())):
+                                continue
                             roles = {target: "outside", **layout.metadata["roles"]}
                             companion_selected = True
                             yield ScenePlan(camera, actors, sounds=schedule.events, metadata={
