@@ -148,9 +148,11 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 position_gate.close();video.close()
             appearance=derive_native_appearance_evidence(attempt,visual,variant)
             write_json(attempt/'native_appearance_review.json',appearance)
-            return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},[
+            required=[
                 'scene_video.mp4','native_registered_visual_evidence.json','native_visual_evidence.json',
                 'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','standing/standing_admission.json','acoustic_placement_admission.json']
+            if inputs.get('render_backend')=='ue_spear':required.append('native_registered_assets.json')
+            return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},required
         vc=_cpu();vw=time.perf_counter()
         from avengine.timeline.v7_native_stage_resume import compatible_static_native_recipe
         visual_recipe=compatible_static_native_recipe(root,'visual_'+v,{'scene':base,'inputs':inputs,'assets':variant,
@@ -277,6 +279,8 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             target=shared/v;target.mkdir()
             for name in ['native_registered_visual_evidence.json','source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','acoustic_placement_admission.json']:
                 os.link(visual_dirs[v]/name,target/name);required.append(str((target/name).relative_to(attempt)))
+            if inputs.get('render_backend')=='ue_spear':
+                name='native_registered_assets.json';os.link(visual_dirs[v]/name,target/name);required.append(str((target/name).relative_to(attempt)))
         for factor,(directory,result) in audio_factors.items():
             for name in ['audio_evidence.json','native_RLR_setup.json']:
                 target=shared/(factor+'_'+name);os.link(directory/name,target);required.append(str(target.relative_to(attempt)))

@@ -13,7 +13,7 @@ from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers
     from_ue,to_ue,configure_scene_lighting,apply_native_rgb_profile)
 from avengine.timeline.continuous_pilot import write_json
 
-REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v6-mouth-distance-contrast'
+REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v7-measured-basis-load'
 
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
@@ -171,7 +171,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 observed.append(str(objects.GetPathName(Object=material)))
         if set(observed)!=expected:raise ValueError('registered native original material paths differ: '+str(observed)+' expected '+str(expected))
         emitter=attach_emitter_component(self.game,actor_id=d['actor_id'],anchor_root=root,emitter_local_ue_cm=a['registered_native_ue_mouth_local_cm'])
-        return {'anchor':actor,'anchor_root':root,'visual_actor':actor,'component':components[0],
+        from avengine.capture.v7_ue_registered_readback import prepare_readback
+        measured=prepare_readback(self,a,d,actor,root,components)
+        return {**measured,'anchor':actor,'anchor_root':root,'visual_actor':actor,'component':components[0],
             'components':components,'emitter_component':emitter,'motion_model':'rigid_static',
             'original_material_readback':{'status':'pass','paths':observed,'source_registry':a['source_registry'],'material_overrides_applied':False}}
 
@@ -235,7 +237,15 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             pose=read_scene_component_pose(native['anchor_root']);emitter=read_scene_component_pose(native['emitter_component']);position=from_ue(pose['location_cm'])
             error=float(np.max(np.abs(np.asarray(position)-root)))
             if error>.0005:raise ValueError('registered UE root readback mismatch')
-            rows.append({'endpoint_id':a['endpoint_id'],'actor_id':self.scene['sources'][a['endpoint_id']]['actor_id'],
+            from avengine.capture.v7_ue_registered_readback import measured_body_matrix
+            matrix,basis_points=measured_body_matrix(native,position)
+            expected=(np.asarray(matrix)@np.r_[a['mouth_local_glb_m'],1.])[:3]
+            if np.linalg.norm(expected-np.asarray(from_ue(emitter['location_cm'])))>.002:raise ValueError('actual UE mouth differs from measured body basis')
+            rows.append({'body_to_world_m':matrix,'body_basis_world_m':basis_points,
+                'native_root_component_pose':pose,'native_load_backend':'ue_spear',
+                'native_load_receipt':native['native_load_receipt'],
+                'loaded_artifact_sha256':native['loaded_artifact_sha256'],'original_glb_sha256':native['original_glb_sha256'],
+                'endpoint_id':a['endpoint_id'],'actor_id':self.scene['sources'][a['endpoint_id']]['actor_id'],
                 'native_actor_id':d['actor_id'],'native_object_id':int(native['visual_actor'].uobject),'asset_id':a['asset_id'],'position_m':position,
                 'emitter_position_m':from_ue(emitter['location_cm']),'moving':False,'action_id':'registered_stand',
                 'action_phase':0.,'root_max_error':error,'joint_state':'registered rigid Blueprint; no joint DOFs',
@@ -383,6 +393,16 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             from avengine.capture.kujiale_pilot_environment import finish_scene
             finish_scene(self,result,path)
         result['alignment']=result['native_visibility_alignment'];result['registered_visual_revision']=REGISTERED_UE_VISUAL_REVISION
+        copies=[]
+        for asset in self.assets:
+            frames=[a for f in result['frames']for a in f['actors']if a['asset_id']==asset['asset_id']]
+            copies.append({**deepcopy(asset),'ue_measured_registration':{'house':self.house['house'],'room_id':self.house['room']['room_label'],
+                'frames_checked':len(frames),'first_body_to_world_m':frames[0]['body_to_world_m'],
+                'load_receipt':frames[0]['native_load_receipt'],'loaded_artifact_sha256':frames[0]['loaded_artifact_sha256'],
+                'original_glb_sha256':frames[0]['original_glb_sha256'],'native_visual_evidence':str(Path(path).parent/'native_registered_visual_evidence.json')}})
+        copy_path=Path(path).parent/'native_registered_assets.json'
+        write_json(copy_path,{'schema':'v7-UE-measured-registration-copy-v1','original_registry_modified':False,'assets':copies})
+        result['measured_registration_copy']=str(copy_path)
         write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':result['environmental_emitter_readbacks'],'visual_geometry':'admitted original physical StaticMesh assets' if self.physical_environment_bindings else 'legacy audio-only source points'})
         write_json(Path(path).parent/'native_registered_visual_evidence.json',result)
         return result

@@ -14,7 +14,7 @@ from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_candidate_generation import read_json,stage
 from avengine.timeline.continuous_scene import partitioned_convolve
 
-CONTENT_BRIDGE_REVISION='registered-native-content-quartet-frozen-v2'
+CONTENT_BRIDGE_REVISION='registered-native-content-quartet-backend-readback-v3'
 MEMBERS=('v0_a0','v0_a1','v1_a0','v1_a1')
 
 
@@ -52,7 +52,10 @@ def _verified_native(visual,folder,scene,assets,roster,namespace):
     media_clock=_verify_window(folder)
     if visual['frame_count']!=450 or len(visual['frames'])!=450:raise ValueError('complete native world required')
     align=visual['alignment']
-    if any(align[k]!=0 for k in ('root_max_error','joint_max_error','camera_max_error','link_max_error')) or align['restored_modal_RGB_depth_semantic_frames']!=450:raise ValueError('native state restoration failed')
+    if visual['frames'][0]['actors'][0].get('native_load_backend')=='ue_spear':
+        from avengine.capture.v7_alpha_ue import assert_ue_alpha_visual
+        assert_ue_alpha_visual(visual)
+    elif any(align[k]!=0 for k in ('root_max_error','joint_max_error','camera_max_error','link_max_error')) or align['restored_modal_RGB_depth_semantic_frames']!=450:raise ValueError('native state restoration failed')
     if visual['source_material_checks']['status']!='pass' or not all(r['status']=='pass' and r['known_bad_detected'] for r in visual['standing_admission']):raise ValueError('native material or standing gate failed')
     first=round(scene['_content_start_s']*15);error=0.
     for frame in visual['frames'][first:first+150]:
@@ -61,7 +64,9 @@ def _verified_native(visual,folder,scene,assets,roster,namespace):
             spec=scene['sources'][actor['endpoint_id']]
             if spec['actor_id']!=actor['actor_id'] or np.linalg.norm(np.asarray(spec['trajectory'][0]['position_m'])-actor['emitter_position_m'])>.002:raise ValueError('event source identity or emitter differs from actual native frame')
             asset=assets[actor['asset_id']]
-            if actor['source_registry_sha256']!=namespace['original_native_registry_sha256'] or actor['loaded_artifact_sha256']!=asset['actual_artifact_sha256'][asset['habitat_glb']]:
+            from avengine.timeline.v7_native_asset_readback import require_loaded_asset
+            require_loaded_asset(actor,asset)
+            if actor['source_registry_sha256']!=namespace['original_native_registry_sha256']:
                 raise ValueError('actual loaded actor differs from formal standing registry')
             expected=standing_mouth_world(asset,actor['body_to_world_m'])
             error=max(error,float(np.linalg.norm(np.asarray(actor['emitter_position_m'])-expected)))
