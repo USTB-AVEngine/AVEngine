@@ -225,7 +225,7 @@ def recorded_event_layout(row,asset,record,human_speech,fallback):
     """Keep a whole admitted animal recording on an explicit physical clock."""
     starts=row.get('phase2_whole_animal_recordings',{}).get(asset['asset_id'])
     if starts is None:return fallback,human_speech
-    if asset['kind']!='animal' or asset['asset_id'] not in row.get('motion_requests',{}):
+    if asset['kind']!='animal' or asset['asset_id'] not in set(row.get('motion_requests',{}))|set(row.get('phase2_moving_asset_ids',[])):
         raise ValueError('whole animal recording requires a registered moving animal')
     if record.get('source_type')=='author_tts':raise ValueError('animal cannot emit authored human speech')
     starts=[float(t)for t in starts]
