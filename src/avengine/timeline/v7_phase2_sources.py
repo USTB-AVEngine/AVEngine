@@ -27,6 +27,19 @@ def _validate_authored_motion_support(scene, program, requests):
             '; dialogue intake currently requires standing speaking humans; '
             'use complete recorded VCTK speech for seated speakers')
 
+
+def footstep_walkers_for_row(row):
+    motion=row.get('motion_requests',{})
+    walkers=[]
+    for aid,classes in row.get('source_classes',{}).items():
+        if 'footsteps' not in classes:continue
+        if classes!=['footsteps']:raise ValueError('one sound source per human: footsteps cannot be mixed with speech or another sound')
+        if motion.get(aid,{}).get('action')!='walk':raise ValueError('footsteps require actual requested walking')
+        walkers.append(aid)
+    if not set(row.get('phase2_include_footsteps_asset_ids',[]))<=set(walkers):
+        raise ValueError('one sound source per human: the footstep alias cannot add feet to a speaking or silent walker')
+    return walkers
+
 def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if row.get('schema')!=PHASE2_SCHEMA:raise ValueError('explicit phase-two schema required')
     from avengine.timeline.v7_production_inputs import validate_sampling_row
@@ -42,8 +55,8 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
         stub['semantic_start_offsets_s']=deepcopy(row['semantic_offsets_s'])
     silent=set(row.get('silent_asset_ids',[]))
     stub['asset_ids']=[aid for aid in row['asset_ids'] if aid not in silent]
-    walkers=[aid for aid,req in motion.items() if req.get('action')=='walk' and row.get('source_classes',{}).get(aid)==['footsteps']]
-    footstep_walkers=walkers+[aid for aid in row.get('phase2_include_footsteps_asset_ids',[])if aid not in walkers]
+    walkers=footstep_walkers_for_row(row)
+    footstep_walkers=walkers
     if any(motion.get(aid,{}).get('action')!='walk'for aid in footstep_walkers):raise ValueError('footsteps require actual requested walking')
     if row.get('semantic_scenario_id'):
         stub['asset_ids']=[aid for aid in stub['asset_ids'] if aid not in walkers]
