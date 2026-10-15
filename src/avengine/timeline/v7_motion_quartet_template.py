@@ -168,6 +168,11 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         physical=recording_header(role['record'])
         emitted_duration=float((role.get('program') or {}).get('sample_count',physical['header']['sample_count']))/16000.
     focus=row.get('motion_template_focus','M2' if seed%2 else 'M1')
+    if source_type in {'dog_walk','cat_walk'} and not row.get('animal_distance_trend_smoothing'):
+        # Provisional (Claude 10-15, pending owner): the judge reads the mouth track, and a walking animal's head sway
+        # reversed the distance by 12 cm inside a 0.7 m approach (limit 5 cm).  Walking animals carry QA-06/QA-17;
+        # people and slides carry the distance-trend families until the owner decides on trend smoothing.
+        focus='M1'
     route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus)
     slot=route['emission_slot'];offset=slot['offset_s'];start=slot['start_s'];local_start=start-offset
 
