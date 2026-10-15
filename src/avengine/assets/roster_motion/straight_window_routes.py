@@ -31,7 +31,10 @@ def _unsorted_straight_window_routes(video,entry,scene,distance,local_forward,re
       for radius in ([template['turn_radius_m']] if template else (.75,.65,.55,.85,.45,1.)):
         period=2*length+2*math.pi*radius;patterns=[]
         for offset in ([template.get('phase_distance_offset_m',0.)] if template else np.linspace(0,period,192,endpoint=False)):
-          if template and template.get('single_pass'):
+          if template and template.get('critical_hairpin'):
+            from avengine.assets.roster_motion.critical_hairpin import hairpin_samples
+            p,tangent,segments=hairpin_samples(distance,length,radius)
+          elif template and template.get('single_pass'):
             p=np.column_stack((-length/2+np.asarray(distance),np.zeros(len(distance))));tangent=np.tile([1.,0.],(len(distance),1));segments=np.zeros(len(distance),int)
           else:p,tangent,segments=stadium_samples(np.asarray(distance)+offset,length,radius)
           if any(not len(ids)or segments[ids[0]]<0 or np.any(segments[ids]!=segments[ids[0]])for ids in slices):continue

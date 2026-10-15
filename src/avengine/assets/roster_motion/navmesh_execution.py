@@ -117,10 +117,11 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
     phase0=float(min(double_support));velocity=np.zeros(len(times));moving=np.zeros(len(times),bool)
     if timed_route is not None and timed_route.get('single_pass'):
         from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
-        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8));desired=phase0+distance[-1]/nominal
+        minimum_stop=float(timed_route.get('minimum_stop_s',7.9))
+        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),minimum_stop);desired=phase0+distance[-1]/nominal
         endings=sorted(float(p)+cycle*duration for cycle in range(math.ceil(desired/duration)+2)for p in double_support if float(p)+cycle*duration>=desired-1e-9)
         target=endings[0];target_distance=(target-phase0)*nominal
-        lo,hi=7.9,9.7
+        lo,hi=minimum_stop,9.7
         if single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.8),hi)[0][-1]<target_distance:raise ValueError('complete observed step cannot finish before the next sounding window; choose another admitted gait')
         for _ in range(45):
             mid=(lo+hi)/2
