@@ -13,7 +13,11 @@ def construct_authored_direction_scene(room,house,state,catalog,records,semantic
     angle=(math.degrees(math.atan2(point[0]-listener[0],-(point[2]-listener[2])))-yaw+180)%360-180
     center=((round(angle/45)*45+180)%360)-180
     row.update(schema='v7-visible-registered-pilot-phase2-v1',members=['v0_a0'],trial_only=True,acceptance_allow_partial_families=True,
-        semantic_azimuth_targets_deg={speakers[0]:0.,speakers[1]:-45.,outside:center},
+        # The second visible speaker must not be centered beyond the 42.5deg
+        # half field of view. Both visible voices stay inside the front sector;
+        # a real offscreen voice supplies a different direction answer.
+        semantic_azimuth_targets_deg={speakers[0]:-5.,speakers[1]:5.,outside:center},
+        native_attachment_distance_targets_m={speakers[0]:3.2,speakers[1]:4.4},
         native_placement_preferences_m={},
         phase2_authored_speech_schedule_s={aid:[epoch+offset for epoch in (0.,10.,20.)]
             for aid,offset in zip(speakers,(3.,6.5,0.),strict=True)})
