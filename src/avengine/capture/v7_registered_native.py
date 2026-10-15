@@ -137,10 +137,11 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         started=time.monotonic()
         house,scene,inputs,assets,kwargs=self._native_restart_arguments
         kwargs=dict(kwargs);kwargs['source_material_cache_directory']=self.source_material_cache_directory
-        states=[(entry,entry.get('motion_pose_index',0),entry.get('motion_episode') is not None)
+        states=[(entry,entry.get('motion_pose_index',0),entry.get('motion_episode') is not None,
+                 np.asarray(entry['object'].root_scene_node.absolute_transformation(),float).copy())
                 for entry in self.actors]
         old_sim=self.sim
-        for entry,_,_ in states:entry['object']=None
+        for entry,_,_,_ in states:entry['object']=None
         old_sim.close()
         self.sim=None
         gc.collect()
@@ -150,7 +151,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         self.pathfinder=fresh.pathfinder
         self.environment_nodes=fresh.environment_nodes
         by_endpoint={entry['endpoint_id']:entry for entry in fresh.actors}
-        for entry,_,_ in states:
+        for entry,_,_,_ in states:
             replacement=by_endpoint[entry['endpoint_id']]
             entry['object']=replacement['object']
             entry.pop('motion_pose_path',None)
@@ -160,9 +161,10 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         self._native_context_generation+=1
         self._native_context_refreshing=True
         try:
-            for entry,index,moving in states:
-                if moving:self._apply_motion_entry(entry,index)
-                else:self._apply_entry(entry,scene)
+            from avengine.capture.v7_registered_state import restore_actor_state
+            from avengine.assets.habitat_capture import _apply_root_with_habitat
+            for entry,index,moving,saved_root in states:
+                restore_actor_state(self,entry,scene,index,moving,saved_root,_apply_root_with_habitat)
         finally:self._native_context_refreshing=False
         self.receipt.setdefault('native_context_renewals',[]).append({
             'generation':self._native_context_generation,'maximum_resident_unique_pose_assets':self._native_pose_cache_limit,
