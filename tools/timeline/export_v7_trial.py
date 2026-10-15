@@ -33,9 +33,9 @@ def write(path, value):
     temporary.replace(path)
 
 
-def retain(source, target, owned_root):
+def retain(source, target, owned_root, read_only_source_roots=()):
     source=Path(source);target=Path(target)
-    if not source.is_file() or not source.resolve().is_relative_to(owned_root):
+    if not source.is_file() or not any(source.resolve().is_relative_to(Path(root).resolve()) for root in (owned_root,*read_only_source_roots)):
         raise ValueError('trial payload must come from this task-owned sealed output')
     if not target.resolve().is_relative_to(owned_root):
         raise ValueError('trial export must remain in this task output')
@@ -47,7 +47,7 @@ def retain(source, target, owned_root):
     return {'path':str(target),'bytes':target.stat().st_size,'sha256':sha}
 
 
-def parent_payload(summary, output, owned_root):
+def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
     pointer_path=Path(summary['seal_path']);pointer=load(pointer_path)
     parent=pointer_path.parent;seal=parent/pointer['attempt'];result=pointer['result']
     kind=result['status']
@@ -62,8 +62,8 @@ def parent_payload(summary, output, owned_root):
     files=[]
     for name in pointer['required_files']:
         if Path(name).is_absolute() or '..' in Path(name).parts: raise ValueError('invalid seal payload path')
-        if Path(name).name!='questions.json':files.append(retain(seal/name,delivery/name,owned_root))
-    files.append(retain(pointer_path,delivery/'private/source_producer_seal.json',owned_root))
+        if Path(name).name!='questions.json':files.append(retain(seal/name,delivery/name,owned_root,read_only_source_roots))
+    files.append(retain(pointer_path,delivery/'private/source_producer_seal.json',owned_root,read_only_source_roots))
     training=[];logical=set();family=Counter();forms=Counter();negative=Counter();all_gold={};public_by_window={}
     for win in result['windows']:
         wid=win['window_id'];member=win.get('member',wid.rsplit('__',2)[-2])
@@ -98,7 +98,7 @@ def parent_payload(summary, output, owned_root):
         selected=load(parent/('selected_windows_'+member+'_completed.json'))
         raw=Path(selected['recipe']['pool_directory'])/wid
         audit_path=raw/'candidate_audit.json'
-        if not audit_path.resolve().is_relative_to(owned_root):
+        if not any(audit_path.resolve().is_relative_to(Path(root).resolve()) for root in (owned_root,*read_only_source_roots)):
             if not (row.get('owner_authorized_helper_seated_results') is True
                     or summary.get('owner_authorized_helper_seated_results') is True
                     or summary.get('origin')=='owner_authorized_helper_seated_results'):
@@ -116,7 +116,7 @@ def parent_payload(summary, output, owned_root):
         for item in audit['v6_items']:
             local={**replacements,**appearance_choice_replacements(item,pointer['recipe']['input_recipe']['assets'],audit['facts'])}
             authority[item['question_id']]=reissue_item_english(item,local) if 'truth'in item else item
-        files.append(retain(audit_path,delivery/'private'/(wid+'_candidate_audit.json'),owned_root))
+        files.append(retain(audit_path,delivery/'private'/(wid+'_candidate_audit.json'),owned_root,read_only_source_roots))
         for question in questions:
             gold=by_id[question['question_id']]
             if gold.get('authority_question_id'):
