@@ -38,15 +38,18 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
     def permitted(path):
         if not any(Path(path).resolve().is_relative_to(p)for p in allowed):
             raise ValueError('candidate evidence escaped authorized read-only roots')
-    permitted(pointer_path);pointer=load(pointer_path)
+    permitted(pointer_path)
+    from avengine.timeline.v7_export_scene_policy import require_parent_policy,REVISION as SCENE_POLICY
+    scene_policy=require_parent_policy(pointer_path)
+    pointer=load(pointer_path)
     if pointer['result']['status']not in {'integration_pilot_admitted','formal_alpha_admitted'}:
         raise ValueError('supplement source parent is not admitted')
     recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
     scene=row['scene_id'];root=pointer_path.parent;seal=root/pointer['attempt']
-    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v2_motion.json')
+    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v3_fixed_observer.json')
     if cache.exists():return load(cache)
     prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v1.json')
-    prior=load(prior_path)if prior_path.exists()else None
+    prior=None  # Earlier candidates predate the fixed observer and wording policy.
     base=[json.loads(s)for s in(output/'export/parent_rows'/f"{receipt['slot']:03d}.jsonl").read_text().splitlines()if s.strip()]
     bywindow=defaultdict(list)
     for r in base:bywindow[r['window_id']].append(r)
@@ -105,7 +108,7 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
         proofs.append({'window_id':wid,'original_replay':str(rpath),'supplements':len(candidates),
             'truth_replay':replay,'source_pool':str(pool),'CJK_and_ID_gate':'pass','invalid_answer_controls':'pass'})
     result={'entries':entries,'new_visual_candidate_rows':supplemented,'new_motion_candidate_rows':motion_supplemented,'source_seal':str(pointer_path),
-        'source_seal_sha256':sha(pointer_path),'proofs':proofs}
+        'source_seal_sha256':sha(pointer_path),'proofs':proofs,'scene_delivery_policy':scene_policy}
     save(cache,result);return result
 
 

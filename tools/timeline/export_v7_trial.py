@@ -49,6 +49,8 @@ def retain(source, target, owned_root, read_only_source_roots=()):
 
 def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
     pointer_path=Path(summary['seal_path']);pointer=load(pointer_path)
+    from avengine.timeline.v7_export_scene_policy import require_parent_policy
+    scene_policy=require_parent_policy(pointer_path)
     parent=pointer_path.parent;seal=parent/pointer['attempt'];result=pointer['result']
     kind=result['status']
     if kind not in {'integration_pilot_admitted','formal_alpha_admitted'}:
@@ -167,6 +169,7 @@ def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
     manifest={'schema':'v7-isolated-production-format-trial-parent-v1','dataset_role':'trial_only',
         'source_seal':str(pointer_path),'source_seal_sha256':digest(pointer_path),'scene_id':scene,
         'producer_admission_status':kind,'formal_release_promoted':False,'windows':result['windows'],
+        'scene_delivery_policy':scene_policy,
         'logical_questions':len(unique_questions),'raw_export_questions':raw_question_count,'independent_questions':len(unique_questions),
         'dedup_dropped':dedup_dropped,'dedup_rule_version':INDEPENDENCE_REVISION,'rows':len(training),'question_family_counts':dict(family),
         'form_counts':dict(forms),'invalid_answer_control_results':dict(negative),

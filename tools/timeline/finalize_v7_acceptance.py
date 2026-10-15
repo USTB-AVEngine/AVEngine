@@ -28,6 +28,12 @@ def admitted_receipts(manifest):
         if row.get('acceptance_allow_partial_families')is True:reasons.append('partial_question_policy')
         motion=pointer['result'].get('machine_checks',{}).get('motion',{}).get('instances',[])
         if any(x.get('motion_kind')=='static_after_failed_route'for x in motion):reasons.append('motion_demand_became_static')
+        from avengine.timeline.v7_export_scene_policy import cached_parent_policy
+        try:
+            policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            reasons.extend(policy['reasons'])
+        except Exception as error:
+            reasons.append('scene_policy_evidence_error:'+str(error))
         if reasons:excluded.append({'scene_id':receipt['scene_id'],'slot':receipt['slot'],'reasons':reasons})
         else:receipts.append(receipt)
     return receipts,excluded
@@ -42,6 +48,7 @@ def delivery_fingerprint(manifest):
         if receipt.get('status')=='passed':parents.append((task['slot'],hashlib.sha256(data).hexdigest()))
     inputs={'parents':parents,'code_commit':manifest['code_commit'],
         'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
+        'scene_delivery_policy':'v7-fixed-observer-natural-layout-measured-speed-v1',
         'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False)}
     return hashlib.sha256(json.dumps(inputs,sort_keys=True).encode()).hexdigest()
 
