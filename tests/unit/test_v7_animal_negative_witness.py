@@ -29,7 +29,7 @@ def fixture(tmp_path):
 def test_later_animal_still_branch_has_real_opposite_comparator(tmp_path):
     ctx,cam,animal=fixture(tmp_path)
     human=construct_negative_companion(ctx,cam,[5.,0.,0.],BodySpec.for_species('human'),animal,
-        entity_id='companion',animal_call_s=21.3,animal_duration_s=2.2)
+        entity_id='companion',animal_call_s=21.3,animal_duration_s=2.2,admitted_asset={'kind':'human','walk_allowed':True})
     plan=ScenePlan(cam,{'animal':animal,'companion':human})
     checks=list(verify_negative_comparator(plan,'animal','companion',21.3,2.2))
     assert all(x.status=='pass'for x in checks),checks
@@ -47,3 +47,31 @@ def test_two_real_still_entities_cannot_certify_negative_questions(tmp_path):
     checks=list(verify_negative_comparator(ScenePlan(cam,{'animal':animal,'companion':human}),
         'animal','companion',21.3,2.2))
     assert {x.name for x in checks if x.status=='fail'}=={'animal:static_negative:QA-06','animal:static_negative:QA-17'}
+
+
+def test_unadmitted_static_person_is_never_animated_as_a_comparator(tmp_path):
+    from avengine.construction.joint.routes import ConstructionError
+    ctx,cam,animal=fixture(tmp_path)
+    with pytest.raises(ConstructionError,match='requires_admitted_human_walk'):
+        construct_negative_companion(ctx,cam,[5.,0.,0.],BodySpec.for_species('human'),animal,
+            entity_id='companion',animal_call_s=21.3,animal_duration_s=2.2,
+            admitted_asset={'kind':'human','walk_allowed':False})
+
+
+def test_comparator_speech_rest_positions_need_clear_original_scan_rays(tmp_path):
+    from avengine.construction.joint.routes import ConstructionError
+    ctx,cam,animal=fixture(tmp_path)
+    ctx.raycaster=SimpleNamespace(first_hit=lambda origin,rays:(np.zeros(len(rays)),None))
+    with pytest.raises(ConstructionError,match='finite_route_domain_empty'):
+        construct_negative_companion(ctx,cam,[5.,0.,0.],BodySpec.for_species('human'),animal,
+            entity_id='companion',animal_call_s=21.3,animal_duration_s=2.2,
+            admitted_asset={'kind':'human','walk_allowed':True})
+
+
+def test_no_hit_scan_ray_is_a_clear_speech_rest_position(tmp_path):
+    ctx,cam,animal=fixture(tmp_path)
+    ctx.raycaster=SimpleNamespace(first_hit=lambda origin,rays:(np.full(len(rays),np.inf),None))
+    human=construct_negative_companion(ctx,cam,[5.,0.,0.],BodySpec.for_species('human'),animal,
+        entity_id='companion',animal_call_s=21.3,animal_duration_s=2.2,
+        admitted_asset={'kind':'human','walk_allowed':True})
+    assert human.entity_id=='companion'
