@@ -219,6 +219,10 @@ class NativeAlphaVideo(NativeContinuousVideo):
 
     def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=True):
         checks=self.qualify_standing(scene,Path(path).parent/'standing')
+        from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual,ENV as CPU_ENVELOPE_ENV
+        import os
+        if os.environ.get(CPU_ENVELOPE_ENV):
+            self.receipt['visual_cpu_policy_after_qualification']=configure_cpu_visual({})
         if not all(r['status']=='pass' for r in checks):raise ValueError('alpha standing full-skin/native contact admission failed')
         result=super().encode(scene,path,review_frames=list(range(0,450,15)),collect_pixel_visibility=collect_pixel_visibility)
         result.update(camera_frame_readbacks=self.camera_frame_readbacks,standing_admission=checks,

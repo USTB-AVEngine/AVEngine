@@ -143,7 +143,10 @@ def _worker(request_path):
     from tools.timeline.pilot_continuous_scenes import native_renderer
     renderer,identity=native_renderer(request['inputs'],request['house'])
     if identity!=request['expected_native_identity']:raise ValueError('fresh child native identity differs from declared estimator')
+    from avengine.timeline.v7_cpu_visual_runtime import contain_own_threads
+    contain_own_threads([cpus[0]])
     wave=renderer.render([request['source_position_m']]).samples[0]
+    thread_containment=contain_own_threads([cpus[0]])
     check_write(output,expected_bytes=4_000_000)
     with output.open('xb')as f:np.save(f,wave,allow_pickle=False)
     value={'status':'pass','revision':REVISION,'pid':os.getpid(),'ppid':os.getppid(),
@@ -151,7 +154,7 @@ def _worker(request_path):
         'evidence_role':request['evidence_role'],'reference_trial':request['reference_trial'],
         'native_identity':identity,'native_setup_report':renderer.setup_report,
         'native_renders_after_fresh_upload':1,'primary_cache_read':False,'estimate_read':False,
-        'cpu_affinity':sorted(os.sched_getaffinity(0)),'nice':os.getpriority(os.PRIO_PROCESS,0),
+        'cpu_affinity':sorted(os.sched_getaffinity(0)),'native_thread_containment':thread_containment,'nice':os.getpriority(os.PRIO_PROCESS,0),
         'output_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),
         'process_cpu_seconds_total':time.process_time()-cpu,'wall_seconds_total':time.perf_counter()-started}
     if resource_lease is not None:value['task_resource_lease']=resource_lease.receipt
