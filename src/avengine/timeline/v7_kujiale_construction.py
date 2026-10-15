@@ -43,7 +43,7 @@ def registered_people(catalog,registration,seed):
     c=sorted(other,key=lambda x:x['asset_id'])[(seed//2)%len(other)]
     return [a['asset_id'],b['asset_id'],c['asset_id']],a['visual_gender']
 
-def select_group(candidates,listener,attempt=0):
+def _preferred_group(candidates,listener,attempt=0):
     from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view,comparison_person_candidates,construct_dialogue_camera
     listener=np.asarray(listener,float);candidates=[p for p in candidates if np.linalg.norm((np.asarray(p['root_m'])-listener)[[0,2]])>=1.5-1e-9];ordered=sorted(candidates,key=lambda p:(abs(np.linalg.norm((np.asarray(p['position_m'])-listener)[[0,2]])-2.4),p['position_m']))
     if len(ordered)<3:raise ValueError('no clear separated three-person group')
@@ -87,6 +87,35 @@ def select_group(candidates,listener,attempt=0):
         last_legal=best[2];used_pairs.add(best[:2]);used_roots.update(best[:2])
     raise ValueError('no clear separated three-person group for this room/camera construction attempt')
 
+def select_group(candidates,listener,attempt=0):
+    """Try original sampling margins, then construct without treating them as QA gates."""
+    try:return _preferred_group(candidates,listener,attempt)
+    except ValueError as preferred_error:
+        from avengine.capture.kujiale_pilot_environment import construct_dialogue_camera
+        listener=np.asarray(listener,float)
+        for minimum in (1.5,1.2):
+            pool=[p for p in candidates if np.linalg.norm((np.asarray(p['root_m'])-listener)[[0,2]])>=minimum-1e-9]
+            if len(pool)<3:continue
+            roots=np.asarray([p['root_m']for p in pool])[:,[0,2]]
+            distances=np.linalg.norm(roots[:,None,:]-roots[None,:,:],axis=2)
+            radii=np.linalg.norm(np.asarray([p['position_m']for p in pool])-listener,axis=1)
+            for offset in range(len(pool)):
+                i=(offset+int(attempt))%len(pool)
+                for j in np.flatnonzero(distances[i]>=1.-1e-9):
+                    thirds=np.flatnonzero((distances[i]>=1.-1e-9)&(distances[j]>=1.-1e-9))
+                    thirds=sorted(thirds,key=lambda k:(-min(abs(radii[k]-radii[i]),abs(radii[k]-radii[j])),int(k)))
+                    for k in thirds:
+                        axis=roots[j]-roots[i];delta=roots[k]-roots[i]
+                        if abs(axis[0]*delta[1]-axis[1]*delta[0])/np.linalg.norm(axis)<.25:continue
+                        group=[pool[int(n)]for n in (i,j,k)]
+                        try:construct_dialogue_camera(listener,[p['position_m']for p in group[:2]],additional_positions=[group[2]['position_m']])
+                        except ValueError:continue
+                        selected=deepcopy(group)
+                        for point in selected:point['group_construction_preference_fallback']={'sampling_margins_are_not_qa_gates':True,'camera_minimum_m':minimum,'native_admission_required':True}
+                        return selected
+        raise preferred_error
+
+
 def visible_candidates(mesh,listener,candidates):
     if not candidates:return []
     roots=np.asarray([p['root_m']for p in candidates]);targets=(roots[:,None,:]+np.array([[0.,.9,0.],[0.,1.2,0.],[0.,1.5,0.]])[None,:,:]).reshape(-1,3)
@@ -95,7 +124,7 @@ def visible_candidates(mesh,listener,candidates):
     blocked=blocked.reshape(-1,3);radii=np.linalg.norm((roots-listener)[:,[0,2]],axis=1);order=sorted(range(len(candidates)),key=lambda i:(int(blocked[i].sum()),abs(radii[i]-2.4)))
     # This is a proposal filter, not admission. A clear chest ray can still
     # yield valid native appearance with a partially occluded head/legs.
-    return [candidates[i]for i in order if not blocked[i,1]and 1.5<=radii[i]<=10.]
+    return [candidates[i]for i in order if not blocked[i,1]and 1.2<=radii[i]<=10.]
 
 
 def air_camera_proposals(polygon,native_floor_y,step,eye_height_m=1.5):
