@@ -143,7 +143,7 @@ def _camera_knots(yaw,**unused):
 
 
 def construct_family_scene(room,house,state,catalog,records,semantic,contract,runtime,
-        *,scene_id,seed,family=None,attempt=0):
+        *,scene_id,seed,family=None,attempt=0,_content_silent_bystander=True):
     """Accept any original legal room; never load a hand-authored scene template."""
     from avengine.timeline.v7_production_inputs import validate_recipe
     family=family or next_family(state)
@@ -193,7 +193,7 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         'listener_m':ctx['listener_m'],'camera_yaw_deg':ctx['camera_yaw_deg'],
         'camera_yaw_knots':[{'time_s':0.,'yaw_deg':ctx['camera_yaw_deg']},{'time_s':30.,'yaw_deg':ctx['camera_yaw_deg']}],
         'asset_ids':ids,'silent_asset_ids':[ids[2]],'source_classes':{},'motion_requests':{},
-        'members':['v0_a0'],'trial_only':True,'window_count':5,'questions_per_window':14,
+        'members':['v0_a0'],'trial_only':True,'acceptance_allow_partial_families':True,'window_count':5,'questions_per_window':14,
         'acceptance_window_starts_s':[0.,5.,10.,15.,20.],'question_quota_base':0,
         'automatic_construction':{'revision':REVISION,'family':family,'candidate_index':attempt,
             'room_key':room['key'],'required_role_count':3,'scene_template_files_read':[]},
@@ -244,7 +244,7 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         row['automatic_construction']['required_role_count']=len(row['asset_ids'])
     elif family=='V7-CONTENT-BIND':
         from avengine.timeline.v7_content_offscreen_construction import construct_pure_tts_offscreen_quartet
-        return construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,catalog,room,contract)
+        return construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,catalog,room,contract,include_silent_bystander=_content_silent_bystander)
     validate_recipe(row,catalog,contract)
     return {'profile':'phase2','row':row}
 
