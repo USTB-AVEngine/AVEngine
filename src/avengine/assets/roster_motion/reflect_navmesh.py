@@ -183,7 +183,7 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
             v=corners@root[:3,:3].T+root[:3,3]
             if not np.isfinite(v).all():raise ValueError('dynamic native prop has invalid world bounds')
             obstacles.append(box(v[:,0].min()-radius,v[:,2].min()-radius,v[:,0].max()+radius,v[:,2].max()+radius))
-    is_free=native_free_predicate(video.pathfinder,polygon,floor,scene['listener_m'],obstacles=obstacles,walkable_map=walkable_map,species=species)
+    is_free=native_free_predicate(video.pathfinder,polygon,floor,scene['listener_m'],obstacles=obstacles,walkable_map=walkable_map,species=species,camera_margin=route.get('minimum_camera_distance_m'))
     from avengine.timeline.v7_spatial_layout import spacing_rejection
     listener=np.asarray(scene['listener_m'],float)[[0,2]]
     rejected=Counter()
@@ -217,18 +217,24 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
             if not polygon.covers(line):rejected['native_scene_floor_polygon']+=1;continue
             if any(line.intersects(o)for o in obstacles):rejected['qualified_body_expanded_bbox']+=1;continue
             radii=np.linalg.norm(points-listener,axis=1)
-            if float(radii.min())<CAMERA_MARGIN_M.get(species,1.):rejected['camera_distance_1_5m']+=1;continue
+            if float(radii.min())<max(CAMERA_MARGIN_M.get(species,1.),float(route.get('minimum_camera_distance_m',0.))):rejected['camera_distance_1_5m']+=1;continue
             # Rotating/translating preserves the complete distance-driven gait
             # clock, but every requested radial condition must be rechecked.
-            if slot['qa15']:
-                delta=points[i1]-points[i0];towards=listener-points[i0]
-                cosine=abs(float(np.dot(delta,towards)))/(np.linalg.norm(delta)*np.linalg.norm(towards)+1e-12)
-                sign=-1 if slot['branch']=='nearer'else 1
-                values=radii[i0:i1+1];trim=int(round(.2*(i1-i0)))
-                values=values[trim:len(values)-trim] if len(values)-2*trim>=2 else values      # audible-window margin
-                # QA-15's judge reads a monotonic >= 0.5 m distance change; no angle (the planner's tangent and this
-                # chord disagreed on curved routes and rejected the planned placement itself).
-                if sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):rejected['radial_slot']+=1;continue
+            radial_ok=True
+            for event_slot in route.get('emission_slots',[slot]):
+                if not event_slot['qa15']:continue
+                j0=round(event_slot['start_s']*30);j1=round(event_slot['end_s']*30)
+                sign=-1 if event_slot['branch']=='nearer'else 1
+                values=radii[j0:j1+1];trim=int(round(.2*(j1-j0)))
+                values=values[trim:len(values)-trim] if len(values)-2*trim>=2 else values
+                if sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):
+                    radial_ok=False;break
+            if not radial_ok:rejected['radial_slot']+=1;continue
+            if route.get('require_rest_poses_in_frame'):
+                from .straight_route import rest_framing
+                camera_yaw=float(scene['camera_yaw_deg'] if 'camera_yaw_deg' in scene else scene['camera_yaw_knots'][0]['yaw_deg'])
+                if any(rest_framing(p,listener,camera_yaw)!='inside' for p in (points[0],points[-1])):
+                    rejected['rest_pose_framing']+=1;continue
             positions=np.column_stack((points[:,0],np.full(len(points),floor),points[:,1]))
             if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):rejected['body_centre_spacing']+=1;continue
             if plan_for_fit is not None:
