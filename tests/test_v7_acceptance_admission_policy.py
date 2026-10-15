@@ -187,3 +187,9 @@ def test_authorized_task_size_is_configurable_without_stopping_active_jobs():
     assert launch_pause_reason(**values)=='task_disk_limit_no_new_jobs'
     values.update(allocated_size=1,free=399_000_000_000)
     assert launch_pause_reason(**values)=='disk_headroom_no_new_jobs'
+
+
+def test_configured_shared_memory_floor_reserves_headroom_for_running_jobs():
+    from tools.timeline.monitor_v7_acceptance import parent_launch_headroom
+    assert not parent_launch_headroom(0,0,7_000_000_000,150_000_000_000,46_000_000_000,40_000_000_000)
+    assert parent_launch_headroom(0,0,7_000_000_000,150_000_000_000,47_000_000_000,40_000_000_000)
