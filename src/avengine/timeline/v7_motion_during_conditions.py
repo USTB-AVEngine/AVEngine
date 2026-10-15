@@ -128,6 +128,18 @@ def prepare_motion_during_row(row,catalog,records):
     return result
 
 
+TREND_SMOOTHING_S=.5    # owner 10-15: "嘴部随头晃动导致中途有12厘米回摆，像这种，就没必要限制了吧"
+
+
+def smooth_track(track,frame_rate_hz=15.,window_s=TREND_SMOOTHING_S):
+    """Centered moving average of a (T,3) track: removes gait sway of the mouth, keeps the walking trend."""
+    track=np.asarray(track,float);n=max(1,int(round(window_s*frame_rate_hz)))
+    if n<=1 or len(track)<n:return track
+    pad=n//2;padded=np.pad(track,((pad,n-1-pad),(0,0)),mode='edge')
+    kernel=np.ones(n)/n
+    return np.column_stack([np.convolve(padded[:,k],kernel,mode='valid') for k in range(track.shape[1])])
+
+
 def verify_motion_during_native(row,scene,visual):
     plan=row.get('motion_during_condition_plan')
     if not plan:return None
@@ -152,8 +164,13 @@ def verify_motion_during_native(row,scene,visual):
                     at=float(offset)+np.arange(150)/15.
                     roots[aid]=np.column_stack([np.interp(at,source_times,samples[:,axis])for axis in range(3)])
                 else:roots[aid]=positions[aid]
-            report=cm.verify_motion_candidate(solution,positions_m=positions,
+            # Distance trends are judged on the 0.5 s smoothed mouth track (owner 10-15); net change and reversal
+            # limits are unchanged, so walking back is still caught while head sway is not counted.
+            smoothed={aid:smooth_track(track) for aid,track in positions.items()}
+            report=cm.verify_motion_candidate(solution,positions_m=smoothed,
                 root_positions_m=roots if admissions else None,listener_position_m=scene['listener_m'])
+            report['distance_trend_smoothing_s']=TREND_SMOOTHING_S
+            report['distance_trend_smoothing_authority']='owner 10-15: mouth sway from head motion is not a reversal'
             reports.append({'offset_s':offset,'qa_id':solution.qa_id,'report':report})
     return {'status':'pass' if all(x['report']['status']=='pass'for x in reports)else'fail',
         'source':'actual native attached mouth trajectories; original v3 verifier','reports':reports,'delivered_qa_gates_unchanged':True}
