@@ -198,6 +198,19 @@ def audit_native_bindings(scene,assets,visual):
             'emitter_worst_error_m':worst,'asset_visible_frame_counts':appearance_counts,'errors':sorted(set(errors))}
 
 
+def conditioned_recorded_duration_fits(record,asset_id,row):
+    duration=float(record.get('duration_s',0))
+    if .8<=duration<=2.5:return True
+    # This is constructor scheduling, not source admission. The untouched v3
+    # solver has already fitted this exact whole admitted recording and tail.
+    if duration<.8:return False
+    for item in row.get('motion_during_condition_plan',{}).get('plans',[]):
+        chosen=item.get('config',{}).get('sounds',{}).get(asset_id,{})
+        if item.get('solution',{}).get('status')=='solved' and chosen.get('sound_asset_id')==record['sound_asset_id']:
+            return True
+    return False
+
+
 def select_proposed_record(pool, asset_id, row, rng):
     """Resolve an explicit candidate clip inside the already admitted pool."""
     proposed=row.get('proposed_sound_asset_ids',{}).get(asset_id)
@@ -273,7 +286,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
             for cls in classes:
                 pool=[r for r in admitted if r['sound_class']==cls]
                 if human_speech:
-                    pool=[r for r in pool if r.get('dataset')=='VCTK-Corpus 0.92' and r.get('legacy_library_split')=='train' and r.get('gender')==('F' if a.get('visual_gender')=='female' else 'M') and r.get('speaker_id') not in used_speakers and .8<=r.get('duration_s',0)<=2.5]
+                    pool=[r for r in pool if r.get('dataset')=='VCTK-Corpus 0.92' and r.get('legacy_library_split')=='train' and r.get('gender')==('F' if a.get('visual_gender')=='female' else 'M') and r.get('speaker_id') not in used_speakers and conditioned_recorded_duration_fits(r,a['asset_id'],row)]
                 elif cls=='speech_playback':
                     pool=[r for r in pool if r.get('dataset')!='VCTK-Corpus 0.92'] or pool
                 if not pool:raise ValueError('no exact admitted recording for '+a['asset_id']+'/'+cls)
