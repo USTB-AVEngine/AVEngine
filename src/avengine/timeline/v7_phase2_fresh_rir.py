@@ -54,7 +54,7 @@ def _launch_native_child(command,log,inputs):
                 if (len(sdk)<min(16,int(policy.get("maximum_native_processes",16))) and compute_process_count([*records,*peers])<80 and forecast<=int(policy.get("maximum_pss_bytes",150_000_000_000))
                     and combined_forecast<=int(policy.get("maximum_combined_pss_bytes",190_000_000_000))
                     and tree_forecast<=int(policy.get("maximum_parent_tree_pss_bytes",30_000_000_000))
-                    and available-sum(max(0,reserve-r['pss_bytes'])for r in all_sdk)-reserve>=30_000_000_000 and shutil.disk_usage('/data').free>=launch_minimum_free_bytes(resolve_launch_disk_policy(policy.get('launch_disk_policy',inputs.get('launch_disk_policy'))))):
+                    and available-sum(max(0,reserve-r['pss_bytes'])for r in all_sdk)-reserve>=int(policy.get('minimum_available_bytes',30_000_000_000)) and shutil.disk_usage('/data').free>=launch_minimum_free_bytes(resolve_launch_disk_policy(policy.get('launch_disk_policy',inputs.get('launch_disk_policy'))))):
                     return subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
                 if time.monotonic()-last_log>=30:
                     log.write(('waiting_for_new_native_process_admission '+json.dumps({'SDK_processes':len(sdk),'PSS_bytes':pss,'forecast_bytes':forecast,'combined_forecast_bytes':combined_forecast,'parent_tree_forecast_bytes':tree_forecast,'parent_tree_root_pid':root_pid,'MemAvailable_bytes':available,'critical_below_20GB':available<20_000_000_000})+'\n').encode());log.flush();last_log=time.monotonic()
