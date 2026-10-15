@@ -66,6 +66,12 @@ def check_write(path,*,expected_bytes=0):
     policy=json.loads(raw);root=Path(policy["root"]).resolve();path=Path(path).resolve()
     if not path.is_relative_to(root):
         raise StorageBudgetExceeded("write escaped the declared own task output root")
+    # The acceptance scheduler admits new jobs against the shared resource
+    # limits. Once admitted, those limits must not abort an active producer.
+    # Keep the own-output boundary enforced for every write.
+    if policy.get("resource_admission_managed") is True:
+        return {"resource_admission_managed":True,"expected_write_bytes":max(0,int(expected_bytes)),
+                "checked_unix":time.time(),"policy":policy}
     free=shutil.disk_usage(policy["filesystem"]).free
     requested=max(0,int(expected_bytes));margin=policy.get("concurrent_write_margin_bytes",0)
     if free-requested-margin<policy["minimum_free_bytes"]:

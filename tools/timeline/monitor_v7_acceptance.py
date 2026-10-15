@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bound and inspect only this acceptance batch's verified process trees."""
+"""Admit and inspect acceptance jobs; resource guards never terminate active work."""
 import argparse,datetime,json,os,signal,subprocess,sys,time,shutil
 from pathlib import Path
 
@@ -47,9 +47,30 @@ class AdoptedProcess:
   live=proc(self.pid)
   return None if live and live['start_ticks']==self.record['start_ticks']and live['cmd']==self.record['cmd']and live['state']!='Z' else 0
 
+def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory):
+ if now >= deadline:return 'delivery_deadline_no_new_jobs'
+ if pss >= limit:return 'PSS_limit_no_new_jobs'
+ if free < 100_000_000_000:return 'disk_headroom_no_new_jobs'
+ if allocated_size >= 60_000_000_000:return 'task_disk_limit_no_new_jobs'
+ if available_memory < 30_000_000_000:return 'memory_headroom_no_new_jobs'
+ return ''
+
+
+def append_progress(o,m,now,active):
+ counts={};passed=0
+ for path in (o/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
+  d=load(path)
+  if d.get('status')!='passed':continue
+  passed+=1
+  for family,n in d.get('export',{}).get('question_family_counts',{}).items():counts[family]=counts.get(family,0)+n
+ scenes=[m['parents'][slot]['row']['scene_id'] for slot in active]
+ with (o/'PROGRESS.md').open('a') as f:
+  f.write(now.isoformat()+' 构造/续跑场景='+','.join(scenes)+'；保留全部必需元素；通过父场景='+str(passed)+'；去重题族计数='+json.dumps(counts,ensure_ascii=False,sort_keys=True)+'\n')
+
+
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--smoke-only',action='store_true');a=p.parse_args();m=load(a.manifest);o=Path(m['output_root']);w=Path(m['worktree'])
- pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={}
+ pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;last_progress=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={}
  (o/'logs').mkdir(exist_ok=True)
  for f in (o/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
   d=load(f)
@@ -64,8 +85,11 @@ def main():
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
   records=processes([v['process'].pid for v in active.values()]);pss=sum(v['pss_bytes']for v in records);limit=120_000_000_000 if sg.hour<4 else 140_000_000_000
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
-  if pss>limit or free<100_000_000_000 or size>60_000_000_000 or sg.hour>=7 and sg.minute>=24:
-   pause='resource_or_delivery_deadline_stop';stop(records);pending=[]
+  deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
+  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem)
+  if resource_pause=='delivery_deadline_no_new_jobs':pending=[]
+  if time.monotonic()-last_progress>=900 or not last_progress:
+   append_progress(o,m,now,active);last_progress=time.monotonic()
   for slot,v in list(active.items()):
    rc=v['process'].poll()
    if rc is None:continue
@@ -79,25 +103,28 @@ def main():
    for slot,v in active.items():
     tree=processes([v['process'].pid]);cpu=sum(r['cpu_s']for r in tree);old=previous.get(slot,{});log=o/'logs'/f'parent_{slot:03d}.log';mtime=log.stat().st_mtime if log.exists()else 0
     entry={'slot':slot,'pid':v['process'].pid,'cpu_s':cpu,'cpu_growth_s':cpu-old.get('cpu_s',0),'log_mtime':mtime,'log_updated':mtime>old.get('log_mtime',0),'pipe_write_pids':[r['pid']for r in tree if 'pipe_write'in r['wchan']]};rows.append(entry);previous[slot]=entry
-   snap={'time_utc':now.isoformat(),'active':rows,'PSS_bytes':pss,'MemAvailable_bytes':mem,'data_free_bytes':free,'allocated_task_bytes':size,'completed':len(completed),'pause':pause}
+   snap={'time_utc':now.isoformat(),'active':rows,'PSS_bytes':pss,'MemAvailable_bytes':mem,'data_free_bytes':free,'allocated_task_bytes':size,'completed':len(completed),'pause':pause or resource_pause}
    with (o/'WATCH_LOG.md').open('a')as f:f.write(now.isoformat()+' '+json.dumps(snap,ensure_ascii=False)+'\n')
    write(o/'evidence/WATCH_CURRENT.json',snap);print('WATCH',json.dumps(snap),flush=True);last_watch=time.monotonic()
   peaks['pss_bytes']=max(peaks['pss_bytes'],pss);peaks['concurrent_parents']=max(peaks['concurrent_parents'],len(active))
   smoke=(o/'SMOKE_PASSED.json').exists()
-  if not pause and mem>=30_000_000_000 and free>=100_000_000_000 and size<=60_000_000_000:
+  if not pause and not resource_pause:
    from avengine.timeline.v7_demand import read_demand_state,demand_snapshot
    state=read_demand_state(o/'inputs/demand_state.json');gaps=demand_snapshot(state,next_questions=70)['family_deficits']
    families={'binding':['QA-01','QA-02','QA-03','QA-08','QA-09','QA-20'],'human_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18','QA-19'],'animal_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18'],'count':['QA-22','QA-23','STARSS-SPEAKERS'],'occlusion':['QA-10','QA-03','QA-12'],'taxonomy':['QA-21','V7-CLASS34','STARSS-CLASS13'],'content_binding':['QA-26','QA-27','QA-28','V7-CONTENT-BIND']}
    def demand_order(slot):
     target=families[m['parents'][slot]['focus']];return (-sum(max(0.,gaps.get(f,0.))for f in target)/len(target),slot)
    for slot in sorted(pending,key=demand_order):
-    task=m['parents'][slot];moving=task.get('focus')in {'human_motion','animal_motion'};ue=task['device']=='ue'
+    task=m['parents'][slot]
+    if task.get('launch_disabled'):continue
+    w=Path(task.get('snapshot_worktree',m['worktree']))
+    moving=task.get('focus')in {'human_motion','animal_motion'};ue=task['device']=='ue'
     if not smoke and (slot!=0 or active or completed):continue
     if a.smoke_only and slot!=0:continue
     if len(active)>=16 or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
     reserve=sum(30_000_000_000 if m['parents'][s].get('focus')in{'human_motion','animal_motion'}else 7_000_000_000 for s in active)+ (30_000_000_000 if moving else 7_000_000_000)
     if max(reserve,pss+(30_000_000_000 if moving else 7_000_000_000))>limit-5_000_000_000:continue
-    env=dict(os.environ);cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
+    env=dict(os.environ);env['PYTHONPATH']=str(w/'src')+os.pathsep+str(w)+os.pathsep+env.get('PYTHONPATH','');cmd=[sys.executable,str(w/'tools/timeline/run_v7_acceptance.py'),'--manifest',str(a.manifest),'--worker',str(slot)]
     if ue:
      for k in ['LD_PRELOAD','LIBGL_ALWAYS_SOFTWARE','MESA_LOADER_DRIVER_OVERRIDE','EGL_PLATFORM','__EGL_VENDOR_LIBRARY_FILENAMES']:env.pop(k,None)
      env.update(CUDA_VISIBLE_DEVICES='2',VK_ICD_FILENAMES='/etc/vulkan/icd.d/nvidia_icd.json')

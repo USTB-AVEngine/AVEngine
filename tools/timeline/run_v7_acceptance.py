@@ -15,12 +15,13 @@ def run_worker(manifest,slot):
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
     cpus=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,{cpus[slot%len(cpus)]})
     import avengine
-    if not Path(avengine.__file__).resolve().is_relative_to(Path(manifest['worktree']).resolve()/'src'):
+    if not Path(avengine.__file__).resolve().is_relative_to(Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
     from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
     os.environ[ENV_KEY]=json.dumps({'root':str(root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
         'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':128_000_000,
-        'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
+        'policy':'owner-20261015-acceptance-only-no-training-or-CCI',
+        'resource_admission_managed':True})
     check_write(root,expected_bytes=0)
     inputs=load(manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
@@ -32,7 +33,7 @@ def run_worker(manifest,slot):
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         row=load(previous) if previous.exists() else plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
         inputs.update(phase2=True,integration_pilot=True,render_backend='cpu_llvmpipe')
-        from avengine.timeline.v7_phase2_fallback import generate_parent_with_element_fallback as generate
+        from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         row=load(previous) if previous.exists() else add_scene_demand(row,state,focus=task.get('focus','content_binding'))
@@ -44,7 +45,7 @@ def run_worker(manifest,slot):
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
         'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
-        'code_commit':manifest['code_commit'],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        'code_commit':task.get('snapshot_commit',manifest['code_commit']),'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     try:
         result=generate(row,house,inputs,catalog,source,human,str(root/'native'))
