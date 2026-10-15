@@ -17,9 +17,9 @@ def run_worker(manifest,slot):
     import avengine
     if not Path(avengine.__file__).resolve().is_relative_to(Path(manifest['worktree']).resolve()/'src'):
         raise ValueError('import escaped the acceptance worktree')
-    from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
+    from avengine.timeline.v7_storage_budget import ENV_KEY,check_write,task_disk_policy
     os.environ[ENV_KEY]=json.dumps({'root':str(root),'filesystem':'/data','maximum_task_bytes':60_000_000_000,
-        'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':128_000_000,
+        'minimum_free_bytes':task_disk_policy(root,100_000_000_000)['minimum_free_bytes'],'concurrent_write_margin_bytes':128_000_000,
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
     check_write(root,expected_bytes=0)
     inputs=load(task.get('runtime_inputs') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']

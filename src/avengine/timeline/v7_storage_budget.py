@@ -14,6 +14,21 @@ class StorageBudgetExceeded(RuntimeError):
     pass
 
 
+def task_disk_policy(root,declared_floor):
+    """Read an explicit task-local temporary floor, including its expiry."""
+    import datetime
+    path=Path(root)/'inputs/task_scope.json'
+    scope=json.loads(path.read_text())if path.is_file()else{}
+    temporary=scope.get('temporary_disk_policy')
+    floor=int(declared_floor)
+    if temporary:
+        expiry=datetime.datetime.fromisoformat(temporary['expires_utc'])
+        now=datetime.datetime.now(datetime.timezone.utc)
+        floor=(int(temporary['minimum_free_bytes'])if now<expiry else
+               max(floor,int(temporary['normal_minimum_free_bytes'])))
+    return {'minimum_free_bytes':floor,'pause_new_jobs_only':scope.get('disk_guard_mode')=='pause_new_jobs_only'}
+
+
 def allocated_bytes(root):
     """Count allocated blocks once per inode without following symlinks.
 
@@ -68,13 +83,15 @@ def check_write(path,*,expected_bytes=0):
         raise StorageBudgetExceeded("write escaped the declared own task output root")
     free=shutil.disk_usage(policy["filesystem"]).free
     requested=max(0,int(expected_bytes));margin=policy.get("concurrent_write_margin_bytes",0)
-    if free-requested-margin<policy["minimum_free_bytes"]:
-        raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={policy['minimum_free_bytes']}")
+    disk_policy=task_disk_policy(root,policy['minimum_free_bytes'])
+    below_floor=free-requested-margin<disk_policy['minimum_free_bytes']
+    if below_floor and not disk_policy['pause_new_jobs_only']:
+        raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={disk_policy['minimum_free_bytes']}")
     used=allocated_bytes(root)
     if used+requested+margin>policy["maximum_task_bytes"]:
         raise StorageBudgetExceeded(f"own output budget stop: allocated={used}, expected={requested}, limit={policy['maximum_task_bytes']}")
     return {"free_bytes":free,"own_allocated_bytes":used,"expected_write_bytes":requested,
-            "checked_unix":time.time(),"policy":policy}
+            "checked_unix":time.time(),"policy":policy,"effective_disk_policy":disk_policy,"pause_new_jobs":below_floor}
 
 
 def configure_integration_pilot(output,budget_root,*,parents,workers,minimum_free_bytes=150_000_000_000):

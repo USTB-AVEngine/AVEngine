@@ -6,6 +6,7 @@ Without that file, other room campaigns retain their existing behavior.
 from __future__ import annotations
 import json
 import math
+import time
 from pathlib import Path
 import shutil
 import subprocess
@@ -60,10 +61,16 @@ def native_gpu_preflight(output_root, gpu_index):
     free = float(text.split()[0])
     if not math.isfinite(free) or free < policy["required_free_mib"]:
         raise RuntimeError("reserved native GPU has less than measured peak plus 4GiB free")
-    disk_free = shutil.disk_usage(Path(output_root).resolve()).free
-    if disk_free < policy["minimum_disk_free_bytes"]:
-        raise RuntimeError("shared disk free-space floor is insufficient before native launch")
+    from avengine.timeline.v7_storage_budget import task_disk_policy
+    while True:
+        disk_free = shutil.disk_usage(Path(output_root).resolve()).free
+        disk_policy = task_disk_policy(output_root,policy["minimum_disk_free_bytes"])
+        if disk_free >= disk_policy['minimum_free_bytes']:break
+        if not disk_policy['pause_new_jobs_only']:
+            raise RuntimeError("shared disk free-space floor is insufficient before native launch")
+        time.sleep(10)  # No UE job exists yet; pause only this new launch.
+
     return {"gpu_index": int(gpu_index), "gpu_uuid": card.findtext("uuid"),
             "free_mib": free, "required_free_mib": policy["required_free_mib"],
-            "shared_disk_free_bytes": disk_free, "policy_path": policy["policy_path"],
+            "shared_disk_free_bytes": disk_free, "minimum_disk_free_bytes":disk_policy["minimum_free_bytes"], "policy_path": policy["policy_path"],
             "measurement_command": ["nvidia-smi", "-q", "-x"]}
