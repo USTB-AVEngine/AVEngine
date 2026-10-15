@@ -20,20 +20,33 @@ def launch_minimum_free_bytes(policy=None, now=None):
 
 
 ENV_KEY="AVENGINE_V7_STORAGE_BUDGET"
-TEMP_HEADROOM_UNTIL=datetime.datetime(2026,10,15,10,30,tzinfo=datetime.timezone.utc)
-ACCEPTANCE_ROOT_NAMES=frozenset({'v7_acceptance_20261015','v7_gap_motion_20261015','v7_gap_demand_20261015','v7_gap_kujiale_20261015'})
+def resolve_launch_disk_policy(policy=None,*,root=None):
+    """Read only an explicit caller policy or an optional task configuration.
+
+    No output-directory name has special meaning. An absent configuration is
+    the ordinary launch policy, including the normal 100GB filesystem floor.
+    """
+    if policy is not None:return dict(policy)
+    if root is None:return {}
+    path=Path(root)/'inputs/task_scope.json'
+    if not path.is_file():return {}
+    configured=json.loads(path.read_text()).get('temporary_disk_policy')
+    if not configured:return {}
+    return {'minimum_free_bytes':int(configured['minimum_free_bytes']),
+        'expires_utc':configured['expires_utc'],
+        'after_expiry_minimum_free_bytes':int(configured['normal_minimum_free_bytes'])}
 
 
-def acceptance_minimum_free_bytes(now=None):
-    now=now or datetime.datetime.now(datetime.timezone.utc)
-    return 60_000_000_000 if now<TEMP_HEADROOM_UNTIL else 100_000_000_000
+def acceptance_minimum_free_bytes(now=None,policy=None):
+    """Compatibility name for a supplied policy; default has no task exception."""
+    return launch_minimum_free_bytes(policy,now)
 
 
 def policy_minimum_free_bytes(policy,now=None):
-    if policy['minimum_free_bytes']==0:return 0  # admitted producers retain their write permission
-    if Path(policy['root']).name in ACCEPTANCE_ROOT_NAMES:
-        return acceptance_minimum_free_bytes(now)
-    return policy['minimum_free_bytes']
+    if policy['minimum_free_bytes']==0:return 0
+    configured=policy.get('launch_disk_policy')
+    return launch_minimum_free_bytes(configured,now)if configured else policy['minimum_free_bytes']
+
 class StorageBudgetExceeded(RuntimeError):
     pass
 
@@ -135,7 +148,7 @@ def check_write(path,*,expected_bytes=0):
             "checked_unix":time.time(),"policy":policy,"effective_disk_policy":disk_policy,"pause_new_jobs":below_floor}
 
 
-def configure_integration_pilot(output,budget_root,*,parents,workers,minimum_free_bytes=150_000_000_000):
+def configure_integration_pilot(output,budget_root,*,parents,workers,minimum_free_bytes=150_000_000_000,launch_disk_policy=None):
     """Explicit owner-authorized small pilot; the older review policy stays intact."""
     output=Path(output).resolve()
     if budget_root is None:raise StorageBudgetExceeded('integration pilot requires its own budget root')
@@ -143,10 +156,11 @@ def configure_integration_pilot(output,budget_root,*,parents,workers,minimum_fre
     if not root.is_relative_to(Path('/data')) or root==Path('/data') or not output.is_relative_to(root):
         raise StorageBudgetExceeded('integration pilot output escaped its task root')
     if not 1<=parents<=30 or not 1<=workers<=16:raise StorageBudgetExceeded('integration pilot is limited to 30 parents and 16 workers')
-    if minimum_free_bytes<(acceptance_minimum_free_bytes()if root.name in ACCEPTANCE_ROOT_NAMES else 100_000_000_000):raise StorageBudgetExceeded('explicit task headroom is below the current owner floor')
+    launch_disk_policy=resolve_launch_disk_policy(launch_disk_policy,root=root)
+    if minimum_free_bytes<launch_minimum_free_bytes(launch_disk_policy):raise StorageBudgetExceeded('explicit task headroom is below configured launch floor')
     policy={'root':str(root),'filesystem':'/data','minimum_free_bytes':minimum_free_bytes,
         'maximum_task_bytes':99_000_000_000,'concurrent_write_margin_bytes':workers*64_000_000,
-        'policy':'owner stage-one integration pilot: <=100GB including worktree, >=150GB shared free','local_48g':True}
+        'policy':'explicit task-local launch and storage configuration','local_48g':True,'launch_disk_policy':launch_disk_policy}
     os.environ[ENV_KEY]=json.dumps(policy,sort_keys=True);check_write(output,expected_bytes=0)
     return policy
 

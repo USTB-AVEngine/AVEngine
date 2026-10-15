@@ -34,6 +34,7 @@ def run_worker(manifest,slot):
     active_storage=json.loads(os.environ[ENV_KEY]);active_storage['minimum_free_bytes']=0
     os.environ[ENV_KEY]=json.dumps(active_storage)
     inputs=load(task.get('runtime_input') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
+    inputs['launch_disk_policy']=manifest.get('launch_disk_policy',{})
     inputs.update(fresh_rir_workers=min(16,max(1,int(task.get('fresh_rir_workers',manifest.get('fresh_rir_workers',16))))),fresh_rir_cpu_ids=list(cpus))
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])

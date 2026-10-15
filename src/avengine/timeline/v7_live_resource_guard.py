@@ -31,7 +31,7 @@ def decide(snapshot,policy):
 
 def observe(manifest):
     from tools.timeline.monitor_v7_acceptance import output_processes,processes,proc
-    from avengine.timeline.v7_storage_budget import acceptance_minimum_free_bytes
+    from avengine.timeline.v7_storage_budget import launch_minimum_free_bytes
     output=Path(manifest['output_root']).resolve();peers=[Path(p).resolve()for p in manifest.get('peer_output_roots',[])]
     all_records=output_processes([output,*peers]);own_records=output_processes([output]);trees=[];groups={}
     for root in [output,*peers]:
@@ -53,7 +53,7 @@ def observe(manifest):
         'combined_pss_bytes':sum(p['pss_bytes']for p in all_records),'processes':len(all_records),
         'MemAvailable_bytes':next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:')),
         'data_free_bytes':shutil.disk_usage(manifest.get('resource_filesystem','/data')).free,
-        'minimum_disk_free_bytes':acceptance_minimum_free_bytes(now),
+        'minimum_disk_free_bytes':launch_minimum_free_bytes(manifest.get('launch_disk_policy'),now),
         'ranked_parent_trees':sorted(trees,key=lambda p:p['PSS_bytes'],reverse=True),'active_processes_signalled':False}
     decision=decide(result,manifest);result.update(decision);result['paused_new_jobs']=decision['pause_new_parents'];result['pss_bytes']=result['own_pss_bytes']
     result['parent_tree_over_limit']=[r for r in trees if r['PSS_bytes']>r['limit_bytes']]

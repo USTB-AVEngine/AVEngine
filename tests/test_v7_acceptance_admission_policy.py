@@ -75,13 +75,14 @@ def test_independent_helper_sdk_prefetch_is_included_without_worker_receipt(tmp_
         child.stdin.close();child.wait(timeout=5)
 
 
-def test_owner_temporary_disk_floor_expires_at_1230_singapore():
+def test_explicit_temporary_disk_floor_expires_at_the_configured_deadline():
     from avengine.timeline.v7_storage_budget import acceptance_minimum_free_bytes,policy_minimum_free_bytes
     before=datetime.datetime(2026,10,15,4,29,tzinfo=datetime.timezone.utc)
     after=datetime.datetime(2026,10,15,10,30,tzinfo=datetime.timezone.utc)
-    assert acceptance_minimum_free_bytes(before)==60_000_000_000
-    assert acceptance_minimum_free_bytes(after)==100_000_000_000
-    assert policy_minimum_free_bytes({'root':'/own/v7_acceptance_20261015','minimum_free_bytes':100_000_000_000},before)==60_000_000_000
+    configured={'minimum_free_bytes':60_000_000_000,'expires_utc':'2026-10-15T10:30:00+00:00','after_expiry_minimum_free_bytes':100_000_000_000}
+    assert acceptance_minimum_free_bytes(before,configured)==60_000_000_000
+    assert acceptance_minimum_free_bytes(after,configured)==100_000_000_000
+    assert policy_minimum_free_bytes({'root':'/own/arbitrary-task','minimum_free_bytes':100_000_000_000,'launch_disk_policy':configured},before)==60_000_000_000
     assert policy_minimum_free_bytes({'root':'/other/review','minimum_free_bytes':100_000_000_000},before)==100_000_000_000
 
 
@@ -99,7 +100,7 @@ def test_owner_explicit_parallel_increase_retains_cpu_and_memory_guards():
     assert limits=={'maximum_pss_bytes':180_000_000_000,'maximum_parents':18,'maximum_cpu_processes':80}
     fields=dict(now=now,deadline=now+datetime.timedelta(hours=2),pss=150_000_000_000,
                 limit=limits['maximum_pss_bytes'],free=80_000_000_000,allocated_size=10_000_000_000,
-                available_memory=31_000_000_000)
+                available_memory=31_000_000_000,disk_policy={'minimum_free_bytes':60_000_000_000,'expires_utc':'2026-10-15T10:30:00+00:00','after_expiry_minimum_free_bytes':100_000_000_000})
     assert launch_pause_reason(**fields)==''
     fields['available_memory']=29_000_000_000
     assert launch_pause_reason(**fields)=='memory_headroom_no_new_jobs'
@@ -135,3 +136,11 @@ def test_combined_workloads_and_critical_memory_pause_new_launches():
     assert launch_pause_reason(**fields)=='combined_PSS_limit_no_new_jobs'
     fields.update(combined_pss=130_000_000_000,available_memory=19_000_000_000)
     assert launch_pause_reason(**fields)=='critical_memory_ranked_alert_no_new_jobs'
+
+
+def test_no_explicit_disk_exception_uses_normal_behavior_for_any_directory(tmp_path):
+    from avengine.timeline.v7_storage_budget import resolve_launch_disk_policy,acceptance_minimum_free_bytes,policy_minimum_free_bytes
+    assert resolve_launch_disk_policy()=={}
+    assert resolve_launch_disk_policy(root=tmp_path/'never-configured')=={}
+    assert acceptance_minimum_free_bytes()==100_000_000_000
+    assert policy_minimum_free_bytes({'root':str(tmp_path/'arbitrary-task'),'minimum_free_bytes':100_000_000_000})==100_000_000_000
