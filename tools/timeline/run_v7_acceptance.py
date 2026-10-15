@@ -10,6 +10,11 @@ def write(p,data):
     p=Path(p);p.parent.mkdir(parents=True,exist_ok=True);t=p.with_suffix(p.suffix+'.tmp');t.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n');t.replace(p)
 
 
+def add_required_condition(row,condition):
+    conditions=row['scene_demand'].setdefault('requested_conditions',[])
+    if condition not in conditions:conditions.append(condition)
+
+
 def run_worker(manifest,slot):
     task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve()
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
@@ -38,7 +43,7 @@ def run_worker(manifest,slot):
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         row=load(previous) if previous.exists() else add_scene_demand(row,state,focus=task.get('focus','content_binding'))
         row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
-        row['scene_demand']['requested_conditions'].append('authored_native_quartet')
+        add_required_condition(row,'authored_native_quartet')
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
         from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
     write(root/'inputs/planned'/f'{slot:03d}.json',row)

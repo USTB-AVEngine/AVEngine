@@ -30,3 +30,19 @@ def test_active_job_resource_policy_keeps_own_output_boundary(tmp_path,monkeypat
     assert check_write(root/'media',expected_bytes=10**15)['resource_admission_managed']
     with pytest.raises(StorageBudgetExceeded,match='escaped'):
         check_write(tmp_path/'other')
+
+
+def test_registered_required_condition_is_idempotent_for_recipe_resume():
+    from copy import deepcopy
+    from tools.timeline.run_v7_acceptance import add_required_condition
+    row={'scene_demand':{'requested_conditions':['two_speakers']}}
+    add_required_condition(row,'authored_native_quartet');expected=deepcopy(row)
+    add_required_condition(row,'authored_native_quartet')
+    assert row==expected
+
+
+def test_historical_recipe_conditions_are_preserved_during_resume():
+    from tools.timeline.run_v7_acceptance import add_required_condition
+    row={'scene_demand':{'requested_conditions':['authored_native_quartet']*3}}
+    add_required_condition(row,'authored_native_quartet')
+    assert len(row['scene_demand']['requested_conditions'])==3
