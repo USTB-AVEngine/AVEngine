@@ -276,15 +276,35 @@ def available_single_parent_allocation(public,private,requested):
         'actual_available':dict(available),'canonical_answers_changed':False}
 
 
+def current_selection_snapshot(demand,*,next_questions):
+    from avengine.timeline.v7_demand import demand_snapshot,read_demand_state,SELECTION_FEEDBACK_ENV
+    state={'logical_questions':demand['observed_logical_questions'],
+           'family_counts':demand['observed_family_counts']}
+    if os.environ.get(SELECTION_FEEDBACK_ENV):
+        state=read_demand_state(os.environ[SELECTION_FEEDBACK_ENV])
+    return demand_snapshot({**state,'target_shares':demand['target_shares']},next_questions=next_questions)
+
+
+def advance_independent_feedback(parent_id,chosen,answers,counts,seen):
+    from collections import Counter
+    from avengine.timeline.v7_question_independence import independence_key
+    added=Counter()
+    for member,questions in chosen.items():
+        gold={g['question_id']:g for g in answers[member]}
+        for q in {q['logical_question_id']:q for q in questions}.values():
+            key,_=independence_key(parent_id,q,gold[q['question_id']])
+            if key in seen:continue
+            seen.add(key);counts[q['qa_id']]=counts.get(q['qa_id'],0)+1;added[q['qa_id']]+=1
+    return dict(added)
+
+
 def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5,family_counts=None):
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
     from avengine.qa.v7_group_selection import select_counterfactual_group
     demand=row.get('scene_demand')
     if demand:
-        from avengine.timeline.v7_demand import demand_snapshot
-        snapshot=demand_snapshot({'logical_questions':demand['observed_logical_questions'],
-            'family_counts':demand['observed_family_counts'],'target_shares':demand['target_shares']},
+        snapshot=current_selection_snapshot(demand,
             next_questions=row['window_count']*row['questions_per_window']*len(members))
         family_counts=snapshot['selection_counts']
     names={m['member'] for m in members}
@@ -296,7 +316,7 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
     partial=row.get('acceptance_allow_partial_families') is True
     if partial and (names!={'v0_a0'} or row.get('trial_only') is not True):
         raise ValueError('partial acceptance questions require explicit trial-only single-member CPU parent')
-    selected={name:[] for name in names};audits=[]
+    selected={name:[] for name in names};audits=[];feedback_seen=set()
     for index in range(row['window_count']):
         public={};private={};allocations={};window_ids={}
         for member in members:
@@ -356,10 +376,11 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
             audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'canonical_answers_changed':False,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected':any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs),'status':'reserved' if any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs) else 'partial_skipped','skipped_empty_family':audit.get('skipped_unavailable_family_reservations',[])}
         if demand:
             audit['demand_feedback']=deepcopy(snapshot)
-            # Subsequent windows see only actual selections from preceding crops.
-            for qs in chosen.values():
-                for q in {q['logical_question_id']:q for q in qs}.values():
-                    family_counts[q['qa_id']]=family_counts.get(q['qa_id'],0)+1
+            # Repeated questions in overlapping crops or quartet members do not
+            # consume an independent family deficit more than once.
+            audit['independent_feedback_added']=advance_independent_feedback(
+                row['scene_id'],chosen,gold,family_counts,feedback_seen)
+            audit['selection_feedback_unit']='independent_parent_question'
         audits.append(audit)
         for name in names:
             check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name],allow_partial_window=partial)

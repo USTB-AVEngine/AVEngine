@@ -4,6 +4,8 @@ Requests guide real asset/timing/route proposals; they never certify QA truth.
 The default target shares are configurable production goals, not measured facts.
 """
 from __future__ import annotations
+
+SELECTION_FEEDBACK_ENV='AVENGINE_V7_SELECTION_FEEDBACK_STATE'
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path

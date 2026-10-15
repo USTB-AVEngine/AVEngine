@@ -33,7 +33,8 @@ def run_worker(manifest,slot):
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
-    from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,add_scene_demand,record_selected_parent
+    from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,add_scene_demand,record_selected_parent,SELECTION_FEEDBACK_ENV
+    os.environ[SELECTION_FEEDBACK_ENV]=str(root/'inputs/demand_state.json')
     state=read_demand_state(root/'inputs/demand_state.json')
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
@@ -51,7 +52,9 @@ def run_worker(manifest,slot):
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
         'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
-        'code_commit':task.get('snapshot_commit',manifest['code_commit']),'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        'code_commit':task.get('snapshot_commit',manifest['code_commit']),
+        'code_snapshot':task.get('snapshot_worktree',manifest['worktree']),
+        'selection_feedback_state':os.environ[SELECTION_FEEDBACK_ENV],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     try:
         result=generate(row,house,inputs,catalog,source,human,str(root/'native'))
