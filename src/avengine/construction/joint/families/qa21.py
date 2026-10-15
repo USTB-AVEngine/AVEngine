@@ -147,6 +147,8 @@ class Qa21Plugin:
         from avengine.construction.joint.types import ScenePlan
         target_id = next((aid for aid, spec in self.bodies.items() if spec == body and aid in self.targets), None)
         if target_id is None:return True
+        from avengine.construction.joint.geometry import framing
+        if framing(camera, point, body)[0] != 'inside':return False
         if not self.assets:return False
         actor = static_actor(target_id, point, body, duration_s=1./30., fps=30.)
         prediction = self.exact_prediction(context, ScenePlan(camera, {target_id: actor}, duration_s=1./30.), target_id)
