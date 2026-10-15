@@ -14,12 +14,13 @@ def save(path,data):
     temp=path.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n');temp.replace(path)
 def now():return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-def candidate_rooms(houses):
-    eligible=[h for h in houses if h['split']=='train' and h['acoustic_status']=='pass']
+def candidate_rooms(houses,contract=None,excluded_houses=()):
+    eligible=[h for h in houses if h['split']=='train' and h['acoustic_status']=='pass' and h['house']not in excluded_houses and h['house']not in (contract or {}).get('test_houses',[])]
+    legal=None if contract is None else {(r['house'],r['room_id'])for r in contract['rooms']if 'standing_human'in r['categories']}
     groups={family:[] for family in ('hm3d','mp3d')}
     for h in eligible:
         if h['family'] not in groups:continue
-        rooms=sorted(h['checked_rooms'],key=lambda r:-r.get('floor_area_m2',0))
+        rooms=sorted((r for r in h['checked_rooms']if legal is None or (h['house'],r['room_label'])in legal),key=lambda r:-r.get('floor_area_m2',0))
         if rooms:groups[h['family']].append((h,rooms))
     for group in groups.values():group.sort(key=lambda pair:(-max(r.get('floor_area_m2',0)for r in pair[1]),pair[0]['house']))
     ordered=[]
@@ -40,6 +41,9 @@ def main():
     p.add_argument('--maximum-attempts',type=int,default=80)
     p.add_argument('--seed',type=int,default=1)
     p.add_argument('--first-only',action='store_true')
+    p.add_argument('--admission-manifest',type=Path)
+    p.add_argument('--exclude-evidence-roots',type=Path,nargs='*',default=[])
+    p.add_argument('--launch-until-utc')
     a=p.parse_args()
     if not 1<=a.workers<=6:raise ValueError('parent workers must be <=6; shared native SDK queue reserves <=10')
     out=a.output_root.resolve();out.mkdir(parents=True,exist_ok=True);budget=(a.resource_budget_root or out).resolve()
@@ -51,11 +55,14 @@ def main():
             'parent':{'slots':6,'minimum_available_bytes':30_000_000_000},
             'motion_capture':{'slots':4,'minimum_available_bytes':30_000_000_000,'maximum_system_pss_bytes':190_000_000_000}})
     policy=load(policy_path)
-    policy['template_visual']={'slots':1,'minimum_available_bytes':30_000_000_000,
+    policy['template_visual']={'slots':min(2,a.workers),'minimum_available_bytes':30_000_000_000,
         'expected_incremental_bytes':16_000_000_000,'maximum_system_pss_bytes':190_000_000_000}
     save(policy_path,policy)
     manifest_path=out/'inputs/motion_quartet_batch.json'
-    commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.worktree,text=True).strip()
+    from avengine.timeline.v7_frozen_code import source_commit,verify_source
+    if not verify_source(a.worktree):raise ValueError('clean committed source snapshot required')
+    commit=source_commit(a.worktree)
+    admission_policy=load(a.admission_manifest)if a.admission_manifest else {}
     if manifest_path.exists():manifest=load(manifest_path)
     else:
         manifest={'schema':'v7-automatic-motion-quartet-batch-v1','output_root':str(out),
@@ -65,11 +72,18 @@ def main():
             'houses_cpu':str(a.houses.resolve()),'assets_cpu':str(a.assets.resolve()),
             'human_cpu':str(a.human_registry.resolve()),'human_registered_cpu':str(a.human_registry.resolve()),
             'cpu_ids':sorted(os.sched_getaffinity(0))[:16],
-            'disk_launch_policy':{'minimum_free_bytes':60_000_000_000,
-                'expires_utc':'2026-10-15T10:30:00+00:00','after_expiry_minimum_free_bytes':100_000_000_000},
+            'launch_disk_policy':admission_policy.get('launch_disk_policy',{}),
             'parents':[]}
         save(manifest_path,manifest)
-    houses=load(a.houses)['houses'];candidates=candidate_rooms(houses)
+    feedback=out/'inputs/demand_state.json'
+    if not feedback.exists() and a.admission_manifest:
+        baseline=Path(admission_policy['output_root'])/'inputs/demand_state.json'
+        if baseline.is_file():save(feedback,load(baseline))
+    houses=load(a.houses)['houses']
+    from avengine.timeline.v7_automatic_feedback import from_passed_exports
+    excluded=from_passed_exports(a.exclude_evidence_roots).get('observed_houses',[])if a.exclude_evidence_roots else []
+    candidates=candidate_rooms(houses,load(a.contract),excluded)
+    if not candidates:raise ValueError('no untouched legal training house admits the requested humans')
     pending=[]
     existing={(t['row']['house'],t['row']['room_id'],t.get('construction_attempt',0))for t in manifest['parents']}
     for attempt in range(3):
@@ -119,21 +133,32 @@ def main():
                     result=report();print(json.dumps(result,ensure_ascii=False),flush=True);return
         if result['status']=='complete' and not active:return
         completed=sum(r['status']in {'passed','failed'}for r in result['parents'])
-        while pending and len(active)<(1 if a.first_only else a.workers) and len(manifest['parents'])<a.maximum_attempts and result['status']!='complete':
-            if psutil.virtual_memory().available<30_000_000_000 or shutil.disk_usage('/data').free<launch_minimum_free_bytes(manifest['disk_launch_policy']):break
+        smoke_ready=any(r['status']=='passed' and all(r.get('family_counts',{}).get(f,0)>0 for f in FAMILIES)for r in result['parents'])
+        while pending and len(active)<(1 if a.first_only or not smoke_ready else a.workers) and len(manifest['parents'])<a.maximum_attempts and result['status']!='complete':
+            if a.launch_until_utc and datetime.datetime.now(datetime.timezone.utc)>=datetime.datetime.fromisoformat(a.launch_until_utc):
+                pending=[];break
+            if psutil.virtual_memory().available<30_000_000_000 or shutil.disk_usage('/data').free<launch_minimum_free_bytes(manifest.get('launch_disk_policy')):break
+            from avengine.timeline.v7_storage_budget import allocated_bytes
+            if allocated_bytes(budget)+1_000_000_000>60_000_000_000:break
+            if a.admission_manifest:
+                from avengine.timeline.v7_live_resource_guard import observe
+                limits=observe(load(a.admission_manifest))
+                if limits['pause_new_parents'] or limits['own_pss_bytes']+30_000_000_000>admission_policy.get('maximum_pss_bytes',150_000_000_000) or limits['combined_pss_bytes']+30_000_000_000>admission_policy.get('maximum_combined_pss_bytes',190_000_000_000):break
             house,room,attempt=pending.pop(0);slot=len(manifest['parents'])
-            seed=a.seed+slot*101+attempt;identity=hashlib.sha256((house['house']+room['room_label']+str(seed)).encode()).hexdigest()[:14]
+            seed=int.from_bytes(hashlib.sha256((str(a.seed)+house['house']+room['room_label']).encode()).digest()[:6],'big');identity=hashlib.sha256((house['house']+room['room_label']+str(seed)).encode()).hexdigest()[:14]
+            if any(t['row']['house']==house['house'] and (out/'evidence/jobs'/f"{t['slot']:03d}.json").exists() and load(out/'evidence/jobs'/f"{t['slot']:03d}.json").get('status')=='passed'for t in manifest['parents']):continue
             row={'schema':'v7-visible-registered-pilot-phase2-v1','split':{'development':'dev'}.get(house['split'],house['split']),
                  'house':house['house'],'room_id':room['room_label'],'scene_seed':seed,
-                 'scene_id':'motion_quartet_'+identity,'question_quota_base':10,'questions_per_window':14,
+                 'scene_id':'motion_quartet_'+identity+'__attempt_'+str(attempt),'question_quota_base':10,'questions_per_window':14,
                  'window_count':5,'members':['v0_a0'],'trial_only':True}
             task={'slot':slot,'row':row,'device':'cpu','profile':'phase2','family':house['family'],
-                  'constructor':'motion_quartet_template','construction_attempt':attempt}
+                  'constructor':'motion_quartet_template','focus':'motion_quartet_template','construction_attempt':attempt}
             manifest['parents'].append(task);save(manifest_path,manifest)
             logfile=out/'logs'/f'parent_{slot:03d}.log';stream=logfile.open('a')
-            command=[sys.executable,str(a.worktree/'tools/timeline/run_v7_frozen_acceptance.py'),
+            command=[sys.executable,str(a.worktree/'tools/timeline/run_v7_acceptance.py'),
                      '--manifest',str(manifest_path),'--worker',str(slot)]
-            process=subprocess.Popen(command,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True);stream.close()
+            env=dict(os.environ);env['PYTHONPATH']=str(a.worktree/'src')+os.pathsep+str(a.worktree)+os.pathsep+env.get('PYTHONPATH','')
+            process=subprocess.Popen(command,env=env,stdin=subprocess.DEVNULL,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True);stream.close()
             active[slot]={'process':process,'pid':process.pid,'create_time':psutil.Process(process.pid).create_time(),
                           'command':command,'log':str(logfile)}
             print(now(),'STARTED',slot,process.pid,house['house'],room['room_label'],flush=True)

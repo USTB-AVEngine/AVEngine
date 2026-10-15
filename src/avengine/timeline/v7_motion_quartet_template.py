@@ -135,7 +135,7 @@ def find_template_route(room, pathfinder, seed, attempt=0):
                     continue
                 delta = approximate_mouth[75]-listener
                 yaw = math.degrees(math.atan2(delta[0], -delta[2]))
-                return {**profile, 'speed_m_s': speed, 'speed_range_m_s': [.4, 1.2],
+                return {**profile, 'speed_m_s': speed, 'speed_range_m_s': [.8, 1.4],
                         'centre_xz_m': [centre.x, centre.y], 'heading_rad': float(angle),
                         'straight_length_m': length, 'turn_radius_m': radius,
                         'listener_m': listener.tolist(), 'camera_yaw_deg': yaw,
@@ -172,11 +172,11 @@ def find_template_route(room, pathfinder, seed, attempt=0):
                 accepted+=1
                 if accepted<=attempt:continue
                 delta=positions[75]+[0,1.5,0]-listener
-                return {'single_pass':True,'speed_m_s':float(speed),'speed_range_m_s':[.4,1.2],
+                return {'single_pass':True,'speed_m_s':float(speed),'speed_range_m_s':[.8,1.4],
                     'emission_speed_range_m_s':[.8,1.2],'centre_xz_m':[centre.x,centre.y],
                     'heading_rad':float(angle),'straight_length_m':length,'turn_radius_m':0.,
                     'phase_distance_offset_m':0.,'straight_start_s':0.,'straight_end_s':7.5,
-                    'turn_speed_m_s':.4,'listener_m':listener.tolist(),
+                    'turn_speed_m_s':.8,'listener_m':listener.tolist(),
                     'camera_yaw_deg':math.degrees(math.atan2(delta[0],-delta[2])),
                     'distance_branches':[{'offset_s':0.,'branch':'nearer'}],
                     'minimum_emission_radial_cosine':1.,'maximum_radial_angle_deg':30.,
@@ -218,7 +218,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
                 'phase2_whole_animal_recordings', 'phase2_effect_start_offsets_s']:
         row.pop(key, None)
     row['motion_requests'] = {a: {'action': 'walk', 'speed_m_s': route['speed_m_s'],
-        'scene_speed_range_m_s': [.4, 1.2], 'motion_execution_revision': 'species-scene-speeds-native-curved-waypoints-v1',
+        'scene_speed_range_m_s': [.8, 1.4], 'motion_execution_revision': 'species-scene-speeds-native-curved-waypoints-v1',
         'motion_quartet_route': route, 'allow_registered_walk_tts': True,
         'maximum_native_route_attempts': 32}}
     measured = []
@@ -235,15 +235,16 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
             'method': 'measured exact nonzero waveform envelope; conservative full speech support'}
         measured.append(record)
     offsets=[0.] if route.get('single_pass') else [0.,10.,20.]
+    row['phase2_authored_speech_schedule_s']={a:[offset+.3 for offset in offsets],b:list(offsets)}
     requests = []
     for qa, branch in [('QA-06', 'moving'), ('QA-16', None), ('QA-17', 'yes')]:
         requests.append({'qa_id': qa, 'branch': branch, 'target_asset_id': a,
-            'speed_m_s': route['speed_m_s'], 'speed_range_m_s': [.4, 1.2],
+            'speed_m_s': route['speed_m_s'], 'speed_range_m_s': [.8, 1.4],
             'minimum_motion_s': 2., 'end_hold_s': 2.5, 'offsets_s': offsets,
             'wet_tail_planning_bound_s': None})
     for item in route['distance_branches']:
         requests.append({'qa_id': 'QA-15', 'branch': item['branch'], 'target_asset_id': a,
-            'speed_m_s': route['speed_m_s'], 'speed_range_m_s': [.4, 1.2],
+            'speed_m_s': route['speed_m_s'], 'speed_range_m_s': [.8, 1.4],
             'minimum_distance_change_m': 1.5, 'offsets_s': [item['offset_s']]})
     demand=deepcopy(row.get('scene_demand',{}))
     demand.update(focus='motion_quartet',requested_conditions=['motion_quartet'],

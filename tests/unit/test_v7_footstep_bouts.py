@@ -33,3 +33,13 @@ def test_question_and_protocol_counts_are_bouts_and_raw_steps_are_preserved():
 def test_missing_measured_tail_cannot_certify_bout_stop():
     scene,proof=fixture();proof['events']['0'].pop('wet_intervals_global_s')
     with pytest.raises(ValueError,match='actual measured wet'):footstep_bout_question_inputs(scene,proof)
+
+
+def test_bout_geometry_retains_a_real_native_attached_foot_instead_of_the_mouth():
+    scene,proof=fixture((10,15),('person','person'))
+    result,evidence=footstep_bout_question_inputs(scene,proof)
+    event=result['events'][0]
+    assert event['endpoint_id']==scene['events'][0]['endpoint_id']
+    assert event['endpoint_id']!='person'
+    assert evidence['events'][event['event_id']]['native_endpoint_id']==event['endpoint_id']
+    assert scene['sources']['person']==result['sources']['person']

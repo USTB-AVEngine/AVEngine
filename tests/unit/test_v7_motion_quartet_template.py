@@ -20,7 +20,7 @@ def test_unseen_open_room_gets_native_straight_windows_and_alternating_distance_
     assert [x['branch']for x in result['distance_branches']]==['nearer','farther','nearer']
     assert .8<=result['speed_m_s']<=1.2
     assert result['minimum_emission_radial_cosine']>=np.cos(np.deg2rad(30))
-    assert result['straight_length_m']<result['speed_m_s']*6.9
+    assert .8*7.4<=result['straight_length_m']<=result['speed_m_s']*7.6
 
 def test_tts_walk_permission_does_not_replace_complete_native_admission():
     scene={'pending_registered_walk_tts':['a'],'sources':{'a':{'asset_id':'registered body'}}}
@@ -34,13 +34,13 @@ def test_turns_use_exact_distance_clock_and_do_not_interrupt_speech_or_post_quer
     _,_,segments=stadium_samples(distance+profile['phase_distance_offset_m'],profile['straight_length_m'],profile['turn_radius_m'])
     for offset in [0,10,20]:
         selected=(times>=offset+1)&(times<=offset+7.5)
-        assert np.min(velocity[selected])>=.4
+        assert np.min(velocity[selected])>=.8
         emitting=(times>=offset+1)&(times<=offset+3.4)
         assert np.allclose(velocity[emitting],.9)
         assert len(set(segments[selected]))==1
     assert distance[0]==pytest.approx(0.)
     assert np.all(np.diff(distance)>0)
-    assert velocity.min()>=.4
+    assert velocity.min()>=.8
 
 def test_native_narrow_room_uses_one_complete_straight_pass_with_all_four_conditions():
     room={'floor_polygon':{'type':'Polygon','coordinates':[[[-6,-.5],[6,-.5],[6,.5],[-6,.5],[-6,-.5]]]},'measured_floor_y_m':0.}

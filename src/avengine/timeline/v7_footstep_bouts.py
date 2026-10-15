@@ -8,7 +8,7 @@ from copy import deepcopy
 import hashlib
 import math
 
-REVISION='native-footstep-bouts-onset-gap-600ms-v1'
+REVISION='native-footstep-bouts-onset-gap-600ms-v2-native-foot-geometry'
 
 def group_footstep_bouts(scene, *, maximum_onset_gap_s=.6):
     groups={}

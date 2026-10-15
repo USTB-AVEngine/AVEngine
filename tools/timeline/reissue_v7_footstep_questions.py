@@ -53,7 +53,10 @@ def reissue(manifest_path,slot):
     if old['status']!='passed':raise ValueError('only a previously fully admitted slot can be re-questioned')
     if old.get('question_annotation_revision')==REVISION:return old
     pointer_path=Path(old['export']['source_seal']);pointer=read_json(pointer_path)
-    source=pointer_path.parent;recipe=pointer['recipe']['input_recipe'];row=deepcopy(recipe['row'])
+    recipe=pointer['recipe']['input_recipe']
+    while recipe.get('question_reissue'):
+        pointer_path=Path(recipe['question_reissue']['original_source_seal']);pointer=read_json(pointer_path);recipe=pointer['recipe']['input_recipe']
+    source=pointer_path.parent;row=deepcopy(recipe['row'])
     permitted=[output,*[Path(p).resolve()for p in m.get('peer_output_roots',[])]]
     if not any(source.resolve().is_relative_to(p)for p in permitted):raise ValueError('source outside authorized read-only evidence roots')
     if row['members']!=['v0_a0']or row['split']!='train':raise ValueError('complete single-member native CPU footstep parent required')

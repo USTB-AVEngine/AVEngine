@@ -34,14 +34,20 @@ def observe(manifest):
     from avengine.timeline.v7_storage_budget import launch_minimum_free_bytes
     output=Path(manifest['output_root']).resolve();peers=[Path(p).resolve()for p in manifest.get('peer_output_roots',[])]
     all_records=output_processes([output,*peers]);own_records=output_processes([output]);trees=[];groups={}
-    for root in [output,*peers]:
+    task_roots=[output,*peers]
+    for parent in [output,*peers]:
+        for marker in parent.glob('*/inputs/motion_quartet_batch.json'):
+            if json.loads(marker.read_text()).get('schema')=='v7-automatic-motion-quartet-batch-v1':task_roots.append(marker.parent.parent.resolve())
+        for marker in parent.glob('*/AUTOMATION_RUN.json'):
+            if json.loads(marker.read_text()).get('schema')=='v7-automatic-run-v1':task_roots.append(marker.parent.resolve())
+    for root in dict.fromkeys(task_roots):
         roots=[]
         for path in(root/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
             try:job=json.loads(path.read_text());pid=job.get('pid');live=proc(pid)if pid else None
             except(OSError,ValueError):continue
             if job.get('status')!='running'or not live or str(root)not in live['cmd']:continue
             tree=processes([pid]);roots.append(pid)
-            trees.append({'task':root.name,'owned':root==output,'scene_id':job['scene_id'],'root_pid':pid,
+            trees.append({'task':root.name,'owned':root.is_relative_to(output),'scene_id':job['scene_id'],'root_pid':pid,
                 'PSS_bytes':sum(p['pss_bytes']for p in tree),'limit_bytes':int(job.get('maximum_parent_tree_pss_bytes',manifest.get('maximum_parent_tree_pss_bytes',30_000_000_000))),
                 'root_start_ticks':live['start_ticks'],'cpu_including_reaped_children_s':sum(p['cpu_s']for p in tree),
                 'log_mtime':(root/'logs'/f"parent_{job['slot']:03d}.log").stat().st_mtime if(root/'logs'/f"parent_{job['slot']:03d}.log").exists()else None,
