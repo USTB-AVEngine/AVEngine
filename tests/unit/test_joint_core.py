@@ -537,3 +537,29 @@ def test_native_fallback_requires_same_pose_physics_proof_and_live_payload():
     assert any(x.reason=="original_native_full_pose_overrides_coarse_map_miss"for x in result.certificate.checks)
     assert solve(c,request,plugin,prepare_and_verify=lambda *a:PreparedCandidate(object(),tuple(proof[:-1]))).status=="unavailable"
     assert solve(c,request,plugin,prepare_and_verify=lambda *a:PreparedCandidate(None,tuple(proof))).status=="unavailable"
+
+
+@pytest.mark.parametrize("side",["left","right"])
+def test_shared_entry_seed_preserves_side_and_fixed_view(side):
+    c=CameraPose((0.,1.25,0.),0.)
+    seed=tangent_entry_anchors(c.position_m,[0,0,-4.2],side)
+    camera=CameraPose(c.position_m,seed["camera_yaw_deg"])
+    body=BodySpec("human",.4,1.9,0.)
+    assert framing(camera,seed["start_m"],body)[0]=="outside"
+    assert framing(camera,seed["endpoint_m"],body)[0]=="inside"
+    assert not seed["native_pixel_truth_verified"]
+    assert entry_timing(seed["planning_length_m"],1.05)["start_s"]>.75
+
+
+def test_floor_height_is_solved_from_real_support_before_native_not_silently_lifted():
+    import trimesh
+    c=context()
+    floor=trimesh.creation.box((10.,.1,10.));floor.apply_translation([0,-.038,0]) # top=.012
+    c.floor_raycaster=MeshRaycaster(floor)
+    body=trimesh.creation.box((.6,1.8,.4));body.apply_translation([0,.9,0])
+    actor=static_actor("a",[0,0,-4],facing_rad=0.)
+    variants=list(floor_contact_variants(c,actor,body))
+    assert variants and variants[0].positions_m[0,1]==pytest.approx(.012,abs=1e-6)
+    np.testing.assert_array_equal(actor.positions_m[:,1],np.zeros(901))
+    np.testing.assert_array_equal(variants[0].positions_m[:,[0,2]],actor.positions_m[:,[0,2]])
+    assert variants[0].metadata["floor_contact_refinement"]["native_contact_checks_required"]
