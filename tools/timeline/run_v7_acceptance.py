@@ -22,6 +22,9 @@ def run_worker(manifest,slot):
         'minimum_free_bytes':task_disk_policy(root,100_000_000_000)['minimum_free_bytes'],'concurrent_write_margin_bytes':128_000_000,
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
     check_write(root,expected_bytes=0)
+    start=time.monotonic();cpu=time.process_time()
+    initial={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],'scene_id':row['scene_id'],'pid':os.getpid(),'status':'running','phase':'automatic construction / native input preflight','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'code_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=manifest['worktree'],text=True).strip()}
+    write(root/'evidence/jobs'/f'{slot:03d}.json',initial)
     inputs=load(task.get('runtime_inputs') or manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
@@ -58,10 +61,9 @@ def run_worker(manifest,slot):
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
         from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
     write(root/'inputs/planned'/f'{slot:03d}.json',row)
-    start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
         'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
-        'code_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=manifest['worktree'],text=True).strip(),'planned_code_commit':manifest['code_commit'],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        'code_commit':initial['code_commit'],'planned_code_commit':manifest['code_commit'],'status':'running','started_utc':initial['started_utc']}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     try:
         native_root=Path(task.get('native_output_root') or root/'native').resolve()
