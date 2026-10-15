@@ -643,3 +643,27 @@ def test_shared_full_sweep_compares_two_movers_at_same_frame(monkeypatch):
     result=native_full_mesh_sweep(video)
     assert len(result)==2 and all(c.status=="fail"for c in result)
     assert all(c.reason=="actual_synchronous_mover_collision_or_declared_clearance"for c in result)
+
+
+def test_extra_circular_body_envelope_can_only_defer_to_actual_native_sweep():
+    import trimesh
+    c=context();c.allow_native_map_fallback=True
+    c.walkable_map.layers["human"][70,94]=False
+    c.pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p)+[0,.17,0],distance_to_closest_obstacle=lambda p,r:1.)
+    floor=trimesh.creation.box((20.,.1,20.));floor.apply_translation([0,-.05,0]);c.floor_raycaster=MeshRaycaster(floor)
+    p=ScenePlan(c.cameras[0],{"a":static_actor("a",[0,0,-4],BodySpec("human",.59,1.8))})
+    checks=certify_plan(c,p).checks
+    assert any(x.name=="a:extra_body_width"and x.status=="unknown"and x.reason=="native_full_pose_required_for_map_fallback"for x in checks)
+    c.allow_native_map_fallback=False
+    assert any(x.name=="a:extra_body_width"and x.status=="fail"for x in certify_plan(c,p).checks)
+
+
+def test_fixed_clock_out_and_back_retains_pause_and_original_clock():
+    c=context();t=np.arange(901)/30;d=1.02*np.clip(t-1,0,2)+1.02*np.clip(t-6,0,2)
+    p=out_and_back(c,[-1,0,-4],[1,0],d,2.04,turn_interval_s=(4.8,5.8))
+    np.testing.assert_array_equal(p.metadata["distance_clock_m"],d)
+    np.testing.assert_allclose(p.positions_m[-1],p.positions_m[0],atol=1e-8)
+    np.testing.assert_allclose(p.positions_m[144:175],np.repeat(p.positions_m[144:145],31,axis=0))
+    assert p.headings_rad[-1]-p.headings_rad[0]==pytest.approx(math.pi)
+    with pytest.raises(ConstructionError,match="stationary"):
+        out_and_back(c,[-1,0,-4],[1,0],d,2.04,turn_interval_s=(2.,2.5))
