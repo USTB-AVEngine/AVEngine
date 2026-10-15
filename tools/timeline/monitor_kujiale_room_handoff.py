@@ -5,7 +5,7 @@ from pathlib import Path
 from tools.registry.register_kujiale_ue_measurements import load,publish
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--registration',type=Path,required=True);p.add_argument('--stop-file',type=Path,required=True);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);work=Path(m['worktree']);state=root/'evidence/room_ready_receipts.json';seen=load(state)if state.exists()else{r['house']+'/'+r['room_id']:{'initial_pass':True}for r in load(a.registration)['rooms']if r['smoke_status']=='pass'}
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--registration',type=Path,required=True);p.add_argument('--stop-file',type=Path,required=True);p.add_argument('--poll-seconds',type=float,default=10.);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);work=Path(m['worktree']);state=root/'evidence/room_ready_receipts.json';seen=load(state)if state.exists()else{r['house']+'/'+r['room_id']:{'initial_pass':True}for r in load(a.registration)['rooms']if r['smoke_status']=='pass'}
     while not a.stop_file.exists():
         try:
             m=load(a.manifest);data=publish(m,a.registration);new=[r for r in data['rooms']if r['smoke_status']=='pass'and r['house']+'/'+r['room_id']not in seen]
@@ -18,5 +18,5 @@ def main():
             state.write_text(json.dumps(seen,ensure_ascii=False,indent=2)+'\n');subprocess.run([os.sys.executable,str(root/'scripts/write_fix_status.py')],cwd=work,check=False)
         except Exception as error:
             with(root/'PROGRESS.md').open('a')as f:f.write(datetime.datetime.now(datetime.timezone.utc).isoformat()+' G room handoff observation error '+repr(error)+'；不停止任何计算。\n')
-        time.sleep(120)
+        time.sleep(max(2.,a.poll_seconds))
 if __name__=='__main__':main()

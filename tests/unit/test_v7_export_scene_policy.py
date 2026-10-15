@@ -42,3 +42,14 @@ def test_jargon_is_rejected_only_in_model_text(field):
     validate_english_model_text(row)
     row[field]=[{'text':'admitted person'}]if field=='choices'else'Which STARSS class?'
     with pytest.raises(ValueError,match='internal terminology'):validate_english_model_text(row)
+
+
+def test_camera_standoff_uses_every_measured_horizontal_root_not_root_height():
+    from avengine.timeline.v7_export_scene_policy import layout_metrics
+    people={'1':{'species_id':'human','root_positions_m':[[0.,0.,1.5],[0.,0.,1.5]]}}
+    camera=[[0.,1.5,0.],[0.,1.5,0.]]
+    assert layout_metrics(people,listener_positions=camera)['status']=='pass'
+    people['1']['root_positions_m'][1]=[0.,0.,1.19]
+    report=layout_metrics(people,listener_positions=camera)
+    assert report['status']=='fail'and report['minimum_human_camera_distance_m']==1.19
+    assert 'human_camera_distance_under_1_2m'in report['reasons']

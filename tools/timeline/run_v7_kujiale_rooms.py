@@ -92,7 +92,10 @@ def run(args):
                 house=m['parents'][done_slot]['row']['house'];house_load[house]=house_load.get(house,0)+1
         pending.sort(key=lambda slot:(house_load.get(m['parents'][slot]['row']['house'],0),slot))
         if pending and now<deadline and can_start(snapshot,active_parents=len(children),max_parents=args.max_parents):
-            slot=pending[0];task=m['parents'][slot];log=root/'logs'/f'parent_{slot:03d}_automatic.log';stream=log.open('w');env=os.environ.copy();env.update(CUDA_VISIBLE_DEVICES=str(task['ue_physical_gpu']),AVENGINE_REGISTERED_QUESTION_WORKERS='1',AVENGINE_REGISTERED_QUESTION_CPUS='12,13,14,15');child=subprocess.Popen(isolated_command(args.manifest,slot,task['ue_physical_gpu'],args.python,m['worktree'],root),stdout=stream,stderr=subprocess.STDOUT,cwd=m['worktree'],env=env);children[slot]=(child,stream)
+            slot=pending[0]
+            with mutation_lock(args.manifest):
+                m=load(args.manifest);task=m['parents'][slot];gpu_load={gpu:sum(m['parents'][s]['ue_physical_gpu']==gpu for s in children)for gpu in args.physical_gpus};task['ue_physical_gpu']=assign_gpu(args.physical_gpus,gpu_load);write(args.manifest,m)
+            log=root/'logs'/f'parent_{slot:03d}_automatic.log';stream=log.open('w');env=os.environ.copy();env.update(CUDA_VISIBLE_DEVICES=str(task['ue_physical_gpu']),AVENGINE_REGISTERED_QUESTION_WORKERS='1',AVENGINE_REGISTERED_QUESTION_CPUS='12,13,14,15');child=subprocess.Popen(isolated_command(args.manifest,slot,task['ue_physical_gpu'],args.python,m['worktree'],root),stdout=stream,stderr=subprocess.STDOUT,cwd=m['worktree'],env=env);children[slot]=(child,stream)
         status={'updated_utc':now.isoformat(),'pid':os.getpid(),'active':{str(s):p.pid for s,(p,_)in children.items()},'pending':pending,'finished_slots':sorted(finished),'resources':snapshot,'deadline_utc':args.deadline_utc,'stop_mode':'pause new launches; never kill running jobs'};write(state,status)
         if time.time()-last_progress>=900:
             with(root/'PROGRESS.md').open('a')as f:f.write(now.isoformat()+' G 无人值守逐房自动构造/重试；'+json.dumps(status,ensure_ascii=False)+'\n')

@@ -319,6 +319,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                     first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
                     if not binding_pair_fits_view(self.scene['listener_m'],first,p):
                         attempts.append({'endpoint_id':ep,'candidate':p,'reason':'both active speakers need separated bearings within the production binding view'});continue
+                if np.linalg.norm((np.asarray(p)-np.asarray(self.scene['listener_m']))[[0,2]])<1.5-1e-9:
+                    attempts.append({'endpoint_id':ep,'candidate':p,'reason':'owner human camera construction distance must be at least1.5m'});continue
                 if any(np.linalg.norm((np.asarray(p)-saved['position_m'])[[0,2]])<1.0-1e-9 for saved in self.alpha_standing_refs.values()):
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':'owner human center spacing must be at least1.0m'});continue
                 self.placement_overrides[ep]=p

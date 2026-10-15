@@ -9,7 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 import numpy as np
 
-REVISION='v7-fixed-observer-natural-layout-measured-speed-v1'
+REVISION='v7-fixed-observer-natural-layout-measured-speed-standoff-v2'
 SPEED_RANGES={'human':(.8,1.4),'dog':(.5,1.2),'cat':(.3,.8),'slide':(.2,.5)}
 
 
@@ -56,12 +56,18 @@ def measured_actor_metrics(actors,fps,motion_requests=None):
 def layout_metrics(actors,headings=None,listener_positions=None):
     people={str(k):np.asarray(v['root_positions_m'],float)for k,v in actors.items()if v.get('species_id')=='human'}
     animals={str(k):np.asarray(v['root_positions_m'],float)for k,v in actors.items()if v.get('species_id')in {'dog','cat','bird'}}
-    minimum=float('inf');animal_min=float('inf')
+    minimum=float('inf');animal_min=float('inf');camera_min=float('inf')
     keys=list(people)
     for i,k in enumerate(keys):
         for j in keys[i+1:]:minimum=min(minimum,float(np.linalg.norm((people[k]-people[j])[:,[0,2]],axis=1).min()))
         for a in animals.values():animal_min=min(animal_min,float(np.linalg.norm((people[k]-a)[:,[0,2]],axis=1).min()))
+    if listener_positions is not None:
+        observers=np.asarray(listener_positions,float)
+        for roots in people.values():
+            if len(roots)!=len(observers):raise ValueError('human/camera frame clocks differ')
+            camera_min=min(camera_min,float(np.linalg.norm((roots-observers)[:,[0,2]],axis=1).min()))
     reasons=[]
+    if camera_min<1.2-1e-6:reasons.append('human_camera_distance_under_1_2m')
     if minimum<1.-1e-6:reasons.append('human_centres_under_1m')
     # 0.8m is the construction/export spacing for mixed species; the original
     # complete mesh collision and body-envelope checks still apply separately.
@@ -81,7 +87,8 @@ def layout_metrics(actors,headings=None,listener_positions=None):
                 actual=np.column_stack((np.sin(ys),np.cos(ys)));cosines=(actual*toward).sum(axis=1)/np.maximum(1e-9,np.linalg.norm(toward,axis=1))
                 if np.all(cosines>=math.cos(math.radians(25))):reasons.append('all_humans_in_row_facing_camera')
     return {'status':'fail'if reasons else'pass','minimum_human_centre_distance_m':minimum if math.isfinite(minimum)else None,
-        'minimum_human_animal_centre_distance_m':animal_min if math.isfinite(animal_min)else None,'orientation':natural,'reasons':reasons}
+        'minimum_human_camera_distance_m':camera_min if math.isfinite(camera_min)else None,
+        'human_camera_distance_basis':'horizontal XZ root-to-camera; all actual frames','minimum_human_animal_centre_distance_m':animal_min if math.isfinite(animal_min)else None,'orientation':natural,'reasons':reasons}
 
 
 def _load(path):return json.loads(Path(path).read_text())
