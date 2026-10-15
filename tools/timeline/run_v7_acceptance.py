@@ -65,9 +65,10 @@ def run_worker(manifest,slot):
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         if previous.exists():row=load(previous)
         elif task.get('constructor')=='automatic_family':
-            from avengine.timeline.v7_family_constructors import construct_family_scene
+            from avengine.timeline.v7_family_dispatch import construct_requested_scene
             room=next(r for r in contract['rooms']if r['house']==row['house']and r['room_id']==row['room_id'])
-            proposal=construct_family_scene(room,house,state,catalog,source['records'],load(inputs['semantic_manifest']),contract,inputs,
+            proposal=construct_requested_scene(room,house,state,catalog,source['records'],load(inputs['semantic_manifest']),contract,inputs,
+                plugin_specs=task.get('family_plugins',manifest.get('family_plugins',{})),
                 scene_id=row['scene_id'],seed=row['scene_seed'],family=task['target_family'],attempt=int(task.get('construction_attempt',0)))
             if proposal['profile']!='phase2':raise ValueError('automatic constructor profile differs from the registered worker profile')
             row=proposal['row']
