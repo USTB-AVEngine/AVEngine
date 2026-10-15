@@ -715,3 +715,47 @@ def test_analytic_occluder_cannot_escape_its_explicit_point_domain(monkeypatch):
     assert list(enumerate_static_layouts(c,bodies,point_masks={"target":np.array([True,False])},**kw))
     assert not list(enumerate_static_layouts(c,bodies,point_masks={
         "target":np.array([True,False]),"front":np.array([False,True])},**kw))
+
+
+def _parallel_test_actors(c,near_z=-3.5):
+    t=np.arange(901)/30
+    d=1.2*np.clip(t-1.,0.,1.5)
+    e=1.2*np.clip(t-15.,0.,1.5)
+    a=bind_distance_clock(c,d,origin_m=[0,0,near_z],heading_rad=-math.pi/2,entity_id="a")
+    b=bind_distance_clock(c,e,origin_m=[0,0,near_z-1.8],heading_rad=math.pi/2,entity_id="b")
+    return a,b
+
+
+def test_parallel_lanes_preserve_each_clock_and_filter_blocked_side():
+    c=context(holes=[(70,115)])
+    a,b=_parallel_test_actors(c)
+    original_a=a.positions_m.copy();original_b=b.positions_m.copy()
+    stats={}
+    plans=list(paired_parallel_routes(c,a,b,camera=c.cameras[0],separations_m=(1.25,),diagnostics=stats))
+    assert len(plans)==1 and plans[0].metadata["side"]==-1
+    plan=plans[0]
+    np.testing.assert_array_equal(plan.actors["a"].positions_m,original_a)
+    np.testing.assert_allclose(plan.actors["b"].positions_m-original_b,np.tile([-1.25,0,0],(901,1)),atol=1e-12)
+    for actor in (a,b):
+        bound=plan.actors[actor.entity_id]
+        np.testing.assert_array_equal(bound.headings_rad,actor.headings_rad)
+        np.testing.assert_array_equal(bound.metadata["distance_clock_m"],actor.metadata["distance_clock_m"])
+    assert plan.metadata["minimum_pair_distance_m"]>=1.25-1e-10
+    assert plan.metadata["rest_framing"]["states"]==["inside"]*4
+    assert plan.camera.position_m==c.cameras[0].position_m
+    assert certify_plan(c,plan).passed and stats["rejections"]
+    np.testing.assert_array_equal(a.positions_m,original_a)
+    np.testing.assert_array_equal(b.positions_m,original_b)
+    assert plan.actors["b"].metadata["fixed_clock_geometry"]["origin_m"][0]==pytest.approx(-1.25)
+
+
+def test_parallel_lanes_reject_cropped_feet_and_crossing_seed():
+    c=context()
+    a,b=_parallel_test_actors(c,near_z=-1.2)
+    stats={}
+    assert not list(paired_parallel_routes(c,a,b,camera=c.cameras[0],separations_m=(1.25,),diagnostics=stats))
+    assert stats["rejections"]["parallel_complete_body_framing"]==2
+    a,b=_parallel_test_actors(c)
+    b.positions_m[:,0]=np.linspace(-1.,1.,901)
+    with pytest.raises(ConstructionError,match="shared_straight"):
+        list(paired_parallel_routes(c,a,b,camera=c.cameras[0]))
