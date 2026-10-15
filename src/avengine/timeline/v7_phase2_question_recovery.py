@@ -4,6 +4,26 @@ from pathlib import Path
 import hashlib,json,shutil,time
 
 
+def attach_completed_native_evidence(source_parent,target_parent):
+    """Keep exact original readbacks beside the new QA for export hard gates."""
+    from avengine.timeline.v7_native_stage_resume import _link_tree
+    source=Path(source_parent).resolve();target=Path(target_parent).resolve()
+    if source==target or target.is_relative_to(source):raise ValueError('native evidence target must be separate')
+    target.mkdir(parents=True,exist_ok=True)
+    records=[]
+    for name in ('visible_native','audio_v0_a0','dry'):
+        marker=source/(name+'_completed.json');saved=json.loads(marker.read_text());attempt=saved['attempt']
+        if Path(attempt).name!=attempt or not saved['required_files']or any(Path(f).is_absolute()or'..'in Path(f).parts for f in saved['required_files']):raise ValueError('invalid native stage paths')
+        if any(not(source/attempt/f).is_file()for f in saved['required_files']):raise ValueError('missing original native artifact')
+        _link_tree(source/attempt,target/attempt)
+        destination=target/marker.name
+        if destination.exists():
+            if destination.read_bytes()!=marker.read_bytes():raise ValueError('native stage evidence differs')
+        else:shutil.copyfile(marker,destination)
+        records.append({'stage':name,'original_marker_sha256':hashlib.sha256(marker.read_bytes()).hexdigest(),'copied_readbacks':'immutable hardlinks','new_native_renders':0})
+    return records
+
+
 def regenerate_questions(source_parent,output_native,*,requested_conditions=None):
     from avengine.timeline.v7_phase2_generation import finish_phase2_delivery,cpu_seconds
     from avengine.timeline.v7_production_inputs import bind_semantic_registry
@@ -36,12 +56,13 @@ def regenerate_questions(source_parent,output_native,*,requested_conditions=None
     original_physical=deepcopy(audio['recipe']['scene']);original_physical.pop('scene_demand',None)
     if physical_scene!=original_physical:raise ValueError('recovery changed physical native scene')
     root.mkdir(parents=True)
+    native_evidence=attach_completed_native_evidence(source,root)
     source_foot=source/'resolved_footstep_contacts.json';foot=root/source_foot.name
     if not source_foot.is_file():raise ValueError('original resolved footstep evidence missing')
     shutil.copyfile(source_foot,foot)
     recovered_recipe={**deepcopy(recipe),'row':row}
     (root/'input_recipe.json').write_text(json.dumps(recovered_recipe,ensure_ascii=False,indent=2)+'\n')
-    evidence={'source_parent':str(source),'source_scene_id':row['scene_id'],'new_native_renders':0,'actual_scene_unchanged_except_requested_condition_metadata':True,'original_requested_conditions':recipe['row'].get('scene_demand',{}).get('requested_conditions'),'requested_conditions':requested_conditions,'source_completed_stage_sha256':{'visible_native':vsha,'audio_v0_a0':asha,'dry':dsha},'original_native_visual_directory':str(vd),'original_native_audio_directory':str(ad),'old_questions_or_seals_imported':False,'truth_scorer_and_answer_thresholds_changed':False}
+    evidence={'retained_native_evidence':native_evidence,'source_parent':str(source),'source_scene_id':row['scene_id'],'new_native_renders':0,'actual_scene_unchanged_except_requested_condition_metadata':True,'original_requested_conditions':recipe['row'].get('scene_demand',{}).get('requested_conditions'),'requested_conditions':requested_conditions,'source_completed_stage_sha256':{'visible_native':vsha,'audio_v0_a0':asha,'dry':dsha},'original_native_visual_directory':str(vd),'original_native_audio_directory':str(ad),'old_questions_or_seals_imported':False,'truth_scorer_and_answer_thresholds_changed':False}
     (root/'native_question_recovery.json').write_text(json.dumps(evidence,ensure_ascii=False,indent=2)+'\n')
     result=finish_phase2_delivery(row,recipe['house'],recipe['inputs'],assets,program,semantic,root,time.perf_counter(),cpu_seconds(),recovered_recipe,scene,visual,vd,ad,audio['result'],receipt,eligibility,foot)
     for name,expected in evidence['source_completed_stage_sha256'].items():
