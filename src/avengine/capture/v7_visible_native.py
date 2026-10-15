@@ -410,7 +410,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_occlusion_demand import measure_requested_relations
                 relation_witness=measure_requested_relations(self,scene,[*placed,entry])
                 if not relation_witness['satisfies_request']:
-                    write_json(directory/'last_requested_occlusion_rejection.json',
+                    write_json(directory/('occlusion_proposal_'+a['endpoint_id']+'_'+str(proposal_index).zfill(4)+'.json'),
                         {'status':'rejected_layout_proposal','candidate_asset_id':a['asset_id'],
                          'proposed_root_m':root.tolist(),'witness':relation_witness,
                          'qa_predicates_changed':False})
