@@ -301,7 +301,10 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         used={a.get('color') for a in humans};silent=[a for a in catalog if a.get('kind')=='human' and a.get('controlled_shirt')
                 and a.get('color') not in used and a['asset_id'] not in row['asset_ids']
                 and a['asset_id'] not in contract.get('policy',{}).get('temporarily_excluded_asset_ids',{})]
-        if silent:
+        existing_silent=[a for a in humans if a['asset_id'] in row.get('silent_asset_ids',[])]
+        if existing_silent:
+            pass  # The requested unique bystander already has a physical body.
+        elif silent:
             a=rng.choice(sorted(silent,key=lambda a:a['asset_id']));row['asset_ids'].append(a['asset_id']);row.setdefault('silent_asset_ids',[]).append(a['asset_id'])
         else:request['unresolved_conditions']=['no additional uniquely colored registered silent bystander']
     # Five half-overlapping crops reuse one native 30s world. They keep the parent
@@ -314,7 +317,7 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         silent=[byid[aid] for aid in row.get('silent_asset_ids',[]) if byid.get(aid,{}).get('kind')=='human']
         if audible and silent:
             target=audible[0]['asset_id'];occluder=silent[-1]['asset_id']
-            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:0.,occluder:0.})
+            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:8.,occluder:0.})
             row.setdefault('native_attachment_distance_targets_m',{}).update({target:3.,occluder:1.5})
             row['native_occlusion_relations']=[{'target_asset_id':target,'occluder_asset_id':occluder,
                 'relation':'registered silent foreground human partially occludes the farther speaker',
@@ -328,4 +331,45 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
                    proposed_motion_requests=deepcopy(row.get('motion_requests',{})),
                    proposed_silent_asset_ids=list(row.get('silent_asset_ids',[])))
     validate_recipe(row,catalog,contract)
+    return row
+
+
+def plan_registered_content_demand(row,state,catalog,semantic_manifest):
+    """Construct a real authored quartet, using only admitted whole TTS roles."""
+    row=add_scene_demand(row,state,focus='content_binding')
+    if row.get('schema')!='v7-recorded-registered-standing-v1':
+        raise ValueError('authored quartet needs the registered native producer')
+    plan=row['production_scenario'];byid={a['asset_id']:a for a in catalog}
+    ids=plan.get('asset_ids',[])
+    if not ids or any(byid[aid].get('kind','human')!='human' for aid in ids):
+        raise ValueError('construct the content scene with registered human bodies')
+    speakers=[byid[aid] for aid in ids[:plan['speaker_count']]]
+    if len(speakers)!=plan['speaker_count'] or len(speakers)<2:
+        raise ValueError('authored quartet needs at least two physical speakers')
+    sounds={r['sound_asset_id']:r for r in semantic_manifest['sounds']}
+    selected=plan.get('semantic_sound_ids') or plan.get('semantic_sound_subset_ids')
+    if not selected or len(selected)!=len(speakers):
+        raise ValueError('construct one complete authored role for each physical speaker')
+    actual=[sounds[sid] for sid in selected]
+    if len({r['scenario_id'] for r in actual})!=1 or len({r['role_id'] for r in actual})!=len(actual):
+        raise ValueError('authored quartet needs distinct roles in one admitted scenario')
+    for body,sound in zip(speakers,actual,strict=True):
+        gender=sound['voice_reference']['gender'].lower()
+        if gender not in {body['visual_gender'].lower(),body['visual_gender'][:1].lower()}:
+            raise ValueError('authored voice gender differs from the registered body')
+    if plan.get('native_environment') or plan.get('environment_sound_classes') or plan.get('additional_source_assets'):
+        raise ValueError('construct a separate speech-only template for authored content')
+    # Every member is independently produced by the native quartet generator.
+    row['members']=['v0_a0','v0_a1','v1_a0','v1_a1']
+    row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
+    plan.update(semantic_scenario_id=actual[0]['scenario_id'],semantic_sound_ids=list(selected),
+                semantic_sound_subset_ids=list(selected),non_speech_class=None,
+                category_focus_class=None,environment_sound_classes=[])
+    if len(speakers)==2:
+        plan['semantic_role_start_offsets_s']=[.5,4.5]
+    row['scene_demand'].update(required_program_source_type='author_tts',
+        required_native_members=list(row['members']),required_sound_asset_ids=list(selected),
+        required_asset_ids=list(ids),required_independent_family_counts={f:3 for f in
+            ('QA-26','QA-27','QA-28','V7-CONTENT-BIND')},
+        taxonomy_scene_policy='class34 uses a separate registered emitting device; live TTS is not device playback')
     return row

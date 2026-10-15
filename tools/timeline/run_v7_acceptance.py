@@ -22,6 +22,9 @@ def run_worker(manifest,slot):
         'minimum_free_bytes':100_000_000_000,'concurrent_write_margin_bytes':128_000_000,
         'policy':'owner-20261015-acceptance-only-no-training-or-CCI'})
     check_write(root,expected_bytes=0)
+    if manifest.get('resource_guard_mode')=='admission_only':
+        policy=json.loads(os.environ[ENV_KEY]);policy['admission_only']=True
+        os.environ[ENV_KEY]=json.dumps(policy)
     inputs=load(manifest['runtime_'+task['device']]);inputs['production_input_contract']=manifest['contract']
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
@@ -35,7 +38,13 @@ def run_worker(manifest,slot):
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
-        row=load(previous) if previous.exists() else add_scene_demand(row,state,focus=task.get('focus','content_binding'))
+        if previous.exists():
+            row=load(previous)
+        elif task.get('focus','content_binding')=='content_binding':
+            from avengine.timeline.v7_demand import plan_registered_content_demand
+            row=plan_registered_content_demand(row,state,catalog,load(inputs['semantic_manifest']))
+        else:
+            row=add_scene_demand(row,state,focus=task.get('focus'))
         row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
         row['scene_demand']['requested_conditions'].append('authored_native_quartet')
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'

@@ -146,3 +146,52 @@ def test_content_dedup_keeps_same_appearance_on_different_physical_actors():
     second=independence_key('parent',q,gold('2'))[0]
     assert first!=second
     assert first==independence_key('parent',q,gold('1'))[0]
+
+
+def test_occlusion_proposals_require_a_real_foreground_position():
+    from avengine.capture.v7_occlusion_demand import foreground_geometry
+    listener=[0.,1.3,0.];target=[0.,0.,-3.]
+    assert foreground_geometry(listener,target,[.2,0.,-1.5])['foreground']
+    assert not foreground_geometry(listener,target,[0.,0.,-4.])['foreground']
+    assert not foreground_geometry(listener,target,[1.,0.,-1.5])['foreground']
+    assert not foreground_geometry(listener,target,[0.,0.,1.])['foreground']
+
+
+def test_requested_occluder_requires_target_placement_first():
+    from avengine.capture.v7_occlusion_demand import proposal_score
+    scene={'listener_m':[0.,1.3,0.],'native_occlusion_relations':[
+        {'target_asset_id':'rear','occluder_asset_id':'front'}]}
+    with pytest.raises(ValueError,match='after its target'):
+        proposal_score(scene,{'declaration':{'asset_id':'front'}},[0,0,-1.5],[])
+
+
+def test_authored_content_demand_constructs_members_roles_and_separate_taxonomy():
+    from avengine.timeline.v7_demand import plan_registered_content_demand
+    row={'schema':'v7-recorded-registered-standing-v1','scene_seed':7,'members':['v0_a0'],
+         'window_count':2,'questions_per_window':14,'production_scenario':{
+             'speaker_count':2,'asset_ids':['blue','yellow','green'],
+             'category_focus_class':'dog_bark','semantic_sound_ids':['role1','role2']}}
+    assets=[{'asset_id':a,'kind':'human','visual_gender':'female'} for a in ['blue','yellow','green']]
+    semantic={'sounds':[{'sound_asset_id':'role'+str(i),'scenario_id':'request',
+                        'role_id':str(i),'voice_reference':{'gender':'female'}} for i in (1,2)]}
+    planned=plan_registered_content_demand(row,{'logical_questions':0,'family_counts':{}},assets,semantic)
+    assert len(planned['members'])==4 and planned['window_count']==5
+    assert planned['production_scenario']['semantic_scenario_id']=='request'
+    assert planned['production_scenario']['category_focus_class'] is None
+    assert planned['scene_demand']['required_program_source_type']=='author_tts'
+    assert row['members']==['v0_a0']  # No caller/template mutation.
+    semantic['sounds'][1]['voice_reference']['gender']='male'
+    with pytest.raises(ValueError,match='gender'):
+        plan_registered_content_demand(row,{'logical_questions':0,'family_counts':{}},assets,semantic)
+
+
+def test_admitted_parent_keeps_running_but_output_containment_remains(tmp_path,monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from avengine.timeline import v7_storage_budget as budget
+    monkeypatch.setenv(budget.ENV_KEY,json.dumps({'root':str(tmp_path/'own'),'filesystem':str(tmp_path),
+        'minimum_free_bytes':100,'maximum_task_bytes':1,'admission_only':True}))
+    monkeypatch.setattr(budget.shutil,'disk_usage',lambda _:SimpleNamespace(free=1))
+    assert budget.check_write(tmp_path/'own'/'running',expected_bytes=1000)['resource_limits_enforced_at']=='parent_admission'
+    with pytest.raises(budget.StorageBudgetExceeded,match='escaped'):
+        budget.check_write(tmp_path/'another_task')

@@ -68,6 +68,13 @@ def check_write(path,*,expected_bytes=0):
         raise StorageBudgetExceeded("write escaped the declared own task output root")
     free=shutil.disk_usage(policy["filesystem"]).free
     requested=max(0,int(expected_bytes));margin=policy.get("concurrent_write_margin_bytes",0)
+    # Some owner-authorized batches check headroom before launching a parent.
+    # Once admitted, later checks retain path containment and measurements;
+    # another user's disk growth must not abort that already running parent.
+    if policy.get("admission_only"):
+        return {"free_bytes":free,"own_allocated_bytes":allocated_bytes(root),
+                "expected_write_bytes":requested,"checked_unix":time.time(),
+                "policy":policy,"resource_limits_enforced_at":"parent_admission"}
     if free-requested-margin<policy["minimum_free_bytes"]:
         raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={policy['minimum_free_bytes']}")
     used=allocated_bytes(root)
