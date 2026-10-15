@@ -7,7 +7,10 @@ def put(path,value):
     path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value))
 
 
-def test_rejects_candidate_supplement_when_original_full_pool_replay_is_not_complete(tmp_path):
+def test_rejects_candidate_supplement_when_original_full_pool_replay_is_not_complete(tmp_path,monkeypatch):
+    # This fixture isolates the original full-pool replay check. Native scene
+    # delivery policy has independent measured-camera/layout/speed tests.
+    monkeypatch.setattr("avengine.timeline.v7_export_scene_policy.require_parent_policy",lambda path:{"status":"pass"})
     root=tmp_path/'native/parents/p';pool=root/'pool/w';seal=root/'seal'
     row={'scene_id':'p','members':['v0_a0']}
     pointer={'attempt':'seal','result':{'status':'integration_pilot_admitted','windows':[{'window_id':'w','member':'v0_a0'}]},

@@ -38,6 +38,13 @@ def run_worker(manifest,slot):
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         if previous.exists():row=load(previous)
+        elif task.get('constructor')=='automatic_family':
+            from avengine.timeline.v7_family_constructors import construct_family_scene
+            room=next(r for r in contract['rooms']if r['house']==row['house']and r['room_id']==row['room_id'])
+            proposal=construct_family_scene(room,house,state,catalog,source['records'],load(inputs['semantic_manifest']),contract,inputs,
+                scene_id=row['scene_id'],seed=row['scene_seed'],family=task['target_family'],attempt=int(task.get('construction_attempt',0)))
+            if proposal['profile']!='phase2':raise ValueError('automatic constructor profile differs from the registered worker profile')
+            row=proposal['row']
         elif task.get('focus')=='motion_quartet_template' or task.get('constructor')=='motion_quartet_template':
             from avengine.timeline.v7_motion_quartet_planning import plan_native_room_motion_quartet
             row=plan_native_room_motion_quartet(row,state,house,catalog,load(inputs['semantic_manifest']),source['records'],inputs,attempt=int(task.get('construction_attempt',0)))
@@ -48,7 +55,7 @@ def run_worker(manifest,slot):
                 if not pf.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('registered native NavMesh missing')
                 return {'room':next(r for r in house['checked_rooms']if r['room_label']==row['room_id']),'semantic_manifest':load(inputs['semantic_manifest']),'pathfinder':pf}
             row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'),construction_context=construction_context)
-        if manifest.get('require_authored_tts_per_new_parent') and not previous.exists() and row.get('scene_constructor')!='motion_quartet_template':
+        if manifest.get('require_authored_tts_per_new_parent') and not previous.exists() and row.get('scene_constructor')!='motion_quartet_template' and not row.get('automatic_construction'):
             from avengine.timeline.v7_demand import assign_authored_tts
             row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
         inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
