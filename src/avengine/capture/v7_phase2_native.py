@@ -1,7 +1,7 @@
 """Phase-two native integration; immutable phase-one profile remains available."""
 from copy import deepcopy
 from avengine.capture.v7_visible_native import NativeVisibleVideo
-PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v15-original-chair-component-collision'
+PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v16-source-bound-foot-emitters'
 
 
 def requires_foot_emitters(scene,endpoint):
