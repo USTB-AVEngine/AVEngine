@@ -23,3 +23,23 @@ def test_short_window_walk_stands_outside_and_keeps_species_speed():
     assert win['walk_start_s'] <= slots[0]['start_s'] - SHORT_WALK_LEAD_S + 1e-6
     assert len(set(np.round(yaws, 9))) == 1
     assert all(_free(p) for p in pos)
+
+
+def test_window_spanning_reflections_becomes_one_straight_line_with_smooth_ramps():
+    # Claude 10-15: a planted foot cannot follow ~100 deg turns in 0.2 s; the executed walk is one straight line.
+    from avengine.assets.roster_motion.reflect_walk import schedule_moving_windows
+    w = reflect_walk(_free, (3.0, 2.5), 0.3, 0.85, min_speed=0.8, rng=np.random.default_rng(3))
+    slots = schedule_moving_windows(w, utterance_s=1.5, post_s=2.0, wet_tail_s=.5, lead_s=SHORT_WALK_LEAD_S)
+    assert slots
+    pos, yaws, win = _short_window_walk(w, slots[0])
+    assert win['straight_line'] and len(set(np.round(yaws, 9))) == 1
+    d = np.diff(pos, axis=0)
+    v = np.linalg.norm(d, axis=1) * 30
+    moving = v > 1e-9
+    heads = np.arctan2(d[moving, 1], d[moving, 0])
+    assert np.ptp(np.unwrap(heads)) < 1e-6                                   # never turns while walking
+    t = np.arange(len(pos)) / 30
+    assert np.all(np.diff(v[(t[1:] >= win['walk_start_s']) & (t[1:] <= win['walk_start_s'] + 0.3)]) >= -1e-9)  # no stop-and-go start
+    assert abs(float(np.max(v)) - 0.85) < 1e-6
+    k = int(round(slots[0]['start_s'] * 30))
+    assert np.allclose(pos[k], w.positions[k])                               # passes the planned emission start

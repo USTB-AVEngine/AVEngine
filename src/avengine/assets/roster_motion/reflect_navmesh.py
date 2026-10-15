@@ -27,44 +27,41 @@ SHORT_WALK_RAMP_S=.3
 
 
 def _short_window_walk(walk,slot):
-    """Stand -> walk only on the selected straight leg around the emission -> stand (Claude 2026-10-15).
+    """Stand -> walk one straight line around the emission -> stand (Claude 2026-10-15).
 
-    A 30 s room-filling reflected walk cannot be rigidly fitted among the other people later, so the source walks
-    only while it is needed: from SHORT_WALK_LEAD_S before the emission to SHORT_WALK_LEAD_S after the silent query
-    interval (QA-16/17) or after the emission (QA-06/15), along the straight leg the slot was scheduled on, with
-    smooth SHORT_WALK_RAMP_S speed ramps that stay outside the emission and query intervals.
+    The source walks only while the question needs motion: from SHORT_WALK_LEAD_S before the emission to
+    SHORT_WALK_LEAD_S after the silent query interval (QA-16/17) or after the emission (QA-06/15), at the constant
+    leg speed with smooth SHORT_WALK_RAMP_S start/stop ramps.  It walks ONE straight line through the planned
+    emission start with the heading of travel there, so a straight-leg slot keeps its emission geometry (QA-15
+    radial conditions are rechecked natively).  No turning while walking: following the reflected walk's corners
+    (measured 10-15: ~100 deg in 0.2 s plus stop-and-go holds) swings the body around a planted foot, and the
+    unchanged IK/pelvis gate failed at every placement; a straight replay of the same window passed with a 2.7 cm
+    maximum pelvis drop (limit 8 cm).  The caller checks that the whole line is free.
     """
     fps=walk.fps;n=len(walk.positions)
     start=float(slot['start_s']);end=float(slot['end_s'])
     tail=slot.get('post_until_s') if (slot.get('qa17') or slot.get('qa16')) and slot.get('post_until_s') else end+.6
+    k=min(n-1,int(round(start*fps)))
     if slot.get('leg') is not None:
         a,b=slot['leg'];w0=max(a/fps,start-SHORT_WALK_LEAD_S);w1=min(b/fps,float(tail)+SHORT_WALK_LEAD_S)
+        d=np.asarray(walk.positions[b],float)-np.asarray(walk.positions[a],float)
     else:
-        a,b=slot['window_frames'];w0=a/fps;w1=b/fps
-    i0=int(round(w0*fps));i1=int(round(w1*fps))
-    # Follow the walked path itself (straight leg, or reflections for QA-06/QA-17 windows) by arc length.
-    path=walk.positions[i0:i1+1];steps=np.linalg.norm(np.diff(path,axis=0),axis=1);arc=np.r_[0.,np.cumsum(steps)]
-    length=float(arc[-1])
+        w0=max(0.,start-SHORT_WALK_LEAD_S);w1=min((n-1)/fps,float(tail)+SHORT_WALK_LEAD_S)
+        d=np.array([math.cos(float(walk.yaws[k])),math.sin(float(walk.yaws[k]))])
+    if float(np.linalg.norm(d))<1e-9 or w1<=w0+2*SHORT_WALK_RAMP_S:raise ValueError('short window walk has no straight heading or time')
+    heading=float(math.atan2(d[1],d[0]));direction=np.array([math.cos(heading),math.sin(heading)])
+    speed=float(np.max(walk.speeds))
+    t=np.arange(n)/fps;r=SHORT_WALK_RAMP_S
+    edge=np.clip(np.minimum(t-w0,w1-t)/r,0,1)
+    v=np.where((t>=w0)&(t<=w1),speed*edge*edge*(3-2*edge),0.)
+    s=np.r_[0.,np.cumsum((v[1:]+v[:-1])/2/fps)]
+    length=float(s[-1])
     if length<1e-6:raise ValueError('short window walk has no length')
-    t=np.arange(n)/fps;v=np.zeros(n)
-    inside=(t>=w0)&(t<=w1);v[inside]=walk.speeds[np.clip(np.arange(n)[inside],0,n-1)]
-    r=SHORT_WALK_RAMP_S
-    up=(t>=w0)&(t<w0+r);v[up]=v[up]*np.clip((t[up]-w0)/r,0,1)
-    down=(t>w1-r)&(t<=w1);v[down]=v[down]*np.clip((w1-t[down])/r,0,1)
-    # Exact species speeds along the path; the ramps only shorten the walked distance slightly (never speed up).
-    s=np.minimum(np.r_[0.,np.cumsum((v[1:]+v[:-1])/2/fps)],length)
-    positions=np.column_stack((np.interp(s,arc,path[:,0]),np.interp(s,arc,path[:,1])))
-    d=np.diff(positions,axis=0);heading_steps=np.arctan2(d[:,1],d[:,0]);moving=np.linalg.norm(d,axis=1)>1e-6
-    yaws=np.zeros(n);first=float(np.arctan2(*(path[min(len(path)-1,1)]-path[0])[::-1]))
-    current=first
-    for i in range(n):
-        if i<n-1 and moving[i]:current=float(heading_steps[i])
-        yaws[i]=current
-    yaws=np.unwrap(yaws)
-    speed=float(np.median(v[v>0])) if np.any(v>0) else 0.
+    positions=np.asarray(walk.positions[k],float)+np.outer(s-s[k],direction)
+    yaws=np.full(n,heading)
     return positions,yaws,{'walk_start_s':w0,'walk_end_s':w1,'ramp_s':r,'speed_m_s':speed,'length_m':length,
-                           'emission_s':[start,end],'silent_query_until_s':float(tail),'heading_rad':float(yaws[i0]),
-                           'reason':'owner 10-15: many paths; walk only where the question needs motion'}
+                           'emission_s':[start,end],'silent_query_until_s':float(tail),'heading_rad':heading,'straight_line':True,
+                           'reason':'owner 10-15: walk only where the question needs motion; one straight line, no turning while walking'}
 
 
 def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',utterance_s=1.5,focus='M1',speed_range=None):
@@ -83,7 +80,7 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
     best=None;trials=[]
     duration=math.ceil(float(utterance_s)*10-1e-9)/10
     for k in range(min(256,max(64,len(starts)))):
-        start=starts[k%len(starts)];heading=float(rng.uniform(-math.pi,math.pi))
+        start=starts[k%len(starts)];heading=float(rng.uniform(-math.pi,math.pi));straight_rejected=0
         walk=reflect_walk(is_free,start,heading,speed,min_speed=lo+.005,duration_s=30.,rng=rng)
         if walk is None:trials.append({'attempt':k+1,'reason':'boxed in or native free predicate failed'});continue
         slots=schedule_emissions(walk,listener[[0,2]],utterance_s=(duration,duration),post_s=1.5,wet_tail_s=.5,min_radial_m=.5,margin_s=SHORT_WALK_LEAD_S)
@@ -105,9 +102,15 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
             slot['offset_s']=offset
             score=(int(slot['qa15'])+int(slot['qa16'])) if focus=='M2' else (int(slot['qa06'])+int(slot['qa17']))
             if focus=='M2' and not slot['qa15']:continue
+            # The executed walk is one straight line (see _short_window_walk); keep only slots whose whole line,
+            # including the start/stop ramps, is free here.  The native stage re-places it and rechecks everything.
+            try:line,_,window=_short_window_walk(walk,slot)
+            except ValueError:straight_rejected+=1;continue
+            moving_frames=np.flatnonzero((np.arange(len(line))/30.>=window['walk_start_s']-1e-9)&(np.arange(len(line))/30.<=window['walk_end_s']+1e-9))
+            if not all(is_free(line[i]) for i in np.r_[moving_frames[::4],moving_frames[-1:]]):straight_rejected+=1;continue
             candidate=(score,walk,slot,k+1)
             if best is None or score>best[0]:best=candidate
-        trials.append({'attempt':k+1,'reason':'usable leg found' if slots else 'no whole-source sounding leg','slots':len(slots)})
+        trials.append({'attempt':k+1,'reason':'usable leg found' if slots else 'no whole-source sounding leg','slots':len(slots),'straight_line_rejected':straight_rejected})
         if best is not None and best[0]>=2:break
     if best is None:raise ValueError('bounded native reflection search exhausted: '+str(trials))
     _,walk,slot,selected=best
