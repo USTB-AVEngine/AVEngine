@@ -80,3 +80,17 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     np.testing.assert_array_equal(second.actors['animal'].positions_m,plan.actors['animal'].positions_m)
     assert second.actors['animal'].metadata['joint_animal_prepared_geometry']==plan.actors['animal'].metadata['joint_animal_prepared_geometry']
     assert not np.array_equal(second.actors['speaker'].positions_m,plan.actors['speaker'].positions_m)
+
+    if kind=='dog_walk'and duration==1.2:
+        attempts=[]
+        def support_conflict_then_next_route(ctx,house,runtime,asset,authority,actor,route,directory):
+            attempts.append(actor.positions_m.copy())
+            if len(attempts)==1:raise ValueError('original scan support missing in unit fixture')
+            pure_geometry_fixture(ctx,house,runtime,asset,authority,actor,route,directory)
+        other=MotionAnimalPlugin(data,{'scene_id':'fixture_failure','scene_seed':1},[animal,human],[record,speech],
+            contract,{'house':'fixture'},{'joint_max_geometry_preparations':2},tmp_path/'failed_geometry',
+            geometry_preparer=support_conflict_then_next_route)
+        recovered=next(other.candidates(context,request))
+        assert recovered is not None and len(attempts)==2
+        assert not np.array_equal(attempts[0],attempts[1])
+        assert len(other.geometry_failure_cache)==1
