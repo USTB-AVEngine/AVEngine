@@ -35,3 +35,14 @@ def test_memory_headroom_waits_then_allows_new_operation(tmp_path,monkeypatch):
 def test_invalid_slot_count_is_rejected_before_native_work(tmp_path,monkeypatch):
     configure(tmp_path,monkeypatch,{'slots':17})
     with pytest.raises(ValueError,match='resource slots'):resource.acquire_native_resource('rir')
+
+
+def test_finished_operation_does_not_keep_reserving_memory(tmp_path,monkeypatch):
+    configure(tmp_path,monkeypatch,{'slots':2,'minimum_available_bytes':30_000_000_000})
+    first=resource.acquire_native_resource('rir',expected_incremental_bytes=10_000_000_000)
+    first.close()
+    import psutil
+    monkeypatch.setattr(psutil,'virtual_memory',lambda:SimpleNamespace(available=45_000_000_000))
+    monkeypatch.setattr(resource.time,'sleep',lambda seconds:(_ for _ in ()).throw(AssertionError('stale reservation blocked legal work')))
+    second=resource.acquire_native_resource('rir',expected_incremental_bytes=10_000_000_000)
+    second.close()

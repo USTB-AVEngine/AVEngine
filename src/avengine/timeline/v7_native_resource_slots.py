@@ -13,6 +13,7 @@ class NativeResourceLease:
         atexit.register(self.close)
     def close(self):
         if self.stream is not None:
+            self.stream.seek(0);self.stream.truncate();self.stream.flush()
             fcntl.flock(self.stream,fcntl.LOCK_UN);self.stream.close();self.stream=None
 
 def acquire_native_resource(kind,expected_incremental_bytes=0):
@@ -60,7 +61,15 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
                     fcntl.flock(guard,fcntl.LOCK_EX)
                     pending=0
                     for existing in directory.glob('*.lock'):
+                        if existing==Path(stream.name):continue
                         try:
+                            # Old processes may leave metadata after unlocking.
+                            # Only a currently held lease reserves future RAM.
+                            with existing.open('r')as probe:
+                                try:fcntl.flock(probe,fcntl.LOCK_SH|fcntl.LOCK_NB)
+                                except BlockingIOError:pass
+                                else:
+                                    fcntl.flock(probe,fcntl.LOCK_UN);continue
                             record=json.loads(existing.read_text());owner=psutil.Process(record['pid'])
                             if owner.create_time()==record['create_time']:
                                 pending+=max(0,record['reserved_incremental_bytes']-max(0,owner.memory_full_info().pss-record['baseline_pss_bytes']))
