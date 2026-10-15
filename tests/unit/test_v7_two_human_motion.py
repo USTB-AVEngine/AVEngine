@@ -45,13 +45,52 @@ def test_full_two_person_template_certifies_both_targets_with_original_solver(mo
               'controlled_shirt':True,'standing_registered_qualified':True,'walk_allowed':True,
               'visual_gender':'female'if i%2 else'male','color':str(i)}for i in range(8)]
     room,pf=geometry()
+    from avengine.timeline import v7_two_human_motion as module
+    original=module.paired_corridors;calls=[]
+    def after_first(*args,**kwargs):
+        calls.append(1)
+        return iter(())if len(calls)==1 else original(*args,**kwargs)
+    monkeypatch.setattr(module,'paired_corridors',after_first)
     row=two_human_motion_template({'scene_seed':42,'scene_id':'new','motion_source_type':'human_speech','human_motion_event_count':2},
         room,catalog,{'sounds':sounds},[],pf)
+    assert len(calls)>1
     assert len(row['asset_ids'])==len(row['motion_requests'])==2
+    assert row['joint_motion_witness_certificate']['passed']
+    assert len(row['joint_motion_witness_certificate']['checks'])==8
+    from avengine.construction.joint.families.motion_human import scene_plan_for_row
+    typed=scene_plan_for_row(row,room)
+    assert len(typed.actors)==2 and len(typed.sounds)==6
     assert row['motion_quartet_construction']['no_turns']
     assert len(row['human_motion_event_planned_verification'])==2
     assert all(all(v['families'].values())for v in row['human_motion_event_planned_verification'])
     for aid,request in row['motion_requests'].items():
         assert {p['target_asset_id']for p in request['motion_during_condition_plan_for_fit']['plans']}=={aid}
+        assert request['speed_m_s']==request['motion_quartet_route']['speed_m_s']
     assert len(row['motion_during_condition_plan']['plans'])==8
     assert all(m['status']=='pass'for c in row['planned_crop_speed_checks']for m in c['metrics'])
+
+
+def test_joint_partner_obligation_is_checked_before_selecting_a_corridor():
+    from avengine.assets.roster_motion.straight_route import _find_straight_route
+    room,pf=geometry();seen=[]
+    def reject(candidate):
+        seen.append(candidate['emission_slot']['start_s'])
+        return False
+    with pytest.raises(ValueError,match='joint_partner_constraint'):
+        _find_straight_route(room,pf,9,utterance_s=1.8,families='all4',max_grid=20,headings=8,keep=1,
+                             local_start_s=2.,candidate_validator=reject)
+    assert seen
+
+
+def test_joint_geometry_cpu_budget_is_explicit_instead_of_claiming_no_solution():
+    import time
+    from avengine.assets.roster_motion.human_event_route import find_human_seed_route
+    room,pf=geometry()
+    with pytest.raises(TimeoutError,match='CPU budget exhausted'):
+        find_human_seed_route(room,pf,42,utterance_s=1.8,local_start_s=2.,cpu_deadline=time.process_time()-1.)
+
+
+def test_failed_resting_turn_recipe_cannot_be_dispatched_as_admitted_production():
+    from avengine.timeline.v7_motion_quartet_template import motion_quartet_template,MotionTemplateUnavailable
+    with pytest.raises(MotionTemplateUnavailable,match='resting-turn replay is not admitted'):
+        motion_quartet_template({'human_motion_event_count':3},{},[],{},[],object())

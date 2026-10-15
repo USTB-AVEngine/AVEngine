@@ -195,7 +195,7 @@ def _rooms_with_cameras(room, pathfinder, species, relocate=True, limit=12):
 
 def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
                          families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600,
-                         corners=False, use_map=True, minimum_camera_distance_m=None, require_reverse_radial=False, require_rest_in_frame=False, local_start_s=None):
+                         corners=False, use_map=True, minimum_camera_distance_m=None, require_reverse_radial=False, require_rest_in_frame=False, local_start_s=None, candidate_validator=None, cpu_deadline=None):
     from .reflect_navmesh import native_free_predicate, SHORT_WALK_LEAD_S, SHORT_WALK_RAMP_S
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
@@ -249,6 +249,9 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
     n_heads = headings if not corners else max(8, headings // 2)
     found = []; tested = 0; rejected = {'start_not_free': 0, 'camera': 0, 'walkable_map': 0, 'radial_slot': 0, 'line_not_free': 0}
     for p in grid:
+        if cpu_deadline is not None:
+            import time
+            if time.process_time()>=cpu_deadline:raise TimeoutError('joint human corridor construction CPU budget exhausted')
         if not is_free(p):
             rejected['start_not_free'] += 1; continue
         base = float(rng.uniform(0, 2 * math.pi / n_heads))
@@ -283,6 +286,19 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
                     rejected['line_not_free'] += 1; continue
                 if segment_is_free is not None and not all(segment_is_free(a,b) for a,b in zip(positions[:-1],positions[1:]) if np.linalg.norm(b-a)>1e-10):
                     rejected['line_not_free'] += 1; continue
+                if candidate_validator is not None:
+                    q15,q16,delta,cosine=_radial_flags(positions,L,k,e,q)
+                    leg=[round(w0*FPS),round(w1*FPS)]
+                    candidate={'positions_xz_m':positions.tolist(),'travel_yaws_rad':[float(h)]*len(positions),
+                        'listener_m':listener.tolist(),'speed_m_s':speed,'speed_range_m_s':[lo,hi],'species':species,
+                        'emission_slot':{'start_s':start,'end_s':end,'offset_s':offset,'post_until_s':tail,
+                            'qa06':True,'qa15':q15,'qa16':q16,'qa17':post,'branch':'nearer'if delta<0 else'farther',
+                            'radial_change_m':delta,'radial_cos':cosine,'leg':leg,'window_frames':leg},
+                        'short_window_walk':{'walk_start_s':w0,'walk_end_s':w1,'silent_query_until_s':tail,
+                            'emission_s':[start,end],'heading_rad':float(h),'straight_line':corner is None},
+                        'minimum_camera_distance_m':camera_margin}
+                    if not candidate_validator(candidate):
+                        rejected['joint_partner_constraint']=rejected.get('joint_partner_constraint',0)+1;continue
                 found.append((p, h, corner)); break
             if found and found[-1][0] is p:
                 break

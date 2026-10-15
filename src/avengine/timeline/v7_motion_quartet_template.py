@@ -144,12 +144,13 @@ def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),q
 
 def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_records,
                             pathfinder, *, attempt=0, contract=None, source_type=None):
-    if (source_type or base_row.get('motion_source_type', 'human_speech')) == 'human_speech' and int(base_row.get('human_motion_event_count', 2)) == 2:
-        from avengine.timeline.v7_two_human_motion import two_human_motion_template
-        return two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract)
-    if (source_type or base_row.get('motion_source_type', 'human_speech')) == 'human_speech' and int(base_row.get('human_motion_event_count', 3)) > 1:
-        from avengine.timeline.v7_human_motion_events import human_motion_events_template
-        return human_motion_events_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract)
+    if (source_type or base_row.get('motion_source_type', 'human_speech')) == 'human_speech':
+        event_count=int(base_row.get('human_motion_event_count',2))
+        if event_count not in (1,2):
+            raise MotionTemplateUnavailable('resting-turn replay is not admitted; use two independently walking speakers')
+        if event_count==2:
+            from avengine.timeline.v7_two_human_motion import two_human_motion_template
+            return two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract)
     from avengine.timeline.v7_registered_sampling import semantic_record
     from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
     import soundfile as sf

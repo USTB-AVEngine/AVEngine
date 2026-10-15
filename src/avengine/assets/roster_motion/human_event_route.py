@@ -14,7 +14,7 @@ FPS = 30
 EVENT_OFFSETS_S = (0., 10., 20.)
 
 
-def find_human_seed_route(room, pathfinder, seed, attempt=0, *, utterance_s=1.5, speed_range=None, local_start_s=None):
+def find_human_seed_route(room, pathfinder, seed, attempt=0, *, utterance_s=1.5, speed_range=None, local_start_s=None, candidate_validator=None, cpu_deadline=None):
     """Require all four families before selecting a camera/corridor.
 
     In the old constructor the short QA06/15 fallback at camera 0 prevented a
@@ -25,6 +25,9 @@ def find_human_seed_route(room, pathfinder, seed, attempt=0, *, utterance_s=1.5,
     errors = []
     polygon = shape(room['floor_polygon'])
     for index, candidate in enumerate(_rooms_with_cameras(room, pathfinder, 'human')):
+        if cpu_deadline is not None:
+            import time
+            if time.process_time()>=cpu_deadline:raise TimeoutError('joint human corridor construction CPU budget exhausted')
         candidate = deepcopy(candidate)
         candidate['placement']['camera_m'][1] = float(room['measured_floor_y_m']) + 1.1
         camera = np.asarray(candidate['placement']['camera_m'], float)
@@ -34,7 +37,7 @@ def find_human_seed_route(room, pathfinder, seed, attempt=0, *, utterance_s=1.5,
             try:
                 route = _find_straight_route(candidate, pathfinder, seed, attempt, species='human',
                     utterance_s=utterance_s, focus='M1', families='all4', speed_range=speed_range,
-                    corners=False, use_map=use_map, minimum_camera_distance_m=2.6, require_reverse_radial=True, require_rest_in_frame=True, local_start_s=local_start_s)
+                    corners=False, use_map=use_map, minimum_camera_distance_m=2.6, require_reverse_radial=True, require_rest_in_frame=True, local_start_s=local_start_s,candidate_validator=candidate_validator,cpu_deadline=cpu_deadline)
             except ValueError as error:
                 errors.append(str(error))
                 continue

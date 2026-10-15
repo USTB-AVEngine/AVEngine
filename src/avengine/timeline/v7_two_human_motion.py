@@ -45,6 +45,9 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
     """Finite analytic lane offsets; no second actor can cross the first."""
     from avengine.assets.roster_motion.reflect_navmesh import native_free_predicate
     from avengine.assets.roster_motion.straight_route import frame_rest_poses
+    from avengine.construction.joint.routes import minimum_track_distance
+    from avengine.construction.joint.context import camera_legal
+    from avengine.construction.joint.types import CameraPose
     listener=np.asarray(seed_route['listener_m']);L=listener[[0,2]]
     a=single_bout_at(seed_route,start_s=2.,offset_s=0.,reverse=seed_route['emission_slot']['branch']!=first_branch)
     p=np.asarray(a['positions_xz_m']);direction=p[-1]-p[0];direction/=np.linalg.norm(direction)
@@ -58,15 +61,17 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
             q=np.asarray(b['positions_xz_m'])
             if not coverage.covers(LineString(q)):continue
             if not all(pred(v)for v in np.unique(q,axis=0)):continue
-            if float(np.linalg.norm(p-q,axis=1).min())<1.2:continue
+            continuous_distance=minimum_track_distance(np.column_stack((p[:,0],np.full(len(p),floor),p[:,1])),np.column_stack((q[:,0],np.full(len(q),floor),q[:,1])))
+            if continuous_distance<1.2:continue
             rest=[p[0],p[-1],q[0],q[-1]];target=np.mean(rest,axis=0)-L
             yaw,framing=frame_rest_poses(rest,L,math.degrees(math.atan2(target[0],-target[1])))
             if framing['states']!=['inside']*4:continue
+            if not camera_legal(room,CameraPose(tuple(listener),yaw,width=1280,height=720))[0]:continue
             radii=np.linalg.norm(q-L,axis=1);slot=b['emission_slot'];i,j=round(slot['start_s']*30),round(slot['end_s']*30)
             trim=round(.2*(j-i));v=radii[i+trim:j-trim+1];sign=-1 if slot['branch']=='nearer'else 1
             if sign*(v[-1]-v[0])<.5 or np.any(sign*np.diff(v)<-.005):continue
             for route in (a,b):route.update(camera_yaw_deg=yaw,rest_pose_framing=framing)
-            yield a,b,{'lane_separation_m':separation,'side':side,'minimum_pair_distance_m':float(np.linalg.norm(p-q,axis=1).min()),'rest_framing':framing}
+            yield a,b,{'lane_separation_m':separation,'side':side,'minimum_pair_distance_m':continuous_distance,'rest_framing':framing}
 
 
 def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,*,attempt=0,contract=None):
@@ -75,6 +80,7 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
     from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row,verify_planned_trajectories
     from avengine.timeline.v7_registered_sampling import semantic_record
     from avengine.timeline.v7_export_scene_policy import measured_actor_metrics
+    from avengine.construction.joint.families.motion_human import motion_certificate,certificate_record
     import soundfile as sf
     pairs=[p for p in authored_pairs(semantic_manifest)
            if 1.4<=float(p[1]['synthesis_readback']['duration_s'])<=float(p[0]['synthesis_readback']['duration_s'])<=1.8
@@ -96,11 +102,15 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
     duration_a=float(pair[0]['synthesis_readback']['duration_s']);duration_b=float(pair[1]['synthesis_readback']['duration_s'])
     desired='nearer'if int(base_row['scene_seed'])%2 else'farther'
     errors=[]
-    for geometry_attempt in range(6):
+    import time
+    deadline=time.process_time()+30.
+    def partner_possible(candidate):
+        return next(paired_corridors(candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b),None)is not None
+    for geometry_attempt in range(2):
         try:
             seed_route=(base['motion_requests'][first]['motion_quartet_route']if geometry_attempt==0 else
                 find_human_seed_route(room,pathfinder,int(base_row['scene_seed']),attempt+geometry_attempt,
-                    utterance_s=duration_a,local_start_s=2.))
+                    utterance_s=duration_a,local_start_s=2.,candidate_validator=partner_possible,cpu_deadline=deadline))
         except ValueError as exc:errors.append(str(exc));continue
         for route_a,route_b,layout in paired_corridors(seed_route,room,pathfinder,first_branch=desired,second_duration_s=duration_b):
             row=deepcopy(base);row['human_motion_event_count']=2;row['human_motion_strategy']='two_walkers'
@@ -109,7 +119,7 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
             row['semantic_start_offsets_s']=[2.,7.5];row['motion_source_start_s']={first:2.,second:7.5}
             row['listener_m']=route_a['listener_m'];row['camera_yaw_deg']=route_a['camera_yaw_deg']
             request_base={k:v for k,v in base['motion_requests'][first].items()if k not in ('motion_during_condition_plan_for_fit','straight_motion_windows_s','sounding_straight_windows_s','distance_trend','distance_trend_intervals_s')}
-            row['motion_requests']={aid:{**deepcopy(request_base),'motion_quartet_route':route,'intervals_s':[[0.,30.]],'maximum_native_route_attempts':1}
+            row['motion_requests']={aid:{**deepcopy(request_base),'motion_quartet_route':route,'speed_m_s':route['speed_m_s'],'intervals_s':[[0.,30.]],'maximum_native_route_attempts':1}
                 for aid,route in ((first,route_a),(second,route_b))}
             plans=[];requests=[];verifications=[]
             tracks={aid:np.column_stack((np.asarray(route['positions_xz_m'])[:,0],np.full(901,row['listener_m'][1]+.3),np.asarray(route['positions_xz_m'])[:,1]))for aid,route in ((first,route_a),(second,route_b))}
@@ -123,7 +133,9 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
                 sub=deepcopy(row);sub.pop('motion_during_condition_plan',None);sub['motion_during_condition_requests']=reqs;sub['motion_source_start_s']=starts
                 try:sub=prepare_motion_during_row(sub,catalog,list(source_records)+measured)
                 except ValueError as exc:errors.append(str(exc));valid=False;break
-                verdict=verify_planned_trajectories(sub['motion_during_condition_plan'],tracks,row['listener_m'])
+                certificate=motion_certificate(sub['motion_during_condition_plan'],tracks,row['listener_m'])
+                verdict={family:all(c.status=='pass'for c in certificate.checks if c.evidence.get('family')==family)for family in FAMILIES}
+                if {c.evidence.get('family')for c in certificate.checks}!=set(FAMILIES):valid=False;break
                 if set(verdict)!=set(FAMILIES)or not all(verdict.values()):errors.append(str(verdict));valid=False;break
                 plans.extend(sub['motion_during_condition_plan']['plans']);requests.extend(reqs)
                 row['motion_requests'][aid]['motion_during_condition_plan_for_fit']=deepcopy(sub['motion_during_condition_plan'])
@@ -136,6 +148,8 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
             if any(metric['status']!='pass'for check in speed_checks for metric in check['metrics']):errors.append('half-overlap crop isolates a slow start/stop ramp');continue
             plan=deepcopy(sub['motion_during_condition_plan']);plan['plans']=plans
             row['motion_during_condition_plan']=plan;row['motion_during_condition_requests']=requests
+            row['joint_motion_witness_certificate']=certificate_record(motion_certificate(plan,tracks,row['listener_m']))
+            row['joint_common_geometry_status']='pending explicit native-NavMesh fallback API; cached map is a construction preference'
             row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':row['camera_yaw_deg']},{'time_s':30.,'yaw_deg':row['camera_yaw_deg']}]
             row['motion_quartet_planned_verification']={f:True for f in FAMILIES};row['human_motion_event_planned_verification']=verifications
             row['planned_crop_speed_checks']=speed_checks
