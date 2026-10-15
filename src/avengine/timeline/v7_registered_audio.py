@@ -213,7 +213,11 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
                 'identity_source':'actual_native_object_and_semantic_readback'}
         reviewed=visual.get('native_appearance_review',{}).get('actors',{})
         for aid,record in registry.items():
-            if aid in reviewed:record['label_zh']=reviewed[aid]['label_zh']
+            if aid in reviewed and reviewed[aid].get('status') == 'reviewed':
+                appearance = reviewed[aid]
+                record.update(label_zh=appearance['label_zh'],
+                              display_label=appearance.get('label_en') or appearance['label_zh'],
+                              appearance_value=appearance.get('value'))
         proof['occluder_registry']=registry
         proof['occluder_evidence']=deepcopy(visual['occluder_evidence'])
         proof['occluder_evidence']['frame_records']=complete_frames

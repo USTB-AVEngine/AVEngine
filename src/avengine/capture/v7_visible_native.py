@@ -286,6 +286,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 priority=2.3 if a['kind']=='object' else 2.4 if a['kind']=='performer' else 2.5 if a['endpoint_id'] in scene['production_scenario'].get('motion_requests',{}) else 2.7
             if scene.get('phase2_profile') and a['asset_id'] in scene.get('native_attachment_supports',{}):
                 priority=-1  # Reserve an explicitly requested qualified site; recheck every physical gate.
+            from avengine.capture.v7_occlusion_demand import relation_roles
+            targets,foreground=relation_roles(scene,a['asset_id'])
+            if targets:priority=2.55
+            if foreground:priority=2.6
             extent=np.ptp(np.asarray(entry['original_mesh'].vertices),axis=0)
             return priority,-float(np.prod(extent))
         for entry in sorted(self.actors,key=layout_order):
@@ -319,6 +323,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 visible=visible_from_path(delta)
                 central=depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=20.
                 az=math.degrees(math.atan2(float(delta@right),depth))
+                from avengine.capture.v7_occlusion_demand import proposal_score
+                relation_score=proposal_score(scene,entry,root,placed)
+                if relation_score is not None:return (not visible,*relation_score)
                 if target is not None:
                     return (not visible,abs(az-float(target)),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
                 return (not visible,not central if a['kind'] in {'human','performer'} or self.motion_inputs.get('independent_probe_camera_search') else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
@@ -400,6 +407,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 native_pixels,pixel_views=self._native_observed_pixels(scene,[*placed,entry])
                 if any(n<100 for n in native_pixels.values()):
                     reject('actual_native_registered_or_stage_occlusion');continue
+                from avengine.capture.v7_occlusion_demand import measure_requested_relations
+                relation_witness=measure_requested_relations(self,scene,[*placed,entry])
+                if not relation_witness['satisfies_request']:
+                    reject('requested_registered_occlusion_not_observed');continue
                 native_contacts=self._contacts(entry,directory,np.asarray(placement['normal']))
                 attempt={'asset_id':a['asset_id'],'endpoint_id':a['endpoint_id'],'placement':placement,
                          'skin_pass':native_contacts['skin_pass'],'known_bad_detected':native_contacts['known_bad_detected'],
@@ -423,6 +434,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                           'floor_type_authority':'native navmesh + all native support rays within 80mm of measured room floor/free polygon + original floor or ground-covering triangles <=15mm; contact itself <=15mm',
                           'table_type_authority':'actual native horizontal patch + original scan table/desk/counter-labelled triangles within <=15mm',
                           'motion_admission':'original static complete mesh; no new walking/sitting motion'}
+                if relation_witness['relations']:accepted['requested_occlusion_witness']=relation_witness
                 if scene.get('phase2_profile'):
                     entry['phase2_layout_qualified']=True
                     hook=getattr(self,'_on_phase2_placement_accepted',None)

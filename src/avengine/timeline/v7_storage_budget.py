@@ -84,6 +84,12 @@ def configure_local_review(output,budget_root,*,parents,workers):
     return policy
 
 
+
+def effective_minimum_free_bytes(policy):
+    if time.time()<float(policy.get('temporary_minimum_free_until_unix',0)):
+        return int(policy.get('temporary_minimum_free_bytes',policy['minimum_free_bytes']))
+    return int(policy['minimum_free_bytes'])
+
 def check_write(path,*,expected_bytes=0):
     raw=os.environ.get(ENV_KEY)
     if not raw:return None
@@ -98,7 +104,11 @@ def check_write(path,*,expected_bytes=0):
                 "checked_unix":time.time(),"policy":policy}
     free=shutil.disk_usage(policy["filesystem"]).free
     requested=max(0,int(expected_bytes));margin=policy.get("concurrent_write_margin_bytes",0)
-    minimum=policy_minimum_free_bytes(policy)
+    if policy.get("admission_only"):
+        return {"free_bytes":free,"own_allocated_bytes":allocated_bytes(root),
+                "expected_write_bytes":requested,"checked_unix":time.time(),
+                "policy":policy,"resource_limits_enforced_at":"parent_admission"}
+    minimum=min(policy_minimum_free_bytes(policy),effective_minimum_free_bytes(policy))
     if free-requested-margin<minimum:
         raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={minimum}")
     used=allocated_bytes(root)

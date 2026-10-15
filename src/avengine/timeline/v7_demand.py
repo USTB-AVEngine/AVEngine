@@ -11,7 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 import json,math,os,random
 
-DEMAND_REVISION = 'v7-demand-driven-20261015-v1'
+DEMAND_REVISION = 'v7-demand-driven-20261015-v2-concrete-gap-conditions'
 # Priority order follows the owner; vision retains approximately 30% of items.
 TARGET_GROUPS = (
     ('binding', .28, 5, ('QA-01','QA-02','QA-03','QA-12','QA-24','QA-26','QA-27','QA-28','V7-CONTENT-BIND')),
@@ -271,23 +271,53 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
             if key.startswith(('semantic_','reuse_')):row.pop(key)
         row['source_classes']={};row['proposed_sound_asset_ids']={};row['motion_requests']={};row['silent_asset_ids']=[]
         row['phase2_recorded_speech_schedule_s']={}
-        selected=humans[:2]
+        row['phase2_recorded_sound_ids']={}
+        selected=humans[:2];used_voices=set();chosen_clips={}
         for i,a in enumerate(selected):
             gender='F' if a.get('visual_gender')=='female' else 'M'
             pool=[r for r in records if r.get('dataset')=='VCTK-Corpus 0.92' and r.get('source_type','recorded')=='recorded'
                   and r.get('gender')==gender and r.get('legacy_library_split')=='train'
-                  and r.get('transcript') and .8<=r.get('duration_s',0)<=2.5]
+                  and r.get('transcript') and (1.7 if focus=='human_motion' else .8)<=r.get('duration_s',0)<=2.3]
             if not pool:raise ValueError('demand lacks admitted short whole recorded speech for '+gender)
-            shortest=min(r['duration_s'] for r in pool);pool=[r for r in pool if r['duration_s']<=shortest+.1]
-            record=rng.choice(sorted(pool,key=lambda r:r['sound_asset_id']));aid=a['asset_id']
+            voices={}
+            for record in pool:
+                if record['speaker_id'] not in used_voices:
+                    voices.setdefault(record['speaker_id'],{})[record['transcript']]=record
+            required=3 if focus=='human_motion' and i==0 else 1
+            voices={voice:list(clips.values()) for voice,clips in voices.items() if len(clips)>=required}
+            if not voices:raise ValueError('demand lacks three distinct admitted whole utterances from one unused voice')
+            voice=rng.choice(sorted(voices));used_voices.add(voice)
+            available=sorted(voices[voice],key=lambda r:(-r['duration_s'],r['sound_asset_id']))
+            clips=available[:3]
+            clips=(clips*3)[:3]
+            record=clips[0];aid=a['asset_id'];chosen_clips[aid]=clips
             row['source_classes'][aid]=['speech_playback'];row['proposed_sound_asset_ids'][aid]=record['sound_asset_id']
-            row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in ((.3,2.8) if i==0 else (0.,))]
+            # Put first onsets in different original QA-19 time bands. A
+            # second early call is useful for counting, but the moving body
+            # must have a long measured quiet tail before its next utterance.
+            if focus=='human_motion':offsets=(2.3,) if i==0 else (0.,)
+            else:offsets=(5.5,) if i else (.5,2.8)
+            row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in offsets]
+            row['phase2_recorded_sound_ids'][aid]=[clip['sound_asset_id'] for clip in clips for _ in offsets]
         for a in humans[2:]:row['silent_asset_ids'].append(a['asset_id'])
         if focus=='human_motion':
             walker=selected[0]
             if not walker.get('walk_allowed'):raise ValueError('demand selected body has no registered walk')
             trend='receding' if row['scene_seed']%2 else 'approaching'
-            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.15,'intervals_s':[[0.,2.5],[8.,9.9],[10.,12.5],[18.,19.9],[20.,22.5],[28.,29.9]],'distance_trend':trend}
+            # Static speech comes first; the moving speaker speaks last.
+            # No later program event interrupts the measured quiet query gap.
+            # Different whole transcripts create distinct sound anchors after
+            # the unchanged parent deduplication removes timestamp copies.
+            windows=[[start+2.3,start+2.3+math.ceil(clip['duration_s']*10)/10]
+                     for start,clip in zip((0.,10.,20.),chosen_clips[walker['asset_id']],strict=True)]
+            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.2,
+                'intervals_s':[[2.,5.],[7.5,10.],[12.,15.],[17.5,20.],[22.,25.],[27.5,30.]],
+                'distance_trend':trend,'distance_trend_windows_s':windows,'minimum_window_distance_change_m':.26}
+            request['required_speaking_motion_contrast']={'moving_asset_id':walker['asset_id'],
+                'static_asset_id':selected[1]['asset_id'],'required_validation_windows_s':[[0.,10.],[10.,20.],[20.,30.]],
+                'post_sound_query_gaps_s':[[8.7,10.],[18.7,20.],[28.7,30.]],
+                'distinct_whole_utterances_for_moving_speaker':3,
+                'status':'proposal; measured wet support, no later programmed event, and native body readbacks required'}
             request['distance_trend']=trend
         request['count_scope']='all actual human source activity in STARSS class13; no mixed-domain count'
     elif focus=='animal_motion':
@@ -305,7 +335,10 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         used={a.get('color') for a in humans};silent=[a for a in catalog if a.get('kind')=='human' and a.get('controlled_shirt')
                 and a.get('color') not in used and a['asset_id'] not in row['asset_ids']
                 and a['asset_id'] not in contract.get('policy',{}).get('temporarily_excluded_asset_ids',{})]
-        if silent:
+        existing_silent=[a for a in humans if a['asset_id'] in row.get('silent_asset_ids',[])]
+        if existing_silent:
+            pass  # The requested unique bystander already has a physical body.
+        elif silent:
             a=rng.choice(sorted(silent,key=lambda a:a['asset_id']));row['asset_ids'].append(a['asset_id']);row.setdefault('silent_asset_ids',[]).append(a['asset_id'])
         else:request['unresolved_conditions']=['no additional uniquely colored registered silent bystander']
     # Five half-overlapping crops reuse one native 30s world. They keep the parent
@@ -318,7 +351,7 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         silent=[byid[aid] for aid in row.get('silent_asset_ids',[]) if byid.get(aid,{}).get('kind')=='human']
         if audible and silent:
             target=audible[0]['asset_id'];occluder=silent[-1]['asset_id']
-            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:10.,occluder:0.})
+            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:8.,occluder:0.})
             row.setdefault('native_attachment_distance_targets_m',{}).update({target:3.,occluder:1.5})
             row['native_occlusion_relations']=[{'target_asset_id':target,'occluder_asset_id':occluder,
                 'relation':'registered silent foreground human partially occludes the farther speaker',
@@ -328,7 +361,56 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         active=[cl for classes in row.get('source_classes',{}).values() for cl in classes if cl!='speech_playback']
         if active:row['category_focus_class']=rng.choice(sorted(set(active)))
         else:request.setdefault('unresolved_conditions',[]).append('no selected non-speech class34-capable physical source')
-    request.update(proposed_motion_requests=deepcopy(row.get('motion_requests',{})),
+    request.update(required_asset_ids=list(row['asset_ids']),
+                   proposed_motion_requests=deepcopy(row.get('motion_requests',{})),
                    proposed_silent_asset_ids=list(row.get('silent_asset_ids',[])))
     validate_recipe(row,catalog,contract)
+    return row
+
+
+def plan_registered_content_demand(row,state,catalog,semantic_manifest):
+    """Construct a real authored quartet, using only admitted whole TTS roles."""
+    row=add_scene_demand(row,state,focus='content_binding')
+    if row.get('schema')!='v7-recorded-registered-standing-v1':
+        raise ValueError('authored quartet needs the registered native producer')
+    plan=row['production_scenario'];byid={a['asset_id']:a for a in catalog}
+    ids=plan.get('asset_ids',[])
+    if not ids or any(byid[aid].get('kind','human')!='human' for aid in ids):
+        raise ValueError('construct the content scene with registered human bodies')
+    speakers=[byid[aid] for aid in ids[:plan['speaker_count']]]
+    if len(speakers)!=plan['speaker_count'] or len(speakers)<2:
+        raise ValueError('authored quartet needs at least two physical speakers')
+    sounds={r['sound_asset_id']:r for r in semantic_manifest['sounds']}
+    selected=plan.get('semantic_sound_ids') or plan.get('semantic_sound_subset_ids')
+    if not selected or len(selected)!=len(speakers):
+        raise ValueError('construct one complete authored role for each physical speaker')
+    actual=[sounds[sid] for sid in selected]
+    if len({r['scenario_id'] for r in actual})!=1 or len({r['role_id'] for r in actual})!=len(actual):
+        raise ValueError('authored quartet needs distinct roles in one admitted scenario')
+    for body,sound in zip(speakers,actual,strict=True):
+        gender=sound['voice_reference']['gender'].lower()
+        if gender not in {body['visual_gender'].lower(),body['visual_gender'][:1].lower()}:
+            raise ValueError('authored voice gender differs from the registered body')
+    if plan.get('native_environment') or plan.get('environment_sound_classes') or plan.get('additional_source_assets'):
+        raise ValueError('construct a separate speech-only template for authored content')
+    # Every member is independently produced by the native quartet generator.
+    row['members']=['v0_a0','v0_a1','v1_a0','v1_a1']
+    row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
+    plan.update(semantic_scenario_id=actual[0]['scenario_id'],semantic_sound_ids=list(selected),
+                semantic_sound_subset_ids=list(selected),non_speech_class=None,
+                category_focus_class=None,environment_sound_classes=[])
+    if len(speakers)==2:
+        plan['semantic_role_start_offsets_s']=[.5,4.5]
+        # The symmetric zero-offset layout can put both measured mouths on
+        # the original +/-22.5 degree dead zones. Use the registered camera's
+        # ordinary 7 degree offset as a physical proposal; native QA-28 still
+        # checks the actual mouths, distinct sectors and unchanged dead zones.
+        if not plan.get('binding_camera_yaw_offset_deg'):
+            plan['binding_camera_yaw_offset_deg']=7.
+    row['scene_demand']['required_distinct_semantic_direction_sectors']=True
+    row['scene_demand'].update(required_program_source_type='author_tts',
+        required_native_members=list(row['members']),required_sound_asset_ids=list(selected),
+        required_asset_ids=list(ids),required_independent_family_counts={f:3 for f in
+            ('QA-26','QA-27','QA-28','V7-CONTENT-BIND')},
+        taxonomy_scene_policy='class34 uses a separate registered emitting device; live TTS is not device playback')
     return row

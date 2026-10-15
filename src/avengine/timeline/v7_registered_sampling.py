@@ -88,6 +88,28 @@ def semantic_record(sound,gender):
     record['screens']={'license':{'license':engine['model_license']+' + '+ref['license_spdx'],'original_id':record['original_id'],'source_uri':record['source_uri'],'retained_text':engine['model_license_path']}}
     return record
 
+
+def authored_epoch_sound_rows(plan, manifest, starts, speakers):
+    """Resolve distinct authored scenarios without changing a physical voice."""
+    requested=plan.get('semantic_epoch_sound_ids')
+    if requested is None:return None
+    if len(requested)!=len(starts):raise ValueError('authored epoch count differs from actual native epochs')
+    lookup={s['sound_asset_id']:s for s in manifest['sounds']};rows=[];voices=None
+    for ids in requested:
+        if len(ids)!=len(speakers) or len(ids)!=len(set(ids)):
+            raise ValueError('authored epoch needs one distinct role for each speaker')
+        sounds=[lookup[sid] for sid in ids]
+        if len({s['scenario_id'] for s in sounds})!=1 or len({s['role_id'] for s in sounds})!=len(sounds):
+            raise ValueError('authored epoch needs distinct roles of one admitted scenario')
+        current=[s['voice_reference']['speaker_id'] for s in sounds]
+        if len(set(current))!=len(current) or voices is not None and current!=voices:
+            raise ValueError('authored epochs must retain distinct fixed physical voices')
+        for body,sound in zip(speakers,sounds,strict=True):
+            if sound['voice_reference']['gender'].lower() not in {body['visual_gender'],body['visual_gender'][:1]}:
+                raise ValueError('authored epoch voice gender differs from the physical body')
+        voices=current;rows.append(sounds)
+    return rows
+
 def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,camera_evidence_policy=None):
     if row['schema']!=REGISTERED_INPUT_SCHEMA or house['house']!=row['house'] or house['split']=='test':raise ValueError('registered production row on train/dev house required')
     if house['acoustic_status']!='pass' or row['room_id'] not in house['checked_room_ids']:raise ValueError('unaccepted physical house/room')
@@ -173,13 +195,16 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
         if order:
             if set(order)!=set(s['sound_asset_id'] for s in sounds):raise ValueError('authored sound selection does not match the actual scenario')
             sounds=[next(s for s in sounds if s['sound_asset_id']==sid) for sid in order]
+        epochs=authored_epoch_sound_rows(plan,semantic_manifest,event_starts,assets[:len(sounds)])
         for i,s in enumerate(sounds):
-            ep=assets[i]['endpoint_id'];g='F' if assets[i]['visual_gender']=='female' else 'M';r=semantic_record(s,g)
+            ep=assets[i]['endpoint_id'];g='F' if assets[i]['visual_gender']=='female' else 'M'
             if s['voice_reference']['speaker_id'] in used_voices:raise ValueError('authored roles share voice')
             used_voices.add(s['voice_reference']['speaker_id'])
             offsets=plan.get('semantic_role_start_offsets_s',[2.+j*.9 for j in range(len(sounds))])
             if len(offsets)!=len(sounds) or any(not math.isfinite(float(t)) or not 0.<=float(t)<=7. for t in offsets):raise ValueError('invalid complete authored role schedule')
-            for start in event_starts:add(ep,start+float(offsets[i]),r)
+            for j,start in enumerate(event_starts):
+                r=semantic_record(epochs[j][i] if epochs is not None else s,g)
+                add(ep,start+float(offsets[i]),r)
     else:
         pool_split='train' if row['split']=='train' else 'eval'
         for i,a in enumerate(assets[:n]):

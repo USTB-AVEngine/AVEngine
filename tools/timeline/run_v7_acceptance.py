@@ -48,7 +48,13 @@ def run_worker(manifest,slot):
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
-        row=load(previous) if previous.exists() else add_scene_demand(row,state,focus=task.get('focus','content_binding'))
+        if previous.exists():
+            row=load(previous)
+        elif task.get('focus','content_binding')=='content_binding':
+            from avengine.timeline.v7_demand import plan_registered_content_demand
+            row=plan_registered_content_demand(row,state,catalog,load(inputs['semantic_manifest']))
+        else:
+            row=add_scene_demand(row,state,focus=task.get('focus'))
         row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
         add_required_condition(row,'authored_native_quartet')
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
