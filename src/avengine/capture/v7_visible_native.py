@@ -298,7 +298,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if foreground:priority=2.6
             extent=np.ptp(np.asarray(entry['original_mesh'].vertices),axis=0)
             return priority,-float(np.prod(extent))
-        for entry in sorted(self.actors,key=layout_order):
+        # owner 10-15: construct instead of failing: an entity without any passing placement is retried with a
+        # construction fallback (see v7_offscreen_layout.placement_construction_fallback); gates are unchanged.
+        placement_queue=sorted(self.actors,key=layout_order)
+        while placement_queue:
+            entry=placement_queue.pop(0)
             a=entry['declaration'];meta=entry['attachment_meta'];key=a['attachment_surface']
             if a.get('object_type')=='doorbell_chime_unit':key='doorbell_wall'
             elif a.get('object_type')=='air_conditioner' and a.get('form_factor')=='wall_split':key='high_wall'
@@ -387,7 +391,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 proposed_root,proposed_yaw,_,_=support_points(meta,support)
                 if is_person(a) and len(people)+1==sum(is_person(e['declaration'])for e in self.actors) and all_people_face_camera([*people,{'position_m':proposed_root,'yaw_rad':proposed_yaw}],listener):
                     reject('all_people_face_camera');continue
-                spacing=spacing_rejection(a,proposed_root,placed,camera_position=scene['listener_m'])
+                spacing=spacing_rejection(a,proposed_root,placed,camera_position=scene['listener_m'],
+                    camera_minimum_m=float(scene.get('native_person_camera_construction_m',{}).get(a['asset_id'],1.5)))
                 if spacing:
                     reject(spacing['reason']);continue
                 if noncollinear_rejection(a,proposed_root,placed):
@@ -502,6 +507,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 checks.append(accepted);placed.append(entry);break
             if accepted is None:
                 write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})
+                from avengine.capture.v7_offscreen_layout import placement_construction_fallback
+                stage=placement_construction_fallback(scene,a,key,target,require_pair)
+                if stage is not None:
+                    write_json(directory/('attachment_rejection_before_'+stage+'_'+a['asset_id']+'.json'),{'status':'retry_with_construction_fallback','stage':stage,'failed_asset_id':a['asset_id'],'surface':key,'rejection_counts':rejections})
+                    placement_queue.insert(0,entry);continue
                 raise ValueError('no strict native '+key+' placement for '+a['asset_id'])
         if require_pair:
             pixels=self._native_pair_pixels(scene,paired)

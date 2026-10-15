@@ -466,7 +466,8 @@ def test_speaking_walker_skips_unused_foot_gate_but_footstep_walker_keeps_unchan
             'pose_glbs':['registered_original_pose.glb']}}
     video=object.__new__(NativePhase2Video)
     if has_footsteps:
-        with pytest.raises(ValueError,match='unchanged 50mm and 2mm gates'):video._apply_motion_entry(entry,0)
+        # Still fails when no shoe vertex within 10 cm is >= 2 mm above the contact (owner 10-15 widened 5 -> 10 cm).
+        with pytest.raises(ValueError,match='2mm not-buried gate'):video._apply_motion_entry(entry,0)
     else:
         row=video._apply_motion_entry(entry,0)
         assert row['emitter_local_m_frame']==[0.,1.4,0.]
