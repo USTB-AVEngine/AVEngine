@@ -107,3 +107,29 @@ def test_reflection_m1_requires_its_advertised_original_families_without_forcing
     validate_template_request(row,catalog)
     row['motion_during_condition_requests'].pop()
     with pytest.raises(ValueError,match='declared original conditions'):validate_template_request(row,catalog)
+
+
+def test_positive_gap_below_two_cm_is_visual_only_but_intersection_is_still_hard():
+    visual=animal_visual();record=visual['native_motion_admissions']['animal']
+    record['minimum_certified_triangle_nonfloor_clearance_m']=.005
+    result=motion_checks(visual)
+    assert result['status']=='pass' and any('2cm' in w for w in result['appearance_warnings'])
+    record['minimum_certified_triangle_nonfloor_clearance_m']=0.
+    assert motion_checks(visual)['status']=='fail'
+
+
+def test_real_moving_animal_can_start_outside_view_without_fabricating_visibility():
+    from avengine.capture.v7_offscreen_layout import placement_construction_fallback,proposal_view_ok,native_pixels_ok,coverage_errors
+    scene={'production_scenario':{'motion_requests':{'voice1':{}}}}
+    animal={'asset_id':'cat','endpoint_id':'voice1','kind':'animal'}
+    assert placement_construction_fallback(scene,animal,'floor',None,False)=='moving_view_construction'
+    assert proposal_view_ok(scene,'cat',[0,0,2],[0,0,-1],False)
+    entry={'declaration':animal,'object':SimpleNamespace(object_id=42)}
+    assert native_pixels_ok(scene,[entry],{'cat':0})
+    assert native_pixels_ok(scene,[entry],{'cat':120})
+    visual={'visible_attachment_checks':[{'asset_id':'cat','moving_drawable_view_proof':{'native_object_id':42,'actual_per_frame_visibility_required':True}}]}
+    assert coverage_errors(scene,[animal],visual,{'cat':0})==[]
+    assert coverage_errors(scene,[animal],{}, {'cat':0})
+    assert placement_construction_fallback(scene,animal,'floor',None,False) is None
+    explicit={'production_scenario':{'motion_requests':{'voice1':{}}},'native_view_roles':{'cat':{'view':'inside'}}}
+    assert placement_construction_fallback(explicit,animal,'floor',None,False) is None

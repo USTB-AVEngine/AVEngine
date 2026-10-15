@@ -37,6 +37,7 @@ def proposal_view_ok(scene,asset_id,delta,forward,ordinary_visible,required=True
     if band is not None:
         distance=float(np.linalg.norm(np.asarray(delta)[[0,2]]))
         if not band[0]<=distance<=band[1]:return False
+    if scene.get('native_view_roles',{}).get(asset_id,{}).get('view')=='unconstrained_motion':return True
     role=offscreen_role(scene,asset_id)
     if role:return abs(azimuth_degrees(delta,forward))>=float(role.get('minimum_abs_azimuth_deg',60.))
     if required:return ordinary_visible
@@ -48,6 +49,9 @@ def proposal_view_ok(scene,asset_id,delta,forward,ordinary_visible,required=True
 def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100,unconstrained=()):
     for entry in entries:
         aid=entry['declaration']['asset_id'];count=counts.get(aid,0)
+        if scene.get('native_view_roles',{}).get(aid,{}).get('view')=='unconstrained_motion':
+            if getattr(entry.get('object'),'object_id',None) is None:return False
+            continue
         if offscreen_role(scene,aid):
             if count!=0:return False
         elif aid in unconstrained and count==0:continue      # naturally off screen; a role is assigned on acceptance
@@ -87,6 +91,12 @@ def native_projection_proof(video,scene,entry,visible_pixels):
 def coverage_errors(scene,assets,visual,visible_frame_counts):
     errors=[];byid={a['asset_id']:a for a in assets};proofs={a['asset_id']:a.get('intentional_offscreen_proof')for a in visual.get('visible_attachment_checks',[])}
     for aid,count in visible_frame_counts.items():
+        if scene.get('native_view_roles',{}).get(aid,{}).get('view')=='unconstrained_motion':
+            check=next((a for a in visual.get('visible_attachment_checks',[])if a['asset_id']==aid),{})
+            proof=check.get('moving_drawable_view_proof',{})
+            if aid not in byid or proof.get('native_object_id')is None or not proof.get('actual_per_frame_visibility_required'):
+                errors.append('moving view fallback lacks actual registered native drawable proof')
+            continue
         role=offscreen_role(scene,aid)
         if not role:
             if not count:errors.append('registered entity never reached 100 native visible pixels')
@@ -137,6 +147,14 @@ def placement_construction_fallback(scene,declaration,surface,target,require_pai
         return 'camera_1_2m'
     movers=set(scene.get('production_scenario',{}).get('motion_requests',{}))
     roles=scene.setdefault('native_view_roles',{})
+    moving=(aid in movers or declaration.get('endpoint_id') in movers)
+    if (moving and aid not in roles and target is None and not visibility_required(scene,declaration)
+            and not (require_pair and declaration.get('controlled_shirt'))):
+        roles[aid]={'view':'unconstrained_motion','static':False,'real_registered_drawable_required':True,
+                    'actual_per_frame_visibility_required':True,
+                    'construction':'owner 10-15 placement fallback: allow a real mover to enter or leave the fixed view'}
+        log.append({'asset_id':aid,'stage':'moving_view_construction','policy':'owner-20261015-construct-not-fail'})
+        return 'moving_view_construction'
     if ('offscreen' not in done and aid not in roles and target is None and not visibility_required(scene,declaration)
             and not (require_pair and declaration.get('controlled_shirt'))
             and aid not in movers and declaration.get('endpoint_id') not in movers):

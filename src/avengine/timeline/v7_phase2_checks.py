@@ -29,7 +29,7 @@ def motion_checks(visual):
             and policy.get('support_lock_error_m')==.015)
         human_owner_quality=(record.get('species_id','human')not in {'dog','cat'} and record.get('quality_policy')==HUMAN_QUALITY)
         owner_quality=owner_quality or human_owner_quality
-        clearance_limit=HUMAN_QUALITY['minimum_nonfloor_clearance_m']if human_owner_quality else .02
+        clearance_limit=0. if animal_visual_only else HUMAN_QUALITY['minimum_nonfloor_clearance_m']if human_owner_quality else .02
         limit=.012 if owner_quality or record.get('species_id')=='cat' else .008
         support_limit=.015 if owner_quality else .003
         if human_owner_quality:
@@ -50,6 +50,7 @@ def motion_checks(visual):
         navigation.append(record['maximum_navmesh_horizontal_error_m'])
         clearance=record['minimum_certified_triangle_nonfloor_clearance_m'];clearances.append(clearance)
         if clearance<=clearance_limit:errors.append(ep+':whole original skin clearance fails declared quality policy')
+        if animal_visual_only and 0.<clearance<=.02:warnings.append(ep+':positive nonfloor clearance below 2cm visual preference')
         for index,(frame,row) in enumerate(zip(source,actual)):
             if row.get('root_max_error',0)>1e-5 or row.get('native_emitter_readback_error_m',1)>.0001:
                 errors.append(ep+':native root/head emitter readback')

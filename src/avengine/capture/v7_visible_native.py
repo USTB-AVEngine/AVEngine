@@ -508,6 +508,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                           'floor_type_authority':'native navmesh + all native support rays within 80mm of measured room floor/free polygon + original floor or ground-covering triangles <=15mm; contact itself <=15mm',
                           'table_type_authority':'actual native horizontal patch + original scan table/desk/counter-labelled triangles within <=15mm',
                           'motion_admission':'original static complete mesh; no new walking/sitting motion'}
+                if scene.get('native_view_roles',{}).get(a['asset_id'],{}).get('view')=='unconstrained_motion':
+                    accepted['moving_drawable_view_proof']={'native_object_id':int(entry['object'].object_id),'actual_per_frame_visibility_required':True,'frame_zero_native_pixels':int(native_pixels.get(a['asset_id'],0))}
                 if placement.get('animal_floor_support'):
                     accepted.update(animal_floor_support=True,animal_visual_fallback_policy=placement['animal_visual_fallback_policy'],appearance_warnings=placement['appearance_warnings'])
                     scene.setdefault('construction_fallbacks',[]).append({'asset_id':a['asset_id'],'stage':'animal_measured_floor_root_grounding','details':placement['appearance_warnings']})

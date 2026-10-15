@@ -11,6 +11,7 @@ from avengine.assets.roster_motion.contact import yaw_matrix
 
 POLICY = {'revision': 'owner-animal-appearance-construction-20261015',
           'appearance_only': True, 'unresolved_paw_quality': 'record_only',
+          'positive_nonfloor_clearance_margin': 'record_only; actual intersections still rejected',
           'truth_and_answer_gates_changed': False}
 
 
