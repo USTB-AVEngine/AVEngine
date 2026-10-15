@@ -214,6 +214,40 @@ def build_qa10_row(room, house, state, catalog, semantic, contract, plan,
     return {"profile": "phase2", "row": deepcopy(row)}
 
 
+def _camera_facing_angle(root, forward, camera):
+    toward = (np.asarray(camera, float) - np.asarray(root, float))[[0, 2]]
+    forward = np.asarray(forward, float)[[0, 2]]
+    denominator = float(np.linalg.norm(forward) * np.linalg.norm(toward))
+    if not math.isfinite(denominator) or denominator <= 0:
+        raise ValueError("human orientation needs finite nonzero camera displacement")
+    return math.degrees(math.acos(float(np.clip(np.dot(forward, toward)/denominator, -1., 1.))))
+
+
+def _human_facing_angles(plan):
+    return {aid: _camera_facing_angle(
+        actor.positions_m[0],
+        [math.cos(float(actor.headings_rad[0])), 0., math.sin(float(actor.headings_rad[0]))],
+        plan.camera.position_m)
+        for aid, actor in plan.actors.items() if actor.body.species == "human"}
+
+
+def _vary_human_headings(plan, companion_id):
+    """Solve the owner layout constraint before native bindings/certification."""
+    from avengine.timeline.v7_family_constructors import stable_seed
+    angles = _human_facing_angles(plan)
+    if angles and max(angles.values()) < 45.:
+        actor = plan.actors[companion_id]
+        delta = np.asarray(plan.camera.position_m) - actor.positions_m[0]
+        seed = stable_seed("qa10_varied_heading", companion_id,
+                           tuple(plan.camera.position_m), float(actor.headings_rad[0]))
+        offset = math.radians(60. + (seed % 9001)/100.)
+        heading = math.atan2(float(delta[2]), float(delta[0])) + (-1 if seed % 2 else 1)*offset
+        # Root, timeline and route metadata remain the original proposal.
+        actor.headings_rad = np.full_like(actor.headings_rad, heading)
+        actor.metadata.pop("native_yaw_rad", None)
+    plan.metadata["qa10_human_camera_angles_deg"] = _human_facing_angles(plan)
+
+
 class QA10Plugin:
     """Family constraints over the core's shared static geometry proposals."""
     def __init__(self, bodies, demand, *, assets, sound_requirements=()):
@@ -242,6 +276,7 @@ class QA10Plugin:
                 "activity_authority": "source_normalization.measured_activity; final native activity independently read"}
             speaker = self.sound_requirements[0].entity_id
             plan.metadata["source_playback_starts_s"] = {speaker: list(schedule.starts_s)}
+            _vary_human_headings(plan, speaker)
             # Answer identity should be readable: request the device's front
             # toward the viewer, inside solve's candidate stage.
             aid = self.demand.occluder_asset_id
@@ -260,6 +295,11 @@ class QA10Plugin:
 
     def verify(self, context, request, plan):
         from avengine.construction.joint import CheckResult
+        angles = _human_facing_angles(plan)
+        yield CheckResult("qa10_varied_human_headings",
+                          "pass" if len(angles) == 2 and max(angles.values()) >= 45. else "fail",
+                          "at least one human faces away from the camera axis with construction margin",
+                          evidence={"camera_angles_deg": angles, "minimum_one_angle_deg": 45.})
         target = plan.actors.get(self.demand.target_asset_id)
         occluder = plan.actors.get(self.demand.occluder_asset_id)
         if target is None or occluder is None:
@@ -385,6 +425,19 @@ def prepare_qa10_native_candidate(plan, row, house, catalog, records, semantic, 
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=False)
     def family_check(video, scene, entries):
+        # Read actual native transforms, rather than trusting planned headings.
+        camera = np.asarray(video.sim._sensors["rgb"]._sensor_object.node.absolute_transformation(), float)[:3, 3]
+        angles = {}
+        for entry in entries:
+            aid = entry["declaration"]["asset_id"]
+            if plan.actors[aid].body.species != "human":
+                continue
+            transform = np.asarray(entry["object"].root_scene_node.absolute_transformation(), float)
+            angles[aid] = _camera_facing_angle(transform[:3, 3], -transform[:3, 2], camera)
+        yield CheckResult("qa10:native_varied_human_headings",
+                          "pass" if len(angles) == 2 and max(angles.values()) >= 45. else "fail",
+                          "actual native human headings must satisfy the owner natural-layout constraint",
+                          evidence={"camera_angles_deg": angles, "minimum_one_angle_deg": 45.})
         witness = video.attachment_checks[-1].get("requested_occlusion_witness")
         if witness is None:
             witness = measure_requested_relations(video, scene, entries)
