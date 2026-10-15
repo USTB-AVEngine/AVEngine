@@ -33,3 +33,18 @@ def test_question_and_protocol_counts_are_bouts_and_raw_steps_are_preserved():
 def test_missing_measured_tail_cannot_certify_bout_stop():
     scene,proof=fixture();proof['events']['0'].pop('wet_intervals_global_s')
     with pytest.raises(ValueError,match='actual measured wet'):footstep_bout_question_inputs(scene,proof)
+
+def test_native_contact_onsets_emit_every_real_step_once_without_a_six_event_quota():
+    from avengine.timeline.v7_phase2_sources import resolve_footstep_events
+    frames=[]
+    for i in range(91):
+        feet=[]
+        for side,spans in [('L',[(9,21),(39,51)]),('R',[(24,36),(54,66)])]:
+            feet.append({'endpoint_id':'person_foot_'+side,'in_contact':any(lo<=i<=hi for lo,hi in spans),'floor_delta_m':0.})
+        frames.append({'moving':True,'attached_emitter_readbacks':feet})
+    scene={'planned_footsteps':[{'endpoint_id':'person','sound_asset_id':'real registered step','requested_events':6}],'sources':{'person':{'actor_id':1},'person_foot_L':{'actor_id':1,'class_id':2,'mechanism':'walking_human_registered_foot','owner_endpoint_id':'person'},'person_foot_R':{'actor_id':1,'class_id':2,'mechanism':'walking_human_registered_foot','owner_endpoint_id':'person'}},'events':[]}
+    program={'records':[{'sound_asset_id':'real registered step','screens':{'automatic_activity':{'activity_intervals_samples':[[0,1600]]}},'header':{'sample_count':16000}}],'events':[]}
+    result=resolve_footstep_events(scene,program,{'native_motion_admissions':{'person':{'native_30Hz_readbacks':frames}}})
+    assert [r['actual_contact_onset_frame_index']for r in result['events']]==[9,24,39,54]
+    assert len(scene['events'])==4
+    assert [len(steps)for _,steps in group_footstep_bouts(scene)]==[4]

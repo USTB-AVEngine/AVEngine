@@ -255,26 +255,29 @@ def resolve_footstep_events(scene,program,visual):
         crop=int(source_activity[0][0])
         if crop+1600>record['header']['sample_count']:raise ValueError('footstep crop lacks one measured tick')
         chosen=[]
-        for tick in range(1,298):
-            lo=tick*3;hi=(tick+1)*3
-            if hi>=len(frames):break
-            for side in ('L','R'):
-                alias=ep+'_foot_'+side
-                samples=[next(v for v in f['attached_emitter_readbacks'] if v['endpoint_id']==alias) for f in frames[lo:hi+1]]
-                if all(f['moving'] for f in frames[lo:hi+1]) and all(v['in_contact'] and abs(v['floor_delta_m'])<.008 for v in samples):
-                    if chosen and tick-chosen[-1][0]<5:continue
-                    chosen.append((tick,side,samples))
-                    break
+        for side in ('L','R'):
+            alias=ep+'_foot_'+side
+            contact=[next(v for v in f['attached_emitter_readbacks']if v['endpoint_id']==alias)for f in frames]
+            for index in range(1,len(frames)):
+                # A new impact needs a real contact transition. Remaining on
+                # the same planted foot is not another footstep every 500ms.
+                if not contact[index]['in_contact']or contact[index-1]['in_contact']or not frames[index]['moving']:continue
+                tick=(index+2)//3;lo=tick*3;hi=(tick+1)*3
+                if hi>=len(frames)or tick>=298:continue
+                samples=contact[lo:hi+1]
+                if all(f['moving']for f in frames[lo:hi+1])and all(v['in_contact']and abs(v['floor_delta_m'])<.008 for v in samples):
+                    chosen.append((tick,side,samples,index))
+        chosen.sort(key=lambda value:(value[0],value[1]))
         if not chosen:raise ValueError('walking motion has no actual admitted stance interval for footsteps')
         selection=chosen
         planned['event_unit']='footstep_bout'
         planned['maximum_adjacent_onset_gap_s']=.6
         planned['all_actual_step_contacts_retained']=True
-        for tick,side,samples in selection:
+        for tick,side,samples,onset_frame in selection:
             eid='footstep_event_'+str(len(scene['events'])).zfill(4);alias=ep+'_foot_'+side;spec=scene['sources'][alias]
             scene['events'].append({'event_id':eid,'endpoint_id':alias,'source_id':spec['actor_id'],'class_id':spec['class_id'],'sound_class':'footsteps','start_tick':int(tick),'end_tick':int(tick+1),'mechanism':spec['mechanism']})
             program['events'].append({'event_id':eid,'sound_asset_id':record['sound_asset_id'],'crop_start_sample':crop})
-            proof.append({'event_id':eid,'native_body_endpoint_id':ep,'native_foot':side,'start_tick':int(tick),'crop_start_sample':crop,'actual_contact_frame_indices':list(range(tick*3,(tick+1)*3+1)),'contact_worst_error_m':max(abs(v['floor_delta_m']) for v in samples),'emitter_source':'actual original-skinned sole vertices and native attached foot child'})
+            proof.append({'event_id':eid,'native_body_endpoint_id':ep,'native_foot':side,'actual_contact_onset_frame_index':onset_frame,'actual_contact_onset_s':onset_frame/30.,'start_tick':int(tick),'crop_start_sample':crop,'actual_contact_frame_indices':list(range(tick*3,(tick+1)*3+1)),'contact_worst_error_m':max(abs(v['floor_delta_m']) for v in samples),'emitter_source':'actual original-skinned sole vertices and native attached foot child'})
     return {'status':'pass','events':proof,'thresholds_changed':False,'recording_cropped_not_repeated_or_time_stretched':True,
             'annotation_event_unit':'footstep_bout','maximum_adjacent_onset_gap_s':.6,
             'raw_step_count':len(proof),'bout_annotation_requires_actual_native_wet_support':True}
