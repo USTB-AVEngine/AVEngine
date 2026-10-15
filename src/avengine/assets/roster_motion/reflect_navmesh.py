@@ -136,8 +136,14 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     rejected=Counter()
     slot=route['emission_slot'];i0=round(slot['start_s']*30);i1=round(slot['end_s']*30)
     centre=np.mean(xz,axis=0);candidates=[];tested=0
-    rotations=[0.,math.pi/16,-math.pi/16,math.pi/8,-math.pi/8,math.pi/4,-math.pi/4,math.pi/2,math.pi,-math.pi/2]
-    shifts=[np.array([x,z])for x in (0.,.25,-.25,.5,-.5,1.,-1.)for z in (0.,.25,-.25,.5,-.5,1.,-1.)]
+    # Place the short walk anywhere on the native floor (0.3 m grid x 16 headings), not only near where it was
+    # planned: the planned room outline differs from the native motion floor, so local shifts mostly fell outside.
+    rotations=[k*math.pi/8 for k in range(16)]
+    gx0,gz0,gx1,gz1=polygon.bounds
+    grid=[np.array([x,z]) for x in np.arange(gx0,gx1+1e-9,.3) for z in np.arange(gz0,gz1+1e-9,.3) if polygon.covers(Point(x,z))]
+    rng=np.random.default_rng(int(abs(hash(str(route.get('selected_attempt')))) % (2**32)))
+    rng.shuffle(grid)
+    shifts=[g-centre for g in grid]
     limit=max(24,int(request.get('native_route_candidate_pool',96)))
     for shift in shifts:
         for angle in rotations:
