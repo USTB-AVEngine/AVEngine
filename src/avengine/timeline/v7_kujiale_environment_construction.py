@@ -66,25 +66,39 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
         root=np.asarray(point['root_m'],float);envelopes.append((root+[-.4,0,-.4],root+[.4,1.9,.4]))
     for cls,candidates in native_class_candidates(inventory,classes,house['input']['ue_config']['uproject'],row['scene_seed']+11*int(row.get('construction_request',{}).get('construction_attempt',0))):
         accepted=None;rejections=[]
-        for asset in candidates[:max_assets]:
+        # First keep the planned view, then try the smallest actual registered
+        # bodies on every legal support outside the fixed view (Claude ddce1120).
+        from avengine.capture.v7_offscreen_layout import placement_construction_fallback
+        stages=[(False,a) for a in candidates[:max_assets]]
+        stages += [(True,a) for a in sorted(candidates,key=lambda a:(max(a['dimensions_m']),a['asset_id']))]
+        for offscreen,asset in stages:
+            fallback_scene=deepcopy(row)
+            declaration={'asset_id':asset['asset_id'],'endpoint_id':'environment'+str(len(plans)+1),
+                         'kind':'animal' if asset['category'] in {'dog','cat'} else 'object'}
+            if offscreen and placement_construction_fallback(fallback_scene,declaration,asset['attachment_surface'],
+                    row.get('native_sector_targets',{}).get(asset['asset_id']),False)!='offscreen':continue
             print('AUTO_NATIVE_ASSET_CANDIDATE',row['house'],row['room_id'],cls,asset['asset_id'],flush=True)
             primary=json.loads(Path(asset['primary_native_evidence']).read_text());manifest_path=Path(primary['input_manifest']);manifest=json.loads(manifest_path.read_text());metadata=next(a for a in manifest['assets']if a['asset_id']==asset['asset_id']);import_path=manifest_path.parent.parent/'evidence/import'/manifest['revision']/(asset['asset_id']+'.json');vertices=import_vertices(json.loads(import_path.read_text()));error=np.abs(np.ptp(vertices,axis=0)-np.asarray(asset['dimensions_m']))/np.maximum(asset['dimensions_m'],1e-5)
             if error.max()>.15:raise ValueError('admitted native size changed before construction')
             prepared_paws=PreparedPawContacts(metadata,vertices);support_poses=NativeSupportProposalCache(vertices);rejected=Counter()
             tolerance=.012 if asset['category']!='object'else .015;supports=sorted(catalog[asset['attachment_surface']],key=lambda q:abs(np.linalg.norm((np.asarray(q['point_m'])-listener)[[0,2]])-3.1))
-            for support in supports[:max_supports]:
+            for support in (supports if offscreen else supports[:max_supports]):
                 n=np.asarray(support['normal']);angles=[math.atan2(-n[2],n[0])]if asset['attachment_surface']=='wall'else[0.,math.pi/2,math.pi,-math.pi/2]
                 for yaw in angles:
                     matrix,rotated,proposed_root,low,high=support_poses.pose(support,yaw)
                     if not _separated(low,high,envelopes):rejected['actual_human_or_required_entity_envelope_prefilter']+=1;continue
                     center=(low+high)/2;ray=center-listener;length=np.linalg.norm(ray);horizontal=np.linalg.norm(ray[[0,2]])
                     if any(np.linalg.norm((center-np.asarray(p['root_m']))[[0,2]])<1.0 for p in row['measured_static_layout']['valid']):rejected['owner_human_animal_center_spacing']+=1;continue
-                    if not _separated(low,high,envelopes)or horizontal<.2 or abs(math.degrees(math.atan2(ray[1],horizontal)))>23 or not _clear_segment(listener,center,envelopes):rejected['listener_view_or_human_separation']+=1;continue
+                    if horizontal<.2:rejected['source_coincides_with_listener']+=1;continue
+                    if not offscreen and (abs(math.degrees(math.atan2(ray[1],horizontal)))>23 or not _clear_segment(listener,center,envelopes)):rejected['listener_view_or_human_separation']+=1;continue
                     from avengine.capture.kujiale_pilot_environment import binding_camera_yaw
                     yaw_center=row['measured_static_layout'].get('fixed_camera_yaw_deg',binding_camera_yaw(listener,[p['position_m']for p in row['measured_static_layout']['valid'][:2]]))
                     bearing=math.degrees(math.atan2(ray[0],-ray[2]));offset=(bearing-yaw_center+180)%360-180
-                    if abs(offset)>35:rejected['required_camera_sweep_span']+=1;continue
-                    if geometry.ray(listener,ray/length,length-.04)is not None:rejected['native_camera_to_entity_ray']+=1;continue
+                    if offscreen:
+                        if abs(offset)<60:rejected['offscreen_bearing_below_60_degrees']+=1;continue
+                    else:
+                        if abs(offset)>35:rejected['required_fixed_camera_span']+=1;continue
+                        if geometry.ray(listener,ray/length,length-.04)is not None:rejected['native_camera_to_entity_ray']+=1;continue
                     place=geometry.placement(vertices,support,yaw,tolerance)
                     if place is None:rejected['original_native_support_contact_collision_or_negative_control']+=1;continue
                     place['construction_support_pose_cache']={'root_max_abs_error_m':float(np.max(np.abs(proposed_root-np.asarray(place['root_m'])))),'original_native_contact_collision_and_negative_control_rerun':True}
@@ -100,6 +114,10 @@ def construct_environment(row,house,inputs,classes,*,max_assets=32,max_supports=
             if accepted:break
             rejections.append({'asset_id':asset['asset_id'],'support_candidates':min(len(supports),max_supports),'rejections':dict(rejected)});print('AUTO_NATIVE_ASSET_REJECTED',json.dumps(rejections[-1],sort_keys=True),flush=True)
         if not accepted:raise ValueError('bounded native physical construction found no support for required class '+cls+': '+json.dumps(rejections,sort_keys=True))
+        if offscreen:
+            accepted['intentional_offscreen_role']=fallback_scene['native_view_roles'][asset['asset_id']]
+            accepted['construction_fallbacks']=fallback_scene['construction_fallbacks']
+            row.setdefault('construction_fallbacks',[]).extend(accepted['construction_fallbacks'])
         print('AUTO_NATIVE_PHYSICAL_PLAN',row['house'],row['room_id'],accepted['asset_id'],accepted['placement']['root_m'],flush=True)
         plans.append(accepted)
     return plans
