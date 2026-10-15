@@ -9,10 +9,13 @@ from avengine.timeline.v7_kujiale_scheduler import resources,isolated_command,as
 from tools.timeline.run_v7_kujiale_rooms import load,write
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--required-sound-class',required=True);p.add_argument('--physical-gpu',type=int,required=True);p.add_argument('--python',default=os.environ.get('GAP_PY',os.sys.executable));p.add_argument('--max-attempts',type=int,default=8);p.add_argument('--resume-slot',type=int);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);task=m['parents'][a.resume_slot]if a.resume_slot is not None else next(t for t in m['parents']if t.get('automatic_registered_room')and not(root/'evidence/jobs'/f'{t["slot"]:03d}.json').exists());request=copy.deepcopy(task['row']);base='v7_gap_auto_class_'+request['house']+'_'+request['room_id']+'_q'+str(len(m['parents']));request['required_sound_classes']=[a.required_sound_class]
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--required-sound-class',required=True);p.add_argument('--physical-gpu',type=int,required=True);p.add_argument('--python',default=os.environ.get('GAP_PY',os.sys.executable));p.add_argument('--max-attempts',type=int,default=8);p.add_argument('--resume-slot',type=int);p.add_argument('--resume-pid',type=int);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);task=m['parents'][a.resume_slot]if a.resume_slot is not None else next(t for t in m['parents']if t.get('automatic_registered_room')and not(root/'evidence/jobs'/f'{t["slot"]:03d}.json').exists());request=copy.deepcopy(task['row']);base='v7_gap_auto_class_'+request['house']+'_'+request['room_id']+'_q'+str(len(m['parents']));request['required_sound_classes']=[a.required_sound_class]
     first=0
     if a.resume_slot is not None:
         job_path=root/'evidence/jobs'/f'{a.resume_slot:03d}.json';current=m['parents'][a.resume_slot];request=copy.deepcopy(current['row']);base=request['scene_id'].rsplit('_a',1)[0];first=int(request['construction_attempt'])+1
+        if not job_path.exists()and a.resume_pid is not None:
+            child=AttachedChild(a.resume_pid,a.resume_slot,a.manifest)
+            while child.poll()is None:time.sleep(10)
         if job_path.exists():
             job=load(job_path)
             if job['status']=='passed':return
