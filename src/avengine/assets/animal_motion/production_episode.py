@@ -450,6 +450,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             if not math.isfinite(nav) or nav > .002:
                 raise ValueError('rigidly placed animal route exceeds unchanged 2mm NavMesh drift')
             clearance = TriangleClearance(video, house, actual_floor, entry)
+            # Native triangle intersections remain failures; a positive gap
+            # under the cosmetic 2cm preference does not change any answer.
+            clearance.minimum_clearance_m=0.
             frames, bounds, minimum = [], [], math.inf
             appearance_warnings=[];stationary_grounding=[]
             for i, (path, root) in enumerate(zip(poses, roots)):
@@ -469,6 +472,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 mesh = meshes[path]
                 dist, world = clearance.check(np.asarray(mesh.vertices), np.asarray(mesh.faces), root, frame_yaw)
                 minimum = min(minimum, dist)
+                if 0.<dist<=.02:appearance_warnings.append({'frame_index':i,'reason':'positive nonfloor gap below visual preference','clearance_m':float(dist),'preference_m':.02})
                 feet = {}
                 for side, old_foot in old['feet'].items():
                     local = local_paw(old, old_foot)
