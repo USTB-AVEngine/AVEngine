@@ -65,7 +65,7 @@ def _radial_flags(positions, listener, k, e, q, heading=None):
     cosv = abs(float(d @ toward)) / (float(np.linalg.norm(toward)) + 1e-12)
     net = float(emit[-1] - emit[0])
     rising = bool(np.all(np.diff(emit) >= -.005)); falling = bool(np.all(np.diff(emit) <= .005))
-    qa15 = cosv >= RADIAL_COS and abs(net) >= .5 and (rising or falling)
+    qa15 = abs(net) >= .5 and (rising or falling)          # the judge's criterion; cos is recorded only
     silent = r[e - k + int(round(WET_TAIL_S * FPS)):]
     same = (net < 0 and np.all(np.diff(silent) <= .005)) or (net > 0 and np.all(np.diff(silent) >= -.005))
     qa16 = bool(qa15 and same and abs(float(silent[-1] - silent[0])) >= .2)

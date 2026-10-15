@@ -125,7 +125,9 @@ def refresh_actual_offscreen_proofs(video,scene,checks):
     entries=video.actors
     for entry in entries:video._apply_entry(entry,scene)
     counts,_=video._native_observed_pixels(scene,entries)
-    if not native_pixels_ok(scene,entries,counts):raise ValueError('final native frame-zero view roles do not match actual pixels')
+    # Bodies the question plan does not need in view (placement flag) are not re-required here (owner 10-15).
+    unconstrained=tuple(e['declaration']['asset_id'] for e in entries if not e.get('_required_view',True))
+    if not native_pixels_ok(scene,entries,counts,unconstrained=unconstrained):raise ValueError('final native frame-zero view roles do not match actual pixels')
     byid={c['asset_id']:c for c in checks}
     for entry in entries:
         aid=entry['declaration']['asset_id']
