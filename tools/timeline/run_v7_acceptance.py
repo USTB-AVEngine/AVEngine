@@ -32,7 +32,7 @@ def run_worker(manifest,slot):
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         row=load(previous) if previous.exists() else plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
         inputs.update(phase2=True,integration_pilot=True,render_backend='cpu_llvmpipe')
-        from avengine.timeline.v7_phase2_fallback import generate_parent_with_element_fallback as generate
+        from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         row=load(previous) if previous.exists() else add_scene_demand(row,state,focus=task.get('focus','content_binding'))
