@@ -26,7 +26,12 @@ def prepare_scene_motion(row,catalog):
         mode=request.get('animal_motion_admission',{}).get('mode');species=assets[aid].get('species_id') or 'human'
         kind='slide'if mode=='slide_no_animation'else species
         if kind not in SPEED_RANGES:raise ValueError('scene locomotion speed species missing')
-        speed=float(np.random.default_rng(int(row['scene_seed'])+97001+number).uniform(*SPEED_RANGES[kind]))
+        if request.get('joint_entry_route'):
+            speed=float(request['speed_m_s'])
+            if not SPEED_RANGES[kind][0]<=speed<=SPEED_RANGES[kind][1]:
+                raise ValueError('solved entry-route speed is outside the owner species band')
+        else:
+            speed=float(np.random.default_rng(int(row['scene_seed'])+97001+number).uniform(*SPEED_RANGES[kind]))
         request.update(speed_m_s=speed,motion_execution_revision=REVISION,scene_speed_range_m_s=list(SPEED_RANGES[kind]),require_clear_direct_path_during_sound=False)
         for condition in row.get('motion_during_condition_requests',[]):
             if condition['target_asset_id']==aid:
@@ -47,6 +52,10 @@ def sounding_at(scene,endpoint,time_s):
 
 def curved_route_proposals(video,entry,scene,distance,local_forward,request):
     """Closed smooth waypoint routes; search alternate centres around obstacles."""
+    if request.get('joint_entry_route'):
+        from avengine.construction.joint.families.qa07 import native_entry_route_proposals
+        yield from native_entry_route_proposals(video,entry,scene,distance,local_forward,request)
+        return
     if request.get('motion_quartet_route',{}).get('reflect_walk'):
         from .reflect_navmesh import reflected_route_proposals
         yield from reflected_route_proposals(video,entry,scene,local_forward,request)
