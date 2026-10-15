@@ -19,7 +19,7 @@ from .reflect_walk import SPECIES_SPEED_M_S
 FPS = 30
 FRAMES = 901
 WET_TAIL_S = .5
-POST_S = 1.5
+POST_S = 2.0          # >= 2 s silent moving after the wet tail (QA-16/QA-17 construction request)
 RADIAL_COS = math.cos(math.radians(30))
 
 
@@ -48,6 +48,25 @@ def _radial_flags(positions, listener, k, e, q, heading):
 
 def find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
                         speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600):
+    """All four motion families when the room is deep enough, else the focus pair (owner 10-15: build what fits).
+
+    'all4': radial line that keeps walking >= 2 s after the wet tail (QA-06/15/16/17);
+    'M1'  : any direction, keeps walking >= 2 s after the wet tail (QA-06/17);
+    'M2'  : radial during the sound, stops shortly after it (QA-06/15) -- a much shorter line.
+    """
+    errors = []
+    for families in ('all4', 'M2' if focus == 'M2' else 'M1'):
+        try:
+            return _find_straight_route(room, pathfinder, seed, attempt, species=species, utterance_s=utterance_s,
+                                        focus=focus, families=families, speed_range=speed_range, is_free=is_free,
+                                        grid_m=grid_m, headings=headings, keep=keep, max_grid=max_grid)
+        except ValueError as error:
+            errors.append(str(error))
+    raise ValueError(' | '.join(errors))
+
+
+def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
+                         families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600):
     from .reflect_navmesh import native_free_predicate, SHORT_WALK_LEAD_S, SHORT_WALK_RAMP_S
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
@@ -64,7 +83,8 @@ def find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', u
     offset = float(rng.choice([0., 5., 10., 15., 20.]))
     start = offset + round(float(rng.uniform(1., 2.)), 1)
     end = start + duration
-    tail = end + WET_TAIL_S + POST_S
+    post = families in ('all4', 'M1')
+    tail = end + WET_TAIL_S + POST_S if post else end + .6
     if tail > offset + 9.8:
         raise ValueError('straight route: emission plus silent query interval does not fit one 10 s crop')
     w0, w1 = start - SHORT_WALK_LEAD_S, tail + SHORT_WALK_LEAD_S
@@ -84,9 +104,10 @@ def find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', u
             h = base + 2 * math.pi * j / headings
             d = np.array([math.cos(h), math.sin(h)])
             origin = p - s[k] * d
-            if focus == 'M2':
+            if families in ('all4', 'M2'):
                 positions = origin + np.outer(s, d)
-                if not _radial_flags(positions, L, k, e, q, h)[0]:
+                qa15, qa16, _, _ = _radial_flags(positions, L, k, e, q, h)
+                if not qa15 or (families == 'all4' and not qa16):
                     rejected['radial_slot'] += 1; continue
             tested += 1
             if not all(is_free(origin + c * d) for c in samples):
@@ -96,15 +117,18 @@ def find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', u
             break
     if not found:
         raise ValueError('straight route: no free straight %.2f m line for %s %s; tested=%d rejected=%s'
-                         % (total, species, focus, tested, rejected))
+                         % (total, species, families, tested, rejected))
     origin, heading = found[int(rng.integers(len(found)))]
     d = np.array([math.cos(heading), math.sin(heading)])
     positions = origin + np.outer(s, d)
     qa15, qa16, net, cosv = _radial_flags(positions, L, k, e, q, heading)
+    if not post:
+        qa16 = False
     frames = (int(round(w0 * FPS)), int(round(w1 * FPS)))      # the whole walk is one straight leg
     slot = {'start_s': start, 'end_s': end, 'leg': frames, 'window_frames': frames,
             'radial_change_m': net, 'branch': 'nearer' if net < 0 else 'farther', 'radial_cos': cosv,
-            'post_until_s': tail, 'qa06': True, 'qa15': qa15, 'qa16': qa16, 'qa17': True,
+            'post_until_s': tail if post else None, 'qa06': True, 'qa15': qa15, 'qa16': qa16, 'qa17': post,
+            'constructed_families': families,
             'kind': 'radial_emission' if qa15 else 'moving_emission', 'offset_s': offset}
     window = {'walk_start_s': w0, 'walk_end_s': w1, 'ramp_s': SHORT_WALK_RAMP_S, 'speed_m_s': speed, 'length_m': total,
               'emission_s': [start, end], 'silent_query_until_s': tail, 'heading_rad': heading, 'straight_line': True,

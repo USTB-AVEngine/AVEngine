@@ -229,7 +229,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         if not slot[flag]:continue
         requests.append({'qa_id':qa,'branch':branch,'target_asset_id':a,
             'speed_m_s':route['speed_m_s'],'speed_range_m_s':route['speed_range_m_s'],
-            'minimum_motion_s':1.5,'end_hold_s':10.-end_local,'offsets_s':offsets,
+            'minimum_motion_s':2. if qa in {'QA-16','QA-17'} else 1.5,'end_hold_s':10.-end_local,'offsets_s':offsets,
             'reserve_tail_s':.5,'wet_tail_planning_bound_s':None,'minimum_distance_change_m':.5})
     demand=deepcopy(row.get('scene_demand',{}))
     demand.update(focus='motion_quartet',requested_conditions=['motion_quartet'],
