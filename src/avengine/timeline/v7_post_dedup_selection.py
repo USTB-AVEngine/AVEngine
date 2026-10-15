@@ -11,6 +11,15 @@ REVISION='independent-parent-rounded-modality-house-coverage-v4'
 WEIGHTS={'vision':6,'audio':5,'audiovisual':9}
 
 
+def manifest_family_minimums(manifest):
+    """Preserve configured family targets in both immediate and final exports."""
+    target=manifest.get('motion_quartet_final_targets',{})
+    floors={f:int(target.get('minimum_independent_questions_per_family',30))for f in target.get('qa_ids',[])}
+    floors.update({f:int(n)for f,n in manifest.get('family_question_minimums',{}).items()})
+    if any(n<0 for n in floors.values()):raise ValueError('family question minimum must be nonnegative')
+    return floors
+
+
 def rounded_modality_quotas(capacity,minimums=None):
     """Largest feasible row count with Hamilton rounding of 30/25/45.
 

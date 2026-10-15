@@ -118,3 +118,15 @@ def test_house_floor_reports_the_available_single_house_without_inventing_one():
     rows,report=select_independent_rows(entries,minimum_houses_per_family=2)
     assert report['available_family_house_floors']=={'vision':1,'audio':1,'audiovisual':1}
     assert set(r['house']for r in rows)=={'only_real_house'}
+
+
+def test_configured_special_family_floor_survives_final_modality_sampling():
+    from avengine.timeline.v7_post_dedup_selection import manifest_family_minimums
+    entries=candidates()
+    for e in entries:
+        if e['row']['modality']=='vision':e['row']['qa_id']='QA-10'
+    manifest={'family_question_minimums':{'QA-10':30},'motion_quartet_final_targets':{'qa_ids':['QA-15'],'minimum_independent_questions_per_family':3}}
+    rows,report=select_independent_rows(entries,family_minimums=manifest_family_minimums(manifest))
+    assert Counter(r['qa_id']for r in rows)['QA-10']==30
+    assert Counter(r['modality']for r in rows)=={'vision':30,'audio':25,'audiovisual':46}
+    assert report['source_candidates_and_answers_changed']is False

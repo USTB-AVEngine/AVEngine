@@ -45,7 +45,7 @@ def publish_current_parents(root):
             try:
                 rows,_=balanced_batch(parents,root,read_only_source_roots=manifest.get('peer_output_roots',[]),
                     minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)),
-                    family_minimums={f:int(manifest['motion_quartet_final_targets'].get('minimum_independent_questions_per_family',30))for f in manifest.get('motion_quartet_final_targets',{}).get('qa_ids',[])})
+                    family_minimums=__import__('avengine.timeline.v7_post_dedup_selection',fromlist=['manifest_family_minimums']).manifest_family_minimums(manifest))
             except ValueError as error:
                 if not any(text in str(error)for text in ('30/25/45 batch','modality budget cannot preserve')):raise
         content=''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows);content_sha=hashlib.sha256(content.encode()).hexdigest()

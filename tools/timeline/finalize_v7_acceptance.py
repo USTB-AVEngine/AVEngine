@@ -52,6 +52,7 @@ def delivery_fingerprint(manifest):
         if receipt.get('status')=='passed':parents.append((task['slot'],hashlib.sha256(data).hexdigest()))
     inputs={'parents':parents,'code_commit':manifest['code_commit'],
         'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
+        'family_question_minimums':manifest.get('family_question_minimums',{}),
         'scene_delivery_policy':__import__('avengine.timeline.v7_export_scene_policy',fromlist=['REVISION']).REVISION,
         'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False),
         'minimum_family_distinct_houses':manifest.get('minimum_family_distinct_houses',0),
@@ -71,7 +72,8 @@ def finalize(manifest_path):
                 'excluded_historical_parents':excluded,'new_native_renders':0}
             print(json.dumps(result,ensure_ascii=False),flush=True)
             return result
-        target=manifest.get('motion_quartet_final_targets',{});minimums={f:int(target.get('minimum_independent_questions_per_family',30))for f in target.get('qa_ids',[])}
+        from avengine.timeline.v7_post_dedup_selection import manifest_family_minimums
+        minimums=manifest_family_minimums(manifest)
         rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums,minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)))
         for row in rows:validate_english_model_text(row)
         if len({r['question_id']for r in rows})!=len(rows):raise ValueError('duplicate final question IDs')
