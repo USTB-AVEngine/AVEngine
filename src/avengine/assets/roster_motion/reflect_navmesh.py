@@ -65,6 +65,10 @@ def _short_window_walk(walk,slot):
 
 
 def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',utterance_s=1.5,focus='M1',speed_range=None):
+    # Claude 10-15: construct the executed straight line directly; the reflected search stays as a fallback.
+    from .straight_route import find_straight_route
+    try:return find_straight_route(room,pathfinder,seed,attempt,species=species,utterance_s=utterance_s,focus=focus,speed_range=speed_range)
+    except ValueError as error:straight_error=str(error)
     rng=np.random.default_rng(int(seed)+int(attempt)*101)
     polygon=shape(room['floor_polygon']);floor=float(room['measured_floor_y_m'])
     listener=np.asarray(room['placement']['camera_m'],float)
@@ -112,7 +116,7 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
             if best is None or score>best[0]:best=candidate
         trials.append({'attempt':k+1,'reason':'usable leg found' if slots else 'no whole-source sounding leg','slots':len(slots),'straight_line_rejected':straight_rejected})
         if best is not None and best[0]>=2:break
-    if best is None:raise ValueError('bounded native reflection search exhausted: '+str(trials))
+    if best is None:raise ValueError('bounded native reflection search exhausted: '+str(trials)+'; '+straight_error)
     _,walk,slot,selected=best
     positions,yaws,window=_short_window_walk(walk,slot)
     target=np.mean(positions,axis=0)-listener[[0,2]]
