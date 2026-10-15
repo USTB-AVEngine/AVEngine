@@ -28,3 +28,10 @@ def test_isolated_worker_cannot_replace_missing_host_pss_with_undercounted_names
     result=scheduler.resources(tmp_path)
     assert not scheduler.can_start(result,active_parents=0)
     assert result['PSS_bytes']>40_000_000_000
+
+
+@pytest.mark.parametrize('mapping,expected',[('0 0 4294967295\n',True),('0 1002 1\n',False),('',False)])
+def test_host_uid_map_is_readable_without_privileged_proc1_namespace_access(monkeypatch,mapping,expected):
+    from pathlib import Path
+    monkeypatch.setattr(Path,'read_text',lambda self:mapping)
+    assert scheduler.can_collect_host_sample() is expected

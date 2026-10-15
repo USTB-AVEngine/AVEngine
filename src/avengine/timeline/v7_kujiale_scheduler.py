@@ -12,8 +12,11 @@ from avengine.capture.kujiale_gpu_queue import own_pss
 def can_collect_host_sample():
     # A worker's mapped user namespace cannot read sibling UE PSS reliably.
     # Only the actual host coordinator may bootstrap the procfs sample.
-    try:return os.readlink('/proc/self/ns/user')==os.readlink('/proc/1/ns/user')
-    except OSError:return False
+    # Reading /proc/1/ns/user needs privileges on this host. The current
+    # process UID map is readable without them; bwrap maps one ID, whereas
+    # the actual host namespace maps the complete kernel UID range.
+    try:return [tuple(map(int,line.split()))for line in Path('/proc/self/uid_map').read_text().splitlines()]==[(0,0,4294967295)]
+    except (OSError,ValueError):return False
 
 
 def resources(root):
