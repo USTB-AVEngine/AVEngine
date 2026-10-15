@@ -251,6 +251,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             # Floor type is bound to the measured room level, never a bed/table top.
             for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
                 supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
+            from copy import deepcopy
+            supports['_native_geometric_candidates']={k:deepcopy(supports[k])for k in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall')}
             semantic_candidate_surfaces=('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall') if self.motion_inputs.get('candidate_floor_semantic_prefilter') else ('table','wall','ceiling','doorbell_wall','high_wall','window_wall')
             # Sampling budget only: query a deterministic spread of the
             # original surface proposals, then retain all original qualifiers.
@@ -435,7 +437,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 kind='wall' if key.endswith('wall') else key
                 typed=semantic_support.qualify_points(kind,[{'point':p} for p in placement['support_raycast_points_m']])
                 if len(typed)!=len(placement['support_raycast_points_m']):
-                    reject('original_semantic_type_of_attachment_probes');continue
+                    if a['asset_id']not in scene.get('native_physical_support_fallback_asset_ids',[]):
+                        reject('original_semantic_type_of_attachment_probes');continue
+                    placement['semantic_label_observation']={'status':'unverified','reason':'actual native support accepted; scan labels incomplete or different','qualified_probes':len(typed),'total_probes':len(placement['support_raycast_points_m'])}
                 placement['typed_support_probe_readbacks']=typed
 
                 root=np.asarray(placement['root_m']);yaw=placement['yaw_rad']
@@ -516,6 +520,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 checks.append(accepted);placed.append(entry);break
             if accepted is None:
                 write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})
+                from avengine.capture.v7_support_construction import retry_same_surface
+                support_retry=retry_same_surface(scene,a,key,supports,poly,floor,origin,lambda point:survey(self.sim,r,{'object_position':point}))
+                if support_retry is not None:
+                    write_json(directory/('support_reconstruction_'+a['asset_id']+'_'+str(scene['_support_reconstruction'][a['asset_id']]['next'])+'.json'),support_retry)
+                    placement_queue.insert(0,entry);continue
                 from avengine.capture.v7_offscreen_layout import placement_construction_fallback
                 stage=placement_construction_fallback(scene,a,key,target,require_pair)
                 if stage is not None:
