@@ -11,7 +11,7 @@ import math
 import numpy as np
 from shapely.geometry import LineString, Point, shape
 
-REVISION = 'motion-quartet-template-native-tts-v1'
+REVISION = 'motion-reflection-per-family-v2'
 MOTION_FAMILIES = ('QA-06', 'QA-15', 'QA-16', 'QA-17')
 
 class MotionTemplateUnavailable(ValueError):
@@ -25,14 +25,14 @@ def authored_pairs(manifest):
     for sounds in groups.values():
         for a in sounds:
             duration_a = float(a['synthesis_readback']['duration_s'])
-            if not 2.0 <= duration_a <= 2.4:
+            if not 1.2 <= duration_a <= 2.4:
                 continue
             for b in sounds:
                 duration_b = float(b['synthesis_readback']['duration_s'])
-                if (a['role_id'] != b['role_id'] and 1.0 <= duration_b <= 1.6
+                if (a['role_id'] != b['role_id'] and 1.0 <= duration_b <= 2.4
                         and a['voice_reference']['speaker_id'] != b['voice_reference']['speaker_id']):
                     pairs.append((a, b))
-    return sorted(pairs, key=lambda pair: tuple(s['sound_asset_id'] for s in pair))
+    return sorted(pairs, key=lambda pair: (float(pair[0]['synthesis_readback']['duration_s'])>1.8,)+tuple(s['sound_asset_id'] for s in pair))
 
 def choose_template_assets(catalog, pair, seed, attempt=0):
     rng = np.random.default_rng(seed)
@@ -63,7 +63,7 @@ def _snap(pathfinder, point):
     snapped = np.asarray(pathfinder.snap_point(np.asarray(point, float)), float)
     return snapped if np.isfinite(snapped).all() and np.linalg.norm((snapped-point)[[0, 2]]) <= .002 else None
 
-def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5):
+def find_legacy_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5):
     from avengine.assets.roster_motion.straight_window_routes import stadium_samples
     from avengine.assets.roster_motion.timed_straight_clock import timed_straight_clock
     rng = np.random.default_rng(seed)
@@ -82,70 +82,6 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1
     tested = 0
     accepted = 0
     checks = Counter()
-    for speed in []:
-        # Emission and silent query are straight; slower smooth turns happen
-        # only outside .7..7.5 s, repeated every ten seconds.
-        distance, velocity, profile = timed_straight_clock(times,speed,straight_start_s=.1,straight_end_s=7.6,turn_speed_m_s=quiet_speed)
-        length = profile['straight_length_m']
-        radius = profile['turn_radius_m']
-        local, tangent, _ = stadium_samples(distance+profile['phase_distance_offset_m'], length, radius)
-        for angle in rng.permutation(np.arange(16)*math.pi/8):
-            rotation = np.array([[math.cos(angle), -math.sin(angle)], [math.sin(angle), math.cos(angle)]])
-            for centre in centres:
-                tested += 1
-                xz = local@rotation.T + [centre.x, centre.y]
-                if not free.covers(LineString(xz)):
-                    continue
-                checks['floor_polygon'] += 1
-                listener_xz = np.array([length/2+radius+max(.65,minimum_camera_distance_m+.1), 0.])@rotation.T + [centre.x, centre.y]
-                listener_point=Point(*listener_xz)
-                if not polygon.covers(listener_point) or listener_point.distance(polygon.boundary)<.25:
-                    continue
-                checks['listener_polygon'] += 1
-                listener_floor = np.array([listener_xz[0], floor, listener_xz[1]])
-                if _snap(pathfinder, listener_floor) is None:
-                    continue
-                checks['listener_native'] += 1
-                positions = np.column_stack((xz[:, 0], np.full(901, floor), xz[:, 1]))
-                if any(_snap(pathfinder, positions[i]) is None for i in [0, 75, 150, 225, 300, 450, 600, 750, 900]):
-                    continue
-                if any(_snap(pathfinder, p) is None for p in positions):
-                    continue
-                checks['all_901_native'] += 1
-                listener = listener_floor + [0., 1.25, 0.]
-                approximate_mouth = positions + [0., 1.5, 0.]
-                radial = np.linalg.norm(approximate_mouth-listener, axis=1)
-                tangent_xz = tangent@rotation.T
-                to_listener = listener[[0, 2]]-positions[:, [0, 2]]
-                radial_cosine = np.abs(np.sum(tangent_xz*to_listener, axis=1))/np.linalg.norm(to_listener, axis=1)
-                windows = []
-                valid = True
-                for offset in [0., 10., 20.]:
-                    lo, hi = round((offset+.3)*30), round((offset+2.7)*30)
-                    values = radial[lo:hi+1]
-                    sign = -1 if values[-1] < values[0] else 1
-                    if abs(values[-1]-values[0]) < .4 or np.min(sign*np.diff(values)) < -.005 or np.min(radial_cosine[lo:hi+1]) < math.cos(math.radians(30)):
-                        valid = False
-                        break
-                    windows.append({'offset_s': offset, 'branch': 'nearer' if sign < 0 else 'farther'})
-                if not valid:
-                    continue
-                accepted += 1
-                if accepted <= attempt:
-                    continue
-                delta = approximate_mouth[75]-listener
-                yaw = math.degrees(math.atan2(delta[0], -delta[2]))
-                return {**profile, 'speed_m_s': speed, 'speed_range_m_s': list(allowed_speed_range),
-                        'centre_xz_m': [centre.x, centre.y], 'heading_rad': float(angle),
-                        'straight_length_m': length, 'turn_radius_m': radius,
-                        'listener_m': listener.tolist(), 'camera_yaw_deg': yaw,
-                        'distance_branches': windows, 'candidate_count': tested,
-                        'candidate_native_root_samples': 901,
-                        'minimum_emission_radial_cosine': float(min(np.min(radial_cosine[round((o+.3)*30):round((o+2.7)*30)+1]) for o in [0.,10.,20.])),
-                        'maximum_radial_angle_deg': 30., 'emission_speed_range_m_s':list(speed_range),
-                        'fallback_speed_used': False,
-                        'proposal_floor_outline':'convex outline of the same registered room; native NavMesh, original skin/floor and complete collision gates independently required',
-                        'geometry_status': 'native NavMesh proposal only; full skin/contact/pixels still required'}
     # Preserve all four conditions when a narrow room cannot contain a loop:
     # one complete voiced/silent straight pass, with a real planted finish.
     # Later windows are still rendered; only the first has this moving target.
@@ -196,6 +132,12 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.82,1
         return compact
     raise MotionTemplateUnavailable('bounded native NavMesh straight/turn search exhausted: '+str(tested)+' proposals; stages='+str(dict(checks))+'; planner must choose another legal room')
 
+def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5,species='human',utterance_s=1.5,focus='M1'):
+    from avengine.assets.roster_motion.reflect_navmesh import find_reflected_route
+    try:return find_reflected_route(room,pathfinder,seed,attempt,species=species,utterance_s=utterance_s,focus=focus,speed_range=speed_range)
+    except ValueError as error:raise MotionTemplateUnavailable(str(error)) from error
+
+
 def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_records,
                             pathfinder, *, attempt=0, contract=None, source_type=None):
     from avengine.timeline.v7_registered_sampling import semantic_record
@@ -203,12 +145,14 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     import soundfile as sf
     if (source_type or base_row.get('motion_source_type'))=='human_footsteps':
         from avengine.timeline.v7_footstep_motion_template import footstep_motion_template
-        return footstep_motion_template(base_row,room,catalog,semantic_manifest,attempt=attempt)
+        return footstep_motion_template(base_row,room,catalog,semantic_manifest,attempt=attempt,pathfinder=pathfinder)
     row = deepcopy(base_row)
     seed = int(row['scene_seed'])
     pairs = authored_pairs(semantic_manifest)
     if not pairs:
         raise MotionTemplateUnavailable('no complete reviewed 2..3s / 1..1.6s TTS pair')
+    shorter=[p for p in pairs if float(p[0]['synthesis_readback']['duration_s'])<=1.8]
+    if shorter:pairs=shorter
     pair = pairs[(seed+attempt) % len(pairs)]
     from avengine.timeline.v7_motion_source_roles import select_motion_role,EMISSION_SPEEDS,QUIET_SPEEDS
     from avengine.timeline.v7_visible_sources import production_audio_record_views
@@ -218,7 +162,15 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     assets[0]=role['asset']
     from avengine.timeline.v7_motion_speed import SPEED_RANGES
     speed_kind='human' if source_type.startswith('human') else 'slide' if source_type=='animal_slide' else assets[0]['species_id']
-    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],minimum_camera_distance_m=1.5 if speed_kind=='human'else .6)
+    emitted_duration=float(pair[0]['synthesis_readback']['duration_s'])
+    if role['record'] is not None:
+        from avengine.timeline.v7_environmental_sources import recording_header
+        physical=recording_header(role['record'])
+        emitted_duration=float((role.get('program') or {}).get('sample_count',physical['header']['sample_count']))/16000.
+    focus=row.get('motion_template_focus','M2' if seed%2 else 'M1')
+    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus)
+    slot=route['emission_slot'];offset=slot['offset_s'];start=slot['start_s'];local_start=start-offset
+
     a, b = [asset['asset_id'] for asset in assets[:2]]
     row.update(schema='v7-visible-registered-pilot-phase2-v1', members=['v0_a0'], trial_only=True,
                asset_ids=[asset['asset_id'] for asset in assets],
@@ -227,9 +179,9 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
                motion_quartet_template_revision=REVISION,
                semantic_scenario_id=pair[0]['scenario_id'],
                semantic_sound_ids=[sound['sound_asset_id'] for sound in pair],
-               semantic_human_asset_ids=[a, b], semantic_start_offsets_s=[.3, 0.],
+               semantic_human_asset_ids=[a, b], semantic_start_offsets_s=[local_start, 0.],
                proposed_sound_asset_ids={a: pair[0]['sound_asset_id'], b: pair[1]['sound_asset_id']},
-               motion_source_start_s={a: .3, b: 0.},
+               motion_source_start_s={a: local_start, b: 0.},
                listener_m=route['listener_m'], camera_yaw_deg=route['camera_yaw_deg'],
                window_count=5, acceptance_window_starts_s=[0., 5., 10., 15., 20.])
     for key in ['motion_during_condition_plan', 'phase2_recorded_speech_schedule_s',
@@ -240,15 +192,15 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         'motion_quartet_route': route, 'allow_registered_walk_tts': True,
         'maximum_native_route_attempts': 32,'native_route_candidate_pool':96}}
     row['motion_source_type']=source_type
-    row['phase2_source_event_schedule_s']={b:[0.,10.,20.]}
-    if source_type=='human_speech':row['phase2_source_event_schedule_s'][a]=[.3,10.3,20.3]
+    row['phase2_source_event_schedule_s']={b:[offset]}
+    if source_type=='human_speech':row['phase2_source_event_schedule_s'][a]=[start]
     if source_type!='human_speech':
         row.update(semantic_sound_ids=[pair[1]['sound_asset_id']],semantic_human_asset_ids=[b],semantic_start_offsets_s=[0.])
         record=role['record'];row['source_classes'][a]=[record['sound_class']];row['proposed_sound_asset_ids'][a]=record['sound_asset_id']
         if role['program'] is not None:
             row['phase2_animal_program_samples']={a:role['program']}
-            row['phase2_sound_program_schedule_s']={a:[.3,10.3,20.3]}
-        else:row['phase2_whole_source_recordings']={a:[.3,10.3,20.3]}
+            row['phase2_sound_program_schedule_s']={a:[start]}
+        else:row['phase2_whole_source_recordings']={a:[start]}
         if assets[0]['kind']=='animal':
             from avengine.timeline.v7_production_inputs import bind_animal_motion
             row['motion_requests'][a]=bind_animal_motion(row['motion_requests'][a],a,contract)
@@ -268,33 +220,36 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
             'method': 'measured exact nonzero waveform envelope; conservative full speech support'}
         measured.append(record)
     if role['record'] is not None:measured.append(role['record'])
-    offsets=[0.] if route.get('single_pass') else [0.,10.,20.]
-    requests = []
-    for qa, branch in [('QA-06', 'moving'), ('QA-16', None), ('QA-17', 'yes')]:
-        requests.append({'qa_id': qa, 'branch': branch, 'target_asset_id': a,
-            'speed_m_s': route['speed_m_s'], 'speed_range_m_s': route['speed_range_m_s'],
-            'minimum_motion_s': 2., 'end_hold_s': 2.5, 'offsets_s': offsets,
-            'wet_tail_planning_bound_s': None})
-    for item in route['distance_branches']:
-        requests.append({'qa_id': 'QA-15', 'branch': item['branch'], 'target_asset_id': a,
-            'speed_m_s': route['speed_m_s'], 'speed_range_m_s': route['speed_range_m_s'],
-            'minimum_distance_change_m': .5, 'offsets_s': [item['offset_s']]})
+    offsets=[offset]
+    requests=[]
+    end_local=min(9.8,slot['leg'][1]/30.-offset-.1)
+    for qa,branch,flag in [('QA-06','moving','qa06'),('QA-15',slot['branch'],'qa15'),('QA-16',None,'qa16'),('QA-17','yes','qa17')]:
+        if not slot[flag]:continue
+        requests.append({'qa_id':qa,'branch':branch,'target_asset_id':a,
+            'speed_m_s':route['speed_m_s'],'speed_range_m_s':route['speed_range_m_s'],
+            'minimum_motion_s':1.5,'end_hold_s':10.-end_local,'offsets_s':offsets,
+            'reserve_tail_s':.5,'wet_tail_planning_bound_s':None,'minimum_distance_change_m':.5})
     demand=deepcopy(row.get('scene_demand',{}))
     demand.update(focus='motion_quartet',requested_conditions=['motion_quartet'],
                   condition_families={'motion_quartet':list(MOTION_FAMILIES)},
                   constructor=REVISION)
     row['scene_demand']=demand
     row['motion_during_condition_requests'] = requests
-    row = prepare_motion_during_row(row, catalog, list(source_records)+measured)
-    row['motion_requests'][a]['intervals_s'] = [[0., 9.7]]
-    row['motion_requests'][a]['straight_motion_windows_s'] = [[x+.3, x+7.5] for x in offsets]
-    if route.get('critical_hairpin'):
-        row['motion_requests'][a]['straight_motion_windows_s']=[[.3,2.7],[route['post_turn_straight_start_s']+.05,route['minimum_stop_s']-.35]]
-    row['motion_requests'][a].pop('distance_trend', None)
-    row['motion_requests'][a].pop('distance_trend_intervals_s', None)
-    if route.get('single_pass'):
-        row['motion_requests'][a]['distance_trend']='approaching'
-        row['motion_requests'][a]['distance_trend_intervals_s']=row['motion_requests'][a]['sounding_straight_windows_s']
+    try:
+        row=prepare_motion_during_row(row,catalog,list(source_records)+measured)
+    except ValueError as error:
+        retries=int(base_row.get('_motion_solver_construction_retry',0))
+        if retries>=31:raise MotionTemplateUnavailable('original solver rejected 32 automatic reflection schedules: '+str(error)) from error
+        retry=deepcopy(base_row);retry['_motion_solver_construction_retry']=retries+1
+        retry.setdefault('motion_solver_construction_rejections',[]).append(str(error))
+        return motion_quartet_template(retry,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt+1,contract=contract,source_type=source_type)
+
+    row['motion_requests'][a]['intervals_s']=[[0.,30.]]
+    # The original v3 solver validates selected windows; geometry follows the
+    # fully prefiltered reflection track, including its turns outside a leg.
+    row['motion_requests'][a].pop('straight_motion_windows_s',None)
+    row['motion_requests'][a].pop('distance_trend',None)
+    row['motion_requests'][a].pop('distance_trend_intervals_s',None)
     row['motion_quartet_construction'] = {'revision': REVISION, 'route': route,
         'utterance_durations_s': [s['synthesis_readback']['duration_s'] for s in pair],
         'all_source_content_preserved': True, 'walking_human_has_footsteps': False,

@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 
-def footstep_motion_template(base_row,room,catalog,semantic_manifest,*,attempt=0):
+def footstep_motion_template(base_row,room,catalog,semantic_manifest,*,attempt=0,pathfinder=None):
     from avengine.timeline.v7_motion_quartet_template import authored_pairs,choose_template_assets,MotionTemplateUnavailable,REVISION
     pairs=authored_pairs(semantic_manifest)
     if not pairs:raise MotionTemplateUnavailable('complete stationary TTS contrast is missing')
@@ -29,6 +29,11 @@ def footstep_motion_template(base_row,room,catalog,semantic_manifest,*,attempt=0
             'maximum_native_route_attempts':32,'native_route_candidate_pool':96}})
     for key in ('motion_during_condition_plan','motion_during_condition_requests','motion_source_start_s'):
         row.pop(key,None)
+    if pathfinder is not None:
+        from avengine.assets.roster_motion.reflect_navmesh import find_reflected_route
+        route=find_reflected_route(room,pathfinder,seed,attempt,species='human',utterance_s=1.5,focus='M1')
+        row['motion_requests'][a].update(motion_quartet_route=route,speed_m_s=route['speed_m_s'])
+        row.update(listener_m=route['listener_m'],camera_yaw_deg=route['camera_yaw_deg'])
     row['scene_demand']={'focus':'human_motion','requested_conditions':['human_motion'],
         'condition_families':{'human_motion':['QA-06','QA-15']},'constructor':'continuous-footstep-bout-motion-v1'}
     row['motion_quartet_construction']={'revision':'continuous-footstep-bout-motion-v1',
