@@ -47,6 +47,71 @@ def certificate_record(certificate):
 
 # The production adapter below keeps proposal geometry separate from proof.
 # solve owns common checks, strict preparation and every candidate decision.
+
+def core_corridor_proposals(context, seed_route, room, pathfinder, *, first_branch='nearer',
+        second_duration_s=1.6, require_negative_control=True, pair_mode='opposing',second_offset_s=15.):
+    """Family radial witnesses around shared-core fixed-clock route proposals."""
+    from copy import deepcopy
+    from itertools import chain
+    from avengine.timeline.v7_two_human_motion import single_bout_at,negative_control_bystander
+    from avengine.construction.joint import paired_parallel_routes,independent_straight_pair_routes
+    local_start=round(float(seed_route['emission_slot']['start_s'])-float(seed_route['emission_slot']['offset_s']),1)
+    first=single_bout_at(seed_route,start_s=local_start,offset_s=0.,
+        reverse=seed_route['emission_slot']['branch']!=first_branch)
+    second=single_bout_at(first,start_s=float(second_offset_s)+local_start,offset_s=float(second_offset_s),
+        reverse=pair_mode=='opposing',duration_s=second_duration_s)
+    second_branch=second['emission_slot']['branch']
+    def actor(aid,route):
+        xz=np.asarray(route['positions_xz_m'],float);w=route['short_window_walk']
+        return ActorPlan(aid,np.column_stack((xz[:,0],np.full(901,room['measured_floor_y_m']),xz[:,1])),
+            BodySpec.for_species('human'),np.asarray(route['travel_yaws_rad'],float),
+            metadata={'walk_intervals_s':[[w['walk_start_s'],w['walk_end_s']]],'ramp_s':w['ramp_s']})
+    a,b=actor('first',first),actor('second',second)
+    camera=CameraPose(tuple(seed_route['listener_m']),seed_route['camera_yaw_deg'],width=1280,height=720)
+    parallel=paired_parallel_routes(context,a,b,camera=camera)if pair_mode=='opposing'else iter(())
+    diagnostics={}
+    independent=independent_straight_pair_routes(context,a,b,camera=camera,second_branch=second_branch,
+        minimum_pair_distance_m=1.2,max_origins=48,max_evaluations=384,max_candidates=16,budget_s=20.,
+        diagnostics=diagnostics)
+    for planned in chain(parallel,independent):
+        converted=[];valid=True
+        for key,original,branch in [('first',first,first_branch),('second',second,second_branch)]:
+            target=planned.actors[key];route=deepcopy(original)
+            route['positions_xz_m']=np.asarray(target.positions_m)[:,[0,2]].tolist()
+            route['travel_yaws_rad']=np.asarray(target.headings_rad).tolist()
+            route['short_window_walk']['heading_rad']=float(target.headings_rad[0])
+            route['camera_yaw_deg']=float(planned.camera.yaw_deg)
+            route['minimum_camera_distance_m']=1.5
+            route['rest_pose_framing']=deepcopy(planned.metadata['rest_framing'])
+            route['core_route_construction']=planned.metadata['construction']
+            slot=route['emission_slot'];slot['branch']=branch
+            radii=np.linalg.norm(np.asarray(route['positions_xz_m'])-np.asarray(camera.position_m)[[0,2]],axis=1)
+            i,j=round(slot['start_s']*30),round(slot['end_s']*30);trim=round(.2*(j-i))
+            values=radii[i+trim:j-trim+1];sign=-1 if branch=='nearer'else 1
+            if sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):
+                valid=False;break
+            slot['radial_change_m']=float(values[-1]-values[0]);converted.append(route)
+        if not valid:continue
+        control=negative_control_bystander(room,pathfinder,seed_route['listener_m'],
+            planned.camera.yaw_deg,converted)if require_negative_control else None
+        if require_negative_control and control is None:continue
+        yield *converted,{'pair_mode':pair_mode,'minimum_pair_distance_m':planned.metadata['minimum_pair_distance_m'],
+            'rest_framing':planned.metadata['rest_framing'],'negative_control':control,
+            'core_route_construction':planned.metadata['construction'],
+            'core_geometry_screen':deepcopy(planned.metadata['common_screen']),
+            'core_proposal_diagnostics':deepcopy(diagnostics)}
+
+def bystander_native_yaw(row, root, listener):
+    seed=int(row['scene_seed'])
+    yaw=(seed%6283)/1000.-np.pi
+    if row.get('human_motion_pair_mode')=='following' and seed%2:
+        # Both approaching walkers can face the camera; solve the quiet person's
+        # random orientation in a side/back domain before physical preparation.
+        away=np.asarray(root,float)[[0,2]]-np.asarray(listener,float)[[0,2]]
+        yaw=-np.arctan2(away[1],away[0])-np.pi/2+((seed%10001)/10000.-.5)*2*np.pi/3
+    return float(yaw)
+
+
 class HumanMotionPlugin:
     def __init__(self, base_row, state, catalog, semantic, records, contract, house, attempt=0):
         self.base_row=base_row;self.state=state;self.catalog=catalog
@@ -58,8 +123,11 @@ class HumanMotionPlugin:
         from avengine.timeline.v7_family_clock import build_constructed_scene
         from avengine.construction.joint import SoundEvent
         from copy import deepcopy
+        from avengine.timeline.v7_two_human_motion import two_human_motion_template
+        def shared_constructor(*args,**kwargs):
+            return two_human_motion_template(*args,joint_context=context,**kwargs)
         row=plan_room_motion_quartet(self.base_row,self.state,context.room,self.catalog,
-            self.semantic,self.records,context.pathfinder,attempt=self.attempt,contract=self.contract)
+            self.semantic,self.records,context.pathfinder,attempt=self.attempt,contract=self.contract,constructor=shared_constructor)
         plan=scene_plan_for_row(row,context.room)
         by_id={a['asset_id']:a for a in self.catalog}
         # compile_walking uses this original scan vertical ray at the route's
@@ -76,7 +144,7 @@ class HumanMotionPlugin:
                 actor.metadata['original_scan_root_floor_m']=float(actor.positions_m[0,1])
             else:
                 # The silent real person's orientation is fixed before prepare.
-                actor.metadata['native_yaw_rad']=((int(row['scene_seed'])%6283)/1000)-np.pi
+                actor.metadata['native_yaw_rad']=bystander_native_yaw(row,actor.positions_m[0],plan.camera.position_m)
                 from avengine.construction.joint import floor_contact_variants
                 from avengine.capture.v7_visible_mesh import indexed_static_mesh
                 try:
@@ -145,6 +213,15 @@ def native_motion_obligations(video, scene, entries, condition_plan=None):
     if observed['status']=='pass':
         yield from native_full_mesh_sweep(video,entries)
 
+def native_view_roles_for_motion(row):
+    roles={aid:{'view':'inside','static':False,'required_visible_sometime':True}for aid in row['motion_requests']}
+    control=row['motion_wrong_emitter_control'];aid=control['asset_id'];view=control['frame_state']
+    if view not in {'inside','outside'}:raise ValueError('quiet human must be entirely inside or outside')
+    roles[aid]={'view':view,'static':True,'required_visible_sometime':view=='inside',
+        'real_geometry_and_native_projection_required':True}
+    return roles
+
+
 def construct_motion_human_scene(room,house,state,catalog,records,semantic,contract,runtime,
         *,scene_id,seed,family='QA-06',attempt=0):
     """Formal single-entry solve and same-prepared delivery, with no legacy fallback."""
@@ -160,6 +237,7 @@ def construct_motion_human_scene(room,house,state,catalog,records,semantic,contr
         'room_id':room['room_id'],'scene_seed':seed,'scene_id':scene_id,
         'motion_source_type':'human_speech','human_motion_event_count':2,'human_motion_strategy':'two_walkers',
         'human_motion_pair_mode':runtime.get('motion_human_pair_mode','opposing'),
+        'human_second_motion_offset_s':float(runtime.get('motion_human_second_offset_s',20.)),
         'motion_requested_families':['QA-06','QA-15','QA-16','QA-17'],
         'question_quota_base':10,'questions_per_window':18,'window_count':5,'members':['v0_a0'],'trial_only':True}
     root=runtime.get('motion_human_native_oracle_root')
@@ -170,6 +248,8 @@ def construct_motion_human_scene(room,house,state,catalog,records,semantic,contr
     plugin=HumanMotionPlugin(base,state,catalog,semantic,records,contract,house,attempt)
     def make_row(plan):
         row=deepcopy(plan.metadata['family_row'])
+        row['native_view_roles']=native_view_roles_for_motion(row)
+        row['joint_common_geometry_status']='awaiting_common_core_and_native_preflight'
         row=attach_runtime_contract(row,runtime);validate_recipe(row,catalog,contract)
         return row
     def oracle(context,request,plan):

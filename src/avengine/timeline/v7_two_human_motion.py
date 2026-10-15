@@ -77,7 +77,7 @@ def negative_control_bystander(room,pathfinder,listener,yaw_deg,routes):
     return max(choices,key=lambda item:item[0])[1]if choices else None
 
 
-def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_duration_s=1.6,require_negative_control=False,pair_mode='opposing'):
+def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_duration_s=1.6,require_negative_control=False,pair_mode='opposing',second_offset_s=15.):
     """Finite analytic lane offsets; no second actor can cross the first."""
     from avengine.assets.roster_motion.reflect_navmesh import native_free_predicate
     from avengine.assets.roster_motion.straight_route import frame_rest_poses
@@ -97,7 +97,7 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
             if pair_mode not in {'opposing','following'}:raise ValueError('unknown planned human pair mode')
             if pair_mode=='following' and side<0:continue
             shift=(-separation*direction)if pair_mode=='following'else(side*separation*lateral)
-            b=single_bout_at(a,start_s=15.+local_start,offset_s=15.,reverse=pair_mode=='opposing',shift_xz=shift,duration_s=second_duration_s)
+            b=single_bout_at(a,start_s=float(second_offset_s)+local_start,offset_s=float(second_offset_s),reverse=pair_mode=='opposing',shift_xz=shift,duration_s=second_duration_s)
             q=np.asarray(b['positions_xz_m'])
             if not coverage.covers(LineString(q)):continue
             if not all(pred(v)for v in np.unique(q,axis=0)):continue
@@ -116,7 +116,7 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
             yield a,b,{'lane_separation_m':separation,'side':side,'minimum_pair_distance_m':continuous_distance,'rest_framing':framing,'negative_control':control,'pair_mode':pair_mode}
 
 
-def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,*,attempt=0,contract=None):
+def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,*,attempt=0,contract=None,joint_context=None):
     from avengine.timeline.v7_motion_quartet_template import motion_quartet_template,authored_pairs,MotionTemplateUnavailable
     from avengine.assets.roster_motion.human_event_route import find_human_seed_route
     from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row,verify_planned_trajectories
@@ -146,22 +146,29 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
         measured.append(record)
     duration_a=float(pair[0]['synthesis_readback']['duration_s']);duration_b=float(pair[1]['synthesis_readback']['duration_s'])
     pair_mode=base_row.get('human_motion_pair_mode','opposing')
+    second_offset=float(base_row.get('human_second_motion_offset_s',15.))
+    if second_offset not in (15.,20.):raise MotionTemplateUnavailable('second walking event requires the 15s or 20s original crop')
     desired='nearer'if int(base_row['scene_seed'])%2 else'farther'
     errors=[]
     import time
     deadline=time.process_time()+30.
+    def layouts(candidate):
+        if joint_context is None:
+            return paired_corridors(candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True,pair_mode=pair_mode,second_offset_s=second_offset)
+        from avengine.construction.joint.families.motion_human import core_corridor_proposals
+        return core_corridor_proposals(joint_context,candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True,pair_mode=pair_mode,second_offset_s=second_offset)
     def partner_possible(candidate):
-        return next(paired_corridors(candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True,pair_mode=pair_mode),None)is not None
+        return next(layouts(candidate),None)is not None
     for geometry_attempt in range(2):
         try:
             seed_route=(base['motion_requests'][first]['motion_quartet_route']if geometry_attempt==0 else
                 find_human_seed_route(room,pathfinder,int(base_row['scene_seed']),attempt+geometry_attempt,
                     utterance_s=duration_a,local_start_s=local_start,post_motion_s=.6,candidate_validator=partner_possible,cpu_deadline=deadline))
         except ValueError as exc:errors.append(str(exc));continue
-        for route_a,route_b,layout in paired_corridors(seed_route,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True,pair_mode=pair_mode):
+        for route_a,route_b,layout in layouts(seed_route):
             row=deepcopy(base);row['human_motion_event_count']=2;row['human_motion_strategy']='two_walkers'
             row['motion_quartet_template_revision']=REVISION
-            row['phase2_source_event_schedule_s']={first:[local_start,11.,22.],second:[7.5,15.+local_start,27.5]}
+            row['phase2_source_event_schedule_s']=({first:[local_start,11.,27.5],second:[7.5,17.5,20.+local_start]}if second_offset==20. else{first:[local_start,11.,22.],second:[7.5,15.+local_start,27.5]})
             row['semantic_start_offsets_s']=[local_start,7.5];row['motion_source_start_s']={first:local_start,second:7.5}
             row['listener_m']=route_a['listener_m'];row['camera_yaw_deg']=route_a['camera_yaw_deg']
             request_base={k:v for k,v in base['motion_requests'][first].items()if k not in ('motion_during_condition_plan_for_fit','straight_motion_windows_s','sounding_straight_windows_s','distance_trend','distance_trend_intervals_s')}
@@ -171,7 +178,7 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
             tracks={aid:np.column_stack((np.asarray(route['positions_xz_m'])[:,0],np.full(901,row['listener_m'][1]+.3),np.asarray(route['positions_xz_m'])[:,1]))for aid,route in ((first,route_a),(second,route_b))}
             croot=np.asarray(layout['negative_control']['root_m']);tracks[bystander]=np.tile(croot,(901,1))
             valid=True
-            for aid,route,starts in ((first,route_a,{first:local_start,second:7.5}),(second,route_b,{first:7.,second:local_start})):
+            for aid,route,starts in ((first,route_a,{first:local_start,second:7.5}),(second,route_b,{first:7.5 if second_offset==20. else 7.,second:local_start})):
                 slot=route['emission_slot'];offset=slot['offset_s'];end_local=route['short_window_walk']['walk_end_s']-offset-.1
                 reqs=[{'qa_id':qa,'branch':branch,'target_asset_id':aid,'speed_m_s':route['speed_m_s'],
                     'speed_range_m_s':route['speed_range_m_s'],'minimum_motion_s':.8,'end_hold_s':10.-(7.4 if aid==first else 6.9),

@@ -34,7 +34,9 @@ def test_independent_opposing_walks_keep_constant_heading_and_all_crop_speeds():
 
 
 @pytest.mark.parametrize('pair_mode',['opposing','following'])
-def test_full_two_person_template_certifies_both_targets_with_original_solver(monkeypatch,tmp_path,pair_mode):
+@pytest.mark.parametrize('shared_core',[False,True])
+@pytest.mark.parametrize('second_offset',[15.,20.])
+def test_full_two_person_template_certifies_both_targets_with_original_solver(monkeypatch,tmp_path,pair_mode,shared_core,second_offset):
     import soundfile as sf
     from avengine.timeline import v7_registered_sampling
     sounds=[];records={}
@@ -55,10 +57,26 @@ def test_full_two_person_template_certifies_both_targets_with_original_solver(mo
         calls.append(1)
         return iter(())if len(calls)==1 else original(*args,**kwargs)
     monkeypatch.setattr(module,'paired_corridors',after_first)
-    row=two_human_motion_template({'scene_seed':42,'scene_id':'new','motion_source_type':'human_speech','human_motion_event_count':2,'human_motion_pair_mode':pair_mode},
-        room,catalog,{'sounds':sounds},[],pf)
-    assert len(calls)>1
+    context=None
+    if shared_core:
+        from avengine.rooms.walkable_map import WalkableMap,VERSION,SPECIES_RADII_M
+        from avengine.construction.joint import RoomContext
+        mask=np.ones((180,200),bool)
+        mapping=WalkableMap([0.,0.],.05,0.,{k:mask.copy()for k in SPECIES_RADII_M},
+            {'version':VERSION,'species_radii_m':SPECIES_RADII_M,'footprint_policy':'independent-radius-coverage-v2','room_id':'fixture'})
+        context=RoomContext(room,walkable_map=mapping,pathfinder=pf,camera_limit=6,grid_step_m=.5)
+    row=two_human_motion_template({'scene_seed':42,'scene_id':'new','motion_source_type':'human_speech','human_motion_event_count':2,'human_motion_pair_mode':pair_mode,'human_second_motion_offset_s':second_offset},
+        room,catalog,{'sounds':sounds},[],pf,joint_context=context)
+    if shared_core:
+        assert len(calls)==0
+        assert row['motion_quartet_construction']['layout']['core_route_construction'].startswith('shared_')
+    else:assert len(calls)>1
     assert len(row['asset_ids'])==3 and len(row['motion_requests'])==2
+    second=row['semantic_human_asset_ids'][1]
+    assert row['motion_requests'][second]['motion_quartet_route']['emission_slot']['offset_s']==second_offset
+    if second_offset==20.:
+        assert max(row['phase2_source_event_schedule_s'][second])>=22.
+        assert row['phase2_source_event_schedule_s'][row['semantic_human_asset_ids'][0]][-1]==27.5
     assert row['silent_asset_ids']==[row['motion_wrong_emitter_control']['asset_id']]
     assert row['motion_wrong_emitter_control']['minimum_planned_wrong_angle_deg']>=24.
     assert row['joint_motion_witness_certificate']['passed']
