@@ -82,3 +82,15 @@ def test_ordinary_entity_view_requirement_is_retained_without_declared_outside_r
 def test_acceptance_branch_feedback_is_used_directly():
     state={'answer_branch_distribution':{'families':{'QA-08':{'answers':{'out_of_view':4,'visible_clear':6}}}}}
     assert answer_branch_demands(state)['QA-08']['requested_branch']=='inside'
+
+
+def test_initial_camera_search_moves_only_the_initial_proposal_when_inherited_camera_cannot_fit():
+    from avengine.timeline.v7_offscreen_construction import joint_offscreen_floor
+    from shapely.geometry import Point,shape
+    ctx={'room_floor_polygon':mapping(Polygon([(-5,-5),(5,-5),(5,5),(-5,5)])),'listener_m':[50.,1.5,50.]}
+    chosen,yaw,inside,outside=joint_offscreen_floor(ctx,1,47)
+    assert ctx['listener_m']==[50.,1.5,50.]
+    assert chosen['listener_m']!=ctx['listener_m']
+    assert shape(ctx['room_floor_polygon']).buffer(-.35).covers(Point(chosen['listener_m'][0],chosen['listener_m'][2]))
+    assert chosen['initial_camera_construction']['capture_camera_moves']is False
+    assert len(inside)==3 and len(outside)==1

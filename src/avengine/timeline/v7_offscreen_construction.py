@@ -30,7 +30,7 @@ def plan_offscreen_floor(ctx,off_count,seed):
     from shapely.geometry import shape,Point
     from avengine.timeline.v7_family_constructors import ConstructionUnavailable,stable_seed
     polygon=shape(ctx['room_floor_polygon']);x0,z0,x1,z1=polygon.bounds;listener=ctx['listener_m']
-    step=max(.4,math.sqrt(max(polygon.area,1.)/400));points=[];x=x0+step/3
+    step=max(.20,math.sqrt(max(polygon.area,1.)/900));points=[];x=x0+step/3
     while x<x1:
         z=z0+step/3
         while z<z1:
@@ -62,6 +62,42 @@ def plan_offscreen_floor(ctx,off_count,seed):
                 inside.append(options[0])
             if len(inside)==3:return yaw,inside,outside
     raise ConstructionUnavailable('same legal room has no measured-floor proposal for three visible plus requested offscreen people; retry another area/room, never remove a person')
+
+
+def joint_offscreen_floor(ctx,off_count,seed):
+    """Select a new initial legal camera when the inherited point cannot fit.
+
+    This is construction before capture, never a camera trajectory. Native
+    support, body contacts, projection and RIR still remeasure the new world.
+    """
+    from shapely.geometry import shape,Point
+    from avengine.timeline.v7_family_constructors import ConstructionUnavailable,stable_seed
+    try:
+        yaw,inside,outside=plan_offscreen_floor(ctx,off_count,seed)
+        return ctx,yaw,inside,outside
+    except ConstructionUnavailable as original:
+        reason=str(original)
+    polygon=shape(ctx['room_floor_polygon']);free=polygon.buffer(-.35)
+    if free.is_empty:raise ConstructionUnavailable(reason+'; no native-floor camera proposal with 35cm room-boundary clearance')
+    x0,z0,x1,z1=free.bounds;points=[free.representative_point()]
+    for ix in range(9):
+        for iz in range(9):
+            p=Point(x0+(x1-x0)*(ix+.5)/9,z0+(z1-z0)*(iz+.5)/9)
+            if free.covers(p):points.append(p)
+    chosen=[];ordered=[]
+    while points and len(ordered)<32:
+        p=max(points,key=lambda p:(min((p.distance(q)for q in chosen),default=free.boundary.distance(p)),
+            stable_seed(seed,p.x,p.y)))
+        points.remove(p);chosen.append(p);ordered.append(p)
+    for index,p in enumerate(ordered):
+        candidate=deepcopy(ctx);candidate['listener_m']=[p.x,ctx['listener_m'][1],p.y]
+        try:yaw,inside,outside=plan_offscreen_floor(candidate,off_count,seed)
+        except ConstructionUnavailable:continue
+        candidate['initial_camera_construction']={'method':'legal same-room floor grid; spread candidates before capture',
+            'inherited_camera_m':ctx['listener_m'],'selected_camera_m':candidate['listener_m'],
+            'candidate_index':index,'capture_camera_moves':False,'physical_native_requalification_required':True}
+        return candidate,yaw,inside,outside
+    raise ConstructionUnavailable(reason+'; inherited plus '+str(len(ordered))+' alternate legal initial cameras tried without dropping any person')
 
 
 def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract,runtime,
@@ -105,7 +141,9 @@ def construct_offscreen_scene(room,house,state,catalog,records,semantic,contract
                 options.append((score,person,record))
         if not options:raise ConstructionUnavailable('no additional real registered person and complete distinct admitted speaking voice in the legal room cell')
         _,person,record=min(options,key=lambda x:x[0]);extras.append(person['asset_id']);chosen_records[person['asset_id']]=record;voices.add(record['speaker_id'])
-    yaw,inside,outside=plan_offscreen_floor(ctx,offscreen_people,seed+attempt)
+    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,offscreen_people,seed+attempt)
+    row['listener_m']=list(ctx['listener_m'])
+    if ctx.get('initial_camera_construction'):row['automatic_construction']['initial_camera_search']=ctx['initial_camera_construction']
     row['asset_ids']=[*ids,*extras];row['camera_yaw_deg']=yaw
     row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}]
     # Three complete non-overlapping dry utterances per epoch. Wet activity is
