@@ -257,6 +257,9 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     row['motion_requests'][a]['straight_motion_windows_s'] = [[x+.3, x+7.5] for x in offsets]
     row['motion_requests'][a].pop('distance_trend', None)
     row['motion_requests'][a].pop('distance_trend_intervals_s', None)
+    if route.get('single_pass'):
+        row['motion_requests'][a]['distance_trend']='approaching'
+        row['motion_requests'][a]['distance_trend_intervals_s']=row['motion_requests'][a]['sounding_straight_windows_s']
     row['motion_quartet_construction'] = {'revision': REVISION, 'route': route,
         'utterance_durations_s': [s['synthesis_readback']['duration_s'] for s in pair],
         'all_source_content_preserved': True, 'walking_human_has_footsteps': False,
