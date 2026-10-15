@@ -4,7 +4,7 @@ import hashlib,json,re
 import numpy as np
 
 SCHEMA='v7-kujiale-ue-native-measurements-v1'
-DEFAULT_REGISTRATION=Path(__file__).resolve().parents[3]/'registrations/v7_kujiale_ue_native_measurements_20261015.json'
+DEFAULT_REGISTRATION=Path(__file__).resolve().parents[3]/'registrations/v7_kujiale_ue_native_measurements_20261015_v2.json'
 
 def sha256(path):
     h=hashlib.sha256()

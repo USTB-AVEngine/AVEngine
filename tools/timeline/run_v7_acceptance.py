@@ -97,7 +97,25 @@ def run_worker(manifest,slot):
         parent_execution_lease=acquire_native_resource('parent')
         native_root=Path(task.get('native_output_root') or root/'native').resolve()
         if not native_root.is_relative_to(root):raise ValueError('native output must remain inside this authorized task root')
-        result=generate(row,house,inputs,catalog,source,human,str(native_root))
+        if task.get('automatic_registered_room'):
+            from avengine.timeline.v7_kujiale_category_qualification import qualify_missing_humans
+            from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase
+            from avengine.registry.kujiale_room_categories import bind_formal_room_category,required_category_witnesses
+            row,inputs,formal_category=bind_formal_room_category(row,inputs,native_root)
+            if formal_category:receipt['formal_native_room_category_binding']=formal_category
+            current_contract=load(inputs['production_input_contract']);cell=next(r for r in current_contract['rooms']if r['key']==row['house']+'::'+row['room_id']);missing=set(required_category_witnesses(row,inputs))-set(cell['categories'])
+            if missing:
+                with cpu_phase(root,'new_native_category',estimate_bytes=16000000000 if missing-{'human.standing'}else 12000000000):
+                    inputs,category=qualify_missing_humans(row,house,inputs,catalog,source,human,current_contract,root)
+            else:category=None
+            if category:receipt['new_current_native_category_qualification']=category
+        if task.get('automatic_registered_room'):
+            from avengine.timeline.v7_registered_native_workers import prepare_native
+            from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase
+            prepare_native(row,house,inputs,catalog,source,human,str(native_root),root,source_path=contract['inputs']['source_admission']['path'],human_path=manifest['human_ue'],catalog_path=manifest['assets_ue'])
+            phases.enter_context(cpu_phase(root,'audio_questions_reader',estimate_bytes=2000000000))
+            result=generate(row,house,inputs,catalog,source,human,str(native_root))
+        else:result=generate(row,house,inputs,catalog,source,human,str(native_root))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
         if not admitted:raise ValueError('native producer did not admit the parent')
         parent=Path(result['delivery_directory']).parent
@@ -153,6 +171,7 @@ def main():
     a=p.parse_args();m=load(a.manifest)
     if m.get('dataset_role')!='acceptance_only' or m.get('training_dataset_merge')is not False or m.get('CCI_transfer')is not False:
         raise ValueError('explicit isolated acceptance scope required')
+    started=datetime.datetime.now(datetime.timezone.utc).isoformat();start=time.monotonic();cpu=time.process_time()
     try:code=run_worker(m,a.worker)
     except Exception as exc:
         write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':m['parents'][a.worker]['row']['scene_id'],'house':m['parents'][a.worker]['row']['house'],'room_id':m['parents'][a.worker]['row']['room_id'],'pid':os.getpid(),'stage':'construction_preflight','reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})

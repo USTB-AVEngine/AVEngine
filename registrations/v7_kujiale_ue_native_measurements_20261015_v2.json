@@ -1,0 +1,882 @@
+{
+  "schema": "v7-kujiale-ue-native-measurements-v1",
+  "revision": "20261015-fixed-natural-v2",
+  "updated_utc": "2026-10-15T07:33:36.289397+00:00",
+  "original_registrations_modified": false,
+  "runtime_authority": "production reads these measured native bases and original package hashes; world matrices remain measured per new frame",
+  "scope": {
+    "houses": 19,
+    "rooms": 33
+  },
+  "assets": [
+    {
+      "asset_id": "v7_female_adult_15_green_v1",
+      "actual_class_path": "/Game/V7HumanActors/v7_female_adult_15/green/BP_v7_female_adult_15_green.BP_v7_female_adult_15_green_C",
+      "actual_mesh_paths": [
+        "/Game/V7Humans/v7_female_adult_15/green/pose_mesh_2.pose_mesh_2",
+        "/Game/V7Humans/v7_female_adult_15/green/pose_mesh_0.pose_mesh_0",
+        "/Game/V7Humans/v7_female_adult_15/green/pose_mesh_1.pose_mesh_1"
+      ],
+      "loaded_artifact_sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee",
+      "original_glb_sha256": "0c8f5efa13235abd5666fee38e4fbe140e038d845cb669c7abb70a2441837d81",
+      "glb_to_ue_local_cm": [
+        [
+          0.0,
+          0.0,
+          -100.0
+        ],
+        [
+          100.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          100.0,
+          0.0
+        ]
+      ],
+      "mouth_local_glb_m": [
+        -0.008451252326025647,
+        1.5557227130748734,
+        -0.010432218566724563
+      ],
+      "mouth_local_ue_cm": [
+        1.0432218566724563,
+        -0.8451252326025647,
+        155.57227130748734
+      ],
+      "packages": [
+        {
+          "object_path": "/Game/V7HumanActors/v7_female_adult_15/green/BP_v7_female_adult_15_green.BP_v7_female_adult_15_green_C",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7HumanActors/v7_female_adult_15/green/BP_v7_female_adult_15_green.uasset",
+          "sha256": "fe6950de33d5effa0fd2762cc4f19ff5e98c110cc26babc193a9fa2b6b01afee"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/green/f018_body.f018_body",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/green/f018_body.uasset",
+          "sha256": "f760fc3cad4d88da8aa8bb15e3943223beb7cd851f24dfa6fdfd231973ccb4b8"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/green/f018_head.f018_head",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/green/f018_head.uasset",
+          "sha256": "460ba2f0ae4c50b053048e5a9a4e8a4fbf9b9835fbbe0757e00f2c067dac5ea1"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/green/f018_opacity.f018_opacity",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/green/f018_opacity.uasset",
+          "sha256": "3b6cd69510792e3f98cd26efed915e4e03897b0eff83f013d92a245c30e89073"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/green/pose_mesh_0.pose_mesh_0",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/green/pose_mesh_0.uasset",
+          "sha256": "6c4de900960516ef32f093f36e962aea6c1b2256775299bdd0af2cdaa89823f9"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/green/pose_mesh_1.pose_mesh_1",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/green/pose_mesh_1.uasset",
+          "sha256": "4e02d40ba2756e7126b091745a0dd153755d0184b16192355bb5478296307e4a"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/green/pose_mesh_2.pose_mesh_2",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/green/pose_mesh_2.uasset",
+          "sha256": "151f79b2bc69a83af3354a33cc9ba09f7bb29276c30d68597239a433baec658b"
+        }
+      ]
+    },
+    {
+      "asset_id": "v7_female_adult_15_blue_v1",
+      "actual_class_path": "/Game/V7HumanActors/v7_female_adult_15/blue/BP_v7_female_adult_15_blue.BP_v7_female_adult_15_blue_C",
+      "actual_mesh_paths": [
+        "/Game/V7Humans/v7_female_adult_15/blue/pose_mesh_2.pose_mesh_2",
+        "/Game/V7Humans/v7_female_adult_15/blue/pose_mesh_0.pose_mesh_0",
+        "/Game/V7Humans/v7_female_adult_15/blue/pose_mesh_1.pose_mesh_1"
+      ],
+      "loaded_artifact_sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5",
+      "original_glb_sha256": "8e1a6050fc8cb8fa72b9a256b5998ee1b9bcc0aa9ead228e7939c3e7adb31329",
+      "glb_to_ue_local_cm": [
+        [
+          0.0,
+          0.0,
+          -100.0
+        ],
+        [
+          100.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          100.0,
+          0.0
+        ]
+      ],
+      "mouth_local_glb_m": [
+        -0.008451252326025647,
+        1.5557227130748734,
+        -0.010432218566724563
+      ],
+      "mouth_local_ue_cm": [
+        1.0432218566724563,
+        -0.8451252326025647,
+        155.57227130748734
+      ],
+      "packages": [
+        {
+          "object_path": "/Game/V7HumanActors/v7_female_adult_15/blue/BP_v7_female_adult_15_blue.BP_v7_female_adult_15_blue_C",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7HumanActors/v7_female_adult_15/blue/BP_v7_female_adult_15_blue.uasset",
+          "sha256": "912ef0d831c7fc966bd55b9b821c07b08fca8fa59fb7f109de677583419f8ae5"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/blue/f018_body.f018_body",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/blue/f018_body.uasset",
+          "sha256": "6f236967d48008e6eed1586436cbd20913e882b38e748874c52ffa8ec668f028"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/blue/f018_head.f018_head",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/blue/f018_head.uasset",
+          "sha256": "1817ed2d72b99b63b5d4200908e70dd77f4179c1d5eae0d752400527c7e0597b"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/blue/f018_opacity.f018_opacity",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/blue/f018_opacity.uasset",
+          "sha256": "fc75415b1dae93ce260562fc95679b62a5cc4a949f7635e56b59e0c2239e8d57"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/blue/pose_mesh_0.pose_mesh_0",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/blue/pose_mesh_0.uasset",
+          "sha256": "7a7b6b6839ad60a087dd7ff375fc4336d5bdc2f91fad2e0eebf10e7c0cab837f"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/blue/pose_mesh_1.pose_mesh_1",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/blue/pose_mesh_1.uasset",
+          "sha256": "13f82181a986ecf929dcff65308a7561f1c7684bc8aec2fb4198d2b826819ccb"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_female_adult_15/blue/pose_mesh_2.pose_mesh_2",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_female_adult_15/blue/pose_mesh_2.uasset",
+          "sha256": "52f08a5ab8b3372e161236f40982b11c19bbbd09b3954df6d6ec967d0da39f91"
+        }
+      ]
+    },
+    {
+      "asset_id": "v7_male_adult_02_yellow_v1",
+      "actual_class_path": "/Game/V7HumanActors/v7_male_adult_02/yellow/BP_v7_male_adult_02_yellow.BP_v7_male_adult_02_yellow_C",
+      "actual_mesh_paths": [
+        "/Game/V7Humans/v7_male_adult_02/yellow/pose_mesh_2.pose_mesh_2",
+        "/Game/V7Humans/v7_male_adult_02/yellow/pose_mesh_0.pose_mesh_0",
+        "/Game/V7Humans/v7_male_adult_02/yellow/pose_mesh_1.pose_mesh_1"
+      ],
+      "loaded_artifact_sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11",
+      "original_glb_sha256": "64d49e6dc3fe94fdc8e71de5e61632e94c7612ead813599a20b06cb162949e58",
+      "glb_to_ue_local_cm": [
+        [
+          0.0,
+          0.0,
+          -100.0
+        ],
+        [
+          100.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          100.0,
+          0.0
+        ]
+      ],
+      "mouth_local_glb_m": [
+        0.0055874991881102115,
+        1.6264181828216313,
+        -0.05727390131533085
+      ],
+      "mouth_local_ue_cm": [
+        5.727390131533085,
+        0.5587499188110212,
+        162.64181828216314
+      ],
+      "packages": [
+        {
+          "object_path": "/Game/V7HumanActors/v7_male_adult_02/yellow/BP_v7_male_adult_02_yellow.BP_v7_male_adult_02_yellow_C",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7HumanActors/v7_male_adult_02/yellow/BP_v7_male_adult_02_yellow.uasset",
+          "sha256": "fe7f649e4006ae685b24e81edba8f145f6a4654efc906d1b26c95a9183c58e11"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_male_adult_02/yellow/m003_body.m003_body",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_male_adult_02/yellow/m003_body.uasset",
+          "sha256": "2889e3733b6877875a249f9e380a3e1e0dfd845da9c2c168cf84cc1cf80f1006"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_male_adult_02/yellow/m003_head.m003_head",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_male_adult_02/yellow/m003_head.uasset",
+          "sha256": "a8a5415bc6604142120c457823bc09fe242cc95abe3a64d667794cb16caccc1a"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_male_adult_02/yellow/m003_opacity.m003_opacity",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_male_adult_02/yellow/m003_opacity.uasset",
+          "sha256": "706c80243c75ba77b316b795eee87532385b3dd9998d904c7297147bd280c3db"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_male_adult_02/yellow/pose_mesh_0.pose_mesh_0",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_male_adult_02/yellow/pose_mesh_0.uasset",
+          "sha256": "2b142135e9ad25442137edd2913f5ef09cb8bd33d2b22dc334a624ad685ac3b1"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_male_adult_02/yellow/pose_mesh_1.pose_mesh_1",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_male_adult_02/yellow/pose_mesh_1.uasset",
+          "sha256": "c3546866c8c23654b050595d842df1d4e1db526366c33e8eb21ebe4795c73a40"
+        },
+        {
+          "object_path": "/Game/V7Humans/v7_male_adult_02/yellow/pose_mesh_2.pose_mesh_2",
+          "source": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/ue_project/Content/V7Humans/v7_male_adult_02/yellow/pose_mesh_2.uasset",
+          "sha256": "030fac7b5e69391250d8fc553fe9469b454a241d3b220810c9098c5922416171"
+        }
+      ]
+    }
+  ],
+  "rooms": [
+    {
+      "house": "kujiale_0003",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0003/native_editor_audit.json",
+        "native_editor_audit_sha256": "55d6e3344a1597af1d281dcc6c34594805eef0b59b80a835f82e6954060fbe38",
+        "native_vertices_sha256": "36d2ea9bb2955d2753bfb236849bdc3836b11af6331f42ac25ce889dcbea1aa8",
+        "native_triangles_sha256": "8d757c407e46606efd9b85231adfa97a4d3ca4bae7b6996ac56f0c521051cbd7"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0003",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0003/native_editor_audit.json",
+        "native_editor_audit_sha256": "55d6e3344a1597af1d281dcc6c34594805eef0b59b80a835f82e6954060fbe38",
+        "native_vertices_sha256": "36d2ea9bb2955d2753bfb236849bdc3836b11af6331f42ac25ce889dcbea1aa8",
+        "native_triangles_sha256": "8d757c407e46606efd9b85231adfa97a4d3ca4bae7b6996ac56f0c521051cbd7"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0003",
+      "room_id": "R3",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0003/native_editor_audit.json",
+        "native_editor_audit_sha256": "55d6e3344a1597af1d281dcc6c34594805eef0b59b80a835f82e6954060fbe38",
+        "native_vertices_sha256": "36d2ea9bb2955d2753bfb236849bdc3836b11af6331f42ac25ce889dcbea1aa8",
+        "native_triangles_sha256": "8d757c407e46606efd9b85231adfa97a4d3ca4bae7b6996ac56f0c521051cbd7"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0009",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/recovered_houses/kujiale_0009_fresh_v2/native_editor_audit.json",
+        "native_editor_audit_sha256": "a4bf44128d602beb7c934666504adac69194f60c59b4f43a70d7685c8396b585",
+        "native_vertices_sha256": "c4514641e94c9ea23860a4f60c0d8cf7131a7045199a349f3170e4cddcae301d",
+        "native_triangles_sha256": "58930897ff3d28be28147fd298f76669d78a0590b968f42a2fc6ef6e93c18165"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0009",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/recovered_houses/kujiale_0009_fresh_v2/native_editor_audit.json",
+        "native_editor_audit_sha256": "a4bf44128d602beb7c934666504adac69194f60c59b4f43a70d7685c8396b585",
+        "native_vertices_sha256": "c4514641e94c9ea23860a4f60c0d8cf7131a7045199a349f3170e4cddcae301d",
+        "native_triangles_sha256": "58930897ff3d28be28147fd298f76669d78a0590b968f42a2fc6ef6e93c18165"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0020",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0020/native_editor_audit.json",
+        "native_editor_audit_sha256": "14857a4c87e867e9a00887176962cbe25f545c9d4c88a033fc5c7d74e1665178",
+        "native_vertices_sha256": "1e6a434024d7cb432adf5ae2db73dbe461fb62e08d8b4c0e9488aa402984d3ed",
+        "native_triangles_sha256": "9969886a23f74d42ea19e167de1fe183f79d2866ded0ae57dffc9904285cd02d"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0021",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0021/native_editor_audit.json",
+        "native_editor_audit_sha256": "04b46da366c5063ed23da627014a7ed6d38dd33f32344cb210d2bb03d221c7f7",
+        "native_vertices_sha256": "65fb1491aa225398264ac4fdc5102f142264917d7a541c3f1104aed47dabc3ca",
+        "native_triangles_sha256": "482e7e481ba18be286b72fa052b125ab1cf734187fb181c644e6f4f51eb05977"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0021",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0021/native_editor_audit.json",
+        "native_editor_audit_sha256": "04b46da366c5063ed23da627014a7ed6d38dd33f32344cb210d2bb03d221c7f7",
+        "native_vertices_sha256": "65fb1491aa225398264ac4fdc5102f142264917d7a541c3f1104aed47dabc3ca",
+        "native_triangles_sha256": "482e7e481ba18be286b72fa052b125ab1cf734187fb181c644e6f4f51eb05977"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0022",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0022/native_editor_audit.json",
+        "native_editor_audit_sha256": "2c6193b4d7fbd7a0504568409dc44a3f61707d54f3141bc0b936f696f25b775f",
+        "native_vertices_sha256": "31a2a3d9620771d0ad5318dc28118acc37c8a37507840945455d2c72eca26c87",
+        "native_triangles_sha256": "7039c597bac0fcb30a79e0fb58ccab4a1f2eb2ba295724a59fbbd6fab3305981"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0022",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0022/native_editor_audit.json",
+        "native_editor_audit_sha256": "2c6193b4d7fbd7a0504568409dc44a3f61707d54f3141bc0b936f696f25b775f",
+        "native_vertices_sha256": "31a2a3d9620771d0ad5318dc28118acc37c8a37507840945455d2c72eca26c87",
+        "native_triangles_sha256": "7039c597bac0fcb30a79e0fb58ccab4a1f2eb2ba295724a59fbbd6fab3305981"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0024",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0024/native_editor_audit.json",
+        "native_editor_audit_sha256": "31a7d29cd4834b189f88d47311cfe6497685925d00383a7e28952a9677e9c814",
+        "native_vertices_sha256": "616ee84152d6022852e325a2ccbc20840f5339489e66dae6fd712dd1b2ac2833",
+        "native_triangles_sha256": "47e9d78ab3b9ca4601050b82a8e6407c502b229dd85110c8bc9cff694beeb6f7"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0026",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0026/native_editor_audit.json",
+        "native_editor_audit_sha256": "257fcd3ecb9b4d4b721409838c90b51dcf9d9fa9cbc438e2ea5a0b9ee8b5d1dd",
+        "native_vertices_sha256": "4240a6cf892cc9476d1f512a9a9ac64b17bad76ff6863301521571351e270681",
+        "native_triangles_sha256": "0040bc8a641f31a9e9fa6647b955fcf1988336ef463f645752325bd9c895d238"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0026",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0026/native_editor_audit.json",
+        "native_editor_audit_sha256": "257fcd3ecb9b4d4b721409838c90b51dcf9d9fa9cbc438e2ea5a0b9ee8b5d1dd",
+        "native_vertices_sha256": "4240a6cf892cc9476d1f512a9a9ac64b17bad76ff6863301521571351e270681",
+        "native_triangles_sha256": "0040bc8a641f31a9e9fa6647b955fcf1988336ef463f645752325bd9c895d238"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0030",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0030/native_editor_audit.json",
+        "native_editor_audit_sha256": "db97cc58759fbbe48d62748b3778229cecddffea43de991f41c6338b1e2fdbf2",
+        "native_vertices_sha256": "9c5bfed0f9296423444dd4cadb31506914134b5c8ae07ccd63a513cab251b855",
+        "native_triangles_sha256": "01c8a9757e4ff2f36f1aa10eed83743f32147438b2d7db5b38430ae52fd311ff"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0030",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0030/native_editor_audit.json",
+        "native_editor_audit_sha256": "db97cc58759fbbe48d62748b3778229cecddffea43de991f41c6338b1e2fdbf2",
+        "native_vertices_sha256": "9c5bfed0f9296423444dd4cadb31506914134b5c8ae07ccd63a513cab251b855",
+        "native_triangles_sha256": "01c8a9757e4ff2f36f1aa10eed83743f32147438b2d7db5b38430ae52fd311ff",
+        "source_floor_face_lineage_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round21_pilot/evidence/native_source_floor_lineage_kujiale_0030_v2.json",
+        "source_floor_face_lineage_sha256": "0cb88fd11458999d8f56aa741215207feddc97a3e743d510768ee16028655267"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0030",
+      "room_id": "R2",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0030/native_editor_audit.json",
+        "native_editor_audit_sha256": "db97cc58759fbbe48d62748b3778229cecddffea43de991f41c6338b1e2fdbf2",
+        "native_vertices_sha256": "9c5bfed0f9296423444dd4cadb31506914134b5c8ae07ccd63a513cab251b855",
+        "native_triangles_sha256": "01c8a9757e4ff2f36f1aa10eed83743f32147438b2d7db5b38430ae52fd311ff",
+        "source_floor_face_lineage_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round21_pilot/evidence/native_source_floor_lineage_kujiale_0030_v2.json",
+        "source_floor_face_lineage_sha256": "0cb88fd11458999d8f56aa741215207feddc97a3e743d510768ee16028655267"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0031",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0031/native_editor_audit.json",
+        "native_editor_audit_sha256": "d127a6245ffee1fdbb87758cdb349dd7839bf0f7c19d56eec272d9c53ed21382",
+        "native_vertices_sha256": "c1bb66c24c2ecddc3ce2f87b1f18eb39db64761ed9ddd30dfbb21502f70e59ce",
+        "native_triangles_sha256": "faa86a0295854f5799f220576090a9eb67ebf5320a1fc46af42be98eee3e1bec"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0032",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0032/native_editor_audit.json",
+        "native_editor_audit_sha256": "f031167e265cf447d421308b85ee56413885f4deef6615d8849252732b5fc39f",
+        "native_vertices_sha256": "ce3e062cda7701d4265e3080087bde2b63cf2944ed83d845ce06a27d5ca17357",
+        "native_triangles_sha256": "81b1957e00187eee8d02d9cc9b8d29772b3e40e399f85da332c5859f6cd9b0e4",
+        "source_floor_face_lineage_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round21_pilot/evidence/source_floor_lineage_kujiale_0032_v1.json",
+        "source_floor_face_lineage_sha256": "e9402a21176265a551c18425a0583e3c891521882268cf7efab1c468676b62fa"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0033",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0033/native_editor_audit.json",
+        "native_editor_audit_sha256": "703fdcc30fecb2acc3290b7601ebd02ebe9a579058add3aa6debc8e81c5f3e8c",
+        "native_vertices_sha256": "5fee8f2cfa1f7350ba697c93c2b1122c7b4734a983baafb2565f1ba722cfa1bf",
+        "native_triangles_sha256": "9c20cb967b7c9a9d4cfc42fac9c7091029ef45f8417cba648b65289d321a947e"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0033",
+      "room_id": "R2",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0033/native_editor_audit.json",
+        "native_editor_audit_sha256": "703fdcc30fecb2acc3290b7601ebd02ebe9a579058add3aa6debc8e81c5f3e8c",
+        "native_vertices_sha256": "5fee8f2cfa1f7350ba697c93c2b1122c7b4734a983baafb2565f1ba722cfa1bf",
+        "native_triangles_sha256": "9c20cb967b7c9a9d4cfc42fac9c7091029ef45f8417cba648b65289d321a947e"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0034",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0034/native_editor_audit.json",
+        "native_editor_audit_sha256": "b7df32bebe21742c6dbedc26674b99122635333be317967c6da3999822dbb350",
+        "native_vertices_sha256": "d2b8d63784be861b24d5570e02bdc1a0d3dfbf00ccfd91c6d53e8f51604d755c",
+        "native_triangles_sha256": "ac529e51c46f187bdb0f3a3fc403d22072ca761e0a6d05eb9f317ad6cdf462f0"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0036",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0036/native_editor_audit.json",
+        "native_editor_audit_sha256": "e094947d01e17c4ca2fa34dee4bd98b480e0f38c1c43e886eeae9ace4de608b4",
+        "native_vertices_sha256": "50eb4b47c1b425dbe22edab9575c04964a5d4d98d5a7743711e76128297b358a",
+        "native_triangles_sha256": "6b79692992116708ca3d41eabf757b5114c221de16af9d834e786744f1c0e4a1"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0036",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0036/native_editor_audit.json",
+        "native_editor_audit_sha256": "e094947d01e17c4ca2fa34dee4bd98b480e0f38c1c43e886eeae9ace4de608b4",
+        "native_vertices_sha256": "50eb4b47c1b425dbe22edab9575c04964a5d4d98d5a7743711e76128297b358a",
+        "native_triangles_sha256": "6b79692992116708ca3d41eabf757b5114c221de16af9d834e786744f1c0e4a1"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0036",
+      "room_id": "R2",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0036/native_editor_audit.json",
+        "native_editor_audit_sha256": "e094947d01e17c4ca2fa34dee4bd98b480e0f38c1c43e886eeae9ace4de608b4",
+        "native_vertices_sha256": "50eb4b47c1b425dbe22edab9575c04964a5d4d98d5a7743711e76128297b358a",
+        "native_triangles_sha256": "6b79692992116708ca3d41eabf757b5114c221de16af9d834e786744f1c0e4a1"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0038",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0038/native_editor_audit.json",
+        "native_editor_audit_sha256": "ef62034d126fdcb4c8686aa6b05cefb311942e2e8c5bf2722406bb816fa7275d",
+        "native_vertices_sha256": "d534b79302993cacdce946b4043bae217d1596bbafa5c2ad618d63142688fee8",
+        "native_triangles_sha256": "8de80825de438578075f843831e3b8dbc956e8b2f53535db6d3dc1a4f8ff9daf"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0042",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0042/native_editor_audit.json",
+        "native_editor_audit_sha256": "5821b40a0e48485181878692e4162da7e3b1271fccd928d60a155c7a8b66a604",
+        "native_vertices_sha256": "bf12c1b75f66a5cdc53edaae5fc00ee9682de17d0b876aad8155a3d07b9d2f4b",
+        "native_triangles_sha256": "4d9d456dae053bb6641c51c7525a9cee09ca5de47dc1fda19c9f52247f8b5524"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0042",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0042/native_editor_audit.json",
+        "native_editor_audit_sha256": "5821b40a0e48485181878692e4162da7e3b1271fccd928d60a155c7a8b66a604",
+        "native_vertices_sha256": "bf12c1b75f66a5cdc53edaae5fc00ee9682de17d0b876aad8155a3d07b9d2f4b",
+        "native_triangles_sha256": "4d9d456dae053bb6641c51c7525a9cee09ca5de47dc1fda19c9f52247f8b5524"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0043",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0043/native_editor_audit.json",
+        "native_editor_audit_sha256": "d4432240c40738f57614db58f889f7a232c6c5384a28d7e62bf902174dfe2fd5",
+        "native_vertices_sha256": "92536e8e1443bed3cd2bda59a31d50450cae1b44ae51acab0976b1268335cb01",
+        "native_triangles_sha256": "70ddc1f322b8aa280dd0da161b91ee88600738d21edde8b7591b7b378f8c725e"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0043",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0043/native_editor_audit.json",
+        "native_editor_audit_sha256": "d4432240c40738f57614db58f889f7a232c6c5384a28d7e62bf902174dfe2fd5",
+        "native_vertices_sha256": "92536e8e1443bed3cd2bda59a31d50450cae1b44ae51acab0976b1268335cb01",
+        "native_triangles_sha256": "70ddc1f322b8aa280dd0da161b91ee88600738d21edde8b7591b7b378f8c725e"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0065",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0065/native_editor_audit.json",
+        "native_editor_audit_sha256": "bda413301d4012f8b1f3d92ac5cde7d4540e6395f9d2f3de37a86e28bc27f6cd",
+        "native_vertices_sha256": "41971d2ce24144e3518c34ea0e4f6ad4df79498a2090039dcc91d4974cc0abd0",
+        "native_triangles_sha256": "ad8fd0b0fcc9348d05f0c0fe60cfed36c57d00cca047639467db517eeaafa278"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0066",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0066/native_editor_audit.json",
+        "native_editor_audit_sha256": "38d3ae7dadaadebe635e839e8197781379af32d6e09859f331da830bcce9cb60",
+        "native_vertices_sha256": "ca2070cdcc912d4b01b1b1f95864742944de2bf124a0afa993710d8435d0ce55",
+        "native_triangles_sha256": "02e0e28413341dcf25e017709fd44f57f63299e7e2725ef0aec50872e7e69c7f"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0067",
+      "room_id": "R0",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0067/native_editor_audit.json",
+        "native_editor_audit_sha256": "20e2ce29429c2138c884a0ce1ac0378b3ce9529c30373d3c483ed79ba06b775f",
+        "native_vertices_sha256": "ab776525f22ab4cb79a02c82006933cd5b122ea6832209747bf3c542eaea12ef",
+        "native_triangles_sha256": "36451366e095eb1ce5fc1a9962b5804f58cd9504ad55a94222eb7062117479e3",
+        "source_floor_face_lineage_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round21_pilot/evidence/native_source_floor_lineage_kujiale_0067_v1.json",
+        "source_floor_face_lineage_sha256": "ce5651f3f0f98887e18f3255e5e2ef3e8eee1ac57bd66b1ca183a9d8705d8099"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    },
+    {
+      "house": "kujiale_0067",
+      "room_id": "R1",
+      "native_floor_surface": {
+        "native_editor_audit": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round6/houses/kujiale_0067/native_editor_audit.json",
+        "native_editor_audit_sha256": "20e2ce29429c2138c884a0ce1ac0378b3ce9529c30373d3c483ed79ba06b775f",
+        "native_vertices_sha256": "ab776525f22ab4cb79a02c82006933cd5b122ea6832209747bf3c542eaea12ef",
+        "native_triangles_sha256": "36451366e095eb1ce5fc1a9962b5804f58cd9504ad55a94222eb7062117479e3",
+        "source_floor_face_lineage_path": "/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round21_pilot/evidence/native_source_floor_lineage_kujiale_0067_v1.json",
+        "source_floor_face_lineage_sha256": "ce5651f3f0f98887e18f3255e5e2ef3e8eee1ac57bd66b1ca183a9d8705d8099"
+      },
+      "room_legality_source": {
+        "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_gap_kujiale_20261015_v2/inputs/declared_authorities/room_kujiale_room_kujiale_v7_kujiale_room_asset_category_legality_20261014.json",
+        "sha256": "6cd032d49ed51cbfa65b401ef9cfa3633fc0ce65e876ceeab9c360c1a6514fbd"
+      },
+      "measurement_status": "not_run",
+      "smoke_status": "not_run",
+      "measurements": [],
+      "independent_questions": 0,
+      "reason": "new fixed-camera natural-layout parent pending"
+    }
+  ],
+  "technical_input_provenance": {
+    "kind": "native coordinate basis/package identity only; no old scene media or seal",
+    "source": "/data/jzy/code/AVEngine-v7-gap-kujiale-20261015/registrations/v7_kujiale_ue_native_measurements_20261015.json",
+    "sha256": "b9586a057e4f769569d8f8098aa9daabf52e9ee72fe001922418d27b212907c7"
+  }
+}
