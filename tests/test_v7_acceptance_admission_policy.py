@@ -165,3 +165,25 @@ def test_worker_keeps_its_frozen_snapshot_after_global_manifest_advances(tmp_pat
     assert actual['code_commit']=='old_sha'and actual['worktree']==str(old)
     assert manifest['code_commit']=='new_sha'
     with pytest.raises(ValueError,match='differs from its frozen task'):bind_worker_snapshot(manifest,0,new)
+
+
+def test_fresh_rirs_cannot_escape_the_parent_allocation():
+    from tools.timeline.run_v7_acceptance import worker_cpu_policy
+    manifest={'cpu_affinity_ids':list(range(32)),'fresh_rir_workers':8}
+    task={'cpu_ids':list(range(8,16))}
+    parent,rir,workers=worker_cpu_policy(manifest,task,4,{'fresh_rir_cpu_ids':list(range(96,104))})
+    assert parent==8 and rir==list(range(8,16)) and workers==8
+    assert worker_cpu_policy(manifest,task,0,{})[1]==list(range(8,16))
+    assert worker_cpu_policy(manifest,task,0,{'fresh_rir_cpu_ids':[9,96]})[1]==[9]
+
+
+def test_authorized_task_size_is_configurable_without_stopping_active_jobs():
+    now=datetime.datetime(2026,10,16,tzinfo=datetime.timezone.utc)
+    values=dict(now=now,deadline=now+datetime.timedelta(hours=6),pss=1,limit=150_000_000_000,
+        free=500_000_000_000,allocated_size=100_000_000_000,available_memory=100_000_000_000,
+        disk_policy={'minimum_free_bytes':400_000_000_000},maximum_task_bytes=150_000_000_000)
+    assert launch_pause_reason(**values)==''
+    values['allocated_size']=150_000_000_000
+    assert launch_pause_reason(**values)=='task_disk_limit_no_new_jobs'
+    values.update(allocated_size=1,free=399_000_000_000)
+    assert launch_pause_reason(**values)=='disk_headroom_no_new_jobs'
