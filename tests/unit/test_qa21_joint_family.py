@@ -313,3 +313,23 @@ def test_real_stage_ray_rejects_a_hidden_emission_part():
     assert plugin.emitter_path_clear(NS(raycaster=MeshRaycaster(wall)),plan,'cat') is False
     wall.apply_translation([5.,0.,0.])
     assert plugin.emitter_path_clear(NS(raycaster=MeshRaycaster(wall)),plan,'cat') is True
+
+
+def test_explicit_playback_class_keeps_three_actual_capable_distinct_bodies():
+    from avengine.construction.joint.families.qa21 import select_target_set
+    cat = animal('cat', 'cat', 'cat_meow'); dog = animal('dog', 'dog', 'dog_bark')
+    speaker = {'asset_id': 'speaker', 'kind': 'object', 'entity_class': 'loudspeaker',
+        'allowed_classes': ['music_playback', 'speech_playback'], 'attachment_surface': 'floor',
+        'label_color': 'white', 'standing_registered_qualified': True}
+    catalog = [cat, dog, speaker]; original = deepcopy(catalog)
+    records = [{'sound_class': c} for c in ('cat_meow', 'dog_bark', 'music_playback', 'speech_playback')]
+    room = {'family': 'hm3d', 'categories': ['floor_cat', 'floor_dog', 'floor_object']}
+    options = target_options(room, catalog, records, {}, {},
+        preferred_asset_ids=['cat', 'dog', 'speaker'], asset_class_choices={'speaker': 'speech_playback'})
+    assert {a['asset_id']: cls for a, cls, _ in select_target_set(options)} == {
+        'cat': 'cat_meow', 'dog': 'dog_bark', 'speaker': 'speech_playback'}
+    assert catalog == original
+    with pytest.raises(ValueError, match='capability'):
+        target_options(room, catalog, records, {}, {}, asset_class_choices={'speaker': 'cat_meow'})
+    with pytest.raises(ValueError, match='not an admitted source'):
+        target_options(room, catalog, records[:-1], {}, {}, asset_class_choices={'speaker': 'speech_playback'})
