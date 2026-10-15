@@ -86,3 +86,19 @@ def test_person_camera_clearance_uses_horizontal_roots_and_every_frame():
     assert 'person_camera_clearance_below_1_2m'in layout_metrics(a,listener_positions=[[0,1.3,0]]*2)['reasons']
     a['a']['root_positions_m']=[[0,0,-1.4],[0,0,-1.2]]
     assert layout_metrics(a,listener_positions=[[0,1.3,0]]*2)['status']=='pass'
+
+
+def test_only_visual_quality_observations_do_not_invalidate_answer_evidence():
+    from avengine.timeline.v7_export_scene_policy import classify_delivery_reasons
+    strict,quality=classify_delivery_reasons(['v0:measured_root_speed_out_of_range',
+        'v0:human_centres_under_1m','v0:all_humans_share_one_heading',
+        'v0:camera_moved','v0:person_camera_clearance_below_1_2m',
+        'missing_original_native_camera_and_body_readbacks'])
+    assert len(quality)==3
+    assert set(strict)=={'v0:camera_moved','v0:person_camera_clearance_below_1_2m',
+        'missing_original_native_camera_and_body_readbacks'}
+
+
+def test_unknown_delivery_failure_is_never_silently_relabelled_cosmetic():
+    from avengine.timeline.v7_export_scene_policy import classify_delivery_reasons
+    assert classify_delivery_reasons(['actual_source_position_wrong'])==(['actual_source_position_wrong'],[])

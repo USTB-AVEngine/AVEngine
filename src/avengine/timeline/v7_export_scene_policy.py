@@ -9,8 +9,25 @@ from collections import defaultdict
 from pathlib import Path
 import numpy as np
 
-REVISION='v7-fixed-observer-natural-layout-measured-speed-camera-clearance-v2'
+REVISION='v7-fixed-observer-answer-gates-quality-observations-v3'
 SPEED_RANGES={'human':(.8,1.4),'dog':(.5,1.2),'cat':(.3,.8),'slide':(.2,.5)}
+
+
+# Owner 2026-10-15 21:0x: these measurements guide construction and reports;
+# actual native geometry remains the authority for every QA answer. Keep the
+# explicitly retained 1.2m camera clearance, fixed view and missing truth strict.
+QUALITY_REASON_SUFFIXES=frozenset({
+    'measured_root_speed_out_of_range','window_measured_root_speed_out_of_range',
+    'human_centres_under_1m','human_animal_centres_under_0_8m',
+    'all_humans_share_one_heading','all_humans_in_row_facing_camera',
+    'missing_actual_human_heading_readbacks'})
+
+
+def classify_delivery_reasons(reasons):
+    quality=[];strict=[]
+    for reason in sorted(set(reasons)):
+        (quality if reason.rsplit(':',1)[-1] in QUALITY_REASON_SUFFIXES else strict).append(reason)
+    return strict,quality
 
 
 def camera_metrics(readbacks):
@@ -157,8 +174,10 @@ def inspect_parent_policy(pointer_path):
     for member,cm in listener_metrics.items():
         if cm['status']!='pass':reasons.append(member+':listener_moved_across_windows')
     if not members:reasons.append('missing_member_listener_readbacks')
-    return {'revision':REVISION,'status':'fail'if reasons else'pass','source_seal':str(pointer_path),
-        'reasons':sorted(set(reasons)),'native_views':metrics,'member_listener':listener_metrics,'original_native_evidence':proofs}
+    strict,quality=classify_delivery_reasons(reasons)
+    return {'revision':REVISION,'status':'fail'if strict else'pass','source_seal':str(pointer_path),
+        'reasons':strict,'quality_observations':quality,'quality_admission_effect':'record_only_per_owner_20261015_210x',
+        'native_views':metrics,'member_listener':listener_metrics,'original_native_evidence':proofs}
 
 
 def require_parent_policy(pointer_path):

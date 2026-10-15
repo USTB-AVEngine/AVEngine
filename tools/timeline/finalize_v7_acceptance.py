@@ -48,7 +48,7 @@ def delivery_fingerprint(manifest):
         if receipt.get('status')=='passed':parents.append((task['slot'],hashlib.sha256(data).hexdigest()))
     inputs={'parents':parents,'code_commit':manifest['code_commit'],
         'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
-        'scene_delivery_policy':'v7-fixed-observer-natural-layout-measured-speed-v1',
+        'scene_delivery_policy':__import__('avengine.timeline.v7_export_scene_policy',fromlist=['REVISION']).REVISION,
         'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False)}
     return hashlib.sha256(json.dumps(inputs,sort_keys=True).encode()).hexdigest()
 
