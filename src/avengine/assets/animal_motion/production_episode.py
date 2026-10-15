@@ -221,7 +221,7 @@ def animal_reflected_route_proposals(video,entry,scene,local_forward,request):
     translations/rotations construct other routes; every one goes through the
     exact same shared NavMesh, camera, polygon, body and radial prefilter.
     """
-    from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
+    from .native_route import ordered_native_animal_routes
     original=request['motion_quartet_route'];xz=np.asarray(original['positions_xz_m'],float)
     heading=np.asarray(original['travel_yaws_rad'],float);centre=xz.mean(0)
     needs_refinement=[False];seen=set()
@@ -236,7 +236,7 @@ def animal_reflected_route_proposals(video,entry,scene,local_forward,request):
             path=Path(request['_reflection_diagnostics_path'])
             fine_directory=path.parent/('fine_fit_'+str(number));fine_directory.mkdir(parents=True,exist_ok=True)
             proposal_request['_reflection_diagnostics_path']=str(fine_directory/path.name)
-        for route in reflected_route_proposals(video,entry,scene,local_forward,proposal_request):
+        for route in ordered_native_animal_routes(video,entry,scene,local_forward,proposal_request):
             key=(np.asarray(route.positions).tobytes(),np.asarray(route.yaws).tobytes())
             if key in seen:continue
             seen.add(key)
@@ -555,6 +555,11 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'speed_m_s': route_speed, 'mode': mode, 'reason': str(error)})
             with(directory/'motion_route_search.jsonl').open('a')as stream:
                 stream.write(json.dumps({'candidate':len(failures),'wall_seconds':time.monotonic()-begun,**failures[-1]})+'\n')
+    prefilter = entry.get('reflection_native_prefilter')
+    no_candidate = not failures
+    rejection_stage = 'native_route_prefilter' if no_candidate else 'native_pose_admission'
     write_json(directory / 'motion_rejected.json', {'status': 'blocked', 'mode': mode,
-               'reason': 'requested motion routes failed original physical gates; no animal removed or mode substituted', 'failed_candidates': failures})
-    raise ValueError('final animal admission has no route passing retained answer gates and owner visual quality policy')
+               'reason': 'native route prefilter produced no candidates' if no_candidate else 'requested motion routes failed original physical gates; no animal removed or mode substituted',
+               'rejection_stage': rejection_stage, 'route_prefilter': prefilter, 'failed_candidates': failures})
+    detail = ('; native route prefilter produced no candidates: ' + json.dumps(prefilter, sort_keys=True)) if no_candidate else ''
+    raise ValueError('final animal admission has no route passing retained answer gates and owner visual quality policy' + detail)
