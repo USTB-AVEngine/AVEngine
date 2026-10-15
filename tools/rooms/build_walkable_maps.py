@@ -2,6 +2,7 @@
 """Precompute reusable 5cm native static room maps on CPU, with bounded workers."""
 from __future__ import annotations
 import argparse
+import fcntl
 import datetime
 import json
 import os
@@ -121,6 +122,23 @@ def main():
                                    cwd=expected.parents[2], text=True)
     if dirty:
         raise ValueError('commit map producer files before creating attributed caches')
+    # Workers import an immutable snapshot of the attributed producer commit.
+    worktree = expected.parents[2]
+    snapshots = worktree/'src/.v7_snapshots'
+    snapshots.mkdir(exist_ok=True)
+    snapshot = snapshots/commit
+    with (snapshots/(commit+'.lock')).open('a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not (snapshot/'FROZEN_COMMIT').is_file():
+            snapshot.mkdir(exist_ok=True)
+            archive = subprocess.Popen(['git', 'archive', '--format=tar', commit], cwd=worktree, stdout=subprocess.PIPE)
+            subprocess.run(['tar', '-x', '-C', str(snapshot)], stdin=archive.stdout, check=True)
+            archive.stdout.close()
+            if archive.wait():
+                raise RuntimeError('map producer snapshot failed')
+            (snapshot/'FROZEN_COMMIT').write_text(commit+'\n')
+    worker_env = os.environ.copy()
+    worker_env['PYTHONPATH'] = str(snapshot/'src')+':'+str(snapshot)+':'+worker_env.get('PYTHONPATH', '')
     priority = set(a.room_id)
     for manifest in a.priority_manifest:
         for task in read(manifest).get('parents', []):
@@ -200,8 +218,8 @@ def main():
             index, job, result = pending.pop(0)
             log = root/'logs/map_jobs'/f'{index:04d}.log'
             with log.open('a') as stream:
-                process = subprocess.Popen([sys.executable, '-u', str(Path(__file__).resolve()), '--worker-job', str(job)],
-                                           stdout=stream, stderr=subprocess.STDOUT)
+                process = subprocess.Popen([sys.executable, '-u', str(snapshot/'tools/rooms/build_walkable_maps.py'), '--worker-job', str(job)],
+                                           stdout=stream, stderr=subprocess.STDOUT, env=worker_env)
             active.append((index, process, result, str(log)))
         rows = []
         for result in sorted((root/'evidence/map_jobs').glob('*.json')):

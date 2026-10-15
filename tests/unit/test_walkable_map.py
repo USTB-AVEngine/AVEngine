@@ -98,3 +98,35 @@ def test_species_masks_must_be_nested(tmp_path):
     m.layers['cat'][0, 0] = False
     with pytest.raises(ValueError, match='nested'):
         WalkableMap(m.origin, .05, 0., m.layers, m.metadata)
+
+
+def test_navmesh_vertical_offset_does_not_replace_the_actual_floor(tmp_path, monkeypatch):
+    from avengine.assets.roster_motion import episode
+    from avengine.assets import v7_phase2_floor
+    from avengine.rooms.walkable_map_builder import build_room_map
+    vertices = np.array([[-2, 0, -2], [2, 0, -2], [2, 0, 2], [-2, 0, 2]], float)
+    mesh = SimpleNamespace(vertices=vertices, faces=np.array([[0, 1, 2], [0, 2, 3]]))
+    class Ray:
+        MAX_QUERY_POINTS = 32
+        def many(self, points):
+            return np.zeros(len(points))
+    class Floor:
+        def __init__(self, *args):
+            self.original_ray = Ray()
+            self.native_ray_count = 0
+            self.native_ray_agreements = []
+        def __call__(self, point):
+            self.native_ray_count += 1
+            self.native_ray_agreements.append(0.)
+            return 0.
+    monkeypatch.setattr(episode, 'PhysicalFloor', Floor)
+    monkeypatch.setattr(v7_phase2_floor, 'original_native_stage_mesh', lambda *a: (mesh, {}))
+    stage, nav = tmp_path/'stage.glb', tmp_path/'stage.navmesh'
+    stage.write_bytes(b'fixture'); nav.write_bytes(b'fixture')
+    house = {'house': 'fixture', 'family': 'hm3d', 'input': {'visual_source': str(stage), 'navmesh_source': str(nav)}}
+    room = {'room_label': 'room', 'measured_floor_y_m': 0., 'floor_polygon': box(-1, -1, 1, 1).__geo_interface__}
+    pf = SimpleNamespace(snap_point=lambda p: np.asarray(p)+[0, .14, 0], distance_to_closest_obstacle=lambda p, r: 1.)
+    result = build_room_map(SimpleNamespace(pathfinder=pf), house, room, code_commit='fixture', output=tmp_path/'map.npz')
+    assert result.layers['human'].any()
+    assert result.metadata['native_support_rays'] > 0
+    assert WalkableMap.load(tmp_path/'map.npz').contains([0, 0])
