@@ -224,7 +224,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     from avengine.timeline.v7_phase2_sources import qualify_registered_walk_tts
     if base.get('pending_registered_walk_tts'):
         walk_tts=qualify_registered_walk_tts(base,visual)
-        write_json(vd/'registered_walk_tts_admission.json',walk_tts)
+        from avengine.timeline.v7_native_stage_resume import retain_exact_json_receipt
+        retain_exact_json_receipt(vd/'registered_walk_tts_admission.json',walk_tts)
     resolved=resolve_footstep_events(base,program,visual)
     foot_receipt=root/'resolved_footstep_contacts.json'
     if foot_receipt.exists():

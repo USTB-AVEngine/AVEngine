@@ -94,3 +94,14 @@ def compatible_static_native_recipe(root,name,requested,row):
         'completed_marker_sha256':hashlib.sha256(mark.read_bytes()).hexdigest(),
         'new_native_render_claim':False,'thresholds_changed':False})
     return previous
+
+
+def retain_exact_json_receipt(path, measured):
+    """Recompute original checks, then reuse only an identical saved receipt."""
+    path=Path(path)
+    if path.exists():
+        if json.loads(path.read_text())!=measured:
+            raise ValueError('retained native receipt differs from current measurements: '+str(path))
+        return False
+    write_json(path,measured)
+    return True
