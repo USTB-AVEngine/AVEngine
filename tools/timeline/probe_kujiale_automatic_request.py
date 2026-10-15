@@ -7,7 +7,7 @@ from avengine.timeline.v7_kujiale_scheduler import resources,isolated_command,as
 from tools.timeline.run_v7_kujiale_rooms import load,write
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--required-sound-class',required=True);p.add_argument('--physical-gpu',type=int,required=True);p.add_argument('--python',default=os.environ.get('GAP_PY',os.sys.executable));p.add_argument('--max-attempts',type=int,default=8);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);task=next(t for t in m['parents']if t.get('automatic_registered_room')and not(root/'evidence/jobs'/f'{t["slot"]:03d}.json').exists());request=copy.deepcopy(task['row']);base='v7_gap_auto_class_'+request['house']+'_'+request['room_id'];request['required_sound_classes']=[a.required_sound_class]
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--required-sound-class',required=True);p.add_argument('--physical-gpu',type=int,required=True);p.add_argument('--python',default=os.environ.get('GAP_PY',os.sys.executable));p.add_argument('--max-attempts',type=int,default=8);a=p.parse_args();m=load(a.manifest);root=Path(m['output_root']);task=next(t for t in m['parents']if t.get('automatic_registered_room')and not(root/'evidence/jobs'/f'{t["slot"]:03d}.json').exists());request=copy.deepcopy(task['row']);base='v7_gap_auto_class_'+request['house']+'_'+request['room_id']+'_q'+str(len(m['parents']));request['required_sound_classes']=[a.required_sound_class]
     for attempt in range(a.max_attempts):
         while True:
             s=resources(root)
