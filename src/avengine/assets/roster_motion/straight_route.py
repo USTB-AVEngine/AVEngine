@@ -83,11 +83,13 @@ def find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', u
     errors = []
     for index, candidate in enumerate(_rooms_with_cameras(room, pathfinder, species, relocate=is_free is None)):
         pair = 'M2' if focus == 'M2' else 'M1'
-        for families, corners in (('all4', False), (pair, False), (pair, True)):
+        for families, corners, use_map in (('all4', False, True), (pair, False, True), (pair, True, True),
+                                           ('all4', False, False), (pair, False, False), (pair, True, False)):
             try:
                 route = _find_straight_route(candidate, pathfinder, seed, attempt, species=species, utterance_s=utterance_s,
                                              focus=focus, families=families, speed_range=speed_range, is_free=is_free,
-                                             grid_m=grid_m, headings=headings, keep=keep, max_grid=max_grid, corners=corners)
+                                             grid_m=grid_m, headings=headings, keep=keep, max_grid=max_grid, corners=corners,
+                                             use_map=use_map)
             except ValueError as error:
                 errors.append(('camera %d: ' % index) + str(error)); continue
             if index:
@@ -124,6 +126,8 @@ def _rooms_with_cameras(room, pathfinder, species, relocate=True, limit=12):
                                      floor_reference=floor)
     except (ValueError, FileNotFoundError):
         walkable_map = None
+    if walkable_map is not None and float(walkable_map.layers['human'].sum()) * walkable_map.resolution ** 2 < .25 * inner.area:
+        walkable_map = None          # implausibly small cached map: rely on the NavMesh test for camera candidates
     points = []
     for d in np.arange(0., ring.length, .5):
         p = np.asarray(ring.interpolate(d).coords[0], float)
@@ -141,7 +145,7 @@ def _rooms_with_cameras(room, pathfinder, species, relocate=True, limit=12):
 
 def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
                          families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600,
-                         corners=False):
+                         corners=False, use_map=True):
     from .reflect_navmesh import native_free_predicate, SHORT_WALK_LEAD_S, SHORT_WALK_RAMP_S
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
@@ -150,9 +154,13 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
     if is_free is None:
         # The per-room static walkable map (furniture, rugs, steps, other floors excluded per species radius) is
         # consulted first, exactly as the reflected search does; native point tests still run at every sample.
-        from avengine.rooms.walkable_map import load_room_map
-        walkable_map = load_room_map(room.get('room_label', room.get('room_id')), path=room.get('walkable_map_path'),
-                                     floor_reference=floor)
+        # 10-15 measured: the cached maps are far too conservative in most rooms (518/777 HM3D and 159/178 MP3D rooms
+        # have < 2 m2 human-walkable area, e.g. mp3d JeFG25 R18 0.8 m2 of an 18 m2 floor). The map is a construction
+        # aid, not a gate: when it leaves no line, retry without it; the native full-pose gates still judge.
+        if use_map:
+            from avengine.rooms.walkable_map import load_room_map
+            walkable_map = load_room_map(room.get('room_label', room.get('room_id')), path=room.get('walkable_map_path'),
+                                         floor_reference=floor)
         is_free = native_free_predicate(pathfinder, polygon, floor, listener, walkable_map=walkable_map, species=species)
     segment_is_free = getattr(is_free, 'segment_is_free', None)
     lo, hi = SPECIES_SPEED_M_S[species]
@@ -235,6 +243,7 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
             'walkable_map_path': getattr(walkable_map, 'path', None),
             'walkable_map_version': walkable_map.metadata['version'] if walkable_map is not None else None,
             'walkable_map_room_id': walkable_map.metadata['room_id'] if walkable_map is not None else None,
+            'walkable_map_bypassed': walkable_map is None,
             'speed_m_s': speed, 'speed_range_m_s': [lo, hi], 'listener_m': listener.tolist(),
             'camera_yaw_deg': math.degrees(math.atan2(target[0], -target[1])), 'species': species, 'template': focus,
             'emission_slot': slot, 'candidate_count': tested,

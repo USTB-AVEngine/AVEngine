@@ -161,7 +161,7 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     species=route.get('species',entry.get('declaration',{}).get('species_id','human'))
     if species not in SPECIES_RADII_M:species='human'
     radius=SPECIES_RADII_M[species]
-    walkable_map=load_room_map(route.get('walkable_map_room_id'),path=route.get('walkable_map_path'))
+    walkable_map=None if route.get('walkable_map_bypassed') else load_room_map(route.get('walkable_map_room_id'),path=route.get('walkable_map_path'))
     obstacles=[]
     for actor in video.actors:
         if actor is entry or actor.get('phase2_layout_qualified') is False:continue

@@ -17,7 +17,10 @@ def test_requirements_that_define_the_question_are_kept():
     scene = {'production_scenario': {'motion_requests': {'voice1': {}}}}
     mover = {'asset_id': 'p1', 'endpoint_id': 'voice1', 'kind': 'human'}
     assert placement_construction_fallback(scene, mover, 'floor', None, False) == 'camera_1_2m'
-    assert placement_construction_fallback(scene, mover, 'floor', None, False) is None      # movers stay in view
+    # a mover without a view requirement may enter or leave the fixed view (never a static off-screen role)
+    assert placement_construction_fallback(scene, mover, 'floor', None, False) == 'moving_view_construction'
+    assert scene['native_view_roles']['p1']['view'] == 'unconstrained_motion'
+    assert placement_construction_fallback(scene, mover, 'floor', None, False) is None
     sector = {'asset_id': 'p3', 'endpoint_id': 'voice3', 'kind': 'human'}
     placement_construction_fallback(scene, sector, 'floor', 30., False)
     assert placement_construction_fallback(scene, sector, 'floor', 30., False) is None      # requested sector kept
