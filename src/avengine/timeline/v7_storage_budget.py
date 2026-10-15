@@ -6,8 +6,18 @@ spawned processes. The 48g /data policy is mandatory: 100 decimal GB free,
 counts hardlinks once and is conservative for XFS reflinks.
 """
 from __future__ import annotations
-import json,os,shutil,time
+import json,os,shutil,time,datetime
 from pathlib import Path
+
+def launch_minimum_free_bytes(policy=None, now=None):
+    """Read a time-limited task launch override; running writes are separate."""
+    policy=policy or {}
+    current=now or datetime.datetime.now(datetime.timezone.utc)
+    expiry=policy.get('expires_utc')
+    if expiry and current>=datetime.datetime.fromisoformat(expiry.replace('Z','+00:00')):
+        return int(policy.get('after_expiry_minimum_free_bytes',100_000_000_000))
+    return int(policy.get('minimum_free_bytes',100_000_000_000))
+
 
 ENV_KEY="AVENGINE_V7_STORAGE_BUDGET"
 class StorageBudgetExceeded(RuntimeError):

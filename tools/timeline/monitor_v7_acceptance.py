@@ -64,8 +64,14 @@ def main():
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
   records=processes([v['process'].pid for v in active.values()]);pss=sum(v['pss_bytes']for v in records);limit=120_000_000_000 if sg.hour<4 else 140_000_000_000
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
-  if pss>limit or free<100_000_000_000 or size>60_000_000_000 or sg.hour>=7 and sg.minute>=24:
-   pause='resource_or_delivery_deadline_stop';stop(records);pending=[]
+  from avengine.timeline.v7_storage_budget import launch_minimum_free_bytes
+  disk_floor=launch_minimum_free_bytes(m.get('disk_launch_policy'),now)
+  resource_pause=pss>limit or free<disk_floor or size>60_000_000_000
+  deadline=m.get('launch_deadline_utc')
+  deadline_pause=(now>=datetime.datetime.fromisoformat(deadline.replace('Z','+00:00')) if deadline else sg.hour>=7 and sg.minute>=24)
+  if resource_pause:pause='resource_pause_new_launches'
+  elif pause=='resource_pause_new_launches':pause=''
+  if deadline_pause:pause='delivery_deadline_pause_new_launches'
   for slot,v in list(active.items()):
    rc=v['process'].poll()
    if rc is None:continue
@@ -83,8 +89,9 @@ def main():
    with (o/'WATCH_LOG.md').open('a')as f:f.write(now.isoformat()+' '+json.dumps(snap,ensure_ascii=False)+'\n')
    write(o/'evidence/WATCH_CURRENT.json',snap);print('WATCH',json.dumps(snap),flush=True);last_watch=time.monotonic()
   peaks['pss_bytes']=max(peaks['pss_bytes'],pss);peaks['concurrent_parents']=max(peaks['concurrent_parents'],len(active))
+  if deadline_pause and not active:break
   smoke=(o/'SMOKE_PASSED.json').exists()
-  if not pause and mem>=30_000_000_000 and free>=100_000_000_000 and size<=60_000_000_000:
+  if not pause and mem>=30_000_000_000 and free>=disk_floor and size<=60_000_000_000:
    from avengine.timeline.v7_demand import read_demand_state,demand_snapshot
    state=read_demand_state(o/'inputs/demand_state.json');gaps=demand_snapshot(state,next_questions=70)['family_deficits']
    families={'binding':['QA-01','QA-02','QA-03','QA-08','QA-09','QA-20'],'human_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18','QA-19'],'animal_motion':['QA-06','QA-13','QA-15','QA-16','QA-17','QA-18'],'count':['QA-22','QA-23','STARSS-SPEAKERS'],'occlusion':['QA-10','QA-03','QA-12'],'taxonomy':['QA-21','V7-CLASS34','STARSS-CLASS13'],'content_binding':['QA-26','QA-27','QA-28','V7-CONTENT-BIND']}
