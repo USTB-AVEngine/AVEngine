@@ -51,6 +51,11 @@ class AttachedChild:
     def poll(self):return None if self._state()==self.start else 0
 
 
+def construction_retry_allowed(job,now,deadline):
+    """A candidate budget limits one search, never permanently rejects a legal room."""
+    return job.get('status')=='failed' and now<deadline
+
+
 def run(args):
     slots=enqueue(args.manifest,args.physical_gpus);m=load(args.manifest);root=Path(m['output_root']);state=root/'evidence/all_rooms_scheduler.json';children={};finished=set();retry_slots=set();deadline=datetime.datetime.fromisoformat(args.deadline_utc);last_progress=0
     if state.exists():
@@ -77,7 +82,7 @@ def run(args):
             job_path=root/'evidence/jobs'/f'{slot:03d}.json'
             if job_path.exists():
                 job=load(job_path);task=m['parents'][slot]
-                if job['status']=='failed'and task['row']['construction_attempt']+1<args.max_attempts:
+                if construction_retry_allowed(job,datetime.datetime.now(datetime.timezone.utc),deadline):
                     retry=copy.deepcopy(task);retry['slot']=len(m['parents']);retry['row']['construction_attempt']+=1;retry['row']['scene_id']=retry['row']['scene_id'].rsplit('_a',1)[0]+f'_a{retry["row"]["construction_attempt"]:02d}';retry=append_task(args.manifest,retry);slots.append(retry['slot']);m=load(args.manifest)
         now=datetime.datetime.now(datetime.timezone.utc);snapshot=resources(root)
         pending=[s for s in slots if s not in finished and s not in children and not(root/'evidence/jobs'/f'{s:03d}.json').exists()]
