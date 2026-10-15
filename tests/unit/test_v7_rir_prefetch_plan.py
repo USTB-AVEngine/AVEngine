@@ -49,3 +49,12 @@ def test_queued_cache_cannot_run_inside_an_independent_measuring_worker(tmp_path
         'separate_coordinator_required':True}))
     monkeypatch.setattr('avengine.timeline.v7_phase2_rir_prefetch.sys.argv',['v7_phase2_fresh_rir.py'])
     assert run_prefetch_plan(p,{}, {})is None
+
+
+def test_next_queue_revision_preserves_the_previous_plan(tmp_path):
+    from avengine.timeline.v7_phase2_rir_prefetch import _plan_path
+    (tmp_path/'prefetch_plan.json').write_text('old')
+    (tmp_path/'prefetch_plan_002.json').write_text('new')
+    (tmp_path/'prefetch_finished_unit.json').write_text('receipt')
+    assert _plan_path(tmp_path).name=='prefetch_plan_002.json'
+    assert (tmp_path/'prefetch_plan.json').read_text()=='old'

@@ -68,7 +68,10 @@ class FreshNativeContextRenderer:
                 values=list(pool.map(lambda p:self._render_one(p,evidence_role,reference_trial),positions))
         else:values=[self._render_one(p,evidence_role,reference_trial)for p in positions]
         waves,reports,cpu=zip(*values);self.process_evidence.extend(reports)
-        return SimpleNamespace(samples=np.stack(waves),wall_seconds=time.perf_counter()-started,
+        # Native SDK tails have measured, position-dependent lengths. Keep
+        # each complete raw buffer; scalar callers retain their prior shape.
+        samples=np.stack(waves) if len({wave.shape for wave in waves})==1 else list(waves)
+        return SimpleNamespace(samples=samples,wall_seconds=time.perf_counter()-started,
             process_cpu_seconds=sum(cpu),native_process_evidence=list(reports))
 
     def render_independent_reference(self,positions,trial):
