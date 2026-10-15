@@ -101,7 +101,7 @@ def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,exclude
     return deepcopy(ordered[:epoch_count])
 
 
-def choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,attempt):
+def choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,attempt,*,answer_domain=None):
     """Jointly choose a legal registered source and an underproduced real class."""
     from avengine.timeline.v7_production_inputs import asset_category
     from avengine.timeline.v7_taxonomy_demand import choose_unseen_class
@@ -115,7 +115,7 @@ def choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,atte
         if asset['asset_id']in excluded:continue
         try:
             if asset_category(asset,{},room['family'])not in room['categories']:continue
-            cls,proof=choose_unseen_class(asset,records,state.get('class34_positive_counts',{}))
+            cls,proof=choose_unseen_class(asset,records,state.get('class34_positive_counts',{}),answer_domain=answer_domain)
         except ValueError:continue
         surface={'floor':0,'table':1,'wall':2,'ceiling':3}.get(asset.get('attachment_surface'),4)
         score=(state.get('class34_positive_counts',{}).get(cls,0),state.get('source_entity_usage_counts',{}).get(asset['asset_id'],0),
@@ -231,7 +231,9 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         row['camera_yaw_knots']=_camera_knots(ctx['camera_yaw_deg'])
         row['scene_demand']['required_sector_boundary_margin_deg']=15.
     elif family in {'QA-21','V7-CLASS34'}:
-        emitter,cls,proof=choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,attempt)
+        from avengine.timeline.continuous_scene import QA21_CLASSES
+        domain=QA21_CLASSES if family=='QA-21'else None
+        emitter,cls,proof=choose_taxonomy_emitter(catalog,people,room,contract,records,state,seed,attempt,answer_domain=domain)
         aid=emitter['asset_id']
         if aid not in row['asset_ids']:row['asset_ids'].append(aid)
         row['silent_asset_ids']=[person['asset_id']for person in people if person['asset_id']not in {ids[1],aid}]

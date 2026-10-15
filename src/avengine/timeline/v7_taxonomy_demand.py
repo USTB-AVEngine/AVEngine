@@ -1,9 +1,10 @@
 """Choose an underproduced class supported by the real source and QA panel."""
-def choose_unseen_class(asset,records,observed_class34_counts,*,emission_mechanisms=None):
+def choose_unseen_class(asset,records,observed_class34_counts,*,emission_mechanisms=None,answer_domain=None):
     available={r['sound_class'] for r in records if r.get('sound_class')}
     classes=set(asset.get('allowed_classes',[]))&available
+    if answer_domain is not None:classes.intersection_update(answer_domain)
     if asset.get('kind')in {'human','performer'}:classes.discard('speech_playback')
-    if not classes:raise ValueError('no admitted recording matches the actual source capability')
+    if not classes:raise ValueError('no admitted recording matches the actual source capability and requested answer domain')
     if any(not isinstance(v,int) or isinstance(v,bool) or v<0 for v in observed_class34_counts.values()):
         raise ValueError('taxonomy feedback must count actual delivered positive answers')
     # Match the existing source intake and CLASS34 predicate; neither is changed.
@@ -24,4 +25,4 @@ def choose_unseen_class(asset,records,observed_class34_counts,*,emission_mechani
     return chosen,{'actual_asset_id':asset['asset_id'],'eligible_classes':sorted(classes),
         'source_mechanisms_by_class':mechanisms,'excluded_by_unchanged_class34_predicate':excluded,
         'observed_class34_positive_counts':dict(observed_class34_counts),
-        'selected_class':chosen,'selection':'least observed actual positive count after source capability, recording and original panel eligibility'}
+        'selected_class':chosen,'required_answer_domain':sorted(answer_domain)if answer_domain is not None else None,'selection':'least observed actual positive count after source capability, recording and original panel eligibility'}

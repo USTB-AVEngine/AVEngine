@@ -50,3 +50,21 @@ def test_registered_loudspeaker_can_emit_actual_recorded_speech_without_relabell
     cls,proof=choose_unseen_class({'asset_id':'real_device','kind':'object','entity_class':'loudspeaker',
         'allowed_classes':['speech_playback']},[{'sound_class':'speech_playback'}],{})
     assert cls=='speech_playback'and proof['source_mechanisms_by_class'][cls]=='loudspeaker_playback'
+
+
+def test_appearance_class_constructor_keeps_the_original_fixed_answer_domain():
+    from avengine.timeline.continuous_scene import QA21_CLASSES
+    asset={'asset_id':'registered_alarm','kind':'object','allowed_classes':['alarm_beep','laughter']}
+    records=[{'sound_class':'alarm_beep'},{'sound_class':'laughter'}]
+    assert choose_unseen_class(asset,records,{'alarm_beep':99})[0]=='laughter'
+    cls,proof=choose_unseen_class(asset,records,{'alarm_beep':99},answer_domain=QA21_CLASSES)
+    assert cls=='alarm_beep'
+    assert set(proof['eligible_classes'])<=set(QA21_CLASSES)
+    assert proof['required_answer_domain']==sorted(QA21_CLASSES)
+
+
+def test_laughter_only_person_cannot_stand_in_for_qa21_fixed_domain_emitter():
+    from avengine.timeline.continuous_scene import QA21_CLASSES
+    with pytest.raises(ValueError,match='requested answer domain'):
+        choose_unseen_class({'asset_id':'person','kind':'human','allowed_classes':['laughter']},
+                            [{'sound_class':'laughter'}],{},answer_domain=QA21_CLASSES)

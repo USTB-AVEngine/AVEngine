@@ -26,3 +26,18 @@ def test_internal_chinese_stem_is_not_model_visible():
     public=english_public_question(q)
     assert public['question_en']=='Did the man in the black shirt move?'
     assert 'question_zh' not in public
+
+
+def test_class34_form_truth_is_reissued_without_fabricating_a_top_level_truth():
+    from copy import deepcopy
+    from avengine.qa.v7_english_surface import reissue_item_english
+    from avengine.qa.unified_scoring import score_unified_item
+    original={'status':'pass','qa_id':'V7-CLASS34','authority_kind':'v7_admitted_recording_class_100ms_v1',
+              'forms':{'open':{'answer_type':'closed_set','closed_set_policy':'token_negation_v2',
+                              'classes':{'laughter':['laughter'],'alarm_beep':['alarm beep']},'truth':'laughter'}}}
+    saved=deepcopy(original);result=reissue_item_english(original,{})
+    assert original==saved and 'truth'not in result
+    assert result['forms']['open']['truth']=='laughter'
+    for answer,expected in [('laughter',1.),('__invalid_control__',0.)]:
+        assert score_unified_item(original,answer,form='open')['score']==expected
+        assert score_unified_item(result,answer,form='open')['score']==expected

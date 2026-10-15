@@ -83,6 +83,18 @@ def relabel_english(text,replacements):
 def reissue_item_english(item,replacements):
     """Re-render labels and accepted aliases; canonical values stay exact."""
     from copy import deepcopy
+    def canonical_values(node):
+        root=node.get('truth')
+        root_value=root.get('value')if isinstance(root,dict)else root
+        forms={name:{key:deepcopy(value)for key,value in form.items()if key=='truth'}
+               for name,form in node.get('forms',{}).items()}
+        for name,form in node.get('forms',{}).items():
+            gold=form.get('gold')
+            if isinstance(gold,dict):forms[name]['gold']={k:deepcopy(v)for k,v in gold.items()if k in {'value','correct_index'}}
+        return ('truth'in node,deepcopy(root_value),forms)
+    before=canonical_values(item)
+    if 'truth'not in item and not any('truth'in f for f in item.get('forms',{}).values()):
+        raise ValueError('English presentation needs the original canonical truth')
     result=deepcopy(item)
     def labels(node):
         if isinstance(node,dict):
@@ -99,7 +111,7 @@ def reissue_item_english(item,replacements):
     labels(result.get('model_input',{}));labels(result.get('forms',{}))
     if isinstance(result.get('truth'),dict) and 'label' in result['truth']:
         result['truth']['label']=relabel_english(result['truth']['label'],replacements)
-    if result['truth'].get('value')!=item['truth'].get('value'):raise ValueError('English presentation changed canonical truth')
+    if canonical_values(result)!=before:raise ValueError('English presentation changed canonical truth')
     return result
 
 

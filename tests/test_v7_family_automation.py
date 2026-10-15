@@ -32,7 +32,7 @@ def inputs():
     contract={'schema':'v7-production-inputs-v1','test_houses':[],'rooms':rooms,'animal_motion':{},'policy':{}}
     return rooms,houses,assets,{'sounds':sounds},contract
 
-@pytest.mark.parametrize('family',['QA-10','QA-28','QA-21','V7-CLASS34','QA-01','QA-03','QA-19'])
+@pytest.mark.parametrize('family',['QA-10','QA-28','V7-CLASS34','QA-01','QA-03','QA-19'])
 def test_any_legal_room_retains_required_roles_and_real_source_kinds(inputs,family):
     rooms,houses,assets,semantic,contract=content_inputs(inputs)if family=='QA-28'else inputs
     for room in rooms:
@@ -614,3 +614,26 @@ def content_inputs(inputs,add_people=True):
                 'transcript':'A third complete sentence for '+scenario,'synthesis_readback':{'duration_s':2.,'sample_count':32000},
                 'voice_reference':{'speaker_id':gender+'2','gender':gender}})
     return rooms,houses,assets,semantic,contract
+
+
+def test_qa21_constructs_a_real_fixed_domain_emitter_and_retains_the_three_people(inputs):
+    rooms,houses,assets,semantic,contract=inputs
+    assets.append({'asset_id':'registered_alarm','kind':'object','entity_class':'static_object',
+        'attachment_surface':'floor','object_type':'alarm_clock','color':'white','allowed_classes':['alarm_beep']})
+    for room in rooms:
+        room['categories'].append('floor_object')
+        row=construct_family_scene(room,houses[room['house']],{},assets,
+            [{'sound_class':'alarm_beep'},{'sound_class':'laughter'}],semantic,contract,{},
+            scene_id='new_scene',seed=43,family='QA-21')['row']
+        assert len(row['asset_ids'])==4 and 'registered_alarm'in row['asset_ids']
+        assert row['source_classes']['registered_alarm']==['alarm_beep']
+        assert row['category_focus_class']=='alarm_beep'
+        assert len(row['silent_asset_ids'])==2
+        assert row['scene_demand']['class34_construction']['required_answer_domain']
+
+
+def test_qa21_keeps_request_when_cell_lacks_a_real_fixed_domain_source(inputs):
+    rooms,houses,assets,semantic,contract=inputs
+    with pytest.raises(ValueError,match='no registered source'):
+        construct_family_scene(rooms[0],houses[rooms[0]['house']],{},assets,
+            [{'sound_class':'laughter'}],semantic,contract,{},scene_id='new_scene',seed=43,family='QA-21')
