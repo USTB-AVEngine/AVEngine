@@ -52,14 +52,16 @@ def combined_peak_budget(active_reserve,local_pss,requested_reserve,peer_pss):
 
 
 def peer_processes(m):
+ # Helpers may own independent SDK prefetch processes as well as their parent
+ # worker. Match only the three explicitly declared helper output roots, and
+ # include their descendants without ever taking ownership or signalling them.
+ outputs=[str(Path(output).resolve()) for output in m.get('peer_output_roots',[])]
+ if not outputs:return []
  roots=[]
- for output in m.get('peer_output_roots',[]):
-  output=Path(output)
-  for receipt in (output/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
-   d=load(receipt);pid=d.get('pid')
-   if d.get('status')!='running'or not pid:continue
-   live=proc(pid)
-   if live and live['state']!='Z'and str(output)in live['cmd']and 'run_v7_acceptance.py'in live['cmd']:roots.append(pid)
+ for path in Path('/proc').iterdir():
+  if not path.name.isdigit():continue
+  live=proc(int(path.name))
+  if live and live['state']!='Z'and any(output in live['cmd'] for output in outputs):roots.append(live['pid'])
  return processes(roots)
 
 

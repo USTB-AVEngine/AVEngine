@@ -61,3 +61,15 @@ def test_actual_cpu_counter_keeps_time_of_waited_native_children():
     before=proc(os.getpid())['cpu_s']
     subprocess.run([sys.executable,'-c','sum(range(5_000_000))'],check=True)
     assert proc(os.getpid())['cpu_s']-before>.02
+
+
+def test_independent_helper_sdk_prefetch_is_included_without_worker_receipt(tmp_path):
+    import subprocess,sys
+    from tools.timeline.monitor_v7_acceptance import peer_processes
+    root=tmp_path/'approved_helper';root.mkdir()
+    child=subprocess.Popen([sys.executable,'-c','import sys;sys.stdin.read()',str(root)],stdin=subprocess.PIPE)
+    try:
+        records=peer_processes({'peer_output_roots':[str(root)]})
+        assert any(r['pid']==child.pid for r in records)
+    finally:
+        child.stdin.close();child.wait(timeout=5)
