@@ -247,7 +247,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             if semantic:
                 from avengine.timeline.v7_visible_semantics import visible_dialogue_evidence
                 proof.update(visible_dialogue_evidence(scene,program,receipt,visual,semantic,start,str(vd/'native_visible_visual_evidence_phase2.json')))
-            q,g,audit=collect_native_pool(scene,start,wid,visual,media,proof,row['question_quota_base']+wi,14)
+            from avengine.timeline.v7_footstep_bouts import footstep_bout_question_inputs
+            question_scene,proof=footstep_bout_question_inputs(scene,proof)
+            q,g,audit=collect_native_pool(question_scene,start,wid,visual,media,proof,row['question_quota_base']+wi,14)
             parts=[validate_v6_items(q,g,audit,seed=str(scene['seed'])),validate_additional_items(q,g,proof),validate_content_items(q,g)]
             replay={'status':'pass','checked_forms':sum(p['checked_forms'] for p in parts),'passed_forms':sum(p['passed_forms'] for p in parts),'mismatches':[r for p in parts for r in p['mismatches']],'panels':parts}
             if replay['checked_forms']!=len(q):raise ValueError('independent replay did not cover every question form')

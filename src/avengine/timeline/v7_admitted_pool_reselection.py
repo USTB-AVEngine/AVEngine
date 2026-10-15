@@ -86,14 +86,14 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
             bad=score_unified_item(authority[item['question_id']],'__invalid_trial_control_answer__',form=q['form'])
             if bad.get('status')=='scored'and bad.get('score')==1.:raise ValueError('supplement invalid-answer control was accepted')
             english=english_public_question(q);validate_english_model_text({**english,'model_answer':answer})
-            folder=Path('parents')/scene/'windows'/wid
+            folder=Path(receipt.get('delivery_export_prefix',''))/'parents'/scene/'windows'/wid
             training={'question_id':q['question_id'],'logical_question_id':q['logical_question_id'],
                 'independent_parent_scene_id':scene,'window_id':wid,'window_start_s':float(start),
                 'split':row['split'],'house':row['house'],'qa_id':q['qa_id'],'protocol_panel':q['protocol_panel'],
                 'modality':q['modality'],'question_en':english['question_en'],'choices':english.get('choices',[]),
                 'video':str(folder/'video.mp4'),'audio_foa':str(folder/'audio_foa.wav'),'audio_mono':str(folder/'audio_mono.wav'),
                 'foa_format':'ACN_WYZX_SN3D_camera','model_answer':answer,'canonical_answer':g['canonical_answer'],
-                'private_evidence':str(Path('parents')/scene/'private'/f'{wid}_evidence.json'),
+                'private_evidence':str(Path(receipt.get('delivery_export_prefix',''))/'parents'/scene/'private'/f'{wid}_evidence.json'),
                 'target_verification':check,'E_S_input_source':'deployment_prediction_not_supplied',
                 'dataset_role':'acceptance_only','producer_admission_status':pointer['result']['status'],
                 'post_dedup_supplement':{'revision':REVISION,'original_candidate_pool':str(pool),
