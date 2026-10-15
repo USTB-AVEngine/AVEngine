@@ -38,7 +38,7 @@ class NativePhase2Video(NativeVisibleVideo):
         self._pose_resources_in_context.add(entry['motion_episode']['pose_glbs'][index])
         record=entry['motion_episode'];frame=record['source_frames'][index]
         row['emitter_local_m_frame']=list(frame['mouth_m'])
-        if record.get('motion_mode') in {'walk_animation','slide_no_animation','static_after_failed_route'}:
+        if record.get('motion_mode') in {'walk_animation','slide_no_animation'}:
             animated=record['motion_mode']=='walk_animation'
             row.update(motion_mode=record['motion_mode'],motion_marker=record['motion_marker'],
                 joint_animation_present=animated,intentional_slide=record['motion_mode']=='slide_no_animation',
