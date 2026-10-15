@@ -5,6 +5,18 @@ import math
 VISIBILITY_FAMILIES=('QA-07','QA-09','QA-11','QA-22')
 
 
+def occlusion_construction_distances(camera_minimum_m=1.5,human_separation_m=1.0):
+    """Derive a compact proposal from retained standoff and body spacing.
+
+    The old 4.2m/5.3m radii were search preferences, not QA requirements.
+    Full native masks and depth still decide whether occlusion happened.
+    """
+    fraction=.55
+    minimum=math.ceil(max(camera_minimum_m/fraction,human_separation_m/(1-fraction))*10)/10
+    return {'minimum_target_radius_m':minimum,'preferred_target_radius_m':max(3.5,minimum),
+        'foreground_depth_fraction':fraction}
+
+
 def _replace_id(value,old,new):
     if isinstance(value,dict):return {(new if k==old else k):_replace_id(v,old,new)for k,v in value.items()}
     if isinstance(value,list):return [_replace_id(v,old,new)for v in value]
@@ -70,6 +82,8 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
         'initial_outside_minimum_abs_deg':60.,'final_inside_maximum_abs_deg':28.,
         'minimum_angular_span_deg':20.,'maximum_crossing_abs_deg':32.,
         'minimum_crossing_radius_m':4.2,'required_entry_side':(-1 if seed%2 else 1)}
+    compact=occlusion_construction_distances()
+    if not enter:view['minimum_crossing_radius_m']=compact['minimum_target_radius_m']
     intervals=[[3.,6.5]]if enter else[[3.,4.5],[6.,7.5]]
     row['motion_requests']={target:{'action':'walk','speed_m_s':1.,'intervals_s':intervals,
         'minimum_listener_horizontal_distance_m':1.5,'camera_path_condition':view}}
@@ -86,12 +100,12 @@ def construct_visibility_scene(room,house,state,catalog,records,semantic,contrac
             'required_state':'fully_occluded'if family=='QA-09'else'visible_occluded',
             'query_times_s':[5.+i/15 for i in range(9)],'later_clear_time_s':8.,
             'minimum_stable_seconds':.5,'minimum_occluded_fraction':1. if family=='QA-09'else .25,
-            'foreground_depth_fraction':.42,'preferred_lateral_m':0. if family=='QA-09'else .20,
+            'foreground_depth_fraction':compact['foreground_depth_fraction'],'preferred_lateral_m':0. if family=='QA-09'else .20,
             'native_mask_and_unique_registered_identity_required':True}]
         row['native_facing_offsets_deg']={occluder:0.}
         row['native_placement_preferences_m'].pop(occluder,None)
-        row['native_attachment_distance_targets_m']={target:5.3}
-        row['native_distance_bands_m']={target:[4.2,7.]}
+        row['native_attachment_distance_targets_m']={target:compact['preferred_target_radius_m']}
+        row['native_distance_bands_m']={target:[compact['minimum_target_radius_m'],max(7.,compact['preferred_target_radius_m'])]}
         row['explicit_occlusion_motion']={'target_asset_id':target,'occluder_asset_id':occluder,
             'pause_while_blocked_s':[4.5,6.],'clear_after_s':8.,'camera_moves':False,
             'every_entity_retained':True,'native_full_stream_is_the_truth':True}
