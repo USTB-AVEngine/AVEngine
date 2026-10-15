@@ -62,6 +62,11 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     row=plan.metadata['row']
     assert row['phase2_whole_source_recordings']['animal']==pytest.approx([1.3,21.3])
     assert row['joint_solver_only']
+    from avengine.timeline.v7_full_question_delivery import current_selection_snapshot
+    snapshot=current_selection_snapshot(row['scene_demand'],next_questions=70)
+    assert snapshot['observed_logical_questions']==0
+    assert snapshot['observed_family_counts']=={}
+    assert abs(sum(snapshot['target_shares'].values())-1.)<1e-8
     assert row['automatic_construction']['solver_entry']=='avengine.construction.joint.solve'
     assert row['motion_requests']['animal']['maximum_native_route_attempts']==1
     assert len(row['motion_during_condition_plan']['plans'])==4

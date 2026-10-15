@@ -152,7 +152,9 @@ def row_from_plan(plan, data, base_row, catalog, records, contract):
     request['intervals_s']=[[0.,30.]]
     for key in ('straight_motion_windows_s','distance_trend','distance_trend_intervals_s'):
         request.pop(key,None)
-    row['scene_demand']={'focus':'motion_quartet_template','requested_conditions':['motion_quartet'],
+    from avengine.timeline.v7_demand import demand_snapshot
+    feedback=deepcopy(row.get('scene_demand')or demand_snapshot({},next_questions=70))
+    row['scene_demand']={**feedback,'focus':'motion_quartet_template','requested_conditions':['motion_quartet'],
         'condition_families':{'motion_quartet':list(FAMILIES)},
         'required_actual_candidate_families':list(FAMILIES),'required_asset_ids':[mover,companion],
         'constructor':REVISION,'static_animal_call_requested':True}
@@ -411,6 +413,8 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
           'room_id':room.get('room_label',room.get('room_id')),'scene_id':scene_id,'scene_seed':int(seed),
           'question_quota_base':10,'questions_per_window':14,'window_count':5,'motion_source_type':kind}
     if house.get('split')!='train':raise ValueError('animal production accepts only the authorized training houses')
+    from avengine.timeline.v7_demand import demand_snapshot
+    base['scene_demand']=demand_snapshot(state,next_questions=base['window_count']*base['questions_per_window'])
     catalog=planning_catalog(base,catalog,contract)
     preferred=runtime.get('motion_animal_preferred_asset_ids')
     if preferred is not None:
