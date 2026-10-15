@@ -195,7 +195,7 @@ class PreparedStaticScene:
 
 def prepare_native(context, request, plan, *, row_factory, house, catalog, records,
                           semantic, runtime, output_dir, family_check=None, roles=None,
-                          minimum_visible_pixels=None, appearance_ids=(), static_only=False):
+                          minimum_visible_pixels=None, appearance_ids=(), static_only=False, acoustic_preflight=True):
     """A solve(..., prepare_and_verify=...) oracle: prepare one exact pin, never search.
 
     row_factory(plan) creates only family-specific row/asset/sound fields. This
@@ -246,10 +246,26 @@ def prepare_native(context, request, plan, *, row_factory, house, catalog, recor
         common = native_plan_checks(video,scene,plan,roles=roles,required_full_sweep_ids=sweep_ids,
                     minimum_visible_pixels=minimum_visible_pixels,appearance_ids=appearance_ids,
                     standing_checks=standing)
+        # Coarse-map fallback is conditional on a genuine full native sweep.
+        # Resolve only this pending dimension; other common failures still reject.
+        pending_names={"native:"+str(key)+":full_pose_physics"for key in sweep_ids}
+        recoverable=all(c.status=="pass"or c.name in pending_names for c in common.checks)
+        if sweep_ids and recoverable:
+            from .physics import native_full_mesh_sweep
+            full=native_full_mesh_sweep(video,video.actors)
+            replacements={c.name:c for c in full}
+            names={c.name for c in common.checks}
+            common=Certificate(tuple(replacements.get(c.name,c)for c in common.checks)+
+                tuple(c for c in full if c.name not in names),"native_prepared_plan_readback")
         extra = tuple(family_check(video,scene,video.actors)) if family_check is not None and common.passed else ()
         if common.passed and request.options.get("require_native_preflight") and not extra:
             extra = (CheckResult("native:family_obligations","unknown","family_native_checks_not_supplied"),)
-        certificate = Certificate(common.checks+extra,"native_static_preflight")
+        acoustic=()
+        if common.passed and all(c.status=="pass"for c in extra) and acoustic_preflight:
+            from .acoustics import native_acoustic_checks
+            acoustic=native_acoustic_checks(video,scene,runtime,directory)
+            row["joint_acoustic_preflight"]=deepcopy(scene["joint_acoustic_preflight"])
+        certificate = Certificate(common.checks+extra+acoustic,"native_prepared_preflight")
         write_json(directory/"native_certificate.json",asdict(certificate))
         write_json(directory/"strict_row.json",row)
         if not certificate.passed:
