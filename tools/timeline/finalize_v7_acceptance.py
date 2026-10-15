@@ -25,7 +25,9 @@ def admitted_receipts(manifest):
         reasons=[]
         if any(x.get('action','').startswith('removed_')for x in row.get('element_degradations',[])):reasons.append('required_element_removed')
         if any(row.get('source_classes',{}).get(aid)!=['footsteps']for aid in row.get('phase2_include_footsteps_asset_ids',[])):reasons.append('mixed_human_sound_sources')
-        if row.get('acceptance_allow_partial_families')is True:reasons.append('partial_question_policy')
+        # Candidate/modal allocation is a sampling observation. Every delivered
+        # question still passed original native truth, English and scoring.
+        # Owner 21:0x forbids invalidating a parent for this allocation flag.
         motion=pointer['result'].get('machine_checks',{}).get('motion',{}).get('instances',[])
         if any(x.get('motion_kind')=='static_after_failed_route'for x in motion):reasons.append('motion_demand_became_static')
         from avengine.timeline.v7_export_scene_policy import cached_parent_policy

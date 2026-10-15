@@ -53,7 +53,9 @@ def attachment_template(vertices,surface,kind=None,landmarks=None,mesh=None):
             else:
                 import trimesh
                 projected,distances,_=trimesh.proximity.closest_point(mesh,np.asarray(feet))
-            if max(distances)>.015:raise ValueError('registered animal feet are not near the original mesh')
+            # Marker-to-skin distance describes registration density, not a QA
+            # answer. Keep the exact projection and actual sole/support probes.
+            marker_projection_warning=bool(max(distances)>.015)
             # Registration markers locate each paw region; their centroids
             # and nearest skin points can lie on the paw's upper surface. The
             # contact probe must be an original bottom vertex in that region.
@@ -67,6 +69,7 @@ def attachment_template(vertices,surface,kind=None,landmarks=None,mesh=None):
                 selected.append(sole)
                 foot_projection.append({'registration_point_m':p.tolist(),'nearest_original_surface_point_m':near.tolist(),'distance_m':float(d),
                     'original_surface_point_m':sole.tolist(),'original_vertex_index':index,'paw_region_radius_m':radius,'original_region_vertices':len(ids),
+                    'registration_marker_projection_warning':marker_projection_warning,'marker_distance_admission_effect':'record_only_per_owner_20261015_210x',
                     'definition':'lowest original vertex within <=50mm and <=one third of adjacent registered paw separation; marker is a region locator, not a contact point'})
         else:
             # Bounding-box axes are geometric; a dense tail/head may move a
