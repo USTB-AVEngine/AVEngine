@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections import Counter,defaultdict
 import json
 
-REVISION='independent-parent-rounded-modality-30-25-45-family-floor-20261015-v2'
+REVISION='independent-parent-rounded-modality-capacity-observation-20261015-v3'
 WEIGHTS={'vision':6,'audio':5,'audiovisual':9}
 
 
@@ -30,7 +30,7 @@ def rounded_modality_quotas(capacity,minimums=None):
     raise ValueError('modality budget cannot preserve the available family floor in a rounded 30/25/45 batch')
 
 
-def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
+def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minimums=None):
     """Keep earliest crop, then rounded 30/25/45 with family and parent coverage.
 
     An entry contains the public row plus its private physical independence key.
@@ -102,3 +102,42 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
         'answer_branch_distribution':summarize([e['row']for e in selected]),
         'source_candidates_and_answers_changed':False}
     return [e['row']for e in selected],report
+
+
+def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
+    """Prefer 30/25/45, but never reject native truth for a sampling shortage.
+
+    A capacity-limited partial batch preserves every validated independent row
+    and reports actual proportions to the next construction round. Unknown
+    modalities, contradictory answers and all upstream truth gates stay strict.
+    """
+    try:
+        return _select_independent_rows_balanced(entries,minimum_family=minimum_family,family_minimums=family_minimums)
+    except ValueError as error:
+        if not any(token in str(error)for token in ('modality budget cannot preserve','validated independent pool cannot fill')):raise
+        reason=str(error)
+    ordered=sorted(entries,key=lambda e:(float(e['row']['window_start_s']),e['row']['window_id'],e['row']['question_id']))
+    unique={}
+    for entry in ordered:
+        key=json.dumps(entry['key'],ensure_ascii=False,sort_keys=True)
+        previous=unique.get(key)
+        if previous is not None and previous['row']['canonical_answer']!=entry['row']['canonical_answer']:
+            raise ValueError('same physical question has inconsistent canonical answers')
+        unique.setdefault(key,entry)
+    rows=[e['row']for e in unique.values()]
+    if set(r['modality']for r in rows)-set(WEIGHTS):raise ValueError('unknown model modality')
+    rows.sort(key=lambda r:(r['independent_parent_scene_id'],float(r['window_start_s']),r['question_id']))
+    counts=Counter(r['modality']for r in rows);families=Counter(r['qa_id']for r in rows)
+    from avengine.timeline.v7_answer_branch_demand import summarize
+    report={'revision':REVISION,'status':'capacity_limited_partial','quality_observations':[reason],
+        'sampling_admission_effect':'record_only_per_owner_20261015_210x','input_rows':len(entries),
+        'independent_candidate_rows':len(rows),'physical_duplicates_dropped':len(entries)-len(rows),
+        'answer_branch_candidates_not_selected':0,'capacity_by_modality':dict(counts),'selected_rows':len(rows),
+        'selected_by_modality':dict(counts),'selected_family_counts':dict(families),
+        'available_family_floors':{f:min(n,max(minimum_family,(family_minimums or {}).get(f,minimum_family)))for f,n in families.items()},
+        'represented_parents':len({r['independent_parent_scene_id']for r in rows}),
+        'target_proportions':{m:w/20 for m,w in WEIGHTS.items()},
+        'actual_proportions':{m:counts[m]/len(rows)if rows else 0 for m in WEIGHTS},
+        'independent_candidates_not_selected':0,'answer_branch_distribution':summarize(rows),
+        'source_candidates_and_answers_changed':False}
+    return rows,report

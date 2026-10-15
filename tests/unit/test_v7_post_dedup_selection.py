@@ -78,3 +78,20 @@ def test_true_visual_shortfall_still_requires_more_scene_conditions():
     from avengine.timeline.v7_post_dedup_selection import rounded_modality_quotas
     with pytest.raises(ValueError,match='available family floor'):
         rounded_modality_quotas({'vision':1,'audio':100,'audiovisual':100},{'vision':1,'audio':3,'audiovisual':3})
+
+
+def test_visual_capacity_shortage_is_reported_without_rejecting_valid_answers():
+    entries=candidates();entries=[e for e in entries if e['row']['modality']!='vision']
+    rows,report=select_independent_rows(entries)
+    assert len(rows)==90
+    assert report['status']=='capacity_limited_partial'
+    assert report['actual_proportions']['vision']==0
+    assert report['quality_observations']
+    assert report['source_candidates_and_answers_changed']is False
+
+
+def test_contradictory_answers_are_still_rejected_in_partial_batches():
+    from copy import deepcopy
+    entries=candidates();bad=deepcopy(entries[0]);bad['row']['canonical_answer']='wrong'
+    with pytest.raises(ValueError,match='inconsistent canonical'):
+        select_independent_rows(entries+[bad])
