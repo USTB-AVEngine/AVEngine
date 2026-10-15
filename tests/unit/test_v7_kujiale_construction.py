@@ -64,3 +64,31 @@ def test_low_registered_body_constructs_a_fixed_lower_native_camera(tmp_path):
     assert height==1.0 and all(p[1]==1.03 for p in air_camera_proposals(box(0,0,2,2),.03,.5,height))
     assert requested_camera_eye_height({},inputs)==1.5
     assert requested_camera_eye_height({'required_sound_classes':['ceiling_sound']},inputs)==1.5
+
+
+def test_native_retry_reaches_finer_grids_instead_of_repeating_the_first_coarse_solution():
+    from avengine.timeline.v7_kujiale_construction import construction_search_steps
+    assert construction_search_steps(0)[0]==.5
+    assert construction_search_steps(3)[0]==.35
+    assert construction_search_steps(6)[0]==.25
+    assert construction_search_steps(12)==(.1,)
+    assert construction_search_steps(120)==(.1,)
+
+
+def test_camera_batches_eventually_visit_every_legal_candidate_without_permanent_subsampling():
+    from avengine.timeline.v7_kujiale_construction import construction_camera_batch
+    views=list(range(700))
+    visited=set()
+    for attempt in range(0,18,3):visited.update(construction_camera_batch(views,attempt))
+    assert visited==set(views)
+    assert construction_camera_batch(views,0)!=construction_camera_batch(views,3)
+    assert construction_camera_batch([],99)==[]
+
+
+def test_retry_budget_never_silently_drops_a_room_but_deadline_pauses_new_jobs():
+    import datetime
+    from tools.timeline.run_v7_kujiale_rooms import construction_retry_allowed
+    now=datetime.datetime.now(datetime.timezone.utc);deadline=now+datetime.timedelta(minutes=1)
+    assert construction_retry_allowed({'status':'failed','construction_attempt':120},now,deadline)
+    assert not construction_retry_allowed({'status':'passed'},now,deadline)
+    assert not construction_retry_allowed({'status':'failed'},deadline,deadline)
