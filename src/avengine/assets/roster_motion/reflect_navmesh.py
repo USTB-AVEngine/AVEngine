@@ -1,5 +1,6 @@
 """Reflection proposals on the original native NavMesh; no answer predicates."""
 import math
+from collections import Counter
 from types import SimpleNamespace
 import numpy as np
 from shapely.geometry import Point, shape, LineString, box
@@ -79,6 +80,7 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     is_free=native_free_predicate(video.pathfinder,polygon,floor,scene['listener_m'],obstacles=obstacles)
     from avengine.timeline.v7_spatial_layout import spacing_rejection
     listener=np.asarray(scene['listener_m'],float)[[0,2]]
+    rejected=Counter()
     slot=route['emission_slot'];i0=round(slot['start_s']*30);i1=round(slot['end_s']*30)
     centre=np.mean(xz,axis=0);candidates=[];tested=0
     rotations=[0.,math.pi/16,-math.pi/16,math.pi/8,-math.pi/8,math.pi/4,-math.pi/4,math.pi/2,math.pi,-math.pi/2]
@@ -89,9 +91,10 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
             tested+=1;rotation=np.array([[math.cos(angle),-math.sin(angle)],[math.sin(angle),math.cos(angle)]])
             points=(xz-centre)@rotation.T+centre+shift
             line=LineString(points)
-            if not polygon.covers(line) or any(line.intersects(o)for o in obstacles):continue
+            if not polygon.covers(line):rejected['native_scene_floor_polygon']+=1;continue
+            if any(line.intersects(o)for o in obstacles):rejected['qualified_body_expanded_bbox']+=1;continue
             radii=np.linalg.norm(points-listener,axis=1)
-            if float(radii.min())<1.5:continue
+            if float(radii.min())<1.5:rejected['camera_distance_1_5m']+=1;continue
             # Rotating/translating preserves the complete distance-driven gait
             # clock, but every requested radial condition must be rechecked.
             if slot['qa15']:
@@ -99,10 +102,10 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
                 cosine=abs(float(np.dot(delta,towards)))/(np.linalg.norm(delta)*np.linalg.norm(towards)+1e-12)
                 sign=-1 if slot['branch']=='nearer'else 1
                 values=radii[i0:i1+1]
-                if cosine<math.cos(math.radians(30)) or sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):continue
+                if cosine<math.cos(math.radians(30)) or sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):rejected['radial_slot']+=1;continue
             positions=np.column_stack((points[:,0],np.full(len(points),floor),points[:,1]))
-            if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):continue
-            if not all(is_free(p) for p in points):continue
+            if spacing_rejection(entry['declaration'],positions,[a for a in video.actors if a is not entry]):rejected['body_centre_spacing']+=1;continue
+            if not all(is_free(p) for p in points):rejected['native_snap_clearance_or_camera']+=1;continue
             base=math.atan2(local_forward[2],local_forward[0])
             yaws=np.unwrap(base-np.asarray(route['travel_yaws_rad'],float)-angle)
             selected=np.linspace(0,len(positions)-1,17,dtype=int)
@@ -110,6 +113,15 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
             candidates.append((clearance,positions,yaws,angle,shift))
             if len(candidates)>=limit:break
         if len(candidates)>=limit:break
+    diagnostics={'proposals_tested':tested,'native_admissible_route_pool':len(candidates),'rejections':dict(rejected),
+        'native_scene_floor_bounds_xz_m':list(polygon.bounds),'planned_route_bounds_xz_m':list(LineString(xz).bounds),
+        'qualified_obstacle_count':len(obstacles),'native_root_y_m':floor,'camera_m':scene['listener_m'],
+        'original_gates_unchanged':True}
+    entry['reflection_native_prefilter']=diagnostics
+    if request.get('_reflection_diagnostics_path'):
+        from .diagnostics import write_route_summary
+        from pathlib import Path
+        write_route_summary(Path(request['_reflection_diagnostics_path']),diagnostics)
     candidates.sort(key=lambda c:-c[0])
     for index,(clearance,positions,yaws,angle,shift)in enumerate(candidates):
         yield SimpleNamespace(positions=positions,yaws=yaws,receipt={

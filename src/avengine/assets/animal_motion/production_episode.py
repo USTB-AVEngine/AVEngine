@@ -282,6 +282,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         vertices = np.asarray(a['original_mesh'].vertices) @ a['applied_root_input'][:3, :3].T + a['applied_root_input'][:3, 3]
         bodies.append(box(vertices[:, 0].min() - .03, vertices[:, 2].min() - .03, vertices[:, 0].max() + .03, vertices[:, 2].max() + .03))
     if curved_motion:
+        if request.get('motion_quartet_route',{}).get('reflect_walk'):request['_reflection_diagnostics_path']=str(directory/'reflection_native_prefilter.json')
         curve_stream=curved_route_proposals(video,entry,scene,distance,local_forward,request)
         routes=(((0.,route.positions[0].copy(),float(route.yaws[0]),np.zeros(3),speed),requested_mode,route)for route in curve_stream)
     else:
