@@ -112,3 +112,42 @@ def separated_layout(layout, count, *, seed=None):
     if len(selected)<count:
         raise ValueError('room cannot supply requested count with >=1m spacing and dispersed centres; try another room region')
     return selected
+
+
+def person_camera_rejection(declaration,roots,listener,minimum=1.5):
+    if not is_person(declaration):return None
+    values=np.asarray(roots,float).reshape(-1,3);origin=np.asarray(listener,float)
+    distance=np.linalg.norm((values-origin)[:,[0,2]],axis=1);index=int(np.argmin(distance))
+    if distance[index]<float(minimum):
+        return {'reason':'person_too_close_to_camera','minimum_horizontal_distance_m':float(distance[index]),
+                'required_distance_m':float(minimum),'sample_index':index}
+    return None
+
+
+def native_person_camera_clearance(visual,assets,minimum=1.2):
+    people={a['asset_id']:a for a in assets if is_person(a)}
+    if not people:return {'status':'pass','people':{},'minimum_required_m':minimum}
+    frames=visual.get('frames',[]);cameras=visual.get('camera_frame_readbacks',[])
+    expected=int(visual.get('frame_count',len(frames)))
+    if not frames or len(frames)!=expected or len(cameras)!=expected:
+        return {'status':'fail','reason':'missing complete native person/camera frames','minimum_required_m':minimum}
+    camera_by_frame={c['frame_index']:c for c in cameras};measured={aid:float('inf')for aid in people};errors=[]
+    for frame in frames:
+        camera=camera_by_frame.get(frame['frame_index'])
+        if camera is None:return {'status':'fail','reason':'missing matching native camera frame'}
+        origin=np.asarray(camera['position_m'],float);seen=set()
+        for actor in frame['actors']:
+            aid=actor['asset_id']
+            if aid not in people:continue
+            seen.add(aid);root=np.asarray(actor['body_to_world_m'],float)[:3,3]
+            if not np.isfinite(root).all() or not np.isfinite(origin).all():return {'status':'fail','reason':'nonfinite native person/camera position'}
+            distance=float(np.linalg.norm((root-origin)[[0,2]]))
+            if actor.get('native_emitter_present') and actor.get('emitter_position_m') is not None:
+                distance=min(distance,float(np.linalg.norm((np.asarray(actor['emitter_position_m'])-origin)[[0,2]])))
+            measured[aid]=min(measured[aid],distance)
+        if seen!=set(people):return {'status':'fail','reason':'a required person lacks native frame readback'}
+    for aid,distance in measured.items():
+        if distance<minimum:errors.append({'asset_id':aid,'minimum_horizontal_distance_m':distance})
+    return {'status':'fail' if errors else 'pass','people':measured,'errors':errors,
+            'minimum_required_m':minimum,'native_frame_count':expected,
+            'measurement':'every native frame; horizontal body-root and present native mouth distance from the fixed camera'}
