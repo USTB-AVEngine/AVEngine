@@ -137,7 +137,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         return {**delivered,'resumed':True}
     def render(attempt):
         from avengine.timeline.v7_native_resource_slots import acquire_native_resource
-        template_visual_lease=acquire_native_resource('template_visual') if row.get('motion_quartet_template_revision') else None
+        kind=row.get('motion_source_type','human_speech')
+        template_memory=4_000_000_000 if kind=='animal_slide' else 6_000_000_000 if kind in {'dog_walk','cat_walk'} else 12_000_000_000
+        template_visual_lease=acquire_native_resource('template_visual',expected_incremental_bytes=template_memory) if row.get('motion_quartet_template_revision') else None
         from avengine.timeline.v7_material_quality_fallback import recover_complete_native_attempt,qualify_missing_materials
         recovered=recover_complete_native_attempt(root,attempt,base,assets,native_checks)
         if recovered is not None:return recovered

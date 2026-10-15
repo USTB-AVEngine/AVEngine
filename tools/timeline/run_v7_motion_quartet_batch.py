@@ -55,7 +55,7 @@ def main():
             'parent':{'slots':6,'minimum_available_bytes':30_000_000_000},
             'motion_capture':{'slots':4,'minimum_available_bytes':30_000_000_000,'maximum_system_pss_bytes':190_000_000_000}})
     policy=load(policy_path)
-    policy['template_visual']={'slots':2,'minimum_available_bytes':30_000_000_000,
+    policy['template_visual']={'slots':a.workers,'minimum_available_bytes':30_000_000_000,
         'expected_incremental_bytes':12_000_000_000,'maximum_task_pss_bytes':40_000_000_000,'maximum_system_pss_bytes':190_000_000_000,
         'related_task_budget_roots':[str(root.resolve()) for root in a.related_task_resource_root]}
     save(policy_path,policy)
