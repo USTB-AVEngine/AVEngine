@@ -167,6 +167,10 @@ def find_template_route(room, pathfinder, seed, attempt=0, *, speed_range=(.8,1.
                 positions=np.column_stack((xz[:,0],np.full(901,floor),xz[:,1]))
                 if any(_snap(pathfinder,positions[i])is None for i in [0,30,75,120,180,240,450,900]):continue
                 if any(_snap(pathfinder,p)is None for p in positions):continue
+                if hasattr(pathfinder,'distance_to_closest_obstacle'):
+                    selected=np.linspace(0,len(positions)-1,17,dtype=int)
+                    if any(pathfinder.distance_to_closest_obstacle(pathfinder.snap_point(positions[i]),1.)<.35 for i in selected):continue
+                    if any(pathfinder.distance_to_closest_obstacle(pathfinder.snap_point(p),1.)<.35 for p in positions):continue
                 radial=np.linalg.norm(positions+[0,1.5,0]-listener,axis=1)
                 lo,hi=30,102
                 if not matches_radial_window(radial[lo:hi+1],-1,.5):continue
