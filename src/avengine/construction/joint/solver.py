@@ -102,7 +102,8 @@ def solve(context, request, plugin, *, budget_s=120., max_candidates=512, prepar
             return SolveResult("certified", plan, last, diagnostics={"candidates": count,
                 "elapsed_s": time.monotonic()-started, "family": request.family, "branch": request.branch,
                 "native_render_verified": False, "failure_counts": dict(failures),
-                "native_preparations": native_preparations, "native_preparation_s": native_seconds},
+                "native_preparations": native_preparations, "native_preparation_s": native_seconds,
+                "geometry_and_family_check_s": time.monotonic()-started-native_seconds},
                 prepared=prepared)
     else:
         status = "budget_exhausted"
@@ -111,4 +112,5 @@ def solve(context, request, plugin, *, budget_s=120., max_candidates=512, prepar
         diagnostics={"candidates": count, "elapsed_s": time.monotonic()-started, "family": request.family,
                      "branch": request.branch, "failure_counts": dict(failures),
                      "continuous_room_infeasibility_proved": False,
-                     "native_preparations": native_preparations, "native_preparation_s": native_seconds})
+                     "native_preparations": native_preparations, "native_preparation_s": native_seconds,
+                "geometry_and_family_check_s": time.monotonic()-started-native_seconds})

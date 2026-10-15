@@ -563,3 +563,83 @@ def test_floor_height_is_solved_from_real_support_before_native_not_silently_lif
     np.testing.assert_array_equal(actor.positions_m[:,1],np.zeros(901))
     np.testing.assert_array_equal(variants[0].positions_m[:,[0,2]],actor.positions_m[:,[0,2]])
     assert variants[0].metadata["floor_contact_refinement"]["native_contact_checks_required"]
+
+
+def test_original_acoustic_gate_receives_actual_primary_and_attached_emitters(tmp_path):
+    observed={"emitter_position_m":[1,1.5,2],"native_emitter_present":True,
+              "attached_emitter_readbacks":[{"endpoint_id":"a_foot_L","position_m":[1,.03,2]}]}
+    entry={"endpoint_id":"a","declaration":{"silent_decor":False}}
+    video=SimpleNamespace(actors=[entry],motion_house={"house":"test"},_apply_entry=lambda e,s:observed)
+    scene={"events":[{"endpoint_id":"a"},{"endpoint_id":"a_foot_L"}],"listener_m":[0,1.25,0],"camera_forward":[0,0,-1]}
+    seen=[];closed=[];runtime={"fresh_rir_workers":5}
+    class Gate:
+        def __init__(self,s,h,inputs,cache,receipt):
+            assert inputs is runtime
+        def check(self,ep,p):
+            seen.append((ep,p.tolist()))
+            return {"status":"blocked"if ep.endswith("L")else"pass","unchanged_gate_deg":5.}
+        def close(self):closed.append(True)
+    result=native_acoustic_checks(video,scene,runtime,tmp_path,gate_factory=Gate)
+    assert seen==[("a",[1.,1.5,2.]),("a_foot_L",[1.,.03,2.])]
+    assert closed==[True] and any(c.status=="fail"for c in result)
+    assert runtime=={"fresh_rir_workers":5}
+    assert scene["joint_acoustic_preflight"]["status"]=="fail"
+
+
+def test_missing_actual_active_emitter_is_unknown_not_silently_admitted(tmp_path):
+    entry={"endpoint_id":"a","declaration":{"silent_decor":True}}
+    video=SimpleNamespace(actors=[entry],motion_house={},_apply_entry=lambda e,s:{"native_emitter_present":False})
+    scene={"events":[{"endpoint_id":"unbound"}],"listener_m":[0,1,0],"camera_forward":[0,0,-1]}
+    class Gate:
+        def __init__(self,*a):pass
+        def check(self,*a):raise AssertionError("no invented coordinate")
+        def close(self):pass
+    result=native_acoustic_checks(video,scene,{},tmp_path,gate_factory=Gate)
+    assert result[0].status=="unknown"
+
+
+def test_shared_full_sweep_does_not_skip_a_collision_between_stride_frames(monkeypatch):
+    import trimesh
+    import avengine.assets.roster_motion.episode as episode
+    import avengine.capture.v7_visible_mesh as visible_mesh
+    mesh=trimesh.creation.box((.2,.2,.2));calls=[]
+    class Verifier:
+        def __init__(self,*a):self.minimum_clearance_m=0.;self.record_only=True;self.stride=10
+        def check_world(self,world,faces):
+            calls.append(True)
+            if world[:,0].mean()>.5:raise ValueError("unit collision between stride samples")
+            return .02
+        def floor_certificate(self):return {"status":"pass","method":"unit fixture"}
+    monkeypatch.setattr(episode,"TriangleClearance",Verifier)
+    monkeypatch.setattr(visible_mesh,"indexed_static_mesh",lambda p:mesh)
+    matrices=np.repeat(np.eye(4)[None],901,axis=0);matrices[899,0,3]=1.
+    entry={"declaration":{"asset_id":"a"},"motion_episode":{"physical_ground_y_m":0.,
+        "pose_glbs":["unit"]*901,"native_30Hz_readbacks":[{"body_to_world_m":m.tolist()}for m in matrices]}}
+    video=SimpleNamespace(actors=[entry],sim=None,motion_inputs={},receipt={},motion_house={})
+    result=native_full_mesh_sweep(video)
+    assert result[0].status=="fail" and result[0].evidence["failed_frame_30hz"]==899
+    assert len(calls)==900
+
+
+def test_shared_full_sweep_compares_two_movers_at_same_frame(monkeypatch):
+    import trimesh,fcl
+    import avengine.assets.roster_motion.episode as episode
+    import avengine.capture.v7_visible_mesh as visible_mesh
+    mesh=trimesh.creation.box((.2,.2,.2))
+    class Verifier:
+        def __init__(self,video,*a):
+            assert len(video.actors)==1 # another mover is not frozen at frame zero
+            self.minimum_clearance_m=0.;self.fcl=fcl
+        def check_world(self,world,faces):return .02
+        def floor_certificate(self):return {"status":"pass","method":"unit fixture"}
+    monkeypatch.setattr(episode,"TriangleClearance",Verifier)
+    monkeypatch.setattr(visible_mesh,"indexed_static_mesh",lambda p:mesh)
+    entries=[]
+    for key,sign in [('a',1),('b',-1)]:
+        matrices=np.repeat(np.eye(4)[None],901,axis=0);matrices[:,0,3]=sign*np.linspace(-1,1,901)
+        entries.append({"declaration":{"asset_id":key},"motion_episode":{"physical_ground_y_m":0.,
+            "pose_glbs":["unit"]*901,"native_30Hz_readbacks":[{"body_to_world_m":m.tolist()}for m in matrices]}})
+    video=SimpleNamespace(actors=entries,sim=None,motion_inputs={},receipt={},motion_house={})
+    result=native_full_mesh_sweep(video)
+    assert len(result)==2 and all(c.status=="fail"for c in result)
+    assert all(c.reason=="actual_synchronous_mover_collision_or_declared_clearance"for c in result)
