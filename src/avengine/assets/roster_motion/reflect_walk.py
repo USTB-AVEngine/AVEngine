@@ -54,7 +54,8 @@ def _free_run(is_free, p, angle, step=0.1, max_m=6.0):
     """How far one can walk straight from p along angle before leaving the free space."""
     d = np.array([math.cos(angle), math.sin(angle)])
     r = 0.0
-    while r + step <= max_m and _segment_free(is_free, p, p + (r + step) * d):
+    # Earlier segments are already certified; check only the new interval.
+    while r + step <= max_m and _segment_free(is_free, p + r * d, p + (r + step) * d):
         r += step
     return r
 
