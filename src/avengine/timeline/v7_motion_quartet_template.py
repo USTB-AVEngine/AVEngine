@@ -132,10 +132,10 @@ def find_legacy_template_route(room, pathfinder, seed, attempt=0, *, speed_range
         return compact
     raise MotionTemplateUnavailable('bounded native NavMesh straight/turn search exhausted: '+str(tested)+' proposals; stages='+str(dict(checks))+'; planner must choose another legal room')
 
-def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5,species='human',utterance_s=1.5,focus='M1',require_all_families=False,local_start_s=None):
+def find_template_route(room,pathfinder,seed,attempt=0,*,speed_range=(.82,1.2),quiet_speed=.81,allowed_speed_range=(.8,1.4),minimum_camera_distance_m=1.5,species='human',utterance_s=1.5,focus='M1',require_all_families=False,local_start_s=None,post_motion_s=None):
     if species == 'human' and require_all_families:
         from avengine.assets.roster_motion.human_event_route import find_human_seed_route
-        try:return find_human_seed_route(room,pathfinder,seed,attempt,utterance_s=utterance_s,speed_range=speed_range,local_start_s=local_start_s)
+        try:return find_human_seed_route(room,pathfinder,seed,attempt,utterance_s=utterance_s,speed_range=speed_range,local_start_s=local_start_s,post_motion_s=post_motion_s)
         except ValueError as error:raise MotionTemplateUnavailable(str(error)) from error
     from avengine.assets.roster_motion.reflect_navmesh import find_reflected_route
     try:return find_reflected_route(room,pathfinder,seed,attempt,species=species,utterance_s=utterance_s,focus=focus,speed_range=speed_range)
@@ -184,7 +184,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
     focus=row.get('motion_template_focus','M2' if seed%2 else 'M1')
     # owner 10-15 approved judging distance trends on a 0.5 s smoothed mouth track, so walking animals carry the
     # distance-trend families again (v7_motion_during_conditions.smooth_track).
-    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus,require_all_families=bool(row.get('human_motion_require_all_families')),local_start_s=row.get('human_event_start_local_s'))
+    route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus,require_all_families=bool(row.get('human_motion_require_all_families')),local_start_s=row.get('human_event_start_local_s'),post_motion_s=row.get('human_post_motion_s'))
     slot=route['emission_slot'];offset=slot['offset_s'];start=slot['start_s'];local_start=start-offset
 
     a, b = [asset['asset_id'] for asset in assets[:2]]
@@ -245,7 +245,7 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         if not slot[flag]:continue
         requests.append({'qa_id':qa,'branch':branch,'target_asset_id':a,
             'speed_m_s':route['speed_m_s'],'speed_range_m_s':route['speed_range_m_s'],
-            'minimum_motion_s':1.5,'end_hold_s':10.-end_local,'offsets_s':offsets,
+            'minimum_motion_s':float(row.get('human_minimum_motion_s',1.5)),'end_hold_s':10.-float(row.get('human_query_until_local_s',end_local)),'offsets_s':offsets,
             'reserve_tail_s':.5,'wet_tail_planning_bound_s':None,'minimum_distance_change_m':.5})
     demand=deepcopy(row.get('scene_demand',{}))
     demand.update(focus='motion_quartet',requested_conditions=['motion_quartet'],

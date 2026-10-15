@@ -19,11 +19,14 @@ def geometry():
 
 
 def test_independent_opposing_walks_keep_constant_heading_and_all_crop_speeds():
-    room,pf=geometry();seed=find_human_seed_route(room,pf,42,utterance_s=1.8,local_start_s=2.)
+    room,pf=geometry();seed=find_human_seed_route(room,pf,42,utterance_s=1.8,local_start_s=2.6,post_motion_s=.6)
     a,b,layout=next(paired_corridors(seed,room,pf,first_branch='nearer',second_duration_s=1.6))
-    assert a['emission_slot']['start_s']==2. and b['emission_slot']['start_s']==17.
+    assert a['emission_slot']['start_s']==2.6 and b['emission_slot']['start_s']==17.6
     assert a['emission_slot']['branch']=='nearer'and b['emission_slot']['branch']=='farther'
     assert layout['minimum_pair_distance_m']>=1.2
+    assert a['short_window_walk']['walk_end_s']==pytest.approx(6.)
+    assert b['short_window_walk']['walk_end_s']==pytest.approx(21.)
+    assert np.linalg.norm(np.asarray(a['positions_xz_m'])[-1]-np.asarray(a['positions_xz_m'])[0])<3.3
     assert np.ptp(a['travel_yaws_rad'])==0. and np.ptp(b['travel_yaws_rad'])==0.
     for offset in (0.,5.,10.,15.,20.):
         actors={str(i):{'species_id':'human','root_positions_m':np.column_stack((np.asarray(r['positions_xz_m'])[:,0],np.zeros(901),np.asarray(r['positions_xz_m'])[:,1]))[round(offset*30):round((offset+10)*30):2].tolist()}for i,r in enumerate((a,b))}

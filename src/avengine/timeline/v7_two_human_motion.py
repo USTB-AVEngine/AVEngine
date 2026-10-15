@@ -14,7 +14,7 @@ FAMILIES=('QA-06','QA-15','QA-16','QA-17')
 REVISION='two-walking-speakers-disjoint-bouts-v1'
 
 
-def single_bout_at(route, *, start_s=2., offset_s=0., reverse=False, shift_xz=(0.,0.), duration_s=None):
+def single_bout_at(route, *, start_s=2.6, offset_s=0., reverse=False, shift_xz=(0.,0.), duration_s=None):
     result=deepcopy(route);old=route['emission_slot'];delta=float(start_s)-float(old['start_s'])
     t=np.arange(901)/30.;source=np.asarray(route['positions_xz_m'],float)
     points=np.column_stack([np.interp(t-delta,t,source[:,i])for i in (0,1)])
@@ -24,6 +24,7 @@ def single_bout_at(route, *, start_s=2., offset_s=0., reverse=False, shift_xz=(0
     slot=deepcopy(old)
     for key in ('start_s','end_s','post_until_s'):
         if slot.get(key)is not None:slot[key]=float(slot[key])+delta
+    slot['start_s']=float(start_s)
     slot['offset_s']=float(offset_s)
     if duration_s is not None:slot['end_s']=float(start_s)+math.ceil(float(duration_s)*10-1e-9)/10
     if reverse:slot['branch']='farther'if old['branch']=='nearer'else'nearer'
@@ -49,7 +50,8 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
     from avengine.construction.joint.context import camera_legal
     from avengine.construction.joint.types import CameraPose
     listener=np.asarray(seed_route['listener_m']);L=listener[[0,2]]
-    a=single_bout_at(seed_route,start_s=2.,offset_s=0.,reverse=seed_route['emission_slot']['branch']!=first_branch)
+    local_start=round(float(seed_route['emission_slot']['start_s'])-float(seed_route['emission_slot']['offset_s']),1)
+    a=single_bout_at(seed_route,start_s=local_start,offset_s=0.,reverse=seed_route['emission_slot']['branch']!=first_branch)
     p=np.asarray(a['positions_xz_m']);direction=p[-1]-p[0];direction/=np.linalg.norm(direction)
     lateral=np.array([-direction[1],direction[0]])
     floor=float(room['measured_floor_y_m']);polygon=shape(room['floor_polygon']);coverage=polygon.buffer(.002)
@@ -57,7 +59,7 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
     if not coverage.covers(LineString(p)) or not all(pred(v) for v in np.unique(p,axis=0)):return
     for separation in (1.25,1.4,1.6,1.8):
         for side in (1.,-1.):
-            b=single_bout_at(a,start_s=17.,offset_s=15.,reverse=True,shift_xz=side*separation*lateral,duration_s=second_duration_s)
+            b=single_bout_at(a,start_s=15.+local_start,offset_s=15.,reverse=True,shift_xz=side*separation*lateral,duration_s=second_duration_s)
             q=np.asarray(b['positions_xz_m'])
             if not coverage.covers(LineString(q)):continue
             if not all(pred(v)for v in np.unique(q,axis=0)):continue
@@ -83,12 +85,14 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
     from avengine.construction.joint.families.motion_human import motion_certificate,certificate_record
     import soundfile as sf
     pairs=[p for p in authored_pairs(semantic_manifest)
-           if 1.4<=float(p[1]['synthesis_readback']['duration_s'])<=float(p[0]['synthesis_readback']['duration_s'])<=1.8
-           and float(p[1]['synthesis_readback']['duration_s'])/float(p[0]['synthesis_readback']['duration_s'])>=.85]
+           if 1.0<=float(p[1]['synthesis_readback']['duration_s'])<=float(p[0]['synthesis_readback']['duration_s'])<=1.8
+           and float(p[0]['synthesis_readback']['duration_s'])>=1.2]
     if not pairs:raise MotionTemplateUnavailable('no complete short two-voice pair for independent walking bouts')
     pair=pairs[(int(base_row['scene_seed'])+attempt)%len(pairs)]
+    duration_a=float(pair[0]['synthesis_readback']['duration_s'])
+    local_start=round(4.4-math.ceil(duration_a*10-1e-9)/10,1)
     seed_row=deepcopy(base_row);seed_row.update(human_motion_event_count=1,human_motion_require_all_families=True,
-        human_motion_require_two_walkers=True,human_event_start_local_s=2.,
+        human_motion_require_two_walkers=True,human_event_start_local_s=local_start,human_post_motion_s=.6,human_minimum_motion_s=.8,human_query_until_local_s=7.4,
         motion_semantic_pair_ids=[s['sound_asset_id']for s in pair],motion_template_focus='M1')
     base=motion_quartet_template(seed_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract,source_type='human_speech')
     first,second=base['semantic_human_asset_ids'];base['asset_ids']=[first,second];base['silent_asset_ids']=[]
@@ -110,13 +114,13 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
         try:
             seed_route=(base['motion_requests'][first]['motion_quartet_route']if geometry_attempt==0 else
                 find_human_seed_route(room,pathfinder,int(base_row['scene_seed']),attempt+geometry_attempt,
-                    utterance_s=duration_a,local_start_s=2.,candidate_validator=partner_possible,cpu_deadline=deadline))
+                    utterance_s=duration_a,local_start_s=local_start,post_motion_s=.6,candidate_validator=partner_possible,cpu_deadline=deadline))
         except ValueError as exc:errors.append(str(exc));continue
         for route_a,route_b,layout in paired_corridors(seed_route,room,pathfinder,first_branch=desired,second_duration_s=duration_b):
             row=deepcopy(base);row['human_motion_event_count']=2;row['human_motion_strategy']='two_walkers'
             row['motion_quartet_template_revision']=REVISION
-            row['phase2_source_event_schedule_s']={first:[2.,11.,22.],second:[7.5,17.,27.5]}
-            row['semantic_start_offsets_s']=[2.,7.5];row['motion_source_start_s']={first:2.,second:7.5}
+            row['phase2_source_event_schedule_s']={first:[local_start,11.,22.],second:[7.5,15.+local_start,27.5]}
+            row['semantic_start_offsets_s']=[local_start,7.5];row['motion_source_start_s']={first:local_start,second:7.5}
             row['listener_m']=route_a['listener_m'];row['camera_yaw_deg']=route_a['camera_yaw_deg']
             request_base={k:v for k,v in base['motion_requests'][first].items()if k not in ('motion_during_condition_plan_for_fit','straight_motion_windows_s','sounding_straight_windows_s','distance_trend','distance_trend_intervals_s')}
             row['motion_requests']={aid:{**deepcopy(request_base),'motion_quartet_route':route,'speed_m_s':route['speed_m_s'],'intervals_s':[[0.,30.]],'maximum_native_route_attempts':1}
@@ -124,10 +128,10 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
             plans=[];requests=[];verifications=[]
             tracks={aid:np.column_stack((np.asarray(route['positions_xz_m'])[:,0],np.full(901,row['listener_m'][1]+.3),np.asarray(route['positions_xz_m'])[:,1]))for aid,route in ((first,route_a),(second,route_b))}
             valid=True
-            for aid,route,starts in ((first,route_a,{first:2.,second:7.5}),(second,route_b,{first:7.,second:2.})):
+            for aid,route,starts in ((first,route_a,{first:local_start,second:7.5}),(second,route_b,{first:7.,second:local_start})):
                 slot=route['emission_slot'];offset=slot['offset_s'];end_local=route['short_window_walk']['walk_end_s']-offset-.1
                 reqs=[{'qa_id':qa,'branch':branch,'target_asset_id':aid,'speed_m_s':route['speed_m_s'],
-                    'speed_range_m_s':route['speed_range_m_s'],'minimum_motion_s':1.5,'end_hold_s':10.-end_local,
+                    'speed_range_m_s':route['speed_range_m_s'],'minimum_motion_s':.8,'end_hold_s':10.-(7.4 if aid==first else 6.9),
                     'offsets_s':[offset],'reserve_tail_s':.5,'wet_tail_planning_bound_s':None,'minimum_distance_change_m':.5}
                     for qa,branch in [('QA-06','moving'),('QA-15',slot['branch']),('QA-16',None),('QA-17','yes')]]
                 sub=deepcopy(row);sub.pop('motion_during_condition_plan',None);sub['motion_during_condition_requests']=reqs;sub['motion_source_start_s']=starts
@@ -153,6 +157,7 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
             row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':row['camera_yaw_deg']},{'time_s':30.,'yaw_deg':row['camera_yaw_deg']}]
             row['motion_quartet_planned_verification']={f:True for f in FAMILIES};row['human_motion_event_planned_verification']=verifications
             row['planned_crop_speed_checks']=speed_checks
+            row['primary_motion_speech_anchors_s']={first:route_a['emission_slot']['start_s'],second:route_b['emission_slot']['start_s']}
             row['native_placement_preferences_m']={aid:[float(track[0,0]),float(room['measured_floor_y_m']),float(track[0,2])]for aid,track in tracks.items()}
             row['scene_demand'].update(constructor=REVISION,condition_families={'motion_quartet':list(FAMILIES)},required_actual_candidate_families=list(FAMILIES))
             row['motion_quartet_construction'].update(revision=REVISION,route=route_a,routes={first:route_a,second:route_b},
