@@ -156,7 +156,8 @@ def run_worker(manifest,slot):
         pointer=next((p for p in [parent/'integration_seal_completed.json',parent/'alpha_seal_completed.json']if p.is_file()),None)
         if pointer is None:raise ValueError('original producer seal is absent')
         info={'slot':slot,'family':task['family'],'status':'passed','house':row['house'],
-              'scene_id':result['scene_id'],'parent_directory':str(parent),'seal_path':str(pointer)}
+              'scene_id':result['scene_id'],'parent_directory':str(parent),'seal_path':str(pointer),
+              'drop_invalid_speed_windows':manifest.get('drop_invalid_speed_windows',True)}
         from tools.timeline.export_v7_trial import parent_payload
         rows,exported=parent_payload(info,root/'export',root)
         for item in rows:item['dataset_role']='acceptance_only'

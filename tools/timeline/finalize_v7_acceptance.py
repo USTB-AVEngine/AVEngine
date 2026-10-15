@@ -32,7 +32,9 @@ def admitted_receipts(manifest):
         if any(x.get('motion_kind')=='static_after_failed_route'for x in motion):reasons.append('motion_demand_became_static')
         from avengine.timeline.v7_export_scene_policy import cached_parent_policy
         try:
-            policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            source_policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            from avengine.timeline.v7_export_window_policy import scope_receipt_windows
+            receipt,policy=scope_receipt_windows(receipt,source_policy,enabled=manifest.get('drop_invalid_speed_windows',True))
             reasons.extend(policy['reasons'])
         except Exception as error:
             reasons.append('scene_policy_evidence_error:'+str(error))
@@ -52,7 +54,9 @@ def delivery_fingerprint(manifest):
         'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
         'scene_delivery_policy':__import__('avengine.timeline.v7_export_scene_policy',fromlist=['REVISION']).REVISION,
         'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False),
-        'minimum_family_distinct_houses':manifest.get('minimum_family_distinct_houses',0)}
+        'minimum_family_distinct_houses':manifest.get('minimum_family_distinct_houses',0),
+        'window_export_policy':__import__('avengine.timeline.v7_export_window_policy',fromlist=['REVISION']).REVISION,
+        'drop_invalid_speed_windows':manifest.get('drop_invalid_speed_windows',True)}
     return hashlib.sha256(json.dumps(inputs,sort_keys=True).encode()).hexdigest()
 
 

@@ -56,22 +56,27 @@ def parent_entries(receipt,output,*,read_only_source_roots=()):
             raise ValueError('candidate evidence escaped authorized read-only roots')
     permitted(pointer_path)
     from avengine.timeline.v7_export_scene_policy import cached_parent_policy,REVISION as SCENE_POLICY
-    scene_policy=cached_parent_policy(pointer_path,output/'evidence/scene_delivery_policy')
+    source_policy=cached_parent_policy(pointer_path,output/'evidence/scene_delivery_policy')
+    from avengine.timeline.v7_export_window_policy import scope_receipt_windows
+    receipt,scene_policy=scope_receipt_windows(receipt,source_policy)
+    allowed_windows={w['window_id']for w in receipt['export']['windows']}
     if scene_policy['status']!='pass':raise ValueError('supplement parent violates current native scene delivery policy')
     pointer=load(pointer_path)
     if pointer['result']['status']not in {'integration_pilot_admitted','formal_alpha_admitted'}:
         raise ValueError('supplement source parent is not admitted')
     recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
     scene=row['scene_id'];root=pointer_path.parent;seal=root/pointer['attempt']
-    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v6_owner_count_scope.json')
+    cache=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_'+hashlib.sha256(json.dumps(sorted(allowed_windows)).encode()).hexdigest()[:12]+'_v7_delivered_window_scope.json')
     if cache.exists():return load(cache)
     prior_path=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v5_all_legal_families.json')
-    prior=compatible_prior_candidates(prior_path,pointer_path)  # v5 already has fixed-observer, English and original full-pool replay.
+    prior_v6=output/'evidence/post_dedup_candidates'/(str(receipt['slot'])+'_'+sha(pointer_path)+'_v6_owner_count_scope.json')
+    prior=compatible_prior_candidates(prior_v6,pointer_path)or compatible_prior_candidates(prior_path,pointer_path)  # Reuse original full-pool replay, then scope every entry to delivered windows.
     base=[json.loads(s)for s in(output/'export/parent_rows'/f"{receipt['slot']:03d}.jsonl").read_text().splitlines()if s.strip()]
     bywindow=defaultdict(list)
     for r in base:bywindow[r['window_id']].append(r)
-    entries=list(prior['entries'])if prior else [];proofs=list(prior['proofs'])if prior else [];known_ids={e['row']['question_id']for e in entries}|{r['question_id']for r in base};supplemented=prior['new_visual_candidate_rows']if prior else 0;motion_supplemented=0
+    entries=[e for e in prior['entries']if e['row']['window_id']in allowed_windows]if prior else [];proofs=list(prior['proofs'])if prior else [];known_ids={e['row']['question_id']for e in entries}|{r['question_id']for r in base};supplemented=prior['new_visual_candidate_rows']if prior else 0;motion_supplemented=0
     for win in pointer['result']['windows']:
+        if win['window_id']not in allowed_windows:continue
         wid=win['window_id'];gold={g['question_id']:g for g in load(seal/'private'/f'{wid}_answers.json')}
         if not prior:entries.extend(_entry(scene,r,gold[r['question_id']])for r in bywindow[wid])
         if len(row['members'])!=1:continue

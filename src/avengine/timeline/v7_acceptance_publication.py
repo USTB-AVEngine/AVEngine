@@ -16,7 +16,9 @@ def publish_current_parents(root):
         for path in sorted((root/'evidence/jobs').glob('[0-9][0-9][0-9].json')):
             receipt=json.loads(path.read_text())
             if receipt.get('status')!='passed':continue
-            policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            source_policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            from avengine.timeline.v7_export_window_policy import scope_receipt_windows
+            receipt,policy=scope_receipt_windows(receipt,source_policy,enabled=manifest.get('drop_invalid_speed_windows',True))
             prior=receipt['export'].get('scene_delivery_policy',{})
             if prior.get('revision')!=REVISION or policy['status']!='pass':
                 from avengine.timeline.v7_admitted_pool_reselection import save
@@ -33,7 +35,8 @@ def publish_current_parents(root):
             if receipt.get('reader',{}).get('status')!='pass':raise ValueError('cannot publish before actual parent media readback')
             assert_new_generation_output(receipt['export']['source_seal'])
             table=root/'export/parent_rows'/f"{receipt['slot']:03d}.jsonl"
-            rows.extend(json.loads(s)for s in table.read_text().splitlines()if s.strip());parents.append(receipt)
+            allowed_windows={w['window_id']for w in receipt['export']['windows']}
+            rows.extend(r for s in table.read_text().splitlines()if s.strip()for r in [json.loads(s)]if r['window_id']in allowed_windows);parents.append(receipt)
         for row in rows:validate_english_model_text(row)
         ids=[r['question_id']for r in rows]
         if len(set(ids))!=len(ids):raise ValueError('duplicate physical parent publication rows')

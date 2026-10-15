@@ -34,7 +34,7 @@ def main():
                 m['parents'].append({'slot':slot,'family':family,'device':'ue'if family=='kujiale'else'cpu','profile':'registered'if len(row['members'])==4 else'phase2',
                     'focus':'content_binding'if len(row['members'])==4 else'motion_quartet_template','row':row,'launch_disabled':True,'read_only_helper_receipt':str(a.source_receipt)})
                 write(a.manifest,m)
-        info={'status':'passed','house':row['house'],'seal_path':str(pointer_path)}
+        info={'status':'passed','house':row['house'],'seal_path':str(pointer_path),'drop_invalid_speed_windows':m.get('drop_invalid_speed_windows',True)}
         rows,export=parent_payload(info,root/'export',root,read_only_source_roots=[source])
         for r in rows:r['dataset_role']='acceptance_only'
         table=root/'export/parent_rows'/f'{slot:03d}.jsonl';table.parent.mkdir(parents=True,exist_ok=True);table.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows))
