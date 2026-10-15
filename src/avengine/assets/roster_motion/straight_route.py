@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from shapely.geometry import shape
+from shapely.geometry import shape, LineString
 
 from .reflect_walk import SPECIES_SPEED_M_S
 
@@ -195,7 +195,7 @@ def _rooms_with_cameras(room, pathfinder, species, relocate=True, limit=12):
 
 def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', utterance_s=1.5, focus='M1',
                          families='all4', speed_range=None, is_free=None, grid_m=.3, headings=24, keep=12, max_grid=600,
-                         corners=False, use_map=True, minimum_camera_distance_m=None, require_reverse_radial=False):
+                         corners=False, use_map=True, minimum_camera_distance_m=None, require_reverse_radial=False, require_rest_in_frame=False):
     from .reflect_navmesh import native_free_predicate, SHORT_WALK_LEAD_S, SHORT_WALK_RAMP_S
     rng = np.random.default_rng(int(seed) + int(attempt) * 101 + 17)
     polygon = shape(room['floor_polygon']); floor = float(room['measured_floor_y_m'])
@@ -213,6 +213,7 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
                                          floor_reference=floor)
         is_free = native_free_predicate(pathfinder, polygon, floor, listener, walkable_map=walkable_map, species=species, camera_margin=minimum_camera_distance_m)
     segment_is_free = getattr(is_free, 'segment_is_free', None)
+    coverage_polygon=polygon.buffer(.002)
     lo, hi = SPECIES_SPEED_M_S[species]
     if speed_range is None:
         speed_range = (lo + .02, hi - .02)
@@ -268,8 +269,15 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
                         reverse_qa15, reverse_qa16, _, _ = _radial_flags(positions[0] + positions[-1] - positions, L, k, e, q)
                         if not reverse_qa15 or (families == 'all4' and not reverse_qa16):
                             rejected['radial_slot'] += 1; continue
+                if require_rest_in_frame:
+                    target=np.mean(positions,axis=0)-L
+                    _,framing=frame_rest_poses([positions[0],positions[-1]],L,math.degrees(math.atan2(target[0],-target[1])))
+                    if framing['states']!=['inside','inside']:
+                        rejected['rest_pose_framing']=rejected.get('rest_pose_framing',0)+1;continue
                 tested += 1
                 if not all(is_free(x) for x in pts):
+                    rejected['line_not_free'] += 1; continue
+                if not coverage_polygon.covers(LineString(positions)):
                     rejected['line_not_free'] += 1; continue
                 if not all(is_free(x) for x in np.unique(positions,axis=0)):
                     rejected['line_not_free'] += 1; continue

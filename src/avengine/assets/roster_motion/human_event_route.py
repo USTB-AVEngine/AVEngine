@@ -26,7 +26,7 @@ def find_human_seed_route(room, pathfinder, seed, attempt=0, *, utterance_s=1.5,
     polygon = shape(room['floor_polygon'])
     for index, candidate in enumerate(_rooms_with_cameras(room, pathfinder, 'human')):
         candidate = deepcopy(candidate)
-        candidate['placement']['camera_m'][1] = float(room['measured_floor_y_m']) + .95
+        candidate['placement']['camera_m'][1] = float(room['measured_floor_y_m']) + 1.1
         camera = np.asarray(candidate['placement']['camera_m'], float)
         if Point(*camera[[0, 2]]).distance(polygon.boundary) < .5 - 1e-6:
             continue
@@ -34,7 +34,7 @@ def find_human_seed_route(room, pathfinder, seed, attempt=0, *, utterance_s=1.5,
             try:
                 route = _find_straight_route(candidate, pathfinder, seed, attempt, species='human',
                     utterance_s=utterance_s, focus='M1', families='all4', speed_range=speed_range,
-                    corners=False, use_map=use_map, minimum_camera_distance_m=2.4, require_reverse_radial=True)
+                    corners=False, use_map=use_map, minimum_camera_distance_m=2.6, require_reverse_radial=True, require_rest_in_frame=True)
             except ValueError as error:
                 errors.append(str(error))
                 continue
@@ -42,7 +42,7 @@ def find_human_seed_route(room, pathfinder, seed, attempt=0, *, utterance_s=1.5,
                 route['camera_relocation'] = {'reason': 'solve all four requested human motion families',
                     'room_camera_m': list(room['placement']['camera_m']),
                     'constructed_camera_m': route['listener_m'], 'candidate_index': index}
-            route['minimum_camera_distance_m'] = 2.4
+            route['minimum_camera_distance_m'] = 2.6
             route['human_motion_required_families'] = ['QA-06', 'QA-15', 'QA-16', 'QA-17']
             return route
     raise ValueError('no certified all-four human corridor: ' + ' | '.join(errors[:4]))
@@ -107,7 +107,7 @@ def repeat_human_bouts(route, offsets_s=EVENT_OFFSETS_S):
     result.update(positions_xz_m=positions.tolist(), travel_yaws_rad=yaws.tolist(),
         emission_slots=slots, emission_slot=slots[0], human_event_windows=windows,
         human_rest_turns=turns, require_rest_poses_in_frame=True,
-        human_motion_event_count=3, construction='three_independent_human_corridor_bouts')
+        human_motion_event_count=3, prefer_planned_placement=True, construction='three_independent_human_corridor_bouts')
     result['short_window_walk'] = windows[0]
     result['candidate_trials'] = deepcopy(route['candidate_trials'])
     result['candidate_trials'].append({'construction': 'repeat_certified_corridor', 'independent_events': 3})

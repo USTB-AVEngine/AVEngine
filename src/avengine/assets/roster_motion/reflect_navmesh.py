@@ -159,6 +159,10 @@ def find_reflected_route(room,pathfinder,seed,attempt=0,*,species='human',uttera
 def reflected_route_proposals(video,entry,scene,local_forward,request):
     route=request['motion_quartet_route'];xz=np.asarray(route['positions_xz_m'],float)
     floor=float(entry['applied_root_input'][1,3]);polygon=shape(scene['production_scenario']['motion_floor_polygon'])
+    # Registered floor outlines contain micrometre slits; navigation and all
+    # actual skin/support checks remain independent. Match the existing 2mm
+    # horizontal native snap tolerance, without admitting a larger floor gap.
+    coverage_polygon=polygon.buffer(.002)
     from avengine.rooms.walkable_map import load_room_map,SPECIES_RADII_M
     species=route.get('species',entry.get('declaration',{}).get('species_id','human'))
     if species not in SPECIES_RADII_M:species='human'
@@ -208,13 +212,14 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     local=[np.array([x,z])for x in (0.,.25,-.25,.5,-.5,1.,-1.)for z in (0.,.25,-.25,.5,-.5,1.,-1.)]
     shifts=local+[g-centre for g in grid]
     limit=max(24,int(request.get('native_route_candidate_pool',96)))
+    preserved_planned=False
     for shift in shifts:
         for angle in rotations:
             tested+=1;rotation=np.array([[math.cos(angle),-math.sin(angle)],[math.sin(angle),math.cos(angle)]])
             points=(xz-centre)@rotation.T+centre+shift
             if walkable_map is not None and not walkable_map.contains_many(points,species).all():rejected['walkable_map_static']+=1;continue
             line=LineString(points)
-            if not polygon.covers(line):rejected['native_scene_floor_polygon']+=1;continue
+            if not coverage_polygon.covers(line):rejected['native_scene_floor_polygon']+=1;continue
             if any(line.intersects(o)for o in obstacles):rejected['qualified_body_expanded_bbox']+=1;continue
             radii=np.linalg.norm(points-listener,axis=1)
             if float(radii.min())<max(CAMERA_MARGIN_M.get(species,1.),float(route.get('minimum_camera_distance_m',0.))):rejected['camera_distance_1_5m']+=1;continue
@@ -250,13 +255,16 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
             selected=np.linspace(0,len(positions)-1,17,dtype=int)
             clearance=min(float(video.pathfinder.distance_to_closest_obstacle(video.pathfinder.snap_point(positions[i]),1.))for i in selected)if hasattr(video.pathfinder,'distance_to_closest_obstacle')else .35
             candidates.append((clearance,positions,yaws,angle,shift))
+            if route.get('prefer_planned_placement') and abs(angle)<1e-12 and np.linalg.norm(shift)<1e-12:
+                preserved_planned=True;break
             if len(candidates)>=limit:break
-        if len(candidates)>=limit:break
+        if preserved_planned or len(candidates)>=limit:break
     diagnostics={'proposals_tested':tested,'native_admissible_route_pool':len(candidates),'rejections':dict(rejected),
         'native_scene_floor_bounds_xz_m':list(polygon.bounds),'planned_route_bounds_xz_m':list(LineString(xz).bounds),
         'qualified_obstacle_count':len(obstacles),'walkable_map_path':getattr(walkable_map,'path',None),
         'walkable_map_version':walkable_map.metadata['version']if walkable_map is not None else None,'native_root_y_m':floor,'camera_m':scene['listener_m'],
-        'original_gates_unchanged':True}
+        'original_gates_unchanged':True,'floor_outline_tolerance_m':.002,
+        'certified_planned_placement_preserved':preserved_planned}
     entry['reflection_native_prefilter']=diagnostics
     if request.get('_reflection_diagnostics_path'):
         from .diagnostics import write_route_summary
@@ -271,7 +279,7 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
             'native_route_rank':index+1,'native_obstacle_clearance_score_m':clearance,
             'rigid_route_rotation_rad':angle,'rigid_route_translation_xz_m':shift.tolist(),
             'species':route['species'],'root_samples':len(positions),'native_full_pose_checks_still_required':True,
-            'minimum_obstacle_clearance_m':.35,'minimum_camera_distance_m':1.5})
+            'minimum_obstacle_clearance_m':.35,'minimum_camera_distance_m':max(CAMERA_MARGIN_M.get(species,1.),float(route.get('minimum_camera_distance_m',0.)))})
 
 
 def reflected_distance_clock(route,nominal,phase0=0.):

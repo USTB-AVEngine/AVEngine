@@ -79,3 +79,67 @@ def test_short_during_sound_recipe_cannot_claim_post_sound_production():
     route['emission_slot']['qa16'] = False
     with pytest.raises(ValueError, match='all four'):
         repeat_human_bouts(route)
+
+
+def test_solved_three_bout_geometry_has_a_native_prefilter_placement():
+    from types import SimpleNamespace
+    from shapely.geometry import Point, box
+    from avengine.assets.roster_motion.human_event_route import find_human_seed_route
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
+    poly = box(0., 0., 8., 7.)
+    class Pathfinder:
+        def snap_point(self, p):return np.asarray(p, float)
+        def distance_to_closest_obstacle(self, p, maximum):
+            return min(maximum, poly.exterior.distance(Point(p[0], p[2])))
+    pf = Pathfinder()
+    room = {'floor_polygon': poly.__geo_interface__, 'measured_floor_y_m': 0.,
+            'placement': {'camera_m': [.5, 1.25, .5]}}
+    seed = find_human_seed_route(room, pf, 42, utterance_s=1.6)
+    route = repeat_human_bouts(seed)
+    assert route['listener_m'][1] == pytest.approx(1.1)
+    points = np.asarray(route['positions_xz_m'])
+    radii = np.linalg.norm(points - np.asarray(route['listener_m'])[[0, 2]], axis=1)
+    assert radii.min() >= 2.6
+    # The real native prefilter trims to the middle 60% for an audibility
+    # margin.  Certifying only the original verifier's full span missed the
+    # reverse bout in the first native canary (0.325m despite 0.551m full span).
+    for slot in route['emission_slots']:
+        a, b = round(slot['start_s']*30), round(slot['end_s']*30)
+        trim = round(.2*(b-a));v = radii[a+trim:b-trim+1]
+        assert abs(v[-1]-v[0]) >= .5
+    entry = {'applied_root_input': np.eye(4), 'declaration': {'asset_id': 'walker', 'kind': 'human'}}
+    video = SimpleNamespace(actors=[entry], pathfinder=pf)
+    scene = {'listener_m': route['listener_m'], 'camera_yaw_knots': [{'yaw_deg': route['camera_yaw_deg']}],
+             'production_scenario': {'motion_floor_polygon': poly.__geo_interface__}}
+    proposal = next(reflected_route_proposals(video, entry, scene, [0., 0., -1.], {'motion_quartet_route': route}))
+    assert proposal.receipt['native_admissible_route_pool'] > 0
+
+
+def test_micrometre_outline_slit_does_not_move_a_certified_native_route():
+    from types import SimpleNamespace
+    from shapely.geometry import Point, box, LineString
+    from avengine.assets.roster_motion.human_event_route import find_human_seed_route
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_route_proposals
+    poly = box(0., 0., 8., 7.)
+    class Pathfinder:
+        def snap_point(self, p):return np.asarray(p, float)
+        def distance_to_closest_obstacle(self, p, maximum):
+            return min(maximum, poly.exterior.distance(Point(p[0], p[2])))
+    pf = Pathfinder();room = {'floor_polygon': poly.__geo_interface__, 'measured_floor_y_m': 0.,
+                             'placement': {'camera_m': [.5, 1.25, .5]}}
+    route = repeat_human_bouts(find_human_seed_route(room, pf, 42, utterance_s=1.6))
+    p = np.asarray(route['positions_xz_m']);k = round(route['emission_slots'][0]['start_s']*30)+10
+    centre=(p[k]+p[k+1])/2
+    outline = poly.difference(box(centre[0]-1e-7,centre[1]-1e-7,centre[0]+1e-7,centre[1]+1e-7))
+    assert not outline.covers(LineString(p))
+    entry={'applied_root_input':np.eye(4),'declaration':{'asset_id':'walker','kind':'human'}}
+    video=SimpleNamespace(actors=[entry],pathfinder=pf)
+    scene={'listener_m':route['listener_m'],'camera_yaw_knots':[{'yaw_deg':route['camera_yaw_deg']}],
+           'production_scenario':{'motion_floor_polygon':outline.__geo_interface__}}
+    first=next(reflected_route_proposals(video,entry,scene,[0.,0.,-1.],{'motion_quartet_route':route}))
+    assert first.receipt['rigid_route_rotation_rad']==0.
+    assert first.receipt['rigid_route_translation_xz_m']==[0.,0.]
+    assert entry['reflection_native_prefilter']['certified_planned_placement_preserved']
+    # An actual wider floor gap stays outside the numerical outline tolerance.
+    wide=poly.difference(box(centre[0]-.01,centre[1]-.01,centre[0]+.01,centre[1]+.01))
+    assert not wide.buffer(.002).covers(LineString(p))
