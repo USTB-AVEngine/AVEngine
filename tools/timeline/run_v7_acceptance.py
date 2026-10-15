@@ -45,7 +45,9 @@ def run_worker(manifest,slot):
         from avengine.timeline.v7_kujiale_construction import construct_request
         from avengine.registry.kujiale_ue_measurements import read_registration
         registration,_=read_registration(inputs.get('kujiale_native_measurement_registration'))
-        row=construct_request(row,house,inputs,catalog,load(inputs['semantic_manifest']),registration)
+        from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase
+        with cpu_phase(root,'construct_room',estimate_bytes=4000000000):
+            row=construct_request(row,house,inputs,catalog,load(inputs['semantic_manifest']),registration)
     state=read_demand_state(root/'inputs/demand_state.json')
     if task['profile']=='phase2':
         previous=root/'inputs/planned'/f'{slot:03d}.json'
@@ -65,14 +67,27 @@ def run_worker(manifest,slot):
         'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
         'code_commit':initial['code_commit'],'planned_code_commit':manifest['code_commit'],'status':'running','started_utc':initial['started_utc']}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
+    from contextlib import ExitStack
+    phases=ExitStack()
     try:
         native_root=Path(task.get('native_output_root') or root/'native').resolve()
         if not native_root.is_relative_to(root):raise ValueError('native output must remain inside this authorized task root')
         if task.get('automatic_registered_room'):
             from avengine.timeline.v7_kujiale_category_qualification import qualify_missing_humans
-            inputs,category=qualify_missing_humans(row,house,inputs,catalog,source,human,contract,root)
+            from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase
+            cell=next(r for r in contract['rooms']if r['key']==row['house']+'::'+row['room_id'])
+            if 'human.standing'not in cell['categories']:
+                with cpu_phase(root,'new_native_category',estimate_bytes=2500000000):
+                    inputs,category=qualify_missing_humans(row,house,inputs,catalog,source,human,contract,root)
+            else:category=None
             if category:receipt['new_current_native_category_qualification']=category
-        result=generate(row,house,inputs,catalog,source,human,str(native_root))
+        if task.get('automatic_registered_room'):
+            from avengine.timeline.v7_registered_native_workers import prepare_native
+            from avengine.timeline.v7_kujiale_cpu_phases import cpu_phase
+            prepare_native(row,house,inputs,catalog,source,human,str(native_root),root)
+            phases.enter_context(cpu_phase(root,'audio_questions_reader',estimate_bytes=2000000000))
+            result=generate(row,house,inputs,catalog,source,human,str(native_root))
+        else:result=generate(row,house,inputs,catalog,source,human,str(native_root))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
         if not admitted:raise ValueError('native producer did not admit the parent')
         parent=Path(result['delivery_directory']).parent
@@ -110,6 +125,7 @@ def run_worker(manifest,slot):
                        independent_questions=exported['independent_questions'],raw_questions=exported['raw_export_questions'])
     except Exception as exc:
         receipt.update(status='failed',error_type=type(exc).__name__,reason=str(exc),traceback=traceback.format_exc())
+    finally:phases.close()
     receipt.update(wall_seconds=time.monotonic()-start,cpu_seconds=time.process_time()-cpu,
         finished_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),max_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)

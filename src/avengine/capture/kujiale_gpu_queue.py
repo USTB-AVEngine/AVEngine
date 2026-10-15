@@ -61,7 +61,7 @@ def launch_reserved_gpu(output,gpu,arguments,*,executable=None):
             actual={int(r[1])for r in rows if len(r)>=3 and r[0].strip()==uuid and 'UnrealEditor'in r[2]}
             count=len(actual|{p for p in reserved if p>0})+reserved.count(-1)
             mem=next(int(l.split()[1])*1024 for l in Path('/proc/meminfo').read_text().splitlines()if l.startswith('MemAvailable:'));pss=own_pss(output)
-            if leases and count<4 and mem>=30000000000 and pss<=40000000000:
+            if leases and count<4 and mem>=30000000000 and pss+int(policy.get('minimum_new_ue_pss_headroom_bytes',0))<=40000000000:
                 index,lease=leases.pop(0)
                 for _,other in leases:other.close()
                 text=(Path('/proc')/str(os.getpid())/'stat').read_text();fields=text[text.rfind(')')+2:].split();cpu=(gpu-1)*4+index

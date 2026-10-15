@@ -77,7 +77,7 @@ def _verify_window(folder):
     return {'video':info,'FOA':{'sample_rate_hz':sr,'samples':len(data),'channels':4,'format':'ACN_WYZX_SN3D_camera'},'mono_matches_W':True}
 
 
-def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None):
+def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None,prepare_native_inputs_only=False):
     from avengine.timeline.v7_production_inputs import attach_runtime_contract
     row=attach_runtime_contract(row,inputs)
     if inputs.get('render_backend')=='ue_spear':
@@ -130,11 +130,12 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         'scene_id':row['scene_id'],'compute_device':'CPU','release_profile':ALPHA_RELEASE_PROFILE})
     dry,receipt=parent_dry(root,base,program)
     for ep,speaker in receipt['endpoint_speaker_ids'].items():base['sources'][ep]['voice_identity_id']=speaker
+    if prepare_native_inputs_only:return {'status':'native_inputs_prepared','scene_id':row['scene_id'],'formal_dataset_count':0}
     visual_dirs={};visuals={};variants={};audio_factors={};members=[];timings=[];clip_paths={}
     visual_names=sorted({m.split('_')[0] for m in row['members']})
     if native_only_visual is not None:
-        if native_only_visual not in visual_names:raise ValueError('requested native visual is absent from the original quartet')
-        visual_names=[native_only_visual]
+        if native_only_visual!='all'and native_only_visual not in visual_names:raise ValueError('requested native visual is absent from the original quartet')
+        if native_only_visual!='all':visual_names=[native_only_visual]
     for v in visual_names:
         variant=deepcopy(assets)
         if v=='v1':
@@ -205,6 +206,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             raise ValueError('appearance counterfactual changed native geometry or camera')
         visual_dirs[v]=vd;visuals[v]=visual;variants[v]=variant
     if native_only_visual is not None:
+        if native_only_visual=='all':return {'status':'native_visuals_completed','scene_id':row['scene_id'],'visual_directories':{v:str(d)for v,d in visual_dirs.items()},'formal_dataset_count':0}
         return {'status':'native_visual_completed','scene_id':row['scene_id'],'visual':native_only_visual,
                 'visual_directory':str(visual_dirs[native_only_visual]),'formal_dataset_count':0}
     for member in row['members']:

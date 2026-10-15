@@ -6,7 +6,7 @@ used directly; a Habitat material conversion is never applied to UE assets.
 """
 from pathlib import Path
 from copy import deepcopy
-import json,math,sys,time
+import json,math,os,sys,time
 import numpy as np
 from avengine.capture.v7_alpha_ue import NativeUEAlphaVideo,assert_ue_alpha_visual
 from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers,apply_camera,
@@ -126,6 +126,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         start=time.perf_counter()
         try:
             self.instance,self.game,launch=launch_native(self.ue,self.house['input']['ue_map_path'])
+            if os.environ.get('AVENGINE_UE_RPC_SHARE_RENDERER_CPU')=='1':
+                os.sched_setaffinity(0,{min(os.sched_getaffinity(self.instance._process.pid))})
+                launch['Python_RPC_CPU_affinity']=sorted(os.sched_getaffinity(0))
             if self.current_native_environment or 'physical_gpu_index' in self.ue:
                 from avengine.capture.kujiale_pilot_environment import verify_gpu
                 launch['actual_graphics_gpu']=verify_gpu(self.ue,launch)
