@@ -46,7 +46,7 @@ def run_prefetch_plan(request_path, request, setup_report):
     try:claim.mkdir()
     except FileExistsError:return None
     started=time.monotonic();current=tuple(request['source_position_m']);inputs=deepcopy(request['inputs'])
-    inputs.update(fresh_rir_workers=int(plan['workers']),fresh_rir_cpu_ids=list(plan['cpu_ids']))
+    inputs.update(fresh_rir_workers=min(16,max(1,int(plan['workers']))),fresh_rir_cpu_ids=list(plan['cpu_ids']))
     renderer=FreshNativeContextRenderer(inputs,request['house'],request['expected_native_identity'],setup_report,claim/'native')
     cache=PositionRIRCache(cache_root,renderer,identity)
     result={'status':'running','plan':str(plan_path),'plan_id':plan_id,'coordinator_pid':os.getpid(),
@@ -79,7 +79,7 @@ def run_prefetch_plan(request_path, request, setup_report):
             write_json(checkpoint,{'actual_position_m':p,'native_identity':identity,'references':items,
                 'source':'three unmodified independent native renders; resumable only at exact pose/configuration'})
             return str(checkpoint)
-        with ThreadPoolExecutor(max_workers=int(plan['workers']))as pool:references=list(pool.map(reference,jobs))
+        with ThreadPoolExecutor(max_workers=min(16,max(1,int(plan['workers']))))as pool:references=list(pool.map(reference,jobs))
         primary_records=[];native_cpu=0.
         for native_report in renderer.process_evidence:
             value=json.loads(Path(native_report).read_text());native_cpu+=value['process_cpu_seconds_total']

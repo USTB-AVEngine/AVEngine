@@ -68,7 +68,8 @@ def peer_processes(m):
 def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory):
  if now >= deadline:return 'delivery_deadline_no_new_jobs'
  if pss >= limit:return 'PSS_limit_no_new_jobs'
- if free < 100_000_000_000:return 'disk_headroom_no_new_jobs'
+ from avengine.timeline.v7_storage_budget import acceptance_minimum_free_bytes
+ if free < acceptance_minimum_free_bytes(now):return 'disk_headroom_no_new_jobs'
  if allocated_size >= 60_000_000_000:return 'task_disk_limit_no_new_jobs'
  if available_memory < 30_000_000_000:return 'memory_headroom_no_new_jobs'
  return ''

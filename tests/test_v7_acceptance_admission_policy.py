@@ -9,7 +9,7 @@ pytestmark = pytest.mark.fast_unit
 
 @pytest.mark.parametrize("override,reason", [
     ({"pss": 141_000_000_000}, "PSS_limit_no_new_jobs"),
-    ({"free": 99_000_000_000}, "disk_headroom_no_new_jobs"),
+    ({"free": 59_000_000_000}, "disk_headroom_no_new_jobs"),
     ({"available_memory": 29_000_000_000}, "memory_headroom_no_new_jobs"),
     ({"allocated_size": 61_000_000_000}, "task_disk_limit_no_new_jobs"),
     ({"now": datetime.datetime(2026,10,15,4,tzinfo=datetime.timezone.utc)}, "delivery_deadline_no_new_jobs"),
@@ -73,3 +73,13 @@ def test_independent_helper_sdk_prefetch_is_included_without_worker_receipt(tmp_
         assert any(r['pid']==child.pid for r in records)
     finally:
         child.stdin.close();child.wait(timeout=5)
+
+
+def test_owner_temporary_disk_floor_expires_at_1230_singapore():
+    from avengine.timeline.v7_storage_budget import acceptance_minimum_free_bytes,policy_minimum_free_bytes
+    before=datetime.datetime(2026,10,15,4,29,tzinfo=datetime.timezone.utc)
+    after=datetime.datetime(2026,10,15,4,30,tzinfo=datetime.timezone.utc)
+    assert acceptance_minimum_free_bytes(before)==60_000_000_000
+    assert acceptance_minimum_free_bytes(after)==100_000_000_000
+    assert policy_minimum_free_bytes({'root':'/own/v7_acceptance_20261015','minimum_free_bytes':100_000_000_000},before)==60_000_000_000
+    assert policy_minimum_free_bytes({'root':'/other/review','minimum_free_bytes':100_000_000_000},before)==100_000_000_000

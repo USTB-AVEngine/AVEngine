@@ -4,7 +4,7 @@ Primary and independent references retain separate native uploads and PIDs.
 Only scheduling changes; every pose, ray budget and engineering check remains.
 """
 from __future__ import annotations
-import json,os,pathlib,subprocess,sys,time,uuid,hashlib,queue
+import json,os,pathlib,subprocess,sys,time,uuid,hashlib,queue,fcntl,shutil
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 import numpy as np
@@ -12,12 +12,47 @@ from avengine.timeline.v7_storage_budget import check_write
 REVISION='fresh-native-process-per-rir-independent-midpoints-v1'
 
 
+def _launch_native_child(command,log,inputs):
+    # Shared lock is opened read-only: helpers never write another task's files.
+    configured=inputs.get('shared_rir_policy')
+    if configured is None and inputs.get('production_input_contract'):
+        candidate=pathlib.Path(inputs['production_input_contract']).parent/'RIR_SHARED_POLICY.json'
+        if candidate.is_file():configured=str(candidate)
+    if not configured:
+        return subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
+    policy=json.loads(pathlib.Path(configured).read_text())
+    from tools.timeline.monitor_v7_acceptance import proc,processes
+    from avengine.timeline.v7_storage_budget import acceptance_minimum_free_bytes
+    last_log=0.
+    with pathlib.Path(policy['lock']).open('rb')as lock:
+        while True:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            try:
+                roots=[]
+                for path in pathlib.Path('/proc').iterdir():
+                    if not path.name.isdigit():continue
+                    value=proc(int(path.name))
+                    if value and value['state']!='Z'and any(root in value['cmd']for root in policy['output_roots']):roots.append(value['pid'])
+                records=processes(roots);pss=sum(r['pss_bytes']for r in records)
+                sdk=[r for r in records if 'avengine.timeline.v7_phase2_fresh_rir'in r['cmd']and '--request'in r['cmd']]
+                reserve=int(policy.get('native_process_reserve_bytes',1_500_000_000))
+                forecast=pss+sum(max(0,reserve-r['pss_bytes'])for r in sdk)+reserve
+                available=next(int(s.split()[1])*1024 for s in pathlib.Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'))
+                if (len(sdk)<16 and len(records)<80 and forecast<=140_000_000_000
+                    and available>=30_000_000_000 and shutil.disk_usage('/data').free>=acceptance_minimum_free_bytes()):
+                    return subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
+                if time.monotonic()-last_log>=30:
+                    log.write(('waiting_for_new_native_process_admission '+json.dumps({'SDK_processes':len(sdk),'PSS_bytes':pss,'forecast_bytes':forecast,'MemAvailable_bytes':available})+'\n').encode());log.flush();last_log=time.monotonic()
+            finally:fcntl.flock(lock,fcntl.LOCK_UN)
+            time.sleep(.5)
+
+
 class FreshNativeContextRenderer:
     def __init__(self,inputs,house,identity,setup_report,root):
         self.inputs=inputs;self.house=house;self.identity=identity
         self.root=pathlib.Path(root);check_write(self.root,expected_bytes=4_000_000)
         self.root.mkdir(parents=True,exist_ok=False)
-        self.parallel_workers=max(1,int(inputs.get('fresh_rir_workers',1)))
+        self.parallel_workers=min(16,max(1,int(inputs.get('fresh_rir_workers',1))))
         cpu_ids=inputs.get('fresh_rir_cpu_ids',[])
         self.cpu_pool=queue.Queue() if cpu_ids else None
         for cpu in cpu_ids:self.cpu_pool.put(int(cpu))
@@ -25,7 +60,7 @@ class FreshNativeContextRenderer:
             'primary_and_reference_native_processes_separate':True,
             'reference_has_no_primary_cache_or_interpolated_estimate':True,
             'maximum_parallel_native_rirs':self.parallel_workers,
-            'task_native_rir_cpu_ids':list(cpu_ids)}
+            'task_native_rir_cpu_ids':list(cpu_ids),'native_process_nice_at_least':10}
         self.process_evidence=[]
 
     def _render_one(self,position,evidence_role,reference_trial):
@@ -43,7 +78,7 @@ class FreshNativeContextRenderer:
             command=[sys.executable,'-B','-m','avengine.timeline.v7_phase2_fresh_rir','--request',str(request)]
             if selected_cpu is not None:command=['taskset','--cpu-list',str(selected_cpu),*command]
             with(directory/'native.log').open('xb')as log:
-                child=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
+                child=_launch_native_child(['nice','-n','10',*command],log,self.inputs)
                 exit_code=child.wait()
             if exit_code:raise ValueError('fresh native process failed: '+str(directory/'native.log'))
             result=json.loads(report.read_text());wave=np.load(output,allow_pickle=False)
@@ -98,6 +133,7 @@ def _worker(request_path):
         'evidence_role':request['evidence_role'],'reference_trial':request['reference_trial'],
         'native_identity':identity,'native_setup_report':renderer.setup_report,
         'native_renders_after_fresh_upload':1,'primary_cache_read':False,'estimate_read':False,
+        'cpu_affinity':sorted(os.sched_getaffinity(0)),'nice':os.getpriority(os.PRIO_PROCESS,0),
         'output_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),
         'process_cpu_seconds_total':time.process_time()-cpu,'wall_seconds_total':time.perf_counter()-started}
     # Optional scheduling runs in a separate coordinator. In particular, an

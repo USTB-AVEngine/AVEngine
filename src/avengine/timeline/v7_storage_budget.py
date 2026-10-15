@@ -6,10 +6,23 @@ spawned processes. The 48g /data policy is mandatory: 100 decimal GB free,
 counts hardlinks once and is conservative for XFS reflinks.
 """
 from __future__ import annotations
-import json,os,shutil,time
+import json,os,shutil,time,datetime
 from pathlib import Path
 
 ENV_KEY="AVENGINE_V7_STORAGE_BUDGET"
+TEMP_HEADROOM_UNTIL=datetime.datetime(2026,10,15,4,30,tzinfo=datetime.timezone.utc)
+ACCEPTANCE_ROOT_NAMES=frozenset({'v7_acceptance_20261015','v7_gap_motion_20261015','v7_gap_demand_20261015','v7_gap_kujiale_20261015'})
+
+
+def acceptance_minimum_free_bytes(now=None):
+    now=now or datetime.datetime.now(datetime.timezone.utc)
+    return 60_000_000_000 if now<TEMP_HEADROOM_UNTIL else 100_000_000_000
+
+
+def policy_minimum_free_bytes(policy,now=None):
+    if Path(policy['root']).name in ACCEPTANCE_ROOT_NAMES:
+        return acceptance_minimum_free_bytes(now)
+    return policy['minimum_free_bytes']
 class StorageBudgetExceeded(RuntimeError):
     pass
 
@@ -74,8 +87,9 @@ def check_write(path,*,expected_bytes=0):
                 "checked_unix":time.time(),"policy":policy}
     free=shutil.disk_usage(policy["filesystem"]).free
     requested=max(0,int(expected_bytes));margin=policy.get("concurrent_write_margin_bytes",0)
-    if free-requested-margin<policy["minimum_free_bytes"]:
-        raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={policy['minimum_free_bytes']}")
+    minimum=policy_minimum_free_bytes(policy)
+    if free-requested-margin<minimum:
+        raise StorageBudgetExceeded(f"disk headroom stop: free={free}, expected={requested}, required={minimum}")
     used=allocated_bytes(root)
     if used+requested+margin>policy["maximum_task_bytes"]:
         raise StorageBudgetExceeded(f"own output budget stop: allocated={used}, expected={requested}, limit={policy['maximum_task_bytes']}")
@@ -91,7 +105,7 @@ def configure_integration_pilot(output,budget_root,*,parents,workers,minimum_fre
     if not root.is_relative_to(Path('/data')) or root==Path('/data') or not output.is_relative_to(root):
         raise StorageBudgetExceeded('integration pilot output escaped its task root')
     if not 1<=parents<=30 or not 1<=workers<=16:raise StorageBudgetExceeded('integration pilot is limited to 30 parents and 16 workers')
-    if minimum_free_bytes<100_000_000_000:raise StorageBudgetExceeded('explicit task headroom cannot be below owner 100GB floor')
+    if minimum_free_bytes<(acceptance_minimum_free_bytes()if root.name in ACCEPTANCE_ROOT_NAMES else 100_000_000_000):raise StorageBudgetExceeded('explicit task headroom is below the current owner floor')
     policy={'root':str(root),'filesystem':'/data','minimum_free_bytes':minimum_free_bytes,
         'maximum_task_bytes':99_000_000_000,'concurrent_write_margin_bytes':workers*64_000_000,
         'policy':'owner stage-one integration pilot: <=100GB including worktree, >=150GB shared free','local_48g':True}

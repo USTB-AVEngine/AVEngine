@@ -85,7 +85,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
             directions.append({'endpoint_id':endpoint,'emission_time_s':sample/sr,'native_mouth_m':p.tolist(),'distance_m':float(np.linalg.norm(p-listener)),'foa_readback':direction,'angular_error_deg':error,'passed_5deg':True,'position_source':'actual 30Hz registered attached emitter trajectory'})
             filters[sample]=wave
         return filters[sample]
-    workers=max(1,int(inputs.get('fresh_rir_workers',1)))
+    workers=min(16,max(1,int(inputs.get('fresh_rir_workers',1))))
     if workers>1:cache.prefetch([position_at(trajectory,k/sr)for k in real_keys])
     for k in real_keys:native(k)
     reference_stats_lock=threading.Lock()
