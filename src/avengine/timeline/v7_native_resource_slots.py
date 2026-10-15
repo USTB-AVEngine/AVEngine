@@ -44,11 +44,11 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
         available=psutil.virtual_memory().available
         tree_pss=0
         try:
-            for ancestor in psutil.Process().parents():
+            for ancestor in [psutil.Process(),*psutil.Process().parents()]:
                 if 'run_v7_acceptance.py' in ' '.join(ancestor.cmdline()):
                     tree_pss=sum(p.memory_full_info().pss for p in [ancestor,*ancestor.children(recursive=True)] if p.status()!=psutil.STATUS_ZOMBIE);break
         except psutil.Error:pass
-        pressure=available<20_000_000_000 or tree_pss>40_000_000_000
+        pressure=available<20_000_000_000 or tree_pss>30_000_000_000
         if pressure:
             alert={'time_unix':time.time(),'kind':kind,'pid':os.getpid(),'available_memory_bytes':available,'own_parent_tree_pss_bytes':tree_pss,'action':'pause new native operation; never terminate active work'}
             with(root/'evidence/native_resource_alerts.jsonl').open('a')as stream:stream.write(json.dumps(alert)+'\n')

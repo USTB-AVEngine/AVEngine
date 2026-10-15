@@ -110,6 +110,17 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
                 'mechanism':'walking_human_registered_foot','silent_decor':False,'dry_gain':.6}
         scene['planned_footsteps'].append({'endpoint_id':ep,'asset_id':aid,'sound_asset_id':record['sound_asset_id'],'requested_events':max(6,int(request.get('footstep_events',6)))})
         program['records'].append(record)
+    # Whole admitted utterances/effects may repeat on the constructor's clock.
+    # This changes physical scheduling only; all samples and native truth remain.
+    for aid,starts in row.get('phase2_source_event_schedule_s',{}).items():
+        ep=by_id[aid]['endpoint_id'];old=[e for e in scene['events']if e['endpoint_id']==ep]
+        if not old:raise ValueError('scheduled physical source has no admitted event')
+        bindings={e['event_id']:e for e in program['events']};prototype=deepcopy(old[0]);binding=deepcopy(bindings[prototype['event_id']]);duration=prototype['end_tick']-prototype['start_tick'];ids={e['event_id']for e in old}
+        scene['events']=[e for e in scene['events']if e['event_id']not in ids];program['events']=[e for e in program['events']if e['event_id']not in ids]
+        for i,start in enumerate(starts):
+            lo=round(float(start)*10)
+            if abs(lo/10-float(start))>1e-8 or lo<0 or lo+duration>300:raise ValueError('complete source event schedule exceeds original tick clock')
+            eid='scheduled_'+ep+'_'+str(i);scene['events'].append({**prototype,'event_id':eid,'start_tick':lo,'end_tick':lo+duration});program['events'].append({**binding,'event_id':eid})
     _validate_authored_motion_support(scene, program, requests)
     # Optional physical planning constraints; frozen QA sector predicates are
     # untouched and independently recompute the actual accepted positions.

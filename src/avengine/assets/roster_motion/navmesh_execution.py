@@ -108,7 +108,7 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
     phase0=float(min(double_support));velocity=np.zeros(len(times));moving=np.zeros(len(times),bool)
     if timed_route is not None and timed_route.get('single_pass'):
         from avengine.assets.roster_motion.timed_straight_clock import single_pass_clock
-        distance,velocity=single_pass_clock(times,speed);desired=phase0+distance[-1]/nominal
+        distance,velocity=single_pass_clock(times,speed,timed_route.get('turn_speed_m_s',.4));desired=phase0+distance[-1]/nominal
         endings=sorted(float(p)+cycle*duration for cycle in range(math.ceil(desired/duration)+2)for p in double_support if float(p)+cycle*duration>=desired-1e-9)
         target=endings[0];ratio=(target-phase0)*nominal/distance[-1]
         if ratio>1.12 or speed*ratio>float(speed_range[1])+1e-9:raise ValueError('bounded complete-step clock does not fit the selected scene speed; construct another candidate')

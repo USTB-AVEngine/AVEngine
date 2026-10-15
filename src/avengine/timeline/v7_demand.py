@@ -20,6 +20,7 @@ TARGET_GROUPS = (
     ('taxonomy', .05, 4, ('QA-21','QA-22','STARSS-CLASS13','V7-CLASS34')),
 )
 CONDITION_FAMILIES = {
+    'motion_quartet':['QA-06','QA-15','QA-16','QA-17'],
     'walking_human': ['QA-06','QA-13','QA-15','QA-16','QA-17'],
     'actual_contact_bound_human_footsteps': ['QA-06','QA-19','QA-23'],
     'static_speaking_human': ['QA-06','QA-17'],
@@ -210,7 +211,7 @@ def record_selected_parent(path,result):
                      family_counts={k:v for k,v in aggregate.items() if v},revision=DEMAND_REVISION)
         state['parents'][key]={'scene_id':result['scene_id'],'logical_questions':n,'family_counts':dict(counts),
                                'delivery_directory':result.get('delivery_directory'),'raw_logical_questions':result.get('raw_logical_questions',n),
-                               'dedup_dropped':result.get('dedup_dropped',0),'dedup_rule_version':result.get('dedup_rule_version')}
+                               'motion_source_type':result.get('motion_source_type'),'dedup_dropped':result.get('dedup_dropped',0),'dedup_rule_version':result.get('dedup_rule_version')}
         demand_snapshot(state)
         tmp=p.with_name(p.name+f'.{os.getpid()}.tmp')
         with tmp.open('w') as stream:
@@ -243,10 +244,15 @@ def add_scene_demand(row,state,*,focus=None):
     return row
 
 
-def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
+def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None,construction_context=None):
     """Compile concrete demands through the existing registered phase2 intake."""
     from avengine.timeline.v7_production_inputs import bind_animal_motion,validate_recipe
     row=add_scene_demand(row,state,focus=focus);request=row['scene_demand'];focus=request['focus']
+    if construction_context is not None and focus in {'human_motion','animal_motion'}:
+        from avengine.timeline.v7_motion_source_roles import choose_motion_source_type
+        from avengine.timeline.v7_motion_quartet_template import motion_quartet_template
+        context=construction_context() if callable(construction_context) else construction_context
+        return motion_quartet_template(row,context['room'],catalog,context['semantic_manifest'],records,context['pathfinder'],contract=contract,source_type=choose_motion_source_type(state))
     row['acceptance_allow_partial_families']=False
     if row.get('schema')=='v7-visible-registered-pilot-phase2-v1':
         row['trial_only']=True

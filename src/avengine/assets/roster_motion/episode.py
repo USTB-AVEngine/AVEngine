@@ -263,7 +263,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             ts,double,speed,request.get('intervals_s',[[2.,6.],[16.,20.]]),nominal,request.get('scene_speed_range_m_s',(.8,1.4)),timed_route=request.get('motion_quartet_route'))
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
     accepted=None;prepared_solver=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
-    poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
+    search_floor=shape(scene['production_scenario']['motion_floor_polygon'])
+    poly=(search_floor.convex_hull if request.get('motion_quartet_route') else search_floor).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]

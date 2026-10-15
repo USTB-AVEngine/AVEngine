@@ -45,8 +45,14 @@ def run_worker(manifest,slot):
             if not pf.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('registered native NavMesh is missing')
             room=next(r for r in house['checked_rooms'] if r['room_label']==row['room_id'])
             row=motion_quartet_template(row,room,catalog,load(inputs['semantic_manifest']),source['records'],pf,
-                attempt=int(task.get('construction_attempt',0)))
-        else:row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'))
+                attempt=int(task.get('construction_attempt',0)),contract=contract)
+        else:
+            def construction_context():
+                from avengine.acoustics.runtime import load_habitat_runtime
+                hs,_=load_habitat_runtime(runtime_mode='current-installed',**inputs['runtime']);pf=hs.PathFinder()
+                if not pf.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('registered native NavMesh missing')
+                return {'room':next(r for r in house['checked_rooms']if r['room_label']==row['room_id']),'semantic_manifest':load(inputs['semantic_manifest']),'pathfinder':pf}
+            row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=task.get('focus'),construction_context=construction_context)
         inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
         from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
     else:
@@ -66,7 +72,7 @@ def run_worker(manifest,slot):
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
         'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
-        'code_commit':manifest['code_commit'],'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        'code_commit':task.get('code_commit',manifest['code_commit']),'status':'running','started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     write(root/'evidence/jobs'/f'{slot:03d}.json',receipt)
     try:
         from avengine.timeline.v7_native_resource_slots import acquire_native_resource
@@ -103,7 +109,7 @@ def run_worker(manifest,slot):
         reader=open_delivered_media(readroot)
         if reader['status']!='pass' or reader['actual_decoded_windows']!=len(exported['windows']):
             raise ValueError('delivered media reader failed: '+str(reader))
-        feedback={**result,'windows':[{'family_counts':exported['question_family_counts'],'logical_questions':exported['independent_questions']}],'raw_logical_questions':exported['raw_export_questions'],'dedup_dropped':exported['dedup_dropped']}
+        feedback={**result,'motion_source_type':row.get('motion_source_type'),'windows':[{'family_counts':exported['question_family_counts'],'logical_questions':exported['independent_questions']}],'raw_logical_questions':exported['raw_export_questions'],'dedup_dropped':exported['dedup_dropped']}
         record_selected_parent(root/'inputs/demand_state.json',feedback)
         receipt.update(status='passed',producer_result=result,export=exported,reader=reader,
                        independent_questions=exported['independent_questions'],raw_questions=exported['raw_export_questions'])

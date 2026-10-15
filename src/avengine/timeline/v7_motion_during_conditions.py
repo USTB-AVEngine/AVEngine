@@ -59,8 +59,10 @@ def prepare_motion_during_row(row,catalog,records):
             profile=result.get('phase2_animal_program_samples',{}).get(aid)
             if profile:
                 begin=int(profile.get('crop_start_sample',0));n=int(profile['sample_count'])
-                if any(int(lo)<begin or int(hi)>begin+n for lo,hi in intervals):raise ValueError('planned crop would remove actual measured animal activity')
-                intervals=[[int(lo)-begin,int(hi)-begin]for lo,hi in intervals]
+                required=profile.get('required_activity_intervals_samples',intervals)
+                if profile.get('selected_activity_index')is not None and required!=[intervals[int(profile['selected_activity_index'])]]:raise ValueError('selected complete call differs from original measured activity')
+                if any(int(lo)<begin or int(hi)>begin+n for lo,hi in required):raise ValueError('planned crop would remove the complete selected measured activity')
+                intervals=[[max(int(lo),begin)-begin,min(int(hi),begin+n)-begin]for lo,hi in intervals if int(hi)>begin and int(lo)<begin+n]
             count=math.ceil(n/1600)*1600
             sounds[aid]={'sound_asset_id':sid,'sample_rate_hz':rate,'sample_count':count,
                 'audible_start_sample':int(intervals[0][0]),'audible_end_sample_exclusive':int(intervals[-1][1]),
