@@ -326,7 +326,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if pinned is not None:
                 if pinned.get('surface')!=a['attachment_surface']:raise ValueError('pinned attachment surface differs from registration')
                 candidates=[dict(pinned,point=pinned['original_surface_point_m']),*candidates]
-            if key=='floor':candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
+            from avengine.capture.v7_solved_pose_execution import is_solved_support,solved_support_proposals
+            strict_joint_pin=is_solved_support(pinned)
+            if key=='floor'and not strict_joint_pin:candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
             from avengine.timeline.v7_spatial_layout import body_yaw,spacing_rejection,noncollinear_rejection,is_person,entry_roots
             person_index=next(i for i,e in enumerate(e for e in self.actors if is_person(e['declaration'])) if e is entry) if is_person(a) else 0
             listener=np.asarray(scene['listener_m']);rejections={};rejection_samples=[]
@@ -361,7 +363,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             dynamic_offscreen=[False]
             def candidate_score(p):
                 p=dict(p)
-                if key=='floor':
+                if key=='floor'and not strict_joint_pin:
                     from avengine.capture.v7_layout_candidates import facing_yaw
                     p['yaw_rad']=facing_yaw(scene,a,listener,p['point'])
                 root,yaw,normal,_=support_points(meta,p);rep=root+rotation(yaw)@np.asarray(a['emitter_local_m']) if not a['silent_decor'] else root+rotation(yaw)@silent_probe
@@ -392,10 +394,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             contact_budget=int(self.motion_inputs.get('visible_placement_max_contact_attempts_per_asset',64))
             if not 1<=contact_budget<=1280:raise ValueError('invalid native placement search budget')
             ordinary=[p for p in candidates if pinned is None or p!=dict(pinned,point=pinned['original_surface_point_m'])]
-            proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned['_outward_clearance_m'])] if pinned is not None else [])
+            proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned.get('_outward_clearance_m',0.))] if pinned is not None else [])
             support_budget=int(self.motion_inputs.get('visible_placement_max_support_candidates_per_asset',320))
             if not 1<=support_budget<=320:raise ValueError('invalid support candidate sampling budget')
             proposals.extend(dict(p,_outward_clearance_m=offset,_body_yaw_retry=retry) for p in ordinary[:support_budget] for retry in (range(3) if is_person(a) else range(1)) for offset in (0.,.002,.005,.010,.014))
+            if strict_joint_pin:proposals=solved_support_proposals(pinned)
             proposal_budget=self.motion_inputs.get('visible_placement_max_proposals_per_asset')
             if proposal_budget is not None and not 1<=int(proposal_budget)<=4801:
                 raise ValueError('invalid support proposal search budget')
@@ -403,7 +406,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if proposal_budget is not None and proposal_index>=int(proposal_budget):
                     search_exhausted=True;reject('bounded_support_proposal_search_exhausted');break
                 support=dict(support);support['original_surface_point_m']=support['point'];support['point']=(np.asarray(support['point'])+np.asarray(support['normal'])*support['_outward_clearance_m']).tolist()
-                if key=='floor':
+                if key=='floor'and not strict_joint_pin:
                     delta=listener-np.asarray(support['point'])
                     support['yaw_rad']=math.atan2(-delta[0],-delta[2]) if a['kind'] in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
                     if is_person(a):
@@ -427,7 +430,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if not proposal_view_ok(scene,a['asset_id'],proposed_rep-listener,scene['camera_forward'],visible_from_path(proposed_rep-listener),required=required_view):
                     reject('outside_observed_camera_path');continue
                 placement=check_support(self.sim,r,meta,support)
-                if placement is None and key=='floor' and a['kind']=='animal':
+                if placement is None and key=='floor' and a['kind']=='animal'and not strict_joint_pin:
                     from avengine.assets.animal_motion.production_grounding import construct_animal_floor_support
                     placement=construct_animal_floor_support(self.sim,r,meta,support)
                 if placement is None:
@@ -552,6 +555,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 rejection={'status':'rejected_layout_pass','failed_asset_id':a['asset_id'],'surface':key,'search_pass':search_pass,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections,'rejection_samples':rejection_samples}
                 from avengine.capture.v7_placement_diagnostics import record_placement_rejection
                 record_placement_rejection(directory,a['endpoint_id'],search_pass,rejection)
+                if strict_joint_pin:
+                    write_json(directory/'joint_solved_pose_execution_conflict.json',{**rejection,'status':'fail','native_search_after_solve':False})
+                    raise ValueError('joint solved pose execution conflict for '+a['asset_id']+': '+str(rejections))
                 from avengine.capture.v7_support_construction import retry_same_surface
                 support_retry=retry_same_surface(scene,a,key,supports,poly,floor,origin,lambda point:survey(self.sim,r,{'object_position':point}))
                 if support_retry is not None:
