@@ -175,6 +175,8 @@ def cleanup_new_failed(root,result,policy_after,log):
 def failure_signature(result):
     """Compare causes across candidates and parents, ignoring attempt paths."""
     reason=str(result.get('reason')or result.get('status','unknown failure')).splitlines()[0]
+    if ' [placement_cause='in reason:
+        reason='native placement: '+reason.split(' [placement_cause=',1)[1].split(']',1)[0]
     if reason.startswith('write escaped the declared own task output root'):
         reason='write escaped the declared own task output root'
     else:
@@ -218,11 +220,12 @@ def log_attempt_failure(result):
 
 
 
-def room_for_candidate(base_room,rooms,candidate):
+def room_for_candidate(base_room,rooms,candidate,required_categories=None):
     """Try the next original legal room in the same capability cell."""
     matches=[pair for pair in rooms if pair[1]['family']==base_room['family']
-        and set(pair[1]['categories'])==set(base_room['categories'])]
-    start=next(i for i,pair in enumerate(matches)if pair[1]['room_id']==base_room['room_id'])
+        and (set(required_categories)<=set(pair[1]['categories'])if required_categories is not None
+             else set(pair[1]['categories'])==set(base_room['categories']))]
+    start=next((i for i,pair in enumerate(matches)if pair[1]['room_id']==base_room['room_id']),0)
     return matches[(start+candidate)%len(matches)]
 
 
@@ -251,7 +254,8 @@ def main():
     rooms=[(i,r)for i,r in enumerate(contract['rooms'])if r['family']in {'hm3d','mp3d'}and r['house']in houses and houses[r['house']]['split']=='train'
         and 'standing_human'in r['categories']and(not a.room_id or r['room_id']==a.room_id)
         and(not a.unseen_houses or r['house']not in exposure_state.get('observed_houses',[]))]
-    rooms.sort(key=lambda pair:(pair[1]['house'],pair[1]['room_id']))
+    from avengine.timeline.v7_family_room_capacity import ranked_room_candidates,required_categories
+    rooms=ranked_room_candidates(rooms,houses)
     if not rooms:raise ValueError('no original legal train room matches the requested untouched-room scope')
     root.mkdir(parents=True,exist_ok=True)
     coordinator_lock=(root/'coordinator.lock').open('a')
@@ -294,9 +298,12 @@ def main():
             write(root/'proposals'/f'{index:04d}.json',plan);outcomes.append({'scene_id':scene,'family':family,'room_id':room['room_id'],'status':'proposal_only_native_not_run'});continue
         record=root/'evidence/jobs'/f'{index:04d}.json'
         if record.exists()and read(record).get('status')=='passed':outcomes.append(read(record));continue
-        base_room=room
+        base_room=room;needed_categories={'standing_human'}
         for candidate in range(a.maximum_candidates):
-            ri,room=room_for_candidate(base_room,rooms,candidate)
+            if candidate:
+                previous=root/'attempts'/(scene+'__'+str(candidate-1).zfill(3))/'inputs/planned/000.json'
+                if previous.exists():needed_categories=required_categories(read(previous),assets,base_room['family'])
+            ri,room=room_for_candidate(base_room,rooms,candidate,required_categories=needed_categories)
             attempt=root/'attempts'/(scene+'__'+str(candidate).zfill(3))
             if (attempt/'automatic_result.json').exists():
                 result=read(attempt/'automatic_result.json');write(record,result)

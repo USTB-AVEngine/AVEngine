@@ -305,8 +305,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if pinned.get('surface')!=a['attachment_surface']:raise ValueError('pinned attachment surface differs from registration')
                 candidates=[dict(pinned,point=pinned['original_surface_point_m']),*candidates]
             if key=='floor':candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
-            listener=np.asarray(scene['listener_m']);rejections={}
-            def reject(reason):rejections[reason]=rejections.get(reason,0)+1
+            listener=np.asarray(scene['listener_m']);rejections={};rejection_samples=[]
+            def reject(reason,detail=None):
+                rejections[reason]=rejections.get(reason,0)+1
+                if detail is not None and rejections[reason]<=8:rejection_samples.append({'reason':reason,'detail':detail})
             from avengine.capture.v7_alpha_native import forward_at
             camera_path_vectors=[(forward_at(scene,k['time_s']),None) for k in scene['camera_yaw_knots']]
             camera_path_vectors=[(f,np.cross(f,[0.,1.,0.])) for f,_ in camera_path_vectors]
@@ -422,7 +424,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_social_layout import spacing_violation
                 social=spacing_violation(scene,a,root,placed)
                 if social is not None:
-                    reject('owner_minimum_human_or_animal_spacing_1m');continue
+                    reason=('requested_native_distance_band'if 'requested_distance_band_m'in social else'owner_minimum_camera_distance_1_5m'if social.get('other_asset_id')=='fixed_camera'else'owner_minimum_human_or_animal_spacing_1m')
+                    reject(reason,{'constraint':social,'body_root_m':root.tolist(),'listener_m':scene['listener_m']});continue
                 if native_attempts>=contact_budget:
                     search_exhausted=True;reject('bounded_native_search_exhausted');break
                 native_attempts+=1
@@ -475,8 +478,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                         lo,hi=motion_bounds[0]-.02,motion_bounds[1]+.02
                 bounds.append((lo,hi));checks.append(accepted);placed.append(entry);break
             if accepted is None:
-                write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})
-                raise ValueError('no strict native '+key+' placement for '+a['asset_id'])
+                write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections,'rejection_samples':rejection_samples})
+                raise ValueError('no strict native '+key+' placement for '+a['asset_id']+' [placement_cause='+max(rejections,key=rejections.get,default='no_candidates')+']')
         if require_pair:
             pixels=self._native_pair_pixels(scene,paired)
             write_json(directory/'simultaneous_controlled_pair.json',{'status':'pass' if all(n>=100 for n in pixels.values()) else 'fail','native_semantic_pixels':pixels,'frame_time_s':0.,'minimum_pixels':100})
