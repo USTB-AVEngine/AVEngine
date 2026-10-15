@@ -258,6 +258,7 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
 
 def finish_phase2_delivery(row,house,inputs,assets,program,semantic,root,wall,cpu,recipe,scene,visual,vd,ad,ar,receipt,color_eligibility,foot_receipt):
     """Original crop, candidate, replay, selection and seal path; no native rendering."""
+    from avengine.assets.v7_visible_color import COLOR_EVIDENCE_REVISION
     from avengine.qa.v7_validation import validate_v6_items,validate_content_items
     from avengine.qa.v7_visible_truth import validate_additional_items
     checks=native_checks(scene,assets,visual,ar)
