@@ -90,3 +90,18 @@ def test_temporary_floor_never_reintroduces_a_write_guard_for_admitted_job():
     policy={'root':'/own/v7_gap_motion_20261015','minimum_free_bytes':0}
     assert policy_minimum_free_bytes(policy,datetime.datetime(2026,10,15,2,tzinfo=datetime.timezone.utc))==0
     assert policy_minimum_free_bytes(policy,datetime.datetime(2026,10,15,5,tzinfo=datetime.timezone.utc))==0
+
+
+def test_owner_explicit_parallel_increase_retains_cpu_and_memory_guards():
+    from tools.timeline.monitor_v7_acceptance import admission_limits
+    now=datetime.datetime(2026,10,15,2,tzinfo=datetime.timezone.utc)
+    limits=admission_limits({'maximum_pss_bytes':180_000_000_000,'maximum_parents':18},now)
+    assert limits=={'maximum_pss_bytes':180_000_000_000,'maximum_parents':18,'maximum_cpu_processes':80}
+    fields=dict(now=now,deadline=now+datetime.timedelta(hours=2),pss=150_000_000_000,
+                limit=limits['maximum_pss_bytes'],free=80_000_000_000,allocated_size=10_000_000_000,
+                available_memory=31_000_000_000)
+    assert launch_pause_reason(**fields)==''
+    fields['available_memory']=29_000_000_000
+    assert launch_pause_reason(**fields)=='memory_headroom_no_new_jobs'
+    fields.update(available_memory=31_000_000_000,pss=180_000_000_000)
+    assert launch_pause_reason(**fields)=='PSS_limit_no_new_jobs'

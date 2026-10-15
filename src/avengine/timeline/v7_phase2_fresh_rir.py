@@ -26,6 +26,7 @@ def _launch_native_child(command,log,inputs):
     last_log=0.
     with pathlib.Path(policy['lock']).open('rb')as lock:
         while True:
+            policy=json.loads(pathlib.Path(configured).read_text())
             fcntl.flock(lock,fcntl.LOCK_EX)
             try:
                 roots=[]
@@ -38,7 +39,7 @@ def _launch_native_child(command,log,inputs):
                 reserve=int(policy.get('native_process_reserve_bytes',1_500_000_000))
                 forecast=pss+sum(max(0,reserve-r['pss_bytes'])for r in sdk)+reserve
                 available=next(int(s.split()[1])*1024 for s in pathlib.Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'))
-                if (len(sdk)<16 and len(records)<80 and forecast<=140_000_000_000
+                if (len(sdk)<min(16,int(policy.get("maximum_native_processes",16))) and len(records)<80 and forecast<=int(policy.get("maximum_pss_bytes",140_000_000_000))
                     and available>=30_000_000_000 and shutil.disk_usage('/data').free>=acceptance_minimum_free_bytes()):
                     return subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
                 if time.monotonic()-last_log>=30:
