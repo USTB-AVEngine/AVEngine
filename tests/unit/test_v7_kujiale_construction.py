@@ -38,3 +38,10 @@ def test_dense_same_radius_proposals_reject_before_expensive_three_body_search(m
     monkeypatch.setattr(kujiale_pilot_environment,'comparison_person_candidates',unexpected)
     candidates=[{'position_m':[2*np.sin(a),1.3,-2*np.cos(a)],'root_m':[2*np.sin(a),0.,-2*np.cos(a)],'body_yaw_deg':0.}for a in np.linspace(-1.,1.,500)]
     with pytest.raises(ValueError,match='no clear separated'):select_group(candidates,[0,1.5,0])
+
+def test_camera_can_occupy_clear_air_above_furniture_without_inventing_a_human_floor_point():
+    from shapely.geometry import box
+    from avengine.timeline.v7_kujiale_construction import air_camera_proposals
+    eyes=air_camera_proposals(box(0,0,2,2),.03,.5)
+    assert any(p[0]>.8 and p[2]>.8 for p in eyes)
+    assert all(p[1]==1.53 for p in eyes)

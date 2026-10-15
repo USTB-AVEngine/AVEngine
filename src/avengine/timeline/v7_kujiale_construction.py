@@ -77,6 +77,12 @@ def visible_candidates(mesh,listener,candidates):
     return [candidates[i]for i in order if not blocked[i,1]and .65<=radii[i]<=10.]
 
 
+def air_camera_proposals(polygon,native_floor_y,step):
+    from shapely.geometry import Point
+    x0,z0,x1,z1=polygon.bounds
+    return [[float(x),float(native_floor_y)+1.5,float(z)]for x in np.arange(x0+.05,x1,step)for z in np.arange(z0+.05,z1,step)if polygon.covers(Point(x,z))]
+
+
 def construct_layout(house,room_id,runtime,*,attempt=0):
     from shapely.geometry import shape,Point
     from avengine.acoustics.runtime import load_habitat_runtime
@@ -102,10 +108,10 @@ def construct_layout(house,room_id,runtime,*,attempt=0):
         views=[room['placement']['camera_m'],*[w['placement']['camera_m']for w in room.get('native_witnesses',[])]]
         # Add the same legal room's native-navigation camera positions. The
         # old witness often offers three nearly identical collinear views.
-        for candidate in all_candidates:
-            eye=np.asarray(candidate['root_m'])+[0,1.5,0]
+        camera_eyes=[(np.asarray(p['root_m'])+[0,1.5,0]).tolist()for p in all_candidates]+air_camera_proposals(polygon,floor.room_floor_y_m,step)
+        for eye in camera_eyes:
             cap=query_capsule(floor.mesh,{'witness_index':0,'role':'camera','capsule':{'radius_cm':25.,'half_height_cm':25.,'center_ue_cm':to_ue(eye)}})
-            if cap['status']=='pass':views.append(eye.tolist())
+            if cap['status']=='pass':views.append(list(eye))
         views=list({tuple(v):v for v in views}.values())
         if len(views)>128:views=[views[i]for i in np.linspace(0,len(views)-1,128).astype(int)]
         print('AUTO_ROOM_GEOMETRY',house['house'],room_id,{'grid_step':step,'native_candidates':len(all_candidates),'cameras':len(views),'rejections':statistics},flush=True)
@@ -116,7 +122,7 @@ def construct_layout(house,room_id,runtime,*,attempt=0):
                 p=np.asarray(candidate['position_m']);candidate['body_yaw_deg']=math.degrees(math.atan2(listener[0]-p[0],-(listener[2]-p[2])))
             try:selected=select_group(candidates,listener,attempt%3)
             except ValueError:failures.append({'camera_m':listener.tolist(),'clear_candidates':len(candidates)});continue
-            return {'house':house['house'],'room_id':room_id,'status':'CPU native geometry constructed; complete UE readback required','construction_revision':REVISION,'construction_attempt':attempt,'listener_m':listener.tolist(),'center_yaw_deg':0.,'valid':selected,'native_candidates':[p['position_m']for p in candidates],'candidate_count':statistics['proposed'],'clear_candidate_count':len(candidates),'search_rejections':statistics,'camera_candidates_tested':camera_index+1,'native_room_floor_y_m':floor.room_floor_y_m,'room_floor_polygon':declaration['floor_polygon'],'frozen_source_clearance_m':.15,'capsule_radius_m':.2,'capsule_half_height_m':.75,'admission_thresholds_changed':False}
+            return {'house':house['house'],'room_id':room_id,'status':'CPU native geometry constructed; complete UE readback required','construction_revision':REVISION,'construction_attempt':attempt,'listener_m':listener.tolist(),'center_yaw_deg':0.,'valid':selected,'native_candidates':[p['position_m']for p in candidates],'candidate_count':statistics['proposed'],'clear_candidate_count':len(candidates),'search_rejections':statistics,'camera_candidates_tested':camera_index+1,'native_room_floor_y_m':floor.room_floor_y_m,'camera_construction':'actual 25cm native air clearance; camera has no standing-foot/NavMesh requirement','room_floor_polygon':declaration['floor_polygon'],'frozen_source_clearance_m':.15,'capsule_radius_m':.2,'capsule_half_height_m':.75,'admission_thresholds_changed':False}
     raise ValueError('no native geometry construction after expanded same-room search: '+json.dumps({'rejections':statistics,'native_body_candidates':len(all_candidates),'camera_failures':failures}))
 
 def construct_request(request,house,runtime,catalog,semantic,registration):
