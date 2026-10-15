@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run isolated native acceptance parents under a committed resource policy."""
 from __future__ import annotations
-import argparse,datetime,json,os,resource,sys,time,traceback
+import argparse,datetime,json,os,resource,subprocess,sys,time,traceback
 from pathlib import Path
 
 
