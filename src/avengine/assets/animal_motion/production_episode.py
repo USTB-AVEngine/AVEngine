@@ -226,6 +226,7 @@ def animal_reflected_route_proposals(video,entry,scene,local_forward,request):
     heading=np.asarray(original['travel_yaws_rad'],float);centre=xz.mean(0)
     needs_refinement=[False];seen=set()
     seeds=[(0.,0.,0.)]+[(x,z,0.)for x,z in ((.025,0.),(-.025,0.),(0.,.025),(0.,-.025),(.025,.025),(-.025,-.025),(.05,0.),(-.05,0.),(0.,.05),(0.,-.05))]+[(0.,0.,a)for a in (math.pi/72,-math.pi/72,math.pi/36,-math.pi/36)]
+    if original.get('joint_exact_route'):seeds=seeds[:1]
     for number,(dx,dz,angle)in enumerate(seeds):
         if number and not needs_refinement[0]:return
         proposal_request=deepcopy(request)
@@ -240,7 +241,8 @@ def animal_reflected_route_proposals(video,entry,scene,local_forward,request):
             key=(np.asarray(route.positions).tobytes(),np.asarray(route.yaws).tobytes())
             if key in seen:continue
             seen.add(key)
-            route.receipt={**route.receipt,'animal_rigid_fitting_round':number,
+            route.receipt={**route.receipt,'animal_stationary_turn_intervals_s':original.get('animal_stationary_turn_intervals_s',[]),
+                'animal_rigid_fitting_round':number,
                 'animal_seed_translation_xz_m':[dx,dz],'animal_seed_rotation_rad':angle,
                 'original_physical_gates_unchanged':True}
             previous=getattr(route,'report_failure',None)
@@ -272,8 +274,8 @@ def animal_route_samples(times, origin, yaw, direction, speed, curved_route=None
     """Execute a supplied native route and drive its gait by translated distance.
 
     Rigid fitting preserves the template path. Stationary samples keep their
-    last heading and accumulate no distance, so their admitted pose also stays
-    fixed. The original paw, skin, NavMesh and full-scene checks run afterwards.
+    last heading unless the constructor explicitly declares a root-held turn.
+    They accumulate no distance, so the admitted gait phase stays fixed. The original paw, skin, NavMesh and full-scene checks run afterwards.
     """
     times=np.asarray(times,float)
     if curved_route is None:
@@ -288,8 +290,17 @@ def animal_route_samples(times, origin, yaw, direction, speed, curved_route=None
     steps=np.linalg.norm(np.diff(roots[:,[0,2]],axis=0),axis=1)
     distance=np.r_[0.,np.cumsum(steps)]
     velocity=np.r_[steps[0],steps]/(times[1]-times[0])
+    declared_turns = getattr(curved_route, 'receipt', {}).get('animal_stationary_turn_intervals_s', [])
+    turning = np.zeros(len(times), bool)
+    for lo, hi in declared_turns:
+        if not np.isfinite([lo, hi]).all() or not 0. <= lo < hi <= float(times[-1]):
+            raise ValueError('invalid declared stationary animal turn interval')
+        selected = (times >= lo - 1e-9) & (times <= hi + 1e-9)
+        if np.any(steps[selected[:-1] | selected[1:]] > 1e-8):
+            raise ValueError('declared stationary animal turn translates the body root')
+        turning |= selected
     for i in range(1,len(yaws)):
-        if steps[i-1]<=1e-10:yaws[i]=yaws[i-1]
+        if steps[i-1]<=1e-10 and not turning[i]:yaws[i]=yaws[i-1]
     return roots,np.unwrap(yaws),distance,velocity
 
 
@@ -299,6 +310,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     from .production_grounding import POLICY, StationaryPawGrounder
     from avengine.capture.v7_visible_mesh import indexed_static_mesh
     from avengine.timeline.continuous_pilot import write_json
+    if request.get('joint_animal_prepared_geometry'):
+        from .joint_execution import load_prepared_geometry
+        return load_prepared_geometry(entry, scene, house, request)
     authority = request['animal_motion_admission']
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
