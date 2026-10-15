@@ -10,7 +10,7 @@ from pathlib import Path
 import hashlib,itertools,json,math
 import numpy as np
 
-REVISION='kujiale-fixed-natural-construction-v2'
+REVISION='kujiale-fixed-natural-construction-v3-complete-fixed-view'
 FACTORS=('appearance','audio','camera','event_schedule','pose','questions','trajectory','window')
 
 def factor_seeds(seed):return {key:int.from_bytes(hashlib.sha256(f'{seed}/{key}'.encode()).digest()[:8],'big')for key in FACTORS}
@@ -44,7 +44,7 @@ def registered_people(catalog,registration,seed):
     return [a['asset_id'],b['asset_id'],c['asset_id']],a['visual_gender']
 
 def select_group(candidates,listener,attempt=0):
-    from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view,comparison_person_candidates
+    from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view,comparison_person_candidates,construct_dialogue_camera
     listener=np.asarray(listener,float);candidates=[p for p in candidates if np.linalg.norm((np.asarray(p['root_m'])-listener)[[0,2]])>=1.5-1e-9];ordered=sorted(candidates,key=lambda p:(abs(np.linalg.norm((np.asarray(p['position_m'])-listener)[[0,2]])-2.4),p['position_m']))
     if len(ordered)<3:raise ValueError('no clear separated three-person group')
     roots=np.asarray([p['root_m']for p in ordered])[:,[0,2]];rays=np.asarray([p['position_m']for p in ordered])-listener;radii=np.linalg.norm(rays[:,[0,2]],axis=1);bearings=np.degrees(np.arctan2(rays[:,0],-rays[:,2]));distance=np.linalg.norm(roots[:,None,:]-roots[None,:,:],axis=2);angles=np.abs((bearings[:,None]-bearings[None,:]+180)%360-180)
@@ -72,7 +72,12 @@ def select_group(candidates,listener,attempt=0):
                         if side>=.25:indices.append(index)
                 other=[ordered[k]for k in indices];thirds=comparison_person_candidates(listener,[first['position_m'],second['position_m']],[c['position_m']for c in other])
                 if not thirds:continue
-                c=next(c for c in other if c['position_m']==thirds[0]);best=(i,int(j),[deepcopy(first),deepcopy(second),deepcopy(c)]);best_shared=shared
+                for third in thirds:
+                    try:construct_dialogue_camera(listener,[first['position_m'],second['position_m']],additional_positions=[third])
+                    except ValueError:continue
+                    c=next(c for c in other if c['position_m']==third);best=(i,int(j),[deepcopy(first),deepcopy(second),deepcopy(c)]);best_shared=shared
+                    break
+                else:continue
                 if shared==0:break
             if best_shared==0:break
         if best is None:
@@ -171,7 +176,8 @@ def construct_request(request,house,runtime,catalog,semantic,registration):
     yaws,modes=natural_person_yaws([p['position_m']for p in layout['valid']],layout['listener_m'],seed=row['seeds']['pose'],room_center=room_center,return_modes=True)
     for point,yaw,mode in zip(layout['valid'],yaws,modes):point.update(body_yaw_deg=yaw,initial_orientation_mode=mode)
     layout['initial_orientation_sampling']={'policy':'seeded per-person mixture of conversation, room center and free direction; no index template','seed':row['seeds']['pose'],'modes':modes,'room_center_m':room_center,'turns':0,'idle_status':'registered static native geometry; skeletal Idle integration not yet verified'}
-    camera=construct_dialogue_camera(layout['listener_m'],[p['position_m']for p in layout['valid'][:2]])
+    camera=construct_dialogue_camera(layout['listener_m'],[p['position_m']for p in layout['valid'][:2]],additional_positions=[p['position_m']for p in layout['valid'][2:]])
+    layout['fixed_camera_construction']=camera
     layout['fixed_camera_yaw_deg']=camera['yaw_deg'];layout['orientation_construction']='seeded independent natural mixture; no fixed per-index pose; no turning';layout['human_minimum_center_distance_m']=1.0
     row['production_scenario']={'speaker_count':2,'gender':'F'if gender=='female'else'M','asset_ids':ids,'semantic_scenario_id':scenario,'semantic_sound_ids':sounds,'semantic_sound_subset_ids':sounds,'semantic_role_start_offsets_s':offsets,'environment_sound_classes':[],'camera_policy':'binding_static','camera_yaw_deg':0.,'binding_camera_yaw_offset_deg':0.,'recipe_revision':REVISION,'requested_posture_policy':'registered stand; full original native episode admission mandatory','category_focus_class':None,'non_speech_class':None}
     sounds_by_id={s['sound_asset_id']:s for s in semantic['sounds']}

@@ -278,24 +278,33 @@ def current_color_evidence(visual,start):
     return by_id
 
 
-def construct_dialogue_camera(listener,positions):
-    """Choose an observed-mouth view with distinct unchanged QA direction bins."""
+def construct_dialogue_camera(listener,positions,*,additional_positions=None):
+    """Choose one fixed view for all required bodies and original speaker bins."""
     from avengine.qa.unified_catalog import _azimuth_sector
     listener=np.asarray(listener,float);points=np.asarray(positions,float)
     if points.shape!=(2,3) or not np.isfinite(points).all():
         raise ValueError('dialogue camera needs two actual native mouth readbacks')
+    extra=np.asarray(additional_positions if additional_positions is not None else [],float).reshape(-1,3)
+    if not np.isfinite(extra).all():raise ValueError('additional required binding positions must be finite')
+    extra_rays=extra-listener;extra_bearings=np.degrees(np.arctan2(extra_rays[:,0],-extra_rays[:,2]))
     center=binding_camera_yaw(listener,points)
     rays=points-listener;bearings=np.degrees(np.arctan2(rays[:,0],-rays[:,2]));choices=[]
     for offset in np.arange(-35.,35.01,.5):
         yaw=center+float(offset);angles=(bearings-yaw+180.)%360.-180.
         sectors=[_azimuth_sector(float(a))for a in angles]
         if max(abs(angles))>37. or None in sectors or len(set(sectors))!=2:continue
+        extra_angles=(extra_bearings-yaw+180.)%360.-180.
+        all_angles=np.r_[angles,extra_angles]
+        if np.max(np.abs(all_angles))>42.5+1e-9:continue
         phase=(angles+22.5)%45.;boundary=float(np.min(np.minimum(phase,45.-phase)))
-        margin=min(boundary,float(42.5-max(abs(angles))))
+        margin=min(boundary,float(42.5-max(abs(all_angles))))
         choices.append((margin,-abs(float(offset)),float(offset),yaw,angles.tolist(),sectors))
-    if not choices:raise ValueError('native pair needs wider separated placements before dialogue capture')
+    if not choices:raise ValueError('native pair needs wider separated placements or another required-body layout before fixed dialogue capture')
     margin,_,offset,yaw,angles,sectors=max(choices,key=lambda x:x[:3])
     return {'status':'constructed_from_native_mouths','yaw_deg':yaw,'center_yaw_deg':center,
         'sampling_offset_deg':offset,'source_azimuths_deg':angles,'source_sectors':sectors,
         'minimum_boundary_or_frustum_margin_deg':margin,'native_mouths_m':points.tolist(),
-        'qa_sector_gate_changed':False,'native_hfov_deg':85.}
+        'qa_sector_gate_changed':False,'native_hfov_deg':85.,
+        'additional_required_positions_m':extra.tolist(),
+        'additional_required_azimuths_deg':((extra_bearings-yaw+180.)%360.-180.).tolist(),
+        'construction_only_all_required_bodies_in_fixed_view':True}
