@@ -33,6 +33,19 @@ def foreground_geometry(listener, target_root, root):
 def proposal_score(scene, entry, support_root, placed):
     _,relations=relation_roles(scene,entry['declaration']['asset_id'])
     if not relations:return None
+    if len(relations)>1:
+        metrics=[]
+        for relation in relations:
+            target=placed_target(relation,placed)
+            if target is None:raise ValueError('requested occluder must be placed after all targets')
+            metric=foreground_geometry(scene['listener_m'],target['applied_root_input'][:3,3],support_root)
+            metric['requested_fraction']=float(relation.get('foreground_depth_fraction',.55))
+            metrics.append(metric)
+        # Prefer one real foreground site covering every requested rear body.
+        # The unchanged native pixel test below must witness every relation.
+        return (not all(m['foreground'] for m in metrics),
+                max(abs(m['depth_fraction']-m['requested_fraction']) for m in metrics),
+                max(m['lateral_m'] for m in metrics))
     relation=relations[0];target=placed_target(relation,placed)
     if target is None:raise ValueError('requested occluder must be placed after its target')
     metrics=foreground_geometry(scene['listener_m'],target['applied_root_input'][:3,3],support_root)
