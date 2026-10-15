@@ -127,7 +127,9 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
             reference_paths[sample]=paths;reference_processes[sample]=processes
         return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
     refinements=[];accepted=[];keys=real_keys
-    for refinement_pass in range(8):
+    refinement_passes=max(1,int(inputs.get('moving_rir_refinement_passes',12)))
+    minimum_spacing=max(1,int(inputs.get('moving_rir_minimum_key_spacing_samples',round(sr/1920))))
+    for refinement_pass in range(refinement_passes):
         timeline_keys=sorted({0,n-1,*keys})
         waves=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
         timeline=CorrelatedRIRTimeline(waves,timeline_keys)
@@ -153,7 +155,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
                 accepted.append({'interval_samples':[lo,hi],'midpoint_sample':mid,'check':measured,'raw_checks':raw,'qualification':verdict});continue
             failure={'interval_samples':[lo,hi],'midpoint_sample':mid,'check':measured,'raw_checks':raw,'qualification':verdict}
             refinements.append(failure)
-            if min(mid-lo,hi-mid)<round(sr/120):
+            if min(mid-lo,hi-mid)<minimum_spacing:
                 write_json(attempt/(endpoint+'_moving_energy_rejection.json'),{'status':'blocked','revision':REVISION,'refinements':refinements,'thresholds_changed':False,'reference_statistics':ref_stats})
                 raise ValueError('moving native interval fails unchanged absolute energy/decay/direction gates after dense refinement')
             new.append(mid)
@@ -182,7 +184,8 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
     final_filters=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
     wet=correlated_convolve(dry,final_filters,timeline_keys,sample_rate=sr,block_samples=160)
     receipt={'status':'pass','revision':REVISION,'crossfade_revision':CROSSFADE_REVISION,
-        'native_step_policy':'actual 30Hz attached emitter trajectory; initial native RIR segments 100ms; failing intervals bisected down to 1/120s',
+        'native_step_policy':'actual 30Hz attached emitter trajectory; initial native RIR segments 100ms; failing intervals receive more exact native keys, never adjusted references',
+        'minimum_native_key_spacing_samples':minimum_spacing,'maximum_refinement_passes':refinement_passes,
         'active_emission_intervals_samples':bands,'key_samples':timeline_keys,'actual_native_key_samples':keys,'RIR_count':len(keys),
         'silent_timeline_placeholders':{'first':0 if keys[0]>0 else None,'last':n-1 if keys[-1]<n-1 else None,'zero_emissions_required':True},
         'every_independent_raw_reference_must_pass':True,'independent_midpoints':len(checks),'midpoint_checks':checks,'detailed_midpoint_checks':accepted,'energy_qualification':qualification,
