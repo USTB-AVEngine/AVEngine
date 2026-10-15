@@ -308,8 +308,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         for a,d in zip(self.assets,self.declarations,strict=True):
             accepted=None;ep=a['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
             candidates=[self.placement_overrides[ep]]if self.shared_native_standing else[original,*self.scene.get('native_placement_candidates',[])]
-            if (self.current_native_environment and binding_layout
-                    and len(self.assets)>2 and a is self.assets[2]):
+            if (binding_layout and len(self.assets)>2 and a is self.assets[2]):
                 from avengine.capture.kujiale_pilot_environment import comparison_person_candidates
                 points=[self.alpha_standing_refs[x['endpoint_id']]['position_m'] for x in self.assets[:2]]
                 candidates=comparison_person_candidates(self.scene['listener_m'],points,candidates)
@@ -322,7 +321,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:self._navigation_foot(p)
                 except ValueError as e:
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)});continue
-                if ((self.construct_registered_dialogue_camera or (self.current_native_environment and binding_layout))
+                if ((self.construct_registered_dialogue_camera or binding_layout)
                         and a is self.assets[1] and self.assets[0]['endpoint_id'] in self.alpha_standing_refs):
                     from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view
                     first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
@@ -340,7 +339,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:
                     with self.instance.begin_frame():actor=next(x for x in self._apply(0) if x['endpoint_id']==ep)
                     with self.instance.end_frame():pass
-                    if (self.current_native_environment and (self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'or(binding_layout and len(self.assets)>2 and a is self.assets[2]))
+                    if ((self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'or(binding_layout and len(self.assets)>2 and a is self.assets[2]))
                             and self.alpha_standing_refs):
                         from avengine.capture.kujiale_pilot_environment import binding_mouth_distance_contrast
                         mouths=[x['emitter_position_m'] for x in self.alpha_standing_refs.values()]
@@ -371,7 +370,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                     bounds.append((lo,hi));self.alpha_standing_refs[ep]={'position_m':actor['position_m'],'emitter_position_m':actor['emitter_position_m'],'reference':good};break
                 except ValueError as e:attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)})
             if accepted is None:
-                write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts});raise ValueError('registered UE actor lacks original qualified placement')
+                write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts,'accepted_standing_references':self.alpha_standing_refs,'listener_m':self.scene['listener_m'],'fixed_camera_yaw_deg':self.scene['camera_yaw_knots'][0]['yaw_deg'],'binding_layout':binding_layout});raise ValueError('registered UE actor lacks original qualified placement')
             checks.append(accepted)
         for ep,native in self.environment_nodes.items():
             if native.get('physical'):
