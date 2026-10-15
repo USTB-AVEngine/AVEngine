@@ -252,3 +252,19 @@ def test_static_domain_precheck_delegates_to_core_and_does_not_mutate_shared_gri
     assert grid.frustum_state.tolist() == ['inside', 'outside'] and grid.evidence == {'shared': True}
     assert all(p.shape == (2, 3) and np.array_equal(p[0], p[1]) for p in calls)
     assert wrapped.grid(camera, body) is filtered and len(calls) == 2
+
+
+def test_exact_target_visibility_is_part_of_the_single_source_domain(tmp_path):
+    import trimesh
+    from avengine.construction.joint import CameraPose, BodySpec
+    from avengine.construction.joint.geometry import DepthBuffer
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    camera = CameraPose((0., 1.25, 0.), 0., width=320, height=180)
+    mesh = trimesh.creation.box(extents=[.65, .65, .35]);mesh.apply_translation([0., .325, 0.])
+    path=tmp_path/'cat.glb';mesh.export(path);body=BodySpec('cat',.4,.65,.04)
+    plugin=Qa21Plugin({'cat':body},{'cat':'inside'},'cat','cat_meow',
+        assets={'cat':{'habitat_glb':str(path),'kind':'animal','species_id':'cat'}})
+    clear=NS(depth=lambda _:DepthBuffer(camera,np.full((180,320),np.inf),source='visual_mesh'))
+    blocked=NS(depth=lambda _:DepthBuffer(camera,np.ones((180,320)),source='visual_mesh'))
+    assert plugin.point_visible(clear,camera,body,np.array([0.,0.,-3.8]))
+    assert not plugin.point_visible(blocked,camera,body,np.array([0.,0.,-3.8]))
