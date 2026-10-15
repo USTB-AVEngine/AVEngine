@@ -6,6 +6,7 @@ class NativePhase2Video(NativeVisibleVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
         from avengine.timeline.v7_camera_evidence import set_static_camera
         set_static_camera(scene)
+        self._phase2_scene=scene
         super().__init__(house,scene,inputs,assets,**kwargs)
         for entry in self.actors:
             a=entry['declaration']
@@ -21,6 +22,17 @@ class NativePhase2Video(NativeVisibleVideo):
             return self._apply_motion_entry(entry,0 if frame_index is None else frame_index*2)
         return super()._apply_entry(entry,scene,frame_index)
 
+    def _phase2_needs_foot_emitters(self,entry):
+        """Foot emitters exist only for this walker's footstep sources (owner 10-15: one sound type per person).
+
+        A speaking (or silent) walker has no footstep source, so there is no foot emitter to place or gate.
+        """
+        scene=getattr(self,'_phase2_scene',None)
+        if scene is None:return True
+        ep=entry['endpoint_id']
+        return any(v.get('owner_endpoint_id')==ep and v.get('emitter_part') in {'foot_L','foot_R'}
+                   for v in scene.get('sources',{}).values())
+
     def _apply_motion_entry(self,entry,index):
         import numpy as np
         row=super()._apply_motion_entry(entry,index)
@@ -35,7 +47,7 @@ class NativePhase2Video(NativeVisibleVideo):
                     else 'original retained pose; explicitly marked static after route failures'))
         row['native_emitter_present']=not entry['declaration'].get('silent_decor')
         attached=[]
-        for side,foot in frame.get('feet',{}).items():
+        for side,foot in (frame.get('feet',{}).items() if self._phase2_needs_foot_emitters(entry) else ()):
             if side not in {'L','R'}:continue
             if 'sole_local_m' not in foot:raise ValueError('posed original sole coordinates missing')
             sole=np.asarray(foot['sole_local_m'],float)
@@ -49,11 +61,20 @@ class NativePhase2Video(NativeVisibleVideo):
             # Apply the existing physical gates before minimizing distance.
             # An unconstrained nearest vertex can be on the sole while a valid
             # original shoe surface vertex is only slightly farther away.
-            candidates=np.flatnonzero((np.linalg.norm(vertices-sole,axis=1)<=.05)
+            radius=.05
+            candidates=np.flatnonzero((np.linalg.norm(vertices-sole,axis=1)<=radius)
                 & ((vertices[:,1]-sole[1])>=.002))
-            if not len(candidates):raise ValueError('no original foot surface emitter passes unchanged 50mm and 2mm gates')
+            if not len(candidates):
+                # Sparse shoe meshes (a flat low-poly toe at toe-off) can have no vertex 2 mm above the contact within
+                # 5 cm.  Take the nearest vertex of the same shoe (<= 10 cm) that is still >= 2 mm above the contact:
+                # the emitter moves a few cm on the shoe surface, which no answer depends on (owner 10-15: never fail
+                # a scene on mesh density).  The 2 mm not-buried rule is unchanged.
+                radius=.10
+                candidates=np.flatnonzero((np.linalg.norm(vertices-sole,axis=1)<=radius)
+                    & ((vertices[:,1]-sole[1])>=.002))
+            if not len(candidates):raise ValueError('no original foot surface emitter within 10 cm passes the 2mm not-buried gate')
             vertex_index=int(candidates[np.argmin(np.sum((vertices[candidates]-target)**2,axis=1))]);local=vertices[vertex_index]
-            if np.linalg.norm(local-sole)>.05:raise ValueError('foot emitter candidate is not on the original foot surface')
+            if np.linalg.norm(local-sole)>radius:raise ValueError('foot emitter candidate is not on the original foot surface')
             if local[1]-sole[1]<.002:raise ValueError('foot surface emitter is buried in its ground contact')
             child=entry['object'].root_scene_node.create_child();child.translation=self.mn.Vector3(local)
             observed=np.asarray(child.absolute_transformation(),float)[:3,3]
@@ -62,7 +83,7 @@ class NativePhase2Video(NativeVisibleVideo):
             if error>.0001:raise ValueError('moving native foot child exceeds unchanged 0.1mm')
             attached.append({'endpoint_id':entry['endpoint_id']+'_foot_'+side,'native_object_id':row['native_object_id'],
                 'part':'foot_'+side,'local_m':local.tolist(),'sole_local_m':sole.tolist(),'original_posed_vertex_index':vertex_index,'position_m':observed.tolist(),'readback_error_m':error,
-                'in_contact':bool(foot['in_contact']),'floor_delta_m':foot['floor_delta_m'],'moving':frame['moving'],
+                'in_contact':bool(foot['in_contact']),'floor_delta_m':foot['floor_delta_m'],'moving':frame['moving'],'shoe_search_radius_m':radius,
                 'original_sole_vertex_source':'CPU-skinned original admitted foot weights and complete posed mesh'})
         row['attached_emitter_readbacks']=attached
         return row
