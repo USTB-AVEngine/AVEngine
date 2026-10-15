@@ -38,3 +38,24 @@ def test_required_physical_dog_is_not_mistaken_for_a_fourth_standing_human(tmp_p
     assert result['current_native_contact_collision_visibility_and_acoustics_must_rerun']
     assert path.read_bytes()==before
     assert all(any(a.get('asset_id')=='required_native_dog'for a in frame['actors'])for frame in json.loads(path.read_text())['frames'])
+
+
+def test_highlight_observation_does_not_reject_measured_shared_geometry(tmp_path):
+    path,data,target=fixture(tmp_path)
+    data['native_source_material_status']='fail'
+    path.write_text(json.dumps(data))
+    result=completed_shared_standing(tmp_path,target)
+    observation=result['source_material_observation']
+    assert observation['native_source_material_status']=='fail'
+    assert observation['admission_effect']=='record_only_per_owner_20261015'
+    assert observation['current_original_material_paths_and_package_identity_must_pass']
+    assert result['actors']['voice1']['position_m']==[0.,0.,-3.]
+
+
+def test_ignoring_highlights_keeps_original_failed_contact_rejected(tmp_path):
+    path,data,target=fixture(tmp_path)
+    data['native_source_material_status']='fail'
+    data['native_body_foot_status']='fail'
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError,match='complete passed native geometry'):
+        completed_shared_standing(tmp_path,target)
