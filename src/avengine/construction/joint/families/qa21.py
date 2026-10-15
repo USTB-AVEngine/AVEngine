@@ -45,6 +45,8 @@ def target_options(room, catalog, records, contract, state, *, requested_class=N
     for asset in catalog:
         if asset['asset_id'] in excluded or asset.get('silent_decor'):
             continue
+        if not asset.get('label_color') or asset.get('standing_registered_qualified') is not True:
+            continue
         if floor_only and asset.get('attachment_surface') != 'floor':
             continue
         if asset.get('kind') not in {'animal', 'object'}:
@@ -63,7 +65,8 @@ def target_options(room, catalog, records, contract, state, *, requested_class=N
                 'selected_class': cls, 'actual_mechanism': mechanism,
                 'attachment_surface': asset['attachment_surface'],
                 'recording_count': sum(r.get('sound_class') == cls for r in records),
-                'display_label': label, 'registered_fixed_domain_size': len(QA21_CLASSES)}))
+                'display_label': label, 'expected_reviewed_appearance': asset['label_color'],
+                'registered_fixed_domain_size': len(QA21_CLASSES)}))
     positives = state.get('qa21_positive_counts', state.get('class34_positive_counts', {}))
     if any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in positives.values()):
         raise ValueError('positive class feedback must be nonnegative delivered counts')
@@ -108,7 +111,7 @@ class Qa21Plugin:
         from itertools import combinations
         for (aid, actor), (bid, other) in combinations(plan.actors.items(), 2):
             distance = float(np.linalg.norm((np.asarray(actor.positions_m)[0]-np.asarray(other.positions_m)[0])[[0, 2]]))
-            required = max(1., actor.body.radius_m+other.body.radius_m)
+            required = max(1.1, actor.body.radius_m+other.body.radius_m+.1)
             yield CheckResult('qa21_spacing_'+aid+'_'+bid, 'pass' if distance >= required else 'fail',
                 margin=distance-required, evidence={'actual_planned_m': distance, 'required_m': required})
         for target_id, cls in self.targets.items():
@@ -154,7 +157,7 @@ def certify_qa21_observation(facts, target_actor_id, sound_class):
         'deferred': result.get('deferred', [])}
 
 
-def native_candidate_check(video, scene, entries, pixel_counts):
+def native_geometry_candidate_check(video, scene, entries, pixel_counts):
     """Optional native placement hook, before video/RIR cost; rejects edge rests.
 
     Integrator calls this after actual drawables have been applied and native
@@ -195,6 +198,12 @@ def native_candidate_check(video, scene, entries, pixel_counts):
             if distance < 1.5:
                 return {'status': 'fail', 'reason': 'qa21_person_camera_construction_clearance', 'asset_id': aid, 'distance_m': distance}
         evidence.append({'asset_id': aid, 'full_body': 'inside', 'native_pixels': counts, 'edge_margin_px': margin})
+    from itertools import combinations
+    for first, second in combinations(entries, 2):
+        distance = float(np.linalg.norm((np.asarray(first['applied_root_input'])[:3, 3]-np.asarray(second['applied_root_input'])[:3, 3])[[0, 2]]))
+        if distance < 1.:
+            return {'status': 'fail', 'reason': 'qa21_actual_static_body_spacing',
+                'asset_ids': [first['declaration']['asset_id'], second['declaration']['asset_id']], 'distance_m': distance}
     return {'status': 'pass', 'authority': 'actual_native_mesh_projection_and_pixels', 'bodies': evidence,
         'target_placed': sorted({e['asset_id'] for e in evidence} & target_ids), 'qa_truth_changed': False}
 
@@ -336,6 +345,7 @@ def prepare_qa21_sources(room, house, state, catalog, records, semantic, contrac
             companion: {'view': 'outside', 'static': True, 'minimum_abs_azimuth_deg': 60., 'real_geometry_and_native_projection_required': True}}}
     _request(row, state, family)
     row['scene_demand']['class34_construction'] = [proof for _, _, proof in selected]
+    row['scene_demand']['required_independent_family_counts'] = {family: len(selected)}
     row['scene_demand']['required_asset_ids'] = list(row['asset_ids'])
     sounds, pinned, emissions = compiled_sound_events(row, house, records, catalog, semantic)
     row['proposed_sound_asset_ids'] = pinned
@@ -379,3 +389,60 @@ def construct_qa21_scene(room, house, state, catalog, records, semantic, contrac
     row['scene_demand']['qa21_certification_authority'] = 'planning geometry and actual compiled source clock; original native masks and QA unchanged'
     validate_recipe(row, catalog, contract)
     return {'profile': 'phase2', 'row': row}
+
+
+def native_appearance_check(video, scene, entries):
+    """Run the existing native ROI reviewer on this real placement, without
+    retaining duplicate frame-zero measurements in the later video evidence.
+    """
+    from avengine.assets.v7_visible_color import rebuild_appearance_review
+    from avengine.qa.unified_catalog import _appearance_candidates, _Deferred
+    construction = scene['automatic_construction']
+    target_ids = set(construction.get('qa21_target_asset_ids') or [construction['qa21_target_asset_id']])
+    target_entries = [e for e in entries if e['declaration']['asset_id'] in target_ids]
+    if not target_entries:
+        return {'status': 'pass', 'reviewed_target_ids': [], 'reason': 'targets_not_placed_yet'}
+    # The original implementation owns ROI selection, thresholds and labels.
+    # Its two append-only measurement lists are temporary here; full rendering
+    # independently collects its normal frame stream afterwards.
+    original_actors = video.actors
+    original_colors, original_materials = video.color_checks, video.material_checks
+    video.actors = list(entries);video.color_checks = [];video.material_checks = []
+    try:
+        observed = video.sim.get_sensor_observations()
+        video._check_source_frame(np.asarray(observed['rgb'])[..., :3], np.asarray(observed['semantic']), 0)
+        checks = deepcopy(video.color_checks)
+    finally:
+        video.actors = original_actors
+        video.color_checks = original_colors;video.material_checks = original_materials
+    assets = [e['declaration'] for e in entries]
+    minimum = (getattr(video, 'animal_color_thresholds', None) or {}).get('min_pixels', 200)
+    document, eligibility = rebuild_appearance_review(checks, assets, minimum)
+    reviews = document['actors'];actors = {};reviewed_ids = []
+    for entry in target_entries:
+        asset = entry['declaration'];actor_id = str(asset['native_instance_id'])
+        review = reviews.get(actor_id)
+        if review is None:
+            return {'status': 'fail', 'reason': 'qa21_native_appearance_not_reviewable',
+                'asset_id': asset['asset_id'], 'eligibility': eligibility,
+                'actual_native_color_checks': [r for r in checks if r['asset_id'] == asset['asset_id']]}
+        actors[actor_id] = {'appearance': {'field': review['field'], 'value': review['value'],
+            'label': review.get('label_en', review.get('label_zh'))}}
+        reviewed_ids.append(asset['asset_id'])
+    facts = {'actors': actors, 'appearance_review': reviews, 'time': {'frame_count': 1}}
+    try:
+        _appearance_candidates(facts)
+    except _Deferred as exc:
+        return {'status': 'fail', 'reason': 'qa21_native_appearances_not_unique', 'detail': str(exc),
+            'native_appearance_review': document}
+    return {'status': 'pass', 'authority': 'unchanged native ROI reviewer and appearance_candidates',
+        'reviewed_target_ids': reviewed_ids, 'native_appearance_review': document,
+        'native_frame_index': 0, 'final_native_stream_independently_required': True}
+
+
+def native_candidate_check(video, scene, entries, pixel_counts):
+    geometry = native_geometry_candidate_check(video, scene, entries, pixel_counts)
+    if geometry['status'] != 'pass':return geometry
+    appearance = native_appearance_check(video, scene, entries)
+    if appearance['status'] != 'pass':return {**appearance, 'geometry_preflight': geometry}
+    return {**geometry, 'appearance_preflight': appearance}
