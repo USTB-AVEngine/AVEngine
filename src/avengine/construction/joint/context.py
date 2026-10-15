@@ -9,7 +9,7 @@ import os
 import tempfile
 import numpy as np
 from .types import BodySpec, CameraPose
-from .geometry import (MeshRaycaster, build_depth_buffer, camera_coordinates,
+from .geometry import (DepthBuffer, MeshRaycaster, build_depth_buffer, camera_coordinates,
                        framing, predict_visibility)
 
 
@@ -54,6 +54,13 @@ def candidate_cameras(room, walkable_map, pathfinder, *, limit=24, heights_m=Non
     for part in parts:
         ring = part.exterior
         points.extend(np.asarray(ring.interpolate(float(d)).coords[0]) for d in np.arange(0, ring.length, .75))
+    # A legal camera can lie well inside the room while every sampled inset
+    # boundary point is furniture-blocked. Include the v2 interior free grid.
+    if walkable_map is not None:
+        stride = max(1, round(.25 / walkable_map.resolution))
+        zz, xx = np.nonzero(walkable_map.layers["human"][::stride, ::stride])
+        interior = walkable_map.origin + (np.column_stack((xx, zz))*stride+.5)*walkable_map.resolution
+        points.extend(interior)
     seen, legal = set(), []
     for p in points:
         key = tuple(np.round(p, 3))
@@ -65,7 +72,7 @@ def candidate_cameras(room, walkable_map, pathfinder, *, limit=24, heights_m=Non
         world = np.array([p[0], floor, p[1]])
         if pathfinder is not None:
             snap = np.asarray(pathfinder.snap_point(world), float)
-            if snap.shape != (3,) or not np.isfinite(snap).all() or np.linalg.norm((snap-world)[[0, 2]]) > .02 or abs(snap[1]-floor) > .08:
+            if snap.shape != (3,) or not np.isfinite(snap).all() or np.linalg.norm((snap-world)[[0, 2]]) > .02:
                 continue
         legal.append(p)
     # Spatially spread candidates instead of exhausting one wall first.
@@ -74,19 +81,42 @@ def candidate_cameras(room, walkable_map, pathfinder, *, limit=24, heights_m=Non
         index = 0 if not selected else int(np.argmax([min(np.linalg.norm(p-q) for q in selected) for p in legal]))
         selected.append(legal.pop(index))
     target = np.asarray(inner.representative_point().coords[0])
+    look_targets = np.asarray(selected+legal)
     result = []
     for hi in heights:
         for p in selected:
-            delta = target - p
-            yaw = math.degrees(math.atan2(delta[0], -delta[1]))
-            for shift in (0., -30., 30.):
-                pose = CameraPose((float(p[0]), floor + hi, float(p[1])), yaw + shift,
-                                  "cam_%03d" % len(result), width=width, height=height)
-                if camera_legal(room, pose)[0]:
-                    result.append(pose)
-                if len(result) >= limit:
+            delta = target-p
+            nominal = math.degrees(math.atan2(delta[0], -delta[1]))
+            yaws = [nominal, nominal-30., nominal+30.]
+            if len(look_targets):
+                rays = look_targets-p
+                order = np.argsort(-np.linalg.norm(rays, axis=1), kind="stable")
+                yaws.extend(math.degrees(math.atan2(rays[i,0],-rays[i,1])) for i in order[:12])
+            ranked = []
+            for yaw in dict.fromkeys(round(v, 5) for v in yaws):
+                pose = CameraPose((float(p[0]), floor+hi, float(p[1])), yaw,
+                                  "candidate", width=width, height=height)
+                if not camera_legal(room, pose)[0]:
+                    continue
+                rays = look_targets-p
+                forward = rays@pose.forward[[0,2]]
+                lateral = rays@pose.right[[0,2]]
+                visible = (forward > max(hi,1.8-hi)*pose.focal_px/(height/2)+.35)
+                visible &= np.abs(lateral)+.35 < forward*math.tan(math.radians(pose.hfov_deg/2))
+                ranked.append((-int(visible.sum()), abs((yaw-nominal+180)%360-180), yaw))
+            chosen_yaws = []
+            for _, _, yaw in sorted(ranked):
+                if any(abs((yaw-y+180)%360-180) < 12. for y in chosen_yaws):
+                    continue
+                chosen_yaws.append(yaw)
+                result.append(CameraPose((float(p[0]),floor+hi,float(p[1])),yaw,
+                                         "cam_%03d"%len(result),width=width,height=height))
+                if len(result)>=limit:
                     return tuple(result)
+                if len(chosen_yaws)>=3:
+                    break
     return tuple(result)
+
 
 
 class RoomContext:
@@ -118,7 +148,7 @@ class RoomContext:
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._grids, self._depth = {}, {}
-        self.identity = {"revision": "joint-room-grid-1", "room": room,
+        self.identity = {"revision": "joint-room-grid-2-interior-cameras", "room": room,
                          "map_metadata": walkable_map.metadata, "grid_stride": stride,
                          "geometry": getattr(raycaster, "evidence", {}),
                          "geometry_source": getattr(raycaster, "source", "missing")}
@@ -145,7 +175,23 @@ class RoomContext:
             return None
         key = self._key(camera)
         if key not in self._depth:
-            self._depth[key] = build_depth_buffer(camera, self.raycaster)
+            path = self.cache_dir / ("depth_" + key + ".npz") if self.cache_dir is not None else None
+            if path is not None and path.exists():
+                with np.load(path, allow_pickle=False) as data:
+                    ids = data["object_ids"] if "object_ids" in data else None
+                    self._depth[key] = DepthBuffer(camera, data["depth_m"], ids, str(data["source"].item()),
+                                                  json.loads(str(data["evidence"].item())))
+                self.cache_hits += 1
+            else:
+                depth = build_depth_buffer(camera, self.raycaster)
+                self._depth[key] = depth
+                self.cache_misses += 1
+                if path is not None:
+                    arrays = {"depth_m": depth.depth_m.astype(np.float32), "source": np.array(depth.source),
+                              "evidence": np.array(json.dumps(depth.evidence, default=str))}
+                    if depth.object_ids is not None:
+                        arrays["object_ids"] = np.asarray(depth.object_ids, dtype=str)
+                    self._save_cache(path, arrays)
         return self._depth[key]
 
     def predict(self, camera, root_m, body=BodySpec(), *, occluders=()):
@@ -196,18 +242,38 @@ class RoomContext:
         grid = CandidateGrid(self.points_m, distance, azimuth, frames, fraction, shadow, blockers, evidence)
         self._grids[key] = grid
         if path is not None:
-            # Atomic publication lets independent family planners share a cache.
-            fd, tmp = tempfile.mkstemp(prefix=".joint-grid-", suffix=".npz", dir=self.cache_dir)
-            os.close(fd)
-            try:
-                np.savez_compressed(tmp, distances_m=distance, azimuth_deg=azimuth, frustum_state=frames,
-                                    visible_fraction=fraction, shadow_mask=shadow, blocker_ids=blockers,
-                                    evidence=np.array(json.dumps(evidence)))
-                os.replace(tmp, path)
-            finally:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
+            self._save_cache(path, dict(distances_m=distance, azimuth_deg=azimuth, frustum_state=frames,
+                                        visible_fraction=fraction, shadow_mask=shadow, blocker_ids=blockers,
+                                        evidence=np.array(json.dumps(evidence))))
         return grid
+
+
+    def _save_cache(self, path, arrays):
+        # Only a new derived file in the caller-owned cache, never source geometry.
+        fd, tmp = tempfile.mkstemp(prefix=".joint-cache-", suffix=".npz", dir=self.cache_dir)
+        os.close(fd)
+        try:
+            np.savez_compressed(tmp, **arrays)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+
+    def with_occluders(self, *instances):
+        """A shared-room view with exact registered meshes; never mutate the base."""
+        from copy import copy
+        from .geometry import CompositeRaycaster
+        from .mesh_prediction import InstanceRaycaster
+        if self.raycaster is None:
+            raise ValueError("occlusion queries require the original visual background")
+        other = copy(self)
+        other._owned_video = None
+        other.raycaster = CompositeRaycaster(self.raycaster, *(InstanceRaycaster(i) for i in instances))
+        other.identity = {**self.identity, "geometry": other.raycaster.evidence,
+                          "geometry_source": other.raycaster.source}
+        other._depth, other._grids = {}, {}
+        other.cache_hits = other.cache_misses = 0
+        return other
 
 
 def build_room_context(room, *, house=None, runtime=None, cache_dir=None, walkable_map=None,
