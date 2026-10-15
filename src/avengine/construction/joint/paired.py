@@ -48,7 +48,7 @@ def _joint_rest_camera(context, camera, actors, roles, yaw_search_deg):
     best=None
     for aim in aims:
         for shift in angles:
-            candidate=replace(camera,yaw_deg=aim+shift)
+            candidate=replace(camera,yaw_deg=float(aim+shift))
             if not camera_legal(context.room,candidate)[0]:
                 continue
             views=[framing(candidate,point,actor.body)for actor,point in endpoints]
@@ -63,7 +63,7 @@ def _joint_rest_camera(context, camera, actors, roles, yaw_search_deg):
         return None
     score,selected,views,shift,aim=best
     return selected,{"states":[state for state,_ in views],
-        "minimum_margin_px":score[1]if score[0]else None,"nominal_yaw_deg":aim,"yaw_shift_deg":shift}
+        "minimum_margin_px":score[1]if score[0]else None,"nominal_yaw_deg":aim,"yaw_shift_deg":float(shift)}
 
 def paired_parallel_routes(context, first, second, *, camera, fps=30.,
                            separations_m=(1.25,1.4,1.6,1.8), sides=(1,-1),

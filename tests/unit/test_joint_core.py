@@ -743,6 +743,8 @@ def test_parallel_lanes_preserve_each_clock_and_filter_blocked_side():
     assert plan.metadata["minimum_pair_distance_m"]>=1.25-1e-10
     assert plan.metadata["rest_framing"]["states"]==["inside"]*4
     assert plan.camera.position_m==c.cameras[0].position_m
+    import json
+    json.dumps(plan.metadata,allow_nan=False)
     assert certify_plan(c,plan).passed and stats["rejections"]
     np.testing.assert_array_equal(a.positions_m,original_a)
     np.testing.assert_array_equal(b.positions_m,original_b)
@@ -792,6 +794,9 @@ def test_independent_nonparallel_second_track_and_explicit_rest_roles():
     # A declared off-screen role may be whole-body outside; never an edge crop.
     outside=next(independent_straight_pair_routes(c,a,b,camera=c.cameras[0],second_branch="farther",
         origins_m=[[2.,0,.5]],heading_offsets_deg=(0,),roles={"a":"inside","b":"outside"}))
+    import json
+    json.dumps(plan.metadata,allow_nan=False)
+    json.dumps(outside.metadata,allow_nan=False)
     assert outside.metadata["rest_framing"]["states"]==["inside","inside","outside","outside"]
     assert certify_plan(c,outside).passed
 
