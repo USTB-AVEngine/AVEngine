@@ -7,7 +7,7 @@ No source waveform, RIR, audio rendering or answer predicate is changed.
 from __future__ import annotations
 import numpy as np
 
-WET_SUPPORT_REVISION = 'native-dry-FIR-finite-support-20261015-v1'
+WET_SUPPORT_REVISION = 'native-dry-FIR-finite-support-20261015-v2-tailcap0.5s'
 
 
 def event_wet_support(dry, bindings, filters, *, delay_spread_samples=0, sample_rate=16000):
@@ -52,3 +52,46 @@ def event_wet_support(dry, bindings, filters, *, delay_spread_samples=0, sample_
             'silence_threshold_added': False,
         }
     return result
+
+
+WET_TAIL_CAP_S = .5     # owner 10-15: "拖尾，我不是说如果太长就强行静音截断吗？"
+WET_TAIL_FADE_S = .1
+
+
+def cap_wet_tail(stem, dry, *, cap_s=WET_TAIL_CAP_S, fade_s=WET_TAIL_FADE_S, sample_rate=16000, block=160):
+    """Mute a rendered wet stem beyond `cap_s` after each dry emission ends, with a raised-cosine fade.
+
+    The room reverberation of each sound lasts at most cap_s after the sound stops, so the post-sound question
+    windows planned with a 0.5 s tail are exactly what is rendered.  Returns (capped_stem, emission_ends_samples).
+    """
+    stem = np.asarray(stem, float); x = np.asarray(dry)
+    flags = [bool(np.any(x[i:i + block] != 0)) for i in range(0, len(x), block)]
+    runs = []; start = None
+    for i, value in enumerate(flags + [False]):
+        if value and start is None: start = i
+        if not value and start is not None:
+            lo = start * block; nz = np.flatnonzero(x[lo:min(len(x), i * block)] != 0)
+            runs.append((lo + int(nz[0]), lo + int(nz[-1]) + 1)); start = None   # exact first/last sounding sample
+    n = stem.shape[-1]; cap = int(round(cap_s * sample_rate)); fade = int(round(fade_s * sample_rate))
+    envelope = np.zeros(n); ends = [hi for _, hi in runs]
+    for lo, hi in runs:
+        keep = min(n, hi + cap - fade)
+        envelope[max(0, lo):keep] = 1.
+        stop = min(n, hi + cap)
+        if stop > keep:
+            t = (np.arange(keep, stop) - keep) / max(1, fade)
+            envelope[keep:stop] = np.maximum(envelope[keep:stop], .5 * (1 + np.cos(np.pi * t)))
+    return stem * envelope, ends
+
+
+def cap_wet_support(support, *, cap_s=WET_TAIL_CAP_S, sample_rate=16000):
+    """Wet-support certificates after the tail cap: support ends at most cap_s after the source's last sample."""
+    out = {}
+    for event, record in support.items():
+        record = dict(record)
+        lower, upper = record['support_samples_global']; source_end = record['source_nonzero_samples_global'][1]
+        upper = min(int(upper), int(source_end) + int(round(cap_s * sample_rate)))
+        record.update(support_samples_global=[int(lower), upper], wet_intervals_global_s=[[lower / sample_rate, upper / sample_rate]],
+                      wet_tail_cap_s=cap_s, wet_tail_policy='owner 10-15: reverberation muted after the cap with a fade')
+        out[event] = record
+    return out

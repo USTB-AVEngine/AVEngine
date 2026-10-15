@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 647 个工具脚本。
+当前共 650 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -172,6 +172,7 @@
 | `tools/rooms/build_render_surface_navigation.py` | Build reusable CPU navigation from a room's declared render surface |
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
 | `tools/rooms/build_support_surface_catalog.py` | Fit a room's wall and ceiling support surfaces from its own render surface |
+| `tools/rooms/build_walkable_maps.py` | Precompute reusable 5cm native static room maps on CPU, with bounded workers |
 | `tools/rooms/check_kujiale_native_acoustic_alignment.py` | Compare actual native LOD0 and final acoustic geometry at frozen room poses |
 | `tools/rooms/check_kujiale_native_capsule_contact.py` | Check measured native witness capsules against actual UE render LOD0 geometry |
 | `tools/rooms/check_kujiale_native_motion_contact.py` | Measure registered native idle/walk skin contact without changing animation |
@@ -379,6 +380,8 @@
 | `tools/timeline/report_kujiale_asset_pilot.py` | Write the local native Kujiale asset pilot's Chinese, image-embedded report |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/run_v7_acceptance.py` | Run isolated native acceptance parents under a committed resource policy |
+| `tools/timeline/run_v7_frozen_acceptance.py` | Freeze committed code inside the authorised worktree before launching a parent |
+| `tools/timeline/run_v7_motion_quartet_batch.py` | Construct new motion requests from standard inventories; no hand-authored scenes |
 | `tools/timeline/sample_v7_production_inputs.py` | Prepare legal v7 candidate selections; run no native/GPU work or export |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |

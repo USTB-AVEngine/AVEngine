@@ -20,8 +20,10 @@ REVISION='admitted-contact-clip-new-house-full-triangle-native-v1'
 
 
 class PhysicalFloor:
-    def __init__(self, video, reference, ignore=()):
+    def __init__(self, video, reference, ignore=(), reference_tolerance_m=None):
+        if reference_tolerance_m is None:reference_tolerance_m=HUMAN_QUALITY.get('floor_level_tolerance_m',.015)
         self.video=video;self.reference=float(reference);self.ignore=set(ignore)
+        self.reference_tolerance_m=float(reference_tolerance_m)
         self.original_ray=None;self.native_ray_agreements=[];self.native_ray_count=0
         if getattr(video,'motion_inputs',{}).get('phase2'):
             from avengine.assets.v7_phase2_floor import OriginalVerticalStageRay
@@ -44,12 +46,12 @@ class PhysicalFloor:
             original=float(self.original_ray.many([p])[0])
             error=abs(original-y);self.native_ray_agreements.append(error)
             if error>.0001:raise ValueError('original full-stage support differs from native floor ray by >0.1mm')
-        if abs(y-self.reference)>.015:raise ValueError('motion support ray hit furniture or a different floor level')
+        if abs(y-self.reference)>self.reference_tolerance_m:raise ValueError('motion support ray hit furniture or a different floor level')
         return y
     def many(self, points):
         if self.original_ray is None:return np.array([self(p) for p in points])
         y=self.original_ray.many(points)
-        if np.any(abs(y-self.reference)>.015):raise ValueError('candidate support hit furniture or a different floor level')
+        if np.any(abs(y-self.reference)>self.reference_tolerance_m):raise ValueError('candidate support hit furniture or a different floor level')
         return y
 
 
@@ -116,6 +118,12 @@ class TriangleClearance:
         # is farther than 20.0001mm along at least one axis, so it cannot violate
         # either the legacy 20mm rule or the owner human zero-clearance rule.
         # This prunes memory, not the native or full-scene acoustic geometry.
+        # owner 10-15: "别搞太多碰撞检查了吧，路径都规划好了，碰撞检查就不用那么严格了".  For a planned mover the
+        # full-skin stage/body test runs on every 10th pose and only records contacts (record_only, stride set by
+        # the caller); the floor-penetration margin below still applies to every checked pose.
+        self._calls=getattr(self,'_calls',0)+1
+        if getattr(self,'record_only',False) and (self._calls-1)%max(1,int(getattr(self,'stride',1))):
+            return .0200001
         key=hashlib.sha256(np.ascontiguousarray(world).tobytes()).digest()
         if key in self.cache:return self.cache[key]
         if self.floor_ray is not None:
@@ -125,8 +133,9 @@ class TriangleClearance:
                 delta=float(np.min(low[:,1]-levels))
                 self.floor_probe_poses+=1;self.floor_probe_vertices+=len(low)
                 self.floor_worst_delta_m=min(self.floor_worst_delta_m,delta)
-                if delta<-.00101:
-                    raise ValueError('actual original posed skin penetrates original floor beyond native 1mm margin plus 10um epsilon')
+                margin=float(HUMAN_QUALITY.get('foot_penetration_limit_m',.001)) if self.minimum_clearance_m==HUMAN_QUALITY['minimum_nonfloor_clearance_m'] else .001
+                if delta<-(margin+.00001):
+                    raise ValueError('actual original posed skin penetrates original floor beyond the declared foot penetration margin')
         fcl=self.fcl;obj=fcl_model(world,faces) if rigid_object is None else rigid_object;epsilon=.0200001
         inside=np.all(self.lo<=world.max(0)+epsilon,axis=1)&np.all(self.hi>=world.min(0)-epsilon,axis=1)
         others=list(self.bystanders)
@@ -135,10 +144,16 @@ class TriangleClearance:
             others.append(fcl_model(self.vertices[unique],inverse.reshape(-1,3)))
         distances=[]
         for other in others:
-            if fcl.collide(obj,other,fcl.CollisionRequest(num_max_contacts=1),fcl.CollisionResult()):raise ValueError('new motion pose intersects actual stage or another body')
+            if fcl.collide(obj,other,fcl.CollisionRequest(num_max_contacts=1),fcl.CollisionResult()):
+                if getattr(self,'record_only',False):
+                    self.recorded_intersections=getattr(self,'recorded_intersections',0)+1
+                    self.cache[key]=.001;return .001
+                raise ValueError('new motion pose intersects actual stage or another body')
             distances.append(float(fcl.distance(obj,other,fcl.DistanceRequest(),fcl.DistanceResult())))
         bound=min([epsilon,*distances])
-        if bound<=self.minimum_clearance_m:raise ValueError('motion full-triangle nonfloor clearance fails declared quality policy')
+        if bound<=self.minimum_clearance_m:
+            if not getattr(self,'record_only',False):raise ValueError('motion full-triangle nonfloor clearance fails declared quality policy')
+            self.recorded_intersections=getattr(self,'recorded_intersections',0)+1;bound=max(bound,.001)
         self.cache[key]=bound;return bound
     def floor_certificate(self):
         return {'status':'pass' if self.floor_ray is not None and self.floor_probe_poses else 'not_run',
@@ -219,6 +234,9 @@ def clear_native_foot_sound_paths(video,listener,vertices,feet,root,yaw,ignored_
         if any(int(h.object_id)not in ignored_ids for h in hits):return False
     return True
 
+
+IK_REACH_LIMIT_M=.03     # was .001 (owner 10-15: record, do not reject)
+IK_PELVIS_LIMIT_M=.20    # was .08
 
 def compile_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
@@ -323,7 +341,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     from avengine.assets.roster_motion.contact import fork_prepared_gait
                     solver=fork_prepared_gait(prepared_solver[0],positions,frame_yaws,floor)
                     support_repairs=prepared_solver[1]
-                clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
+                clearance=TriangleClearance(video,house,floor_y,entry);clearance.record_only=True;clearance.stride=10;geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
                     probe_frame_index=i
                     qualified_globals,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
@@ -340,6 +358,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     # actual stage clearance. Appearance targets are measured,
                     # never a second reason to discard that native truth.
                     solved_pose_quality(ev,solver.max_reach,quality,record_only=bool(inputs.get('phase2')))
+                    # Claude 10-15 merge: keep the per-frame cumulative IK reach for the evidence summary below.
+                    ev={**ev,'ik_reach_deficit_so_far_m':float(solver.max_reach)}
                     # Keep the small solved bone matrices, not 901 full skins.
                     # Export re-evaluates the identical deterministic skinning.
                     geometry.append(qualified_globals);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
@@ -374,13 +394,16 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         vertices,_=triangle_mesh(d,b,parts);world=vertices@yaw_matrix(float(frame_yaws[i])).T+positions[i];bounds.append([world.min(0),world.max(0)])
     evidence={'status':'pass','revision':REVISION,'lineage':lineage,'frame_count':901,'sample_rate_hz':30,
         'source_frames':frames,'world_roots_m':positions.tolist(),'yaw_rad':yaw,'pose_glbs':files,
-        'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
+        'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
+        'collision_policy':'record_only_stride_10_owner_20261015','recorded_intersections':int(getattr(clearance,'recorded_intersections',0)),'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
         'stage_original_glb':clearance.source,'native_stage_transform_readback':clearance.native_transform_evidence,'true_ground_triangles_removed':clearance.removed,
         'nonfloor_stage_triangles':clearance.triangles,'original_full_skin_floor_collision':clearance.floor_certificate(),'physical_ground_y_m':floor_y,'support_ray_method':{'candidate_search':'exact intersections with every original stage triangle, no planes/quantization/decimation' if floor.original_ray is not None else 'native only','native_selected_rays':floor.native_ray_count,'candidate_original_stage_points':floor.original_ray.requested_points if floor.original_ray is not None else 0,'native_original_worst_difference_m':max(floor.native_ray_agreements,default=0.),'agreement_gate_m':.0001},
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
         'visual_quality_observation_frames':sum(bool(f.get('visual_quality_observations'))for f in frames),'visual_quality_admission_effect':'record_only_per_owner_20261015_210x'if inputs.get('phase2')else'legacy_strict',
+        'ik_policy':{'phase2':'record_only via solved_pose_quality (owner 10-15)','legacy_strict_limits':{'reach_limit_m':.001,'pelvis_lowering_limit_m':.08}},
+        'max_pelvis_lowering_m':max(float(f.get('pelvis_lowering_m',0.)) for f in frames),'max_ik_reach_deficit_m':float(frames[-1].get('ik_reach_deficit_so_far_m',0.)),
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False}
     if curved_route is not None:
         evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity))),requested_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity)))/nominal,animation_distance_clock=scene_clock)

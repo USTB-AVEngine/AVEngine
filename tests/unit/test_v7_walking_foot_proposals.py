@@ -44,7 +44,8 @@ def test_owner_quality_boundaries_keep_complete_native_readback_checks():
     assert result['status']=='pass' and result['thresholds_changed']
 
 
-@pytest.mark.parametrize('field,value',[('floor_delta_m',.01201),('support_lock_error_m',.01501)])
+# owner 10-15 relaxed the human foot tolerances (3 cm contact, 2 cm lock); values just beyond them still fail.
+@pytest.mark.parametrize('field,value',[('floor_delta_m',.03001),('support_lock_error_m',.02001)])
 def test_owner_quality_does_not_accept_errors_beyond_the_authorized_limits(field,value):
     from avengine.timeline.v7_phase2_checks import motion_checks
     visual=owner_quality_visual()

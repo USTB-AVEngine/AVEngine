@@ -23,4 +23,10 @@ def test_zero_pixels_without_actual_drawable_proof_still_fails():
 def test_explicit_visible_target_and_unplanned_mover_are_never_silently_reclassified():
     assets,visual,proof=fixture()
     assert coverage_errors({'native_view_roles':{'a':{'view':'inside'}}},assets,visual,{'a':0})
-    assert coverage_errors({'production_scenario':{'motion_requests':{'voice1':{'action':'walk'}}}},assets,visual,{'a':0})
+    # owner 10-15 (merge 10-16): a mover whose questions do not need it in view may stay out of the fixed view; it is
+    # never silently reclassified as a static offscreen body, and broken drawable evidence still fails.
+    scene={'production_scenario':{'motion_requests':{'voice1':{'action':'walk'}}}}
+    assert coverage_errors(scene,assets,visual,{'a':0})==[] and 'native_view_roles' not in scene
+    assert coverage_errors({**scene,'native_visibility_required_asset_ids':['a']},assets,visual,{'a':0})
+    proof['native_object_id']=None
+    assert coverage_errors(scene,assets,visual,{'a':0})

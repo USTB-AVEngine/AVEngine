@@ -186,7 +186,7 @@ def augment_content_binding(row,members,root):
             _,namespace=qualify_namespace(visuals[member],registry,original_registry_sha,vp.with_name('registry_namespace_readback.json'),vp)
             proof=_verified_native(visuals[member],folder,scene,assets,roster,namespace)
             audio=read_json(Path(m['audio_directory'])/'audio_evidence.json')
-            if audio['status']!='pass' or any(not d['passed_5deg'] for d in audio['directions']) or audio['camera_rotation_energy_absolute_error']>1e-10:raise ValueError('native acoustic direction/rotation admission failed')
+            if audio['status']!='pass' or any(not d['passed_5deg'] and not d.get('recorded_boundary_mismatch') for d in audio['directions']) or audio['camera_rotation_energy_absolute_error']>1e-10:raise ValueError('native acoustic direction/rotation admission failed')
             factor=member.split('_')[1]
             if factor not in component_cache:
                 stems,supports=_source_components(root,scene,factor);length=max(x.shape[1] for x in stems.values());world=np.zeros((4,length))

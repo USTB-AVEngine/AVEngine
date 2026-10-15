@@ -52,6 +52,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('contract','houses','assets','runtime','human-registry','output-root'):
         p.add_argument('--'+key,type=Path,required=True)
+    p.add_argument('--walkable-map-root',type=Path,help='Shared precomputed static room maps; configured missing maps fail closed')
     p.add_argument('--resource-budget-root',type=Path)
     p.add_argument('--worktree',type=Path,default=Path(__file__).resolve().parents[2])
     p.add_argument('--workers',type=int,default=4)
@@ -100,6 +101,10 @@ def main():
             'launch_disk_policy':admission_policy.get('launch_disk_policy',{}),
             'explicit_retry_room_id':a.room_id,'parents':[]}
         save(manifest_path,manifest)
+    if a.walkable_map_root is not None:
+        map_root=a.walkable_map_root.expanduser().resolve()
+        if not map_root.is_dir():raise FileNotFoundError('walkable map cache root is missing: '+str(map_root))
+        manifest['walkable_map_root']=str(map_root)
     feedback=out/'inputs/demand_state.json'
     if not feedback.exists() and a.admission_manifest:
         baseline=Path(admission_policy['output_root'])/'inputs/demand_state.json'

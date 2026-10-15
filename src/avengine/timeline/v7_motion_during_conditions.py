@@ -128,6 +128,18 @@ def prepare_motion_during_row(row,catalog,records):
     return result
 
 
+TREND_SMOOTHING_S=.5    # owner 10-15: "嘴部随头晃动导致中途有12厘米回摆，像这种，就没必要限制了吧"
+
+
+def smooth_track(track,frame_rate_hz=15.,window_s=TREND_SMOOTHING_S):
+    """Centered moving average of a (T,3) track: removes gait sway of the mouth, keeps the walking trend."""
+    track=np.asarray(track,float);n=max(1,int(round(window_s*frame_rate_hz)))
+    if n<=1 or len(track)<n:return track
+    pad=n//2;padded=np.pad(track,((pad,n-1-pad),(0,0)),mode='edge')
+    kernel=np.ones(n)/n
+    return np.column_stack([np.convolve(padded[:,k],kernel,mode='valid') for k in range(track.shape[1])])
+
+
 def verify_motion_during_native(row,scene,visual):
     plan=row.get('motion_during_condition_plan')
     if not plan:return None
@@ -152,8 +164,23 @@ def verify_motion_during_native(row,scene,visual):
                     at=float(offset)+np.arange(150)/15.
                     roots[aid]=np.column_stack([np.interp(at,source_times,samples[:,axis])for axis in range(3)])
                 else:roots[aid]=positions[aid]
-            report=cm.verify_motion_candidate(solution,positions_m=positions,
+            # Distance trends are judged on the 0.5 s smoothed mouth track (owner 10-15); net change and reversal
+            # limits are unchanged, so walking back is still caught while head sway is not counted.
+            # owner 10-15: head motion is not source locomotion.  A moving body's trend is read from its certified
+            # root track at the mouth's mean height (a big dog's mouth sits ~0.45 m ahead of the root and swung
+            # 17 cm when it turned its head); static bodies keep their mouth track.
+            trend_tracks={}
+            for aid,track in positions.items():
+                if aid in roots and admissions:
+                    body=np.asarray(roots[aid],float);mouth_height=float(np.mean(np.asarray(track,float)[:,1]))
+                    trend_tracks[aid]=np.column_stack((body[:,0],np.full(len(body),mouth_height),body[:,2]))
+                else:trend_tracks[aid]=track
+            smoothed={aid:smooth_track(track) for aid,track in trend_tracks.items()}
+            report=cm.verify_motion_candidate(solution,positions_m=smoothed,
                 root_positions_m=roots if admissions else None,listener_position_m=scene['listener_m'])
+            report['distance_trend_smoothing_s']=TREND_SMOOTHING_S
+            report['distance_trend_smoothing_authority']='owner 10-15: mouth sway from head motion is not a reversal'
+            report['distance_trend_track']='moving bodies: certified root at mouth height; static: mouth'
             reports.append({'offset_s':offset,'qa_id':solution.qa_id,'report':report})
     return {'status':'pass' if all(x['report']['status']=='pass'for x in reports)else'fail',
         'source':'actual native attached mouth trajectories; original v3 verifier','reports':reports,'delivered_qa_gates_unchanged':True}
@@ -171,3 +198,36 @@ def write_native_motion_condition_report(directory,report):
     path=attempt/('conditioned_motion_native_verification_'+digest+'.json')
     write_json(path,saved)
     return path
+
+
+_SOLUTION_CACHE={}
+
+
+def _cached_solution(config):
+    import hashlib,json
+    key=hashlib.sha256(json.dumps(config,sort_keys=True,default=str).encode()).hexdigest()
+    if key not in _SOLUTION_CACHE:_SOLUTION_CACHE[key]=_compile_and_solve(config)
+    return _SOLUTION_CACHE[key]
+
+
+def verify_planned_trajectories(plan,positions_by_asset,listener_m):
+    """The judge's own verifier on planned (or natively re-placed) tracks, before any rendering (Claude 10-15).
+
+    positions_by_asset maps asset_id -> (T,3) world positions sampled at 30 Hz over the 30 s world; bodies not
+    given stand still at their first sample.  Returns {qa_id: bool} -- a family passes only if every offset passes.
+    owner 10-15: "为什么运动条件不一定成立" -- planning must use the same ruler as the judge.
+    """
+    result={}
+    for item in plan['plans']:
+        solution=_cached_solution(item['config'])
+        ok=True
+        for offset in item['offsets_s']:
+            at=float(offset)+np.arange(150)/15.
+            positions={}
+            for aid,track in positions_by_asset.items():
+                track=np.asarray(track,float);times=np.arange(len(track))/30.
+                positions[aid]=np.column_stack([np.interp(at,times,track[:,axis])for axis in range(3)])
+            report=cm.verify_motion_candidate(solution,positions_m=positions,root_positions_m=None,listener_position_m=listener_m)
+            ok=ok and report.get('status')=='pass'
+        result[solution.qa_id]=result.get(solution.qa_id,True) and ok
+    return result

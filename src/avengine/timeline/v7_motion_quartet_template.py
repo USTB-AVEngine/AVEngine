@@ -170,6 +170,8 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         physical=recording_header(role['record'])
         emitted_duration=float((role.get('program') or {}).get('sample_count',physical['header']['sample_count']))/16000.
     focus=row.get('motion_template_focus','M2' if seed%2 else 'M1')
+    # owner 10-15 approved judging distance trends on a 0.5 s smoothed mouth track, so walking animals carry the
+    # distance-trend families again (v7_motion_during_conditions.smooth_track).
     route=find_template_route(room,pathfinder,seed,attempt,speed_range=EMISSION_SPEEDS[source_type],quiet_speed=QUIET_SPEEDS[source_type],allowed_speed_range=SPEED_RANGES[speed_kind],species=speed_kind,utterance_s=emitted_duration,focus=focus)
     slot=route['emission_slot'];offset=slot['offset_s'];start=slot['start_s'];local_start=start-offset
 
@@ -249,6 +251,26 @@ def motion_quartet_template(base_row, room, catalog, semantic_manifest, source_r
         retry.setdefault('motion_solver_construction_rejections',[]).append(str(error))
         return motion_quartet_template(retry,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt+1,contract=contract,source_type=source_type)
 
+    # Claude 10-15: verify the planned track with the judge's own verifier and keep only the families it already
+    # satisfies; a plan that satisfies none is rebuilt (owner: "为什么运动条件不一定成立").
+    from avengine.timeline.v7_motion_during_conditions import verify_planned_trajectories
+    listener_m=np.asarray(route['listener_m'],float)
+    track=np.asarray(route['positions_xz_m'],float);mouth=float(listener_m[1])+.3
+    tracks={aid:np.tile(listener_m+[25.,0.,25.+5.*i],(2,1)) for i,aid in enumerate(row['asset_ids'])}
+    tracks[a]=np.column_stack((track[:,0],np.full(len(track),mouth),track[:,1]))
+    verdict=verify_planned_trajectories(row['motion_during_condition_plan'],tracks,listener_m.tolist())
+    passing=[r for r in requests if verdict.get(r['qa_id'])]
+    row.setdefault('motion_quartet_planned_verification',{}).update(verdict)
+    if not passing:
+        raise MotionTemplateUnavailable('planned track satisfies no requested motion family under the judge: '+str(verdict))
+    if len(passing)<len(requests):
+        row['motion_during_condition_requests']=passing
+        row.pop('motion_during_condition_plan',None)
+        row=prepare_motion_during_row(row,catalog,list(source_records)+measured)
+    row['motion_requests'][a]['motion_during_condition_plan_for_fit']=deepcopy(row['motion_during_condition_plan'])
+    # owner 10-15: question quantity is not important; a window delivers the legal questions it has instead of the
+    # whole rendered parent failing 'single parent has fewer actual legal questions than requested total' (G107).
+    row['acceptance_allow_partial_families']=True
     row['motion_requests'][a]['intervals_s']=[[0.,30.]]
     # The original v3 solver validates selected windows; geometry follows the
     # fully prefiltered reflection track, including its turns outside a leg.

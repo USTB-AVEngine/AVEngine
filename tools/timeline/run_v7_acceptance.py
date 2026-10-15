@@ -15,7 +15,18 @@ def add_required_condition(row,condition):
     if condition not in conditions:conditions.append(condition)
 
 
+def configure_walkable_maps(manifest):
+    """One map cache is shared by construction and native admission workers."""
+    value=manifest.get('walkable_map_root')
+    if value is None:return
+    root=Path(value).expanduser().resolve()
+    if not root.is_dir():raise FileNotFoundError('configured walkable map cache root is missing: '+str(root))
+    os.environ['AVENGINE_WALKABLE_MAP_ROOT']=str(root)
+    os.environ['AVENGINE_REQUIRE_WALKABLE_MAP']='1'
+
+
 def run_worker(manifest,slot):
+    configure_walkable_maps(manifest)
     task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve()
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
     cpus=manifest.get('cpu_ids') or manifest.get('cpu_affinity_ids') or sorted(os.sched_getaffinity(0))

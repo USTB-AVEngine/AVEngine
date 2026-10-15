@@ -76,8 +76,9 @@ def test_native_adapter_loads_the_real_contract_path_before_forwarding(monkeypat
 def test_per_family_motion_recipe_is_not_forced_to_compile_unrequested_other_families():
     row,assets=fixture();row['motion_during_condition_requests']=row['motion_during_condition_requests'][:2]
     validate_template_request(row,assets,['QA-06','QA-15'])
-    with pytest.raises(ValueError,match='omitted requested'):
+    with pytest.raises(ValueError,match='compiled none of the requested'):
         validate_template_request(row,assets,['QA-16'])
+    validate_template_request(row,assets,['QA-06','QA-16'])     # merge 10-16: partial realization is recorded
 
 
 def test_explicit_footsteps_recipe_is_legal_for_during_sound_questions():

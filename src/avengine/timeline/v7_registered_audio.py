@@ -68,6 +68,8 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
                 from avengine.timeline.v7_registered_motion_audio import moving_stem
             stems[ep],motion,observed=moving_stem(spec,scene,effective_inputs,cache,dry[ep],attempt,ep,
                 event_bindings=[b for b in receipt['events'] if b['endpoint_id']==ep])
+            from avengine.timeline.v7_wet_support import cap_wet_tail
+            stems[ep],_=cap_wet_tail(stems[ep],dry[ep])
             plans[ep]={'RIR_count':motion['RIR_count'],'motion':'admitted native 30Hz source; midpoint-qualified emission-aligned crossfade','moving_energy':motion}
             directions.extend(observed)
             wet_support.update(motion.get('event_wet_support',{}))
@@ -85,8 +87,12 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
             cache.db.close()
             raise ValueError('alpha native FOA direction exceeds frozen 5deg criterion')
         stems[ep]=partitioned_convolve(dry[ep],[rir],[0]);plans[ep]={'RIR_count':1,'motion':'static native MJaw'}
+        from avengine.timeline.v7_wet_support import cap_wet_tail
+        stems[ep],_=cap_wet_tail(stems[ep],dry[ep])
         wet_support.update(event_wet_support(dry[ep],[b for b in receipt['events'] if b['endpoint_id']==ep],[rir]))
     if not stems:raise ValueError('alpha scene needs actual recorded sound')
+    from avengine.timeline.v7_wet_support import cap_wet_support
+    wet_support=cap_wet_support(wet_support)
     length=max(x.shape[1] for x in stems.values());world=np.zeros((4,length))
     for x in stems.values():world[:,:x.shape[1]]+=x
     camera=rotate_world_foa(world,camera_frames)
@@ -100,7 +106,8 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
         'event_wet_support':wet_support,'wet_support_revision':WET_SUPPORT_REVISION,
         'wet_support_complete':set(wet_support)=={e['event_id'] for e in scene['events']},
         'wall_seconds':time.perf_counter()-start,'process_cpu_seconds':time.process_time()-cpu,
-        'format':'ACN_WYZX_SN3D_camera','full_emission_history_and_tail':True}
+        'format':'ACN_WYZX_SN3D_camera','full_emission_history_and_tail':True,
+        'wet_tail_cap_s':__import__('avengine.timeline.v7_wet_support',fromlist=['x']).WET_TAIL_CAP_S}
     if sampling_profile is not None:
         result['phase2_native_sampling_profile']=sampling_profile
         result['fresh_native_process_evidence']=renderer.process_evidence

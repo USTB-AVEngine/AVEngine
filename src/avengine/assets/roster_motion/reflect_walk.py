@@ -34,13 +34,18 @@ class Walk:
     fps: int = 30
 
 
+def _segment_free(is_free, start, end):
+    check = getattr(is_free, 'segment_is_free', None)
+    return bool(check(start, end)) if check is not None else bool(is_free(end))
+
+
 def _free_dir(is_free, p, heading, lookahead, n=32):
     """Free headings (rad) at p, i.e. directions whose look-ahead point is free."""
     out = []
     for k in range(n):
         a = heading + 2 * math.pi * k / n
         q = p + lookahead * np.array([math.cos(a), math.sin(a)])
-        if is_free(q) and is_free(p + 0.5 * lookahead * np.array([math.cos(a), math.sin(a)])):
+        if _segment_free(is_free, p, q) and is_free(p + 0.5 * lookahead * np.array([math.cos(a), math.sin(a)])):
             out.append(a)
     return out
 
@@ -49,7 +54,8 @@ def _free_run(is_free, p, angle, step=0.1, max_m=6.0):
     """How far one can walk straight from p along angle before leaving the free space."""
     d = np.array([math.cos(angle), math.sin(angle)])
     r = 0.0
-    while r + step <= max_m and is_free(p + (r + step) * d):
+    # Earlier segments are already certified; check only the new interval.
+    while r + step <= max_m and _segment_free(is_free, p + r * d, p + (r + step) * d):
         r += step
     return r
 
@@ -68,7 +74,7 @@ def _mirror_heading(is_free, p, heading, lookahead):
     for k in range(-8, 9):
         a = heading + k * math.pi / 16
         q = p + lookahead * np.array([math.cos(a), math.sin(a)])
-        if not is_free(q):
+        if not _segment_free(is_free, p, q):
             blocked.append(a)
     if not blocked:
         return heading
@@ -109,7 +115,7 @@ def reflect_walk(is_free, start_xz, heading, speed, *, duration_s=30.0, fps=30, 
     for i in range(n):
         pos[i] = p; yaw[i] = h
         ahead = p + lookahead * np.array([math.cos(h), math.sin(h)])
-        if turning == 0 and not is_free(ahead):
+        if turning == 0 and not _segment_free(is_free, p, ahead):
             frees = _free_dir(is_free, p, h, lookahead)
             if not frees:
                 return None
@@ -130,7 +136,7 @@ def reflect_walk(is_free, start_xz, heading, speed, *, duration_s=30.0, fps=30, 
             v = speed
         spd[i] = v
         nxt = p + v * dt * np.array([math.cos(h), math.sin(h)])
-        if not is_free(nxt):
+        if not _segment_free(is_free, p, nxt):
             # never step into a blocked point: hold position this frame and force a turn next frame
             v = 0.0
             spd[i] = 0.0

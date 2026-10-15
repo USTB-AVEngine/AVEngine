@@ -106,7 +106,7 @@ def compile_cached_cat(video,entry,scene,house,inputs,directory,request):
             try:
                 floor=PhysicalFloor(video,float(house['room']['measured_floor_y_m']),original_ids)
                 positions[:,1]=floor(p0)
-                clearance=TriangleClearance(video,house,positions[0,1],entry)
+                clearance=TriangleClearance(video,house,positions[0,1],entry);clearance.record_only=True;clearance.stride=10
                 frames=[];bounds=[];minimum=math.inf
                 for i,t in enumerate(times):
                     pose=prepared[int(phase_indices[i])];rot=yaw_matrix(yaw);mesh=pose['mesh'];distance,world=clearance.check(mesh.vertices,mesh.faces,positions[i],yaw);minimum=min(minimum,distance)

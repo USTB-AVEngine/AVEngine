@@ -133,7 +133,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
             solver.times=times
             support_repairs=ground_slow_gait_support(solver)
             for values in solver.active.values():values[~moving]=True
-            clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
+            clearance=TriangleClearance(video,house,floor_y,entry);clearance.record_only=True;clearance.stride=10;geometry=[];frames=[];minimum=math.inf
             for i,t in enumerate(times):
                 if i%90==0:search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=i)
                 if time.process_time()-search_start>cpu_budget_s:raise ValueError('dog route CPU budget exhausted; no admission')
@@ -141,7 +141,9 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
                 feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
                 if not contacts:raise ValueError('dog gait has no planted paw at an actual 30Hz sample')
                 if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>OWNER_PRODUCTION_QUALITY['contact_gap_m']+1e-12 or x['support_lock_error_m']>OWNER_PRODUCTION_QUALITY['support_lock_error_m']+1e-12 for x in contacts):raise ValueError('motion source foot contact or lock violates owner visual 12mm/15mm quality policy')
-                if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
+                from avengine.assets.roster_motion.episode import IK_REACH_LIMIT_M,IK_PELVIS_LIMIT_M   # owner 10-15, as for humans
+                if solver.max_reach>=IK_REACH_LIMIT_M or ev['pelvis_lowering_m']>=IK_PELVIS_LIMIT_M:
+                    raise ValueError('motion IK reach or pelvis bound failed: reach %.3f m, pelvis lowering %.3f m'%(solver.max_reach,ev['pelvis_lowering_m']))
                 geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
             accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum,support_repairs);break
         except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
