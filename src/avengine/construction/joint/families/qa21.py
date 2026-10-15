@@ -34,12 +34,18 @@ def emission_mechanism(asset, sound_class):
 
 
 def target_options(room, catalog, records, contract, state, *, requested_class=None,
-                   floor_only=True, preferred_asset_ids=()):
+                   floor_only=True, preferred_asset_ids=(), asset_class_choices=None):
     """Enumerate admitted class/body pairs before choosing any camera or route."""
     from avengine.timeline.continuous_scene import QA21_CLASSES
     from avengine.timeline.v7_production_inputs import asset_category
     from avengine.qa.unified_catalog import _sound_class_phrases
     available = {r['sound_class'] for r in records if r.get('sound_class')}
+    choices = dict(asset_class_choices or {})
+    by_id = {a['asset_id']: a for a in catalog}
+    for aid, cls in choices.items():
+        if aid not in by_id or cls not in available or cls not in QA21_CLASSES:
+            raise ValueError('QA21 explicit emitter/class choice is not an admitted source')
+        emission_mechanism(by_id[aid], cls)
     excluded = contract.get('policy', {}).get('temporarily_excluded_asset_ids', {})
     result = []
     for asset in catalog:
@@ -54,6 +60,8 @@ def target_options(room, catalog, records, contract, state, *, requested_class=N
         if asset_category(asset, {}, room['family']) not in room['categories']:
             continue
         for cls in sorted(set(asset.get('allowed_classes', ())) & available & set(QA21_CLASSES)):
+            if asset['asset_id'] in choices and choices[asset['asset_id']] != cls:
+                continue
             if requested_class is not None and cls != requested_class:
                 continue
             try:
@@ -424,7 +432,8 @@ def prepare_qa21_sources(room, house, state, catalog, records, semantic, contrac
     requested = runtime.get('qa21_requested_class') or state.get('qa21_requested_class')
     maximum = 1 if requested else int(runtime.get('qa21_targets_per_parent', 3))
     if not 1 <= maximum <= 3:raise ValueError('QA21 supports one to three distinct planned targets')
-    options = target_options(room, catalog, records, contract, state, requested_class=requested, preferred_asset_ids=runtime.get('qa21_preferred_asset_ids',()))
+    options = target_options(room, catalog, records, contract, state, requested_class=requested, preferred_asset_ids=runtime.get('qa21_preferred_asset_ids',()),
+        asset_class_choices=runtime.get('qa21_asset_class_choices'))
     selected = select_target_set(options, maximum)
     if not selected:raise ConstructionUnavailable('no admitted floor emitter can make the requested QA21 class in this legal room')
     # Only the human required by this question plan is introduced. Its whole
