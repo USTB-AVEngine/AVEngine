@@ -138,12 +138,15 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
     centre=np.mean(xz,axis=0);candidates=[];tested=0
     # Place the short walk anywhere on the native floor (0.3 m grid x 16 headings), not only near where it was
     # planned: the planned room outline differs from the native motion floor, so local shifts mostly fell outside.
-    rotations=[k*math.pi/8 for k in range(16)]
+    rotations=[0.]+[k*math.pi/8 for k in range(1,16)]
     gx0,gz0,gx1,gz1=polygon.bounds
     grid=[np.array([x,z]) for x in np.arange(gx0,gx1+1e-9,.3) for z in np.arange(gz0,gz1+1e-9,.3) if polygon.covers(Point(x,z))]
     rng=np.random.default_rng(int(abs(hash(str(route.get('selected_attempt')))) % (2**32)))
     rng.shuffle(grid)
-    shifts=[g-centre for g in grid]
+    # The planned placement itself first (it already passed the planning predicates), then local moves, then the
+    # whole native floor grid.
+    local=[np.array([x,z])for x in (0.,.25,-.25,.5,-.5,1.,-1.)for z in (0.,.25,-.25,.5,-.5,1.,-1.)]
+    shifts=local+[g-centre for g in grid]
     limit=max(24,int(request.get('native_route_candidate_pool',96)))
     for shift in shifts:
         for angle in rotations:
