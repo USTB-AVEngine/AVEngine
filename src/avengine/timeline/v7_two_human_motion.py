@@ -42,7 +42,42 @@ def single_bout_at(route, *, start_s=2.6, offset_s=0., reverse=False, shift_xz=(
     return result
 
 
-def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_duration_s=1.6):
+def negative_control_bystander(room,pathfinder,listener,yaw_deg,routes):
+    """A real silent body's root supplies the stock wrong-origin control.
+
+    The existing audio code admits every registered drawable as a wrong
+    origin, including a silent entity's measured root (no invented sound).
+    """
+    from avengine.assets.roster_motion.reflect_navmesh import native_free_predicate
+    from avengine.assets.roster_motion.straight_route import rest_framing
+    from avengine.construction.joint.routes import minimum_track_distance
+    floor=float(room['measured_floor_y_m']);listener=np.asarray(listener,float);L=listener[[0,2]]
+    polygon=shape(room['floor_polygon']);pred=native_free_predicate(pathfinder,polygon,floor,listener,species='human',camera_margin=1.5)
+    tracks=[np.column_stack((np.asarray(r['positions_xz_m'])[:,0],np.full(901,listener[1]+.3),np.asarray(r['positions_xz_m'])[:,1]))for r in routes]
+    roots=[np.column_stack((t[:,0],np.full(901,floor),t[:,2]))for t in tracks]
+    choices=[]
+    for relative in (30.,-30.,33.,-33.,35.,-35.,28.,-28.,65.,-65.,90.,-90.,130.,-130.):
+        angle=math.radians(float(yaw_deg)+relative);direction=np.array([math.sin(angle),-math.cos(angle)])
+        for radius in (3.8,4.2,3.4,4.8,2.8,2.,1.6):
+            xz=L+radius*direction
+            if not pred(xz):continue
+            framing=rest_framing(xz,L,yaw_deg)
+            if framing=='edge':continue
+            depth=float(np.dot(xz-L,np.array([math.sin(math.radians(yaw_deg)),-math.cos(math.radians(yaw_deg))])))
+            if framing=='inside'and depth<2.5:continue
+            point=np.array([xz[0],floor,xz[1]])
+            if any(minimum_track_distance(t,np.tile(point,(901,1)))<1.1 for t in roots):continue
+            wrong=point-listener;minimum=180.
+            for track in tracks:
+                wanted=track-listener;cos=np.sum(wanted*wrong,axis=1)/(np.linalg.norm(wanted,axis=1)*np.linalg.norm(wrong))
+                minimum=min(minimum,float(np.degrees(np.arccos(np.clip(cos,-1,1))).min()))
+            if minimum<24.:continue
+            choices.append(((framing=='inside',minimum,-radius),{'root_m':point.tolist(),'minimum_planned_wrong_angle_deg':minimum,
+                'frame_state':framing,'relative_azimuth_deg':relative,'source_position_policy':'silent registered drawable root, matching original audio negative-control code'}))
+    return max(choices,key=lambda item:item[0])[1]if choices else None
+
+
+def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_duration_s=1.6,require_negative_control=False):
     """Finite analytic lane offsets; no second actor can cross the first."""
     from avengine.assets.roster_motion.reflect_navmesh import native_free_predicate
     from avengine.assets.roster_motion.straight_route import frame_rest_poses
@@ -72,8 +107,10 @@ def paired_corridors(seed_route,room,pathfinder,*,first_branch='nearer',second_d
             radii=np.linalg.norm(q-L,axis=1);slot=b['emission_slot'];i,j=round(slot['start_s']*30),round(slot['end_s']*30)
             trim=round(.2*(j-i));v=radii[i+trim:j-trim+1];sign=-1 if slot['branch']=='nearer'else 1
             if sign*(v[-1]-v[0])<.5 or np.any(sign*np.diff(v)<-.005):continue
+            control=negative_control_bystander(room,pathfinder,listener,yaw,(a,b))if require_negative_control else None
+            if require_negative_control and control is None:continue
             for route in (a,b):route.update(camera_yaw_deg=yaw,rest_pose_framing=framing)
-            yield a,b,{'lane_separation_m':separation,'side':side,'minimum_pair_distance_m':continuous_distance,'rest_framing':framing}
+            yield a,b,{'lane_separation_m':separation,'side':side,'minimum_pair_distance_m':continuous_distance,'rest_framing':framing,'negative_control':control}
 
 
 def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_records,pathfinder,*,attempt=0,contract=None):
@@ -95,7 +132,8 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
         human_motion_require_two_walkers=True,human_event_start_local_s=local_start,human_post_motion_s=.6,human_minimum_motion_s=.8,human_query_until_local_s=7.4,
         motion_semantic_pair_ids=[s['sound_asset_id']for s in pair],motion_template_focus='M1')
     base=motion_quartet_template(seed_row,room,catalog,semantic_manifest,source_records,pathfinder,attempt=attempt,contract=contract,source_type='human_speech')
-    first,second=base['semantic_human_asset_ids'];base['asset_ids']=[first,second];base['silent_asset_ids']=[]
+    first,second=base['semantic_human_asset_ids'];bystander=base['asset_ids'][2]
+    base['asset_ids']=[first,second,bystander];base['silent_asset_ids']=[bystander]
     measured=[];byasset={a['asset_id']:a for a in catalog}
     for aid,sound in zip((first,second),pair):
         record=semantic_record(sound,'F'if byasset[aid]['visual_gender']=='female'else'M')
@@ -109,14 +147,14 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
     import time
     deadline=time.process_time()+30.
     def partner_possible(candidate):
-        return next(paired_corridors(candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b),None)is not None
+        return next(paired_corridors(candidate,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True),None)is not None
     for geometry_attempt in range(2):
         try:
             seed_route=(base['motion_requests'][first]['motion_quartet_route']if geometry_attempt==0 else
                 find_human_seed_route(room,pathfinder,int(base_row['scene_seed']),attempt+geometry_attempt,
                     utterance_s=duration_a,local_start_s=local_start,post_motion_s=.6,candidate_validator=partner_possible,cpu_deadline=deadline))
         except ValueError as exc:errors.append(str(exc));continue
-        for route_a,route_b,layout in paired_corridors(seed_route,room,pathfinder,first_branch=desired,second_duration_s=duration_b):
+        for route_a,route_b,layout in paired_corridors(seed_route,room,pathfinder,first_branch=desired,second_duration_s=duration_b,require_negative_control=True):
             row=deepcopy(base);row['human_motion_event_count']=2;row['human_motion_strategy']='two_walkers'
             row['motion_quartet_template_revision']=REVISION
             row['phase2_source_event_schedule_s']={first:[local_start,11.,22.],second:[7.5,15.+local_start,27.5]}
@@ -127,6 +165,7 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
                 for aid,route in ((first,route_a),(second,route_b))}
             plans=[];requests=[];verifications=[]
             tracks={aid:np.column_stack((np.asarray(route['positions_xz_m'])[:,0],np.full(901,row['listener_m'][1]+.3),np.asarray(route['positions_xz_m'])[:,1]))for aid,route in ((first,route_a),(second,route_b))}
+            croot=np.asarray(layout['negative_control']['root_m']);tracks[bystander]=np.tile(croot,(901,1))
             valid=True
             for aid,route,starts in ((first,route_a,{first:local_start,second:7.5}),(second,route_b,{first:7.,second:local_start})):
                 slot=route['emission_slot'];offset=slot['offset_s'];end_local=route['short_window_walk']['walk_end_s']-offset-.1
@@ -158,6 +197,7 @@ def two_human_motion_template(base_row,room,catalog,semantic_manifest,source_rec
             row['motion_quartet_planned_verification']={f:True for f in FAMILIES};row['human_motion_event_planned_verification']=verifications
             row['planned_crop_speed_checks']=speed_checks
             row['primary_motion_speech_anchors_s']={first:route_a['emission_slot']['start_s'],second:route_b['emission_slot']['start_s']}
+            row['motion_wrong_emitter_control']={**layout['negative_control'],'asset_id':bystander}
             row['native_placement_preferences_m']={aid:[float(track[0,0]),float(room['measured_floor_y_m']),float(track[0,2])]for aid,track in tracks.items()}
             row['scene_demand'].update(constructor=REVISION,condition_families={'motion_quartet':list(FAMILIES)},required_actual_candidate_families=list(FAMILIES))
             row['motion_quartet_construction'].update(revision=REVISION,route=route_a,routes={first:route_a,second:route_b},

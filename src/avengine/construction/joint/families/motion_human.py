@@ -21,6 +21,11 @@ def scene_plan_for_row(row,room):
             metadata={'walk_intervals_s':[[window['walk_start_s'],window['walk_end_s']]],'ramp_s':window.get('ramp_s',.3),
                       'navigation_authority':'actual registered native NavMesh; cached map preference may be bypassed'})
         emitters[aid]=np.column_stack((xz[:,0],np.full(len(xz),camera.position_m[1]+.3),xz[:,1]))
+    control=row.get('motion_wrong_emitter_control')
+    if control:
+        aid=control['asset_id'];roots=np.tile(np.asarray(control['root_m'],float),(901,1))
+        actors[aid]=ActorPlan(aid,roots,BodySpec.for_species('human'),metadata={'silent_negative_control':True})
+        emitters[aid]=roots
     sounds=[]
     durations=dict(zip(row['semantic_human_asset_ids'],row['motion_quartet_construction']['utterance_durations_s']))
     for aid,starts in row['phase2_source_event_schedule_s'].items():

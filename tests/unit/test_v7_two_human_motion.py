@@ -57,12 +57,21 @@ def test_full_two_person_template_certifies_both_targets_with_original_solver(mo
     row=two_human_motion_template({'scene_seed':42,'scene_id':'new','motion_source_type':'human_speech','human_motion_event_count':2},
         room,catalog,{'sounds':sounds},[],pf)
     assert len(calls)>1
-    assert len(row['asset_ids'])==len(row['motion_requests'])==2
+    assert len(row['asset_ids'])==3 and len(row['motion_requests'])==2
+    assert row['silent_asset_ids']==[row['motion_wrong_emitter_control']['asset_id']]
+    assert row['motion_wrong_emitter_control']['minimum_planned_wrong_angle_deg']>=24.
     assert row['joint_motion_witness_certificate']['passed']
     assert len(row['joint_motion_witness_certificate']['checks'])==8
     from avengine.construction.joint.families.motion_human import scene_plan_for_row
     typed=scene_plan_for_row(row,room)
-    assert len(typed.actors)==2 and len(typed.sounds)==6
+    assert len(typed.actors)==3 and len(typed.sounds)==6
+    from avengine.timeline.v7_phase2_motion_audio import wrong_registered_pose
+    emitters=typed.metadata['planned_emitter_positions_by_asset']
+    proxy={'listener_m':list(typed.camera.position_m),'sources':{aid:{'native_visual_kind':'registered_drawable','trajectory':[{'time_s':i/30.,'position_m':p.tolist()}for i,p in enumerate(track)]}for aid,track in emitters.items()}}
+    for aid in row['motion_requests']:
+        for second in (0.,3.,7.5,18.,22.,30.):
+            endpoint,point,separation=wrong_registered_pose(proxy,emitters[aid][round(second*30)],second)
+            assert endpoint!=aid and endpoint in proxy['sources'] and separation>=20.
     assert row['motion_quartet_construction']['no_turns']
     assert len(row['human_motion_event_planned_verification'])==2
     assert all(all(v['families'].values())for v in row['human_motion_event_planned_verification'])
