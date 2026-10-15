@@ -148,3 +148,25 @@ def test_fine_fit_creates_its_directory_before_real_native_prefilter_receipts(tm
     assert fine.receipt['animal_rigid_fitting_round']==1
     receipt=tmp_path/'fine_fit_1/prefilter.json'
     assert receipt.exists() and json.loads(receipt.read_text())['native_admissible_route_pool']==24
+
+
+def test_measured_terrain_route_passes_the_same_paw_and_skin_checks_without_joint_changes(tmp_path,monkeypatch):
+    from avengine.assets.roster_motion import episode
+    video,entry,scene,house,request,route,provider,checks=admitted_fixture(tmp_path,monkeypatch)
+    class InclinedFloor:
+        def __init__(self,*args):self.reference=float(args[1])
+        def __call__(self,p):return .02*float(p[0])
+        def many(self,points):return .02*np.asarray(points)[:,0]
+    # A 2% scanned-floor slope changes ground height by 24mm along the walk;
+    # the retained flat-world root cannot satisfy one global paw/skin interval.
+    entry['applied_root_input'][1,3]=.02*entry['applied_root_input'][0,3]
+    monkeypatch.setattr(episode,'PhysicalFloor',InclinedFloor)
+    evidence=animals.compile_admitted_animal(video,entry,scene,house,{},tmp_path/'output',request)
+    roots=np.array(evidence['world_roots_m']);surface=.02*roots[:,0]
+    assert np.ptp(surface)==pytest.approx(.024)
+    assert np.ptp(roots[:,1]-surface)<1e-10
+    terrain=evidence['terrain_route_placement']
+    assert terrain['floor_sample_count']==901 and terrain['per_paw_or_joint_correction']is False
+    for frame in evidence['source_frames']:
+        assert all(abs(paw['floor_delta_m'])<=.012 for paw in frame['feet'].values())
+        assert all(paw['support_lock_error_m']<=.015 for paw in frame['feet'].values())
