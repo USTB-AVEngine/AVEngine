@@ -41,3 +41,11 @@ def test_native_parallel_caller_does_not_activate_a_serial_queue(tmp_path,monkey
     def unexpected(*args,**kwargs):raise AssertionError('unexpected child process')
     monkeypatch.setattr('avengine.timeline.v7_phase2_rir_prefetch.subprocess.run',unexpected)
     assert maybe_schedule_prefetch(p,{'inputs':{'fresh_rir_workers':8}}, {})is None
+
+
+def test_queued_cache_cannot_run_inside_an_independent_measuring_worker(tmp_path,monkeypatch):
+    root=tmp_path/'parent/audio/fresh';p=root/'token/request.json';p.parent.mkdir(parents=True)
+    (root/'prefetch_plan.json').write_text(json.dumps({'schema':'v7-fresh-rir-prefetch-plan-v1',
+        'separate_coordinator_required':True}))
+    monkeypatch.setattr('avengine.timeline.v7_phase2_rir_prefetch.sys.argv',['v7_phase2_fresh_rir.py'])
+    assert run_prefetch_plan(p,{}, {})is None

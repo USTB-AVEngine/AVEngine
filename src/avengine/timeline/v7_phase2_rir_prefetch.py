@@ -19,6 +19,9 @@ def run_prefetch_plan(request_path, request, setup_report):
     if not plan_path.is_file():return None
     plan=json.loads(plan_path.read_text())
     if plan.get('schema')!='v7-fresh-rir-prefetch-plan-v1':raise ValueError('unknown fresh RIR prefetch plan')
+    if plan.get('separate_coordinator_required') and Path(sys.argv[0]).name!='v7_phase2_rir_prefetch.py':
+        return None  # Retained measuring workers must never become cache readers.
+
     plan_id=plan['plan_id']
     if not plan_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-'for c in plan_id):
         raise ValueError('invalid prefetch plan ID')
