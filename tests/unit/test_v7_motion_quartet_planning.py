@@ -71,3 +71,19 @@ def test_native_adapter_loads_the_real_contract_path_before_forwarding(monkeypat
     monkeypatch.setattr(planning,'plan_room_motion_quartet',constructor)
     planning.plan_native_room_motion_quartet({'room_id':'R'},{},{'checked_rooms':[{'room_label':'R'}],'input':{'navmesh_source':'registered'}},[],{},[],{'runtime':{},'production_input_contract':str(path)})
     assert seen['contract']==contract and isinstance(seen['contract'],dict)
+
+
+def test_per_family_motion_recipe_is_not_forced_to_compile_unrequested_other_families():
+    row,assets=fixture();row['motion_during_condition_requests']=row['motion_during_condition_requests'][:2]
+    validate_template_request(row,assets,['QA-06','QA-15'])
+    with pytest.raises(ValueError,match='omitted requested'):
+        validate_template_request(row,assets,['QA-16'])
+
+
+def test_explicit_footsteps_recipe_is_legal_for_during_sound_questions():
+    row,assets=fixture();row['motion_during_condition_requests']=row['motion_during_condition_requests'][:2]
+    row['source_classes']['walker']=['footsteps'];row['phase2_include_footsteps_asset_ids']=['walker']
+    validate_template_request(row,assets,['QA-06','QA-15'])
+    row['source_classes']['walker']=['speech_playback']
+    with pytest.raises(ValueError,match='footsteps-only'):
+        validate_template_request(row,assets)

@@ -47,6 +47,7 @@ def run_worker(manifest,slot):
             row=proposal['row']
         elif task.get('focus')=='motion_quartet_template' or task.get('constructor')=='motion_quartet_template':
             from avengine.timeline.v7_motion_quartet_planning import plan_native_room_motion_quartet
+            if task.get('target_family')in {'QA-06','QA-15','QA-16','QA-17'}:row['motion_requested_families']=[task['target_family']]
             row=plan_native_room_motion_quartet(row,state,house,catalog,load(inputs['semantic_manifest']),source['records'],inputs,attempt=int(task.get('construction_attempt',0)))
         else:
             def construction_context():
