@@ -58,6 +58,8 @@ def test_complete_native_gait_finish_preserves_emission_speed_and_planted_pause(
     assert min(abs(clock[-1]-.5*i)for i in range(30))<1e-10
     assert .8<=np.min(velocity[(times>=1)&(times<=3.4)])<=1.2
     assert proof['complete_step_source_phase_s']==pytest.approx(clock[-1])
+    assert proof['maximum_stable_speed_m_s']==pytest.approx(max(velocity))
+    assert proof['nominal_source_speed_m_s']==1.2
 
 def test_formal_catalog_does_not_require_an_invented_optional_voice_flag():
     from avengine.timeline.v7_motion_quartet_template import choose_template_assets

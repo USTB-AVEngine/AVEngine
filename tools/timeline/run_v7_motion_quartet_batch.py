@@ -153,6 +153,7 @@ def main():
             if a.launch_deadline_utc and datetime.datetime.now(datetime.timezone.utc)>=datetime.datetime.fromisoformat(a.launch_deadline_utc.replace('Z','+00:00')):pending.clear();break
             if psutil.virtual_memory().available<30_000_000_000 or shutil.disk_usage('/data').free<launch_minimum_free_bytes(manifest['disk_launch_policy']):break
             house,room,attempt=pending.pop(0);slot=len(manifest['parents'])
+            launch_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.worktree,text=True).strip()
             seed=a.seed+slot*101+attempt;identity=hashlib.sha256((house['house']+room['room_label']+str(seed)).encode()).hexdigest()[:14]
             row={'schema':'v7-visible-registered-pilot-phase2-v1','split':{'development':'dev'}.get(house['split'],house['split']),
                  'house':house['house'],'room_id':room['room_label'],'scene_seed':seed,
@@ -160,7 +161,7 @@ def main():
                  'scene_id':'motion_quartet_'+identity,'question_quota_base':10,'questions_per_window':14,
                  'window_count':5,'members':['v0_a0'],'trial_only':True}
             task={'slot':slot,'row':row,'device':'cpu','profile':'phase2','family':house['family'],
-                  'constructor':'motion_quartet_template','construction_attempt':attempt,'code_commit':commit}
+                  'constructor':'motion_quartet_template','construction_attempt':attempt,'code_commit':launch_commit}
             manifest['parents'].append(task);save(manifest_path,manifest)
             logfile=out/'logs'/f'parent_{slot:03d}.log';stream=logfile.open('a')
             command=[sys.executable,str(a.worktree/'tools/timeline/run_v7_frozen_acceptance.py'),
