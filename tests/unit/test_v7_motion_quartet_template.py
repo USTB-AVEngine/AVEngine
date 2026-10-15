@@ -64,3 +64,22 @@ def test_formal_catalog_does_not_require_an_invented_optional_voice_flag():
     catalog=[{'asset_id':str(i),'kind':'human','controlled_shirt':True,'standing_registered_qualified':True,'walk_allowed':True,'visual_gender':'female' if i%2 else 'male','color':str(i)}for i in range(8)]
     chosen=choose_template_assets(catalog,[{'voice_gender':'female'},{'voice_gender':'male'}],3)
     assert len(chosen)==4
+
+
+def test_failed_first_native_route_has_more_room_candidates_without_static_fallback():
+    from avengine.assets.roster_motion.straight_window_routes import straight_window_routes
+    from avengine.assets.roster_motion.timed_straight_clock import timed_straight_clock
+    times=np.arange(901)/30.;distance,_,clock=timed_straight_clock(times,.9)
+    route={**clock,'centre_xz_m':[0.,0.],'heading_rad':0.}
+    poly={'type':'Polygon','coordinates':[[[-10,-10],[10,-10],[10,10],[-10,10],[-10,-10]]]}
+    entry={'applied_root_input':np.eye(4),'declaration':{'kind':'human','emitter_local_m':[0.,1.4,0.]}}
+    pf=SimpleNamespace(snap_point=lambda p:p,find_path=lambda p:True)
+    video=SimpleNamespace(actors=[],pathfinder=pf,hs=SimpleNamespace(ShortestPath=lambda:SimpleNamespace(geodesic_distance=1.)))
+    scene={'production_scenario':{'motion_floor_polygon':poly},'listener_m':[0.,1.25,-9.],'camera_yaw_knots':[{'yaw_deg':0.}]}
+    request={'straight_motion_windows_s':[[1.,7.5]],'motion_quartet_route':route}
+    proposals=straight_window_routes(video,entry,scene,distance,[0.,0.,1.],request)
+    first=next(proposals);second=next(proposals)
+    assert not np.array_equal(first.positions,second.positions)
+    assert first.positions.shape==second.positions.shape==(901,3)
+    assert first.receipt['automatic_native_retry_preserves_camera']
+    assert second.receipt['native_full_pose_checks_still_required']

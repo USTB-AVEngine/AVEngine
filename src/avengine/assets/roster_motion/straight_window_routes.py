@@ -36,16 +36,30 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
           if any(not len(ids)or segments[ids[0]]<0 or np.any(segments[ids]!=segments[ids[0]])for ids in slices):continue
           patterns.append((offset,p,tangent))
         if not patterns:continue
-        headings=[template['heading_rad']] if template else np.arange(16)*math.pi/8
+        headings=[template['heading_rad']+delta for delta in (0.,math.pi/16,-math.pi/16,math.pi/8,-math.pi/8)] if template else np.arange(16)*math.pi/8
         for heading in headings:
           rotation=np.array([[math.cos(heading),-math.sin(heading)],[math.sin(heading),math.cos(heading)]])
-          selected_centres=[Point(*template['centre_xz_m'])] if template else centres
+          selected_centres=centres
+          if template:
+            proposed=Point(*template['centre_xz_m'])
+            selected_centres=[proposed]+sorted((p for p in centres if p.distance(proposed)>1e-8),key=lambda p:p.distance(proposed))
           for centre in selected_centres:
             for offset,p,tangent in patterns:
               xz=p@rotation.T+[centre.x,centre.y];line=LineString(xz)
               if not free.covers(line)or any(line.intersects(o)for o in obstacles):continue
               positions=np.column_stack((xz[:,0],np.full(len(xz),start[1]),xz[:,1]));t=tangent@rotation.T;yaws=np.unwrap(base-np.arctan2(t[:,1],t[:,0]))
               if np.min(np.linalg.norm(positions[:,[0,2]]-listener[[0,2]],axis=1))<.6:continue
+              if template and template.get('distance_branches'):
+                c,s=np.cos(yaws),np.sin(yaws)
+                emit=positions+np.column_stack((c*mouth[0]+s*mouth[2],np.full(len(times),mouth[1]),-s*mouth[0]+c*mouth[2]))
+                radial=np.linalg.norm(emit-listener,axis=1);bad=False
+                for branch in template['distance_branches']:
+                  epoch=float(branch['offset_s'])
+                  relevant=[(lo,hi)for lo,hi in sound_windows if epoch<=lo<epoch+10]
+                  lo,hi=relevant[0]if relevant else(epoch+.3,epoch+2.7)
+                  values=radial[(times>=lo)&(times<=hi)];sign=-1 if branch['branch']=='nearer'else 1
+                  if len(values)<2 or sign*(values[-1]-values[0])<request.get('minimum_distance_change_m',.4)or np.min(sign*np.diff(values))<-.005:bad=True;break
+                if bad:continue
               if request.get('distance_trend'):
                 radial=np.linalg.norm(positions-listener,axis=1);sign=-1 if request['distance_trend']=='approaching' else 1;bad=False
                 for lo,hi in request.get('distance_trend_intervals_s',[]):
@@ -68,4 +82,4 @@ def straight_window_routes(video,entry,scene,distance,local_forward,request):
                 links.append({'start_frame':int(i),'end_frame':int(j),'native_geodesic_m':float(path.geodesic_distance)})
               if len(links)!=8:continue
               proposal+=1
-              yield SimpleNamespace(positions=positions,yaws=yaws,receipt={'revision':'v3-timed-straight-windows-native-stadium-v1','proposal':proposal,'route_kind':'straight critical windows with smooth turns only outside them','straight_windows_s':windows,'straight_length_m':length,'turn_radius_m':radius,'phase_distance_offset_m':float(offset),'centre_xz_m':[centre.x,centre.y],'heading_rad':float(heading),'root_samples':len(times),'maximum_horizontal_snap_error_m':float(errors.max()),'native_waypoint_connections':links,'heading_follows_route_tangent':True,'native_full_pose_checks_still_required':True})
+              yield SimpleNamespace(positions=positions,yaws=yaws,receipt={'revision':'v3-timed-straight-windows-native-stadium-v1','proposal':proposal,'route_kind':'straight critical windows with smooth turns only outside them','straight_windows_s':windows,'straight_length_m':length,'turn_radius_m':radius,'phase_distance_offset_m':float(offset),'centre_xz_m':[centre.x,centre.y],'heading_rad':float(heading),'proposal_centre_xz_m':None if not template else template['centre_xz_m'],'automatic_native_retry_preserves_camera':bool(template),'root_samples':len(times),'maximum_horizontal_snap_error_m':float(errors.max()),'native_waypoint_connections':links,'heading_follows_route_tangent':True,'native_full_pose_checks_still_required':True})
