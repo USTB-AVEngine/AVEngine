@@ -133,12 +133,7 @@ def _request(row,state,family):
 
 
 def _camera_knots(yaw,*,hold=6.5,peak=80.):
-    values=[]
-    for epoch in (0.,10.,20.):
-        for time,delta in ((0.,0.),(hold,0.),(8.,peak),(9.,-peak),(10.,0.)):
-            if values and values[-1]['time_s']==epoch+time:continue
-            values.append({'time_s':epoch+time,'yaw_deg':yaw+delta})
-    return values
+    return [{'time_s':0.,'yaw_deg':float(yaw)},{'time_s':30.,'yaw_deg':float(yaw)}]
 
 
 def construct_family_scene(room,house,state,catalog,records,semantic,contract,runtime,
@@ -276,7 +271,8 @@ def _construct_post(row,people,state,catalog,records,semantic,contract,runtime,h
         try:
             reference=semantic_record(speech,'F'if other_gender=='female'else'M')
             candidate=plan_post_sound_motion(candidate,qa_id=family,target=target,companion=companion,
-                assets=people,registry=registry,records_by_asset={target:target_records,companion:[reference]})
+                assets=people,registry=registry,records_by_asset={target:target_records,companion:[reference]},
+                speed_m_s=.8+.6*(stable_seed(row['scene_seed'],target,'speed')%10001)/10000)
             # This is only source-program compilation. Native render and wet-tail
             # gates still run afresh; the original solver retains its 3s reserve.
             build_constructed_scene(candidate,house,records,catalog,semantic)
