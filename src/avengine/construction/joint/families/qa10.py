@@ -370,7 +370,7 @@ def certify_native_static_layout(row, house, catalog, records, semantic, runtime
 
         video._native_pair_pixels(scene, video.actors)
         obs = {k: np.asarray(v).copy() for k, v in video.sim.get_sensor_observations().items()}
-        video._check_source_frame(obs["rgb"], obs["semantic"], 0)
+        video._check_source_frame(obs["rgb"][:, :, :3], obs["semantic"], 0)
         colour = {c["asset_id"]: c for c in video.color_checks}
         errors = [error for c in certificates for error in c["errors"]]
         for asset in assets:
