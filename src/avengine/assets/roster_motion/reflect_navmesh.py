@@ -215,7 +215,8 @@ def reflected_route_proposals(video,entry,scene,local_forward,request):
                 delta=points[i1]-points[i0];towards=listener-points[i0]
                 cosine=abs(float(np.dot(delta,towards)))/(np.linalg.norm(delta)*np.linalg.norm(towards)+1e-12)
                 sign=-1 if slot['branch']=='nearer'else 1
-                values=radii[i0:i1+1]
+                values=radii[i0:i1+1];trim=int(round(.2*(i1-i0)))
+                values=values[trim:len(values)-trim] if len(values)-2*trim>=2 else values      # audible-window margin
                 # QA-15's judge reads a monotonic >= 0.5 m distance change; no angle (the planner's tangent and this
                 # chord disagreed on curved routes and rejected the planned placement itself).
                 if sign*(values[-1]-values[0])<.5 or np.any(sign*np.diff(values)<-.005):rejected['radial_slot']+=1;continue

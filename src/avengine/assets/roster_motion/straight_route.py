@@ -61,9 +61,13 @@ def _radial_flags(positions, listener, k, e, q, heading=None):
     d = d / (float(np.linalg.norm(d)) + 1e-12)
     r = np.linalg.norm(positions[k:q + 1] - listener, axis=1)
     emit = r[:e - k + 1]
+    # The audible part of a recording is shorter than its file (leading/trailing silence): hm3d 00272 planned 0.5 m
+    # over the file but measured 0.415 m over the audible window.  Require the 0.5 m inside the middle 60 %.
+    trim = int(round(.2 * (e - k)))
+    inner = emit[trim:len(emit) - trim] if len(emit) - 2 * trim >= 2 else emit
     toward = listener - positions[k]
     cosv = abs(float(d @ toward)) / (float(np.linalg.norm(toward)) + 1e-12)
-    net = float(emit[-1] - emit[0])
+    net = float(inner[-1] - inner[0])
     rising = bool(np.all(np.diff(emit) >= -.005)); falling = bool(np.all(np.diff(emit) <= .005))
     qa15 = abs(net) >= .5 and (rising or falling)          # the judge's criterion; cos is recorded only
     silent = r[e - k + int(round(WET_TAIL_S * FPS)):]
@@ -169,9 +173,13 @@ def _find_straight_route(room, pathfinder, seed, attempt=0, *, species='human', 
     if focus == 'M1':
         speed_range = (.82, .9) if species == 'human' else (lo + .02, hi - .02)
     slow, fast = max(lo + .01, speed_range[0]), min(hi - .01, speed_range[1])
+    duration = math.ceil(float(utterance_s) * 10 - 1e-9) / 10
     # The lower quarter of the owner band: realistic indoor pace and a shorter line for the same timing.
     speed = float(rng.uniform(slow, slow + .25 * max(0., fast - slow)))
-    duration = math.ceil(float(utterance_s) * 10 - 1e-9) / 10
+    if families in ('all4', 'M2'):
+        # QA-15 needs >= 0.5 m of distance change inside the middle 60 % of the sound: slow species (cat, slide)
+        # walk faster within their own band when the sound is short (never above the band).
+        speed = float(min(fast, max(speed, .55 / (.6 * duration * .9))))
     offset = float(rng.choice([0., 5., 10., 15., 20.]))
     start = offset + round(float(rng.uniform(1., 2.)), 1)
     end = start + duration
