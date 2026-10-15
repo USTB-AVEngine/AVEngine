@@ -346,6 +346,30 @@ def native_entry_acoustic_checks(video, scene, runtime, output_dir):
     gate = PositionAdmission(scene, video.motion_house, runtime, directory/"rir_cache",
                              run/"acoustic_placement_admission.json")
     try:
+        from avengine.timeline.v7_phase2_motion_audio import wrong_registered_pose
+        actual_mouths = {entry["endpoint_id"]:
+            np.asarray(video._apply_entry(entry, scene, frame_index=0)["emitter_position_m"], float)
+            for entry in video.actors}
+        # A separate read-only predicate input, populated only by actual native
+        # registered emitters. It is never assigned back to the rendered scene.
+        probe = dict(scene, sources={endpoint: {
+            **scene["sources"][endpoint],
+            "trajectory": [{"time_s": t, "position_m": point.tolist()} for t in (0., 30.)]}
+            for endpoint, point in actual_mouths.items() if endpoint in scene["sources"]})
+        for entry in video.actors:
+            if not entry.get("motion_episode"):
+                continue
+            endpoint = entry["endpoint_id"]
+            try:
+                other, position, angle = wrong_registered_pose(probe, actual_mouths[endpoint], 0.)
+                evidence = {"actual_other_registered_endpoint": other,
+                            "actual_other_native_emitter_m": position.tolist(),
+                            "angle_deg": angle, "original_predicate": "wrong_registered_pose",
+                            "readback_frame": 0, "rendered_scene_modified": False}
+                yield CheckResult("QA-07:initial_real_wrong_emitter:"+endpoint, "pass",
+                                  evidence=evidence)
+            except ValueError as exc:
+                yield CheckResult("QA-07:initial_real_wrong_emitter:"+endpoint, "fail", str(exc))
         for entry in video.actors:
             if entry["declaration"].get("silent_decor"):
                 continue
@@ -428,6 +452,7 @@ class QA07Plugin:
         self.assets = {} if assets is None else dict(assets)
         self.seed = int(seed)
         self.clock_evaluator = clock_evaluator
+        self._static_meshes = {}
 
     def candidates(self, context, request):
         from copy import copy
@@ -435,6 +460,9 @@ class QA07Plugin:
         from avengine.construction.joint.geometry import framing
         from avengine.construction.joint.routes import bind_distance_clock, ConstructionError
         from avengine.construction.joint.layouts import enumerate_static_layouts
+        from avengine.construction.joint.context import camera_legal
+        from avengine.construction.joint.grounding import floor_contact_variants
+        from avengine.capture.v7_visible_mesh import indexed_static_mesh
         from avengine.construction.joint.scheduling import schedule_sound_events
         if self.clock_evaluator is None:
             from avengine.construction.joint.gait import complete_human_gait_clock
@@ -487,12 +515,18 @@ class QA07Plugin:
                     anchors["endpoint_m"][1] = float(endpoint[1])
                     camera = CameraPose(position, anchors["camera_yaw_deg"],
                         hfov_deg=inherited.hfov_deg, width=inherited.width, height=inherited.height)
+                    if not camera_legal(context.room, camera)[0]:
+                        continue
                     clock = complete_human_gait_clock(self.clock_source, speed, [timing["requested_interval_s"]])
                     distance = np.asarray(clock["distance_m"], float)
                     # Family seed: the final whole-body inside anchor fixes the
                     # origin of the completed source clock BEFORE certification.
                     direction = np.array([anchors["inward_unit_xz"][0], 0., anchors["inward_unit_xz"][1]])
                     origin = endpoint-distance[-1]*direction
+                    # Necessary straight-segment condition from the same map;
+                    # do it before 901-point original NavMesh certification.
+                    if not context.walkable_map.segment_free(origin[[0, 2]], endpoint[[0, 2]], "human"):
+                        continue
                     # Query the core's original visual mesh at this exact seed,
                     # rather than let native execution change the root height.
                     if context.raycaster is None:
@@ -520,19 +554,43 @@ class QA07Plugin:
                     # All companion station selection and floor clearance is
                     # delegated to the core, with this same fixed camera.
                     view = copy(context); view.cameras = (camera,)
+                    companion_selected = False
                     for companion_view in ("outside", "inside"):
                         for layout in enumerate_static_layouts(view, companions,
                                 {aid: companion_view for aid in companions},
-                                max_candidates=2, floor_clearance_m=.005):
+                                max_candidates=24, floor_clearance_m=.002):
+                            companions_ready = {}
                             for aid, actor in layout.actors.items():
+                                delta = actor.positions_m[0]-np.asarray(camera.position_m)
+                                azimuth = math.degrees(math.atan2(float(delta@camera.right), float(delta@camera.forward)))
+                                # A real other emitter on the opposite side
+                                # supplies the producer's 20deg negative control.
+                                if SIDES[request.branch]*azimuth > -10.:
+                                    break
                                 policy = sample_initial_orientation(self.assets[aid], self.seed,
                                     actor.positions_m[0], camera.position_m,
                                     other_people=({"position_m": mover.positions_m[0].tolist(),
                                                    "yaw_rad": native_yaw(mover, self.assets[target])},))
                                 actor.metadata["native_yaw_rad"] = policy["yaw_rad"]
                                 actor.metadata["initial_orientation_policy"] = policy
-                            actors = {target: mover, **layout.actors}
+                                if aid not in self._static_meshes:
+                                    self._static_meshes[aid] = indexed_static_mesh(self.assets[aid]["habitat_glb"])
+                                try:
+                                    refined = next(floor_contact_variants(context, actor, self._static_meshes[aid],
+                                                   asset=self.assets[aid], yaw_rad=policy["yaw_rad"]), None)
+                                except ConstructionError:
+                                    refined = None
+                                if refined is None:
+                                    break
+                                refined.metadata["entry_counterfactual_opposite_side"] = {
+                                    "azimuth_deg": azimuth, "entry_side": request.branch,
+                                    "original_wrong_registered_pose_still_required": True}
+                                companions_ready[aid] = refined
+                            if len(companions_ready) != len(companions):
+                                continue
+                            actors = {target: mover, **companions_ready}
                             roles = {target: "outside", **layout.metadata["roles"]}
+                            companion_selected = True
                             yield ScenePlan(camera, actors, sounds=schedule.events, metadata={
                                 "joint_entry_route": anchors, "roles": roles,
                                 "rest_views": roles, "native_entry_preflight_required": True,
@@ -542,9 +600,10 @@ class QA07Plugin:
                             emitted += 1; per_camera += 1
                             if emitted >= int(request.options.get("candidate_limit", 128)):
                                 return
-                            if per_camera >= 4:
-                                break
-                        if per_camera >= 4:
+                            # Keep one sound companion per route geometry;
+                            # spend the per-camera beam on different entry lines.
+                            break
+                        if companion_selected:
                             break
 
     def verify(self, context, request, plan):
