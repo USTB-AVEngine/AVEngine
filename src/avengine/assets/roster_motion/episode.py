@@ -235,6 +235,9 @@ def clear_native_foot_sound_paths(video,listener,vertices,feet,root,yaw,ignored_
     return True
 
 
+IK_REACH_LIMIT_M=.03     # was .001 (owner 10-15: record, do not reject)
+IK_PELVIS_LIMIT_M=.20    # was .08
+
 def compile_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
     from avengine.timeline.v7_storage_budget import check_write
@@ -354,7 +357,12 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                             abs(x['floor_delta_m'])>quality['foot_contact_limit_m']+1e-12
                             or x['support_lock_error_m']>quality['support_lock_limit_m']+1e-12 for x in contacts):
                         raise ValueError('motion source foot contact or lock violates declared human quality policy')
-                    if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
+                    # owner 10-15 ("骨盆下沉这有啥所谓吗？扣这种东西有必要吗？"): leg-fit numbers decide no answer, and the
+                    # foot contact/lock check above still holds every frame.  Only a visibly broken leg (reach deficit
+                    # >= 3 cm) or a crouch (pelvis >= 20 cm lower) rejects; smaller values are recorded per frame.
+                    if solver.max_reach>=IK_REACH_LIMIT_M or ev['pelvis_lowering_m']>=IK_PELVIS_LIMIT_M:
+                        raise ValueError('motion IK reach or pelvis bound failed: reach %.3f m, pelvis lowering %.3f m'%(solver.max_reach,ev['pelvis_lowering_m']))
+                    ev={**ev,'ik_reach_deficit_so_far_m':float(solver.max_reach)}
                     # Keep the small solved bone matrices, not 901 full skins.
                     # Export re-evaluates the identical deterministic skinning.
                     geometry.append(qualified_globals);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
@@ -396,6 +404,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
+        'ik_policy':{'reach_limit_m':IK_REACH_LIMIT_M,'pelvis_lowering_limit_m':IK_PELVIS_LIMIT_M,'previous':{'reach_limit_m':.001,'pelvis_lowering_limit_m':.08},'owner':'10-15 record leg-fit numbers'},
+        'max_pelvis_lowering_m':max(float(f.get('pelvis_lowering_m',0.)) for f in frames),'max_ik_reach_deficit_m':float(frames[-1].get('ik_reach_deficit_so_far_m',0.)),
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False}
     if curved_route is not None:
         evidence.update(yaw_rad_per_frame=frame_yaws.tolist(),native_swept_pose_bounds_m=[[a.tolist(),b.tolist()]for a,b in bounds],scene_motion_execution=curved_route.receipt,actual_speed_m_s=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity))),requested_speed_m_s=speed,playback_nominal_speed_m_s=nominal,animation_playback_multiplier=float(scene_clock.get('maximum_stable_speed_m_s',np.max(velocity)))/nominal,animation_distance_clock=scene_clock)
