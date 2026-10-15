@@ -99,7 +99,15 @@ def coverage_errors(scene,assets,visual,visible_frame_counts):
             continue
         role=offscreen_role(scene,aid)
         if not role:
-            if not count:errors.append('registered entity never reached 100 native visible pixels')
+            if not count:
+                movers=set(scene.get('production_scenario',{}).get('motion_requests',{}))
+                declaration=byid.get(aid,{'asset_id':aid})
+                if ((aid in movers or declaration.get('endpoint_id') in movers)
+                        and not visibility_required(scene,declaration)):
+                    # owner 10-15: a mover the question plan does not need in view may walk out of (or never into)
+                    # the fixed view; its native motion admission and readback still prove it is a real body.
+                    continue
+                errors.append('registered entity never reached 100 native visible pixels')
             continue
         proof=proofs.get(aid)
         if (aid not in byid or not proof or proof.get('status')!='pass'or not proof.get('source_is_real_drawable')
