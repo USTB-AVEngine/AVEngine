@@ -393,6 +393,9 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
         raise ValueError("unknown QA-09 gait branch")
     route_kind = str(runtime.get("qa09_positive_route_kind", "arc")) if answer == "yes" else "arc"
     intervals = gait_intervals(answer, route_kind)
+    arc_radius = float(runtime.get("qa09_arc_radius_m", .8))
+    if not math.isfinite(arc_radius) or not .4 <= arc_radius <= 1.2:
+        raise ValueError("QA-09 arc radius must be between .4 and 1.2 metres")
     d, b, action, lineage = admitted_master(
         {"declaration": asset, "prepared_glb": asset["habitat_glb"]}, runtime, house)
     key_data = {"revision": "qa09-arc-gait-2" if answer == "yes" else "qa09-flat-gait-1", "asset_id": asset["asset_id"],
@@ -401,6 +404,8 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
     if answer == "yes" and route_kind == "out_and_back":
         key_data.update(revision="qa09-out-and-back-gait-1", route_kind="out_and_back",
                         stationary_turn_interval_s=list(TURNAROUND_INTERVAL_S))
+    if answer == "yes" and route_kind == "arc" and arc_radius != .8:
+        key_data.update(revision="qa09-arc-gait-3", turn_radius_m=arc_radius)
     key = hashlib.sha256(json.dumps(key_data, sort_keys=True).encode()).hexdigest()[:24]
     directory = runtime.get("joint_cache_directory")
     path = Path(directory) / ("qa09_gait_" + key + ".npz") if directory else None
@@ -422,7 +427,7 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
         positions, headings = out_and_back_shape([-anchor, 0., 0.], [1., 0.], distance, anchor,
                                                   turn_interval_s=TURNAROUND_INTERVAL_S)
     else:
-        corner = (anchor, .8, (float(distance[-1])-anchor)/.8) if answer == "yes" else None
+        corner = (anchor, arc_radius, (float(distance[-1])-anchor)/arc_radius) if answer == "yes" else None
         xz, headings = _shape_xy(distance, np.array([-anchor, 0.]), 0., corner)
         positions = np.column_stack((xz[:, 0], np.zeros(901), xz[:, 1]))
     yaws = -math.pi/2-headings
@@ -664,7 +669,8 @@ class QA09Plugin:
                                 body=self.bodies[tids[0]], ramp_s=.3)
                         elif request.branch == "yes":
                             moving_actor = straight_then_arc(context, shadow, direction, distance, anchor,
-                                turn_radius_m=.8, turn_sign=1, camera=camera, entity_id=tids[0],
+                                turn_radius_m=float(self.gait["metadata"].get("turn_radius_m", .8)),
+                                turn_sign=1, camera=camera, entity_id=tids[0],
                                 body=self.bodies[tids[0]], ramp_s=.3)
                         else:
                             moving_actor = bind_distance_clock(context, distance, origin_m=origin,
@@ -833,6 +839,11 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
     companion = foreground
     answer = str(runtime.get("qa09_requested_answer") or requested_answer(state, seed))
     gait = prepare_gait_geometry(target, runtime, house, answer)
+    minimum_planning_skin_y = float(gait["vertices"][:, :, 1].min())
+    if minimum_planning_skin_y < -.01:
+        raise ConstructionUnavailable(
+            f"QA09 canonical pose penetrates the declared flat planning floor by {-minimum_planning_skin_y:.6f}m; "
+            "do not spend native preparation on this gait")
     authored = choose_authored(semantic, [companion], state, seed, attempt=attempt)[0][0]
     duration = float(authored["synthesis_readback"]["duration_s"])
     sounds = tuple(SoundEvent(companion["asset_id"], authored["sound_asset_id"], "speech_playback", t, t+duration)
