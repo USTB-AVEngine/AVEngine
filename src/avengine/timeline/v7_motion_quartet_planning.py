@@ -55,7 +55,10 @@ def plan_native_room_motion_quartet(base_row,state,house,catalog,semantic,record
     room=next(r for r in house['checked_rooms']if r['room_label']==base_row['room_id'])
     habitat,_=load_habitat_runtime(runtime_mode='current-installed',**inputs['runtime']);pathfinder=habitat.PathFinder()
     if not pathfinder.load_nav_mesh(house['input']['navmesh_source']):raise ValueError('existing registered NavMesh failed to load read-only')
-    return plan_room_motion_quartet(base_row,state,room,catalog,semantic,records,pathfinder,attempt=attempt,contract=inputs.get('production_input_contract'))
+    contract=inputs.get('production_input_contract')
+    if isinstance(contract,(str,__import__('pathlib').Path)):
+        contract=__import__('json').loads(__import__('pathlib').Path(contract).read_text())
+    return plan_room_motion_quartet(base_row,state,room,catalog,semantic,records,pathfinder,attempt=attempt,contract=contract)
 
 
 def native_template_candidate_counts(row,parent):

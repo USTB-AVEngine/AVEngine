@@ -56,3 +56,18 @@ def test_actual_production_contract_is_forwarded_to_motion_constructor():
         seen.update(kwargs);return deepcopy(row)
     plan_room_motion_quartet({'scene_seed':7},{},{},assets,{},[],object(),constructor=constructor,contract=contract)
     assert seen['contract'] is contract
+
+
+def test_native_adapter_loads_the_real_contract_path_before_forwarding(monkeypatch,tmp_path):
+    import json
+    from types import SimpleNamespace
+    from avengine.timeline import v7_motion_quartet_planning as planning
+    from avengine.acoustics import runtime
+    contract={'rooms':[],'animal_motion':{'dog':{'mode':'walk_animation'}}};path=tmp_path/'contract.json';path.write_text(json.dumps(contract))
+    pf=SimpleNamespace(load_nav_mesh=lambda path:True)
+    monkeypatch.setattr(runtime,'load_habitat_runtime',lambda **kwargs:(SimpleNamespace(PathFinder=lambda:pf),None))
+    seen={}
+    def constructor(*args,**kwargs):seen.update(kwargs);return 'constructed'
+    monkeypatch.setattr(planning,'plan_room_motion_quartet',constructor)
+    planning.plan_native_room_motion_quartet({'room_id':'R'},{},{'checked_rooms':[{'room_label':'R'}],'input':{'navmesh_source':'registered'}},[],{},[],{'runtime':{},'production_input_contract':str(path)})
+    assert seen['contract']==contract and isinstance(seen['contract'],dict)
