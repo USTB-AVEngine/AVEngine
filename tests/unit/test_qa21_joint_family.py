@@ -150,3 +150,22 @@ def test_schedule_uses_real_duration_and_binding_without_changing_source_inputs(
     assert apply_emission_schedule(row, realized, audio, assets) == (realized, audio)
     program['records'][0]['header']['sample_count'] = 160000
     with pytest.raises(ValueError, match='do not fit'):apply_emission_schedule(row, scene, program, assets)
+
+
+def test_geometry_preflight_accounts_for_other_actual_body_plans():
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    calls = []
+    class Context:
+        def predict(self, camera, point, body, *, occluders=()):
+            calls.append(occluders)
+            return NS(state='fully_occluded' if occluders else 'visible_clear',
+                visible_pixels_lower=0 if occluders else 1000, edge_margin_px=20.)
+    body = NS(radius_m=.3)
+    actors = {'cat': NS(positions_m=np.tile([0., 0., -4.], (901, 1)), body=body),
+              'dog': NS(positions_m=np.tile([0., 0., -3.], (901, 1)), body=body)}
+    plugin = Qa21Plugin({'cat': body, 'dog': body}, {}, 'cat', 'cat_meow',
+        sounds=[NS(entity_id='cat', sound_class='cat_meow')])
+    checks = list(plugin.verify(Context(), NS(branch='cat_meow', target_ids=('cat',)),
+        NS(camera=None, actors=actors, sounds=plugin.sounds)))
+    assert calls and calls[0][0][0] == 'dog'
+    assert any(c.name == 'qa21_visible_cat' and c.status == 'fail' for c in checks)
