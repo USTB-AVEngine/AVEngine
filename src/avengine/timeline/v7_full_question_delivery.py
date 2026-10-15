@@ -281,11 +281,15 @@ def available_single_parent_allocation(public,private,requested):
 
 def current_selection_snapshot(demand,*,next_questions):
     from avengine.timeline.v7_demand import demand_snapshot,read_demand_state,SELECTION_FEEDBACK_ENV
-    state={'logical_questions':demand['observed_logical_questions'],
-           'family_counts':demand['observed_family_counts']}
     if os.environ.get(SELECTION_FEEDBACK_ENV):
         state=read_demand_state(os.environ[SELECTION_FEEDBACK_ENV])
-    return demand_snapshot({**state,'target_shares':demand['target_shares']},next_questions=next_questions)
+    else:
+        counts=demand.get('observed_family_counts',{})
+        state={'logical_questions':demand.get('observed_logical_questions',sum(counts.values())),
+               'family_counts':counts}
+    if demand.get('target_shares') is not None:
+        state={**state,'target_shares':demand['target_shares']}
+    return demand_snapshot(state,next_questions=next_questions)
 
 
 def advance_independent_feedback(parent_id,chosen,answers,counts,seen):
