@@ -120,6 +120,14 @@ def main():
    if record and str(o)in record['cmd']and 'run_v7_acceptance.py'in record['cmd']:
     active[d['slot']]={'process':AdoptedProcess(record),'stream':(o/'logs'/f"parent_{d['slot']:03d}.log").open('a')}
 
+ for launch in (o/'evidence/launches').glob('*.json'):
+  slot=int(launch.stem)
+  if slot in active:continue
+  d=load(launch);live=proc(d['pid'])
+  if live and str(o)in live['cmd'] and 'run_v7_acceptance.py'in live['cmd'] and ('--worker '+str(slot)+' ')in (live['cmd']+' '):
+   active[slot]={'process':AdoptedProcess(live),'stream':(o/'logs'/f'parent_{slot:03d}.log').open('a')}
+ pending=[slot for slot in pending if slot not in active]
+
  for n in ['ue_tmp','ue_shm','ue_config']:(o/n).mkdir(exist_ok=True)
  while pending or active:
   m=load(a.manifest)
@@ -151,7 +159,13 @@ def main():
    if d['status']=='passed':
     with(o/'PROGRESS.md').open('a')as f:f.write(now.isoformat()+' FRESH_PARENT_EXPORTED '+d['scene_id']+' 独立题='+str(d['independent_questions'])+' 房子='+d['house']+' 表='+str(o/'export/parent_rows'/f'{slot:03d}.jsonl')+'；四项原生导出门禁和reader通过。\n')
    if d['status']!='passed':
-    reason=d.get('reason','unknown');failed_reasons[reason]=failed_reasons.get(reason,0)+1
+    from avengine.timeline.v7_construction_retry import queue_construction_retry
+    retry=queue_construction_retry(a.manifest,d)
+    if retry is not None:
+     with(o/'PROGRESS.md').open('a')as f:f.write(now.isoformat()+' AUTO_CONSTRUCTION_RETRY failed_slot='+str(slot)+' next_slot='+str(retry)+'；保留人数/题族/基本种子，自动改初始朝向或同房其他合法区域，不动真值门禁。\n')
+     continue
+    from tools.timeline.generate_v7_demand_scenes import failure_signature
+    reason=failure_signature(d);failed_reasons[reason]=failed_reasons.get(reason,0)+1
     if failed_reasons[reason]>=2:pause='repeated_failure_needs_review';write(o/'REPEATED_FAILURE.json',{'reason':reason,'count':failed_reasons[reason]})
   if time.monotonic()-last_watch>=300 or not last_watch:
    rows=[]

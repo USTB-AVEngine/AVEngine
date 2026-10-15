@@ -207,7 +207,11 @@ def construct_family_scene(room,house,state,catalog,records,semantic,contract,ru
         row['semantic_azimuth_targets_deg']={target:0.}
         row['native_attachment_distance_targets_m']={target:3.2,occluder:1.8}
     elif family=='QA-28':
-        row['semantic_azimuth_targets_deg']={ids[0]:0.,ids[1]:-45.}
+        # Both speakers are at least 15 degrees inside the front sector,
+        # visible to this fixed camera. Distinct colours and depths retain
+        # independent identity; angular distractors/QA domains are unchanged.
+        row['semantic_azimuth_targets_deg']={ids[0]:-5.,ids[1]:5.}
+        row['native_attachment_distance_targets_m']={ids[0]:2.3,ids[1]:3.8}
         row['camera_yaw_knots']=_camera_knots(ctx['camera_yaw_deg'])
         row['scene_demand']['required_sector_boundary_margin_deg']=15.
     elif family in {'QA-21','V7-CLASS34'}:
