@@ -142,13 +142,22 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             for asset,ep in zip(variant[:2],endpoints,strict=True):asset['endpoint_id']=ep
         def render(attempt):
             check_write(attempt,expected_bytes=200_000_000)
-            video=NativeAlphaVideo(working,base,inputs,variant,source_material_cache_directory=root/'source_material_cache')
-            from avengine.timeline.v7_position_admission import PositionAdmission
-            position_gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json')
-            video.acoustic_position_admission=position_gate.check
-            try:visual=video.encode(base,attempt/'scene_video.mp4',collect_pixel_visibility=True)
+            from avengine.timeline.v7_native_failure_retention import mark_new_attempt,retire_failed_media
+            marker=mark_new_attempt(attempt);video=position_gate=None
+            try:
+                video=NativeAlphaVideo(working,base,inputs,variant,source_material_cache_directory=root/'source_material_cache')
+                from avengine.timeline.v7_position_admission import PositionAdmission
+                position_gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json')
+                video.acoustic_position_admission=position_gate.check
+                visual=video.encode(base,attempt/'scene_video.mp4',collect_pixel_visibility=True)
+            except Exception as error:
+                if position_gate is not None:position_gate.close();position_gate=None
+                if video is not None:video.close();video=None
+                retire_failed_media(attempt,marker,error)
+                raise
             finally:
-                position_gate.close();video.close()
+                if position_gate is not None:position_gate.close()
+                if video is not None:video.close()
             appearance=derive_native_appearance_evidence(attempt,visual,variant)
             write_json(attempt/'native_appearance_review.json',appearance)
             required=[
