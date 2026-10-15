@@ -1,7 +1,7 @@
 """Construct fixed root offsets from actual native floor/sole observations."""
 from copy import deepcopy
 from pathlib import Path
-import math,os
+import math,os,time
 from avengine.timeline.continuous_pilot import write_json
 
 class NativeContactConstructionRequired(ValueError):
@@ -16,6 +16,13 @@ def fixed_root_offset(observed_gaps,tolerance):
     lower=max(-tolerance-v for v in values);upper=min(tolerance-v for v in values)
     if lower>upper:raise ValueError('one fixed root cannot satisfy these measured support views; choose another legal position')
     return (lower+upper)/2
+
+
+def publish_contact_receipt(video,receipt):
+    # Measurements remain immutable. A later correction gets its own record.
+    target=video.contact_construction_path.parent/f'native_vertical_contact_construction_{time.time_ns()}.json'
+    write_json(target,receipt);video.contact_construction_path=target
+    return target
 
 
 def encode_with_contact_construction(video,scene,path,review_frames,collect_pixel_visibility,encode):
@@ -42,14 +49,14 @@ def encode_with_contact_construction(video,scene,path,review_frames,collect_pixe
             receipt={'status':'constructed_pending_same_contact_recheck','source_trial':str(directory),'tolerance_m':error.tolerance,
                 'vertical_root_offsets_m':video.vertical_root_offsets,'baseline_measured_gaps_m':video.contact_gap_history,
                 'rejected_native_positions_xz_m':video.rejected_contact_positions,'entities_removed':False}
-            write_json(video.contact_construction_path,receipt);trial+=1;continue
+            publish_contact_receipt(video,receipt);trial+=1;continue
         # All original contact, negative-control, visibility and native-pose gates
         # have passed on this capture. Original failed bytes are never changed.
         for source in directory.rglob('*'):
             if not source.is_file():continue
             target=path.parent/source.relative_to(directory);target.parent.mkdir(parents=True,exist_ok=True)
             if not target.exists():os.link(source,target)
-        write_json(video.contact_construction_path,{'status':'same_original_contact_check_passed','tolerance_m':.015,'vertical_root_offsets_m':video.vertical_root_offsets,'baseline_measured_gaps_m':video.contact_gap_history,'rejected_native_positions_xz_m':video.rejected_contact_positions,'source_trial':str(directory)})
+        publish_contact_receipt(video,{'status':'same_original_contact_check_passed','tolerance_m':.015,'vertical_root_offsets_m':video.vertical_root_offsets,'baseline_measured_gaps_m':video.contact_gap_history,'rejected_native_positions_xz_m':video.rejected_contact_positions,'source_trial':str(directory)})
         result['native_vertical_contact_construction']={'status':'same_original_contact_check_passed',
             'tolerance_m':.015,'vertical_root_offsets_m':deepcopy(video.vertical_root_offsets),
             'source':str(video.contact_construction_path),'successful_trial':str(directory),'failed_trials_preserved':trial}

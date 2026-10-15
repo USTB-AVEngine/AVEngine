@@ -83,6 +83,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.runtimes={};self.environment_nodes={};self.environment_frame_readbacks=[]
         self.placement_overrides={};self.alpha_time=0.;self.alpha_lower_endpoint=None;self.alpha_camera_rows={}
         self.contact_construction_path=Path(self.ue['output_root'])/'native/parents'/scene['scene_id']/'native_vertical_contact_construction.json'
+        contact_records=list(self.contact_construction_path.parent.glob('native_vertical_contact_construction*.json'))
+        if contact_records:self.contact_construction_path=max(contact_records,key=lambda p:p.stat().st_mtime_ns)
         saved_contact=json.loads(self.contact_construction_path.read_text()) if self.contact_construction_path.exists() else {}
         self.vertical_root_offsets=dict(saved_contact.get('vertical_root_offsets_m',{}))
         self.contact_gap_history=dict(saved_contact.get('baseline_measured_gaps_m',{}))
