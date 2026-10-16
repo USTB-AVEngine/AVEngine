@@ -161,3 +161,14 @@ def test_house_target_manifest_preserves_original_scalar_default():
     from avengine.timeline.v7_post_dedup_selection import manifest_house_minimums
     assert manifest_house_minimums({'minimum_family_distinct_houses':2})==2
     assert manifest_house_minimums({'minimum_family_distinct_houses':2,'family_distinct_house_minimums':{'QA-27':10}})=={'*':2,'QA-27':10}
+
+
+def test_full_view_keeps_earliest_window_and_never_applies_modality_sampling():
+    from avengine.timeline.v7_post_dedup_selection import all_independent_rows
+    def entry(key,start,answer='yes'):
+        return {'key':key,'row':{'window_start_s':start,'window_id':'w'+str(start),'question_id':str(key)+str(start),
+            'independent_parent_scene_id':'parent','canonical_answer':answer,'modality':'audio'}}
+    rows=all_independent_rows([entry('a',5),entry('b',10),entry('a',0)])
+    assert len(rows)==2 and rows[0]['window_start_s']==0
+    with pytest.raises(ValueError,match='inconsistent canonical'):
+        all_independent_rows([entry('a',0),entry('a',5,'no')])

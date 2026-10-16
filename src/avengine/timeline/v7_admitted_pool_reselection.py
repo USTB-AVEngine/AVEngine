@@ -186,7 +186,35 @@ def balanced_batch(receipts,output,*,read_only_source_roots=(),workers=1,family_
                 excluded_panels[row['qa_id']+':'+str(row.get('protocol_panel'))]+=1
             else:retained.append(entry)
         entries=retained
+    from avengine.timeline.v7_post_dedup_selection import all_independent_rows,_select_independent_rows_balanced
+    from avengine.timeline.v7_english_export import validate_english_model_text
+    full=all_independent_rows(entries)
+    for item in full:validate_english_model_text(item)
+    def retain_view(name,view):
+        path=Path(output)/'export'/name;path.parent.mkdir(parents=True,exist_ok=True)
+        text=''.join(json.dumps(item,ensure_ascii=False)+'\n'for item in view)
+        tmp=path.with_name(path.name+f'.{os.getpid()}.tmp');tmp.write_text(text);tmp.replace(path)
+        return {'path':str(path),'questions':len(view),'houses':len({r['house']for r in view}),
+            'family_counts':dict(Counter(r['qa_id']for r in view)),
+            'modality_counts':dict(Counter(r['modality']for r in view)),'model_table_sha256':sha(path)}
+    full_view=retain_view('train_full.jsonl',full)
     rows,report=select_independent_rows(entries,family_minimums=family_minimums,minimum_houses_per_family=minimum_houses_per_family)
+    balanced_view=None
+    if report.get('status')!='capacity_limited_partial':
+        balanced_view=retain_view('train_balanced.jsonl',rows)
+        balanced_view['requested_family_floors_satisfied']=True
+    else:
+        try:
+            view,view_report=_select_independent_rows_balanced(entries)
+            balanced_view=retain_view('train_balanced.jsonl',view)
+            balanced_view.update(requested_family_floors_satisfied=False,
+                reason='Diagnostic 30/25/45 view; requested family/house floors remain visible in the full view',
+                available_family_floors=view_report['available_family_floors'])
+        except ValueError as error:
+            if not any(token in str(error)for token in ('modality budget cannot preserve','validated independent pool cannot fill')):raise
+            balanced_view={'status':'unavailable','reason':str(error)}
+    report['export_views']={'full':full_view,'balanced':balanced_view,'primary_is_full':report.get('status')=='capacity_limited_partial'}
+    save(Path(output)/'evidence/EXPORT_VIEWS.json',report['export_views'])
     report['family_protocol_panels']=dict(family_protocol_panels or {})
     report['candidate_rows_outside_requested_family_panel']=dict(excluded_panels)
     report.update(original_admitted_independent_rows=sum(r['independent_questions']for r in receipts),

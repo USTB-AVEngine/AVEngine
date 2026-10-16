@@ -8,12 +8,14 @@ from avengine.timeline.v7_english_export import validate_english_model_text
 from avengine.timeline.v7_export_scene_policy import REVISION,cached_parent_policy
 
 
-def publish_current_parents(root):
+def publish_current_parents(root, *, blocking=True):
     root=Path(root);assert_new_generation_output(root)
     manifest=json.loads((root/'inputs/ACCEPTANCE_PLAN.json').read_text())
     if manifest.get('publication_closed'):return json.loads((root/'PILOT_SUMMARY.json').read_text())
     with(root/'evidence/report_build.lock').open('a')as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX);parents=[];rows=[]
+        try:fcntl.flock(lock,fcntl.LOCK_EX if blocking else fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return {'status':'pending_retry','reason':'batch publication already in progress; native parent remains admitted'}
+        parents=[];rows=[]
         for path in sorted((root/'evidence/jobs').glob('[0-9][0-9][0-9].json')):
             receipt=json.loads(path.read_text())
             if receipt.get('status')!='passed':continue
@@ -92,7 +94,7 @@ def publish_admitted_parent(root,receipt_path):
     root=Path(root);receipt_path=Path(receipt_path)
     assert_new_generation_output(root)
     if not receipt_path.resolve().is_relative_to(root.resolve()):raise ValueError('parent receipt escaped the owned output')
-    try:return publish_current_parents(root)
+    try:return publish_current_parents(root,blocking=False)
     except Exception as error:
         failure={'status':'pending_retry','time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'error_type':type(error).__name__,'reason':str(error),'traceback':traceback.format_exc()}

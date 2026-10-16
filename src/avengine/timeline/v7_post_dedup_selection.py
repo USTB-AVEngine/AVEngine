@@ -133,6 +133,21 @@ def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minim
     return [e['row']for e in selected],report
 
 
+def all_independent_rows(entries):
+    """Full validated view, preserving the owner's earliest physical window."""
+    ordered=sorted(entries,key=lambda e:(float(e['row']['window_start_s']),e['row']['window_id'],e['row']['question_id']))
+    unique={}
+    for entry in ordered:
+        key=json.dumps(entry['key'],ensure_ascii=False,sort_keys=True)
+        previous=unique.get(key)
+        if previous is not None and previous['row']['canonical_answer']!=entry['row']['canonical_answer']:
+            raise ValueError('same physical question has inconsistent canonical answers')
+        unique.setdefault(key,entry)
+    rows=[e['row']for e in unique.values()]
+    if set(r['modality']for r in rows)-set(WEIGHTS):raise ValueError('unknown model modality')
+    return sorted(rows,key=lambda r:(r['independent_parent_scene_id'],float(r['window_start_s']),r['question_id']))
+
+
 def select_independent_rows(entries, *, minimum_family=3, family_minimums=None,minimum_houses_per_family=0):
     """Prefer 30/25/45, but never reject native truth for a sampling shortage.
 
