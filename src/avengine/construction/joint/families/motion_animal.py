@@ -109,23 +109,34 @@ def row_from_plan(plan, data, base_row, catalog, records, contract):
     starts = plan.metadata['source_file_starts_s']
     movement_offsets = plan.metadata['movement_offsets_s']
     first = starts[mover][0]
+    companion_present = companion in plan.actors
+    companion_starts = starts.get(companion, [])
     row.update(schema='v7-visible-registered-pilot-phase2-v1',members=['v0_a0'],trial_only=True,
-        asset_ids=[mover,companion],silent_asset_ids=[],
-        source_classes={mover:[data['record']['sound_class']],companion:['speech_playback']},
-        proposed_sound_asset_ids={mover:data['record']['sound_asset_id'],companion:data['speech']['sound_asset_id']},
-        semantic_scenario_id=data['scenario_id'],semantic_sound_ids=[data['speech']['sound_asset_id']],
-        semantic_human_asset_ids=[companion],semantic_start_offsets_s=[starts[companion][0]],
-        motion_source_start_s={mover:first,companion:starts[companion][0]},
+        asset_ids=list(plan.actors),silent_asset_ids=[],
+        source_classes={mover:[data['record']['sound_class']]},
+        proposed_sound_asset_ids={mover:data['record']['sound_asset_id']},
+        motion_source_start_s={mover:first},
         listener_m=list(plan.camera.position_m),camera_yaw_deg=plan.camera.yaw_deg,
         camera_yaw_knots=[{'time_s':t,'yaw_deg':plan.camera.yaw_deg}for t in (0.,30.)],
         window_count=5,acceptance_window_starts_s=[0.,5.,10.,15.,20.],
         motion_quartet_template_revision=REVISION,scene_constructor='motion_quartet_template',
         motion_source_type=data['kind'],acceptance_allow_partial_families=True,
-        native_view_roles={mover:{'view':'inside','required_visible_sometime':True},
-                           companion:{'view':'outside','minimum_abs_azimuth_deg':65.}},
-        phase2_source_event_schedule_s={companion:starts[companion]},joint_solver_only=True,
+        native_view_roles={mover:{'view':'inside','required_visible_sometime':True}},
+        phase2_source_event_schedule_s={},joint_solver_only=True,
         automatic_construction={'revision':REVISION,'family':'motion_animal',
                                 'solver_entry':'avengine.construction.joint.solve'})
+    if companion_present:
+        row['source_classes'][companion]=['speech_playback']
+        row['proposed_sound_asset_ids'][companion]=data['speech']['sound_asset_id']
+        row['motion_source_start_s'][companion]=companion_starts[0]
+        row['native_view_roles'][companion]={'view':'outside'}
+        row['phase2_source_event_schedule_s'][companion]=companion_starts
+        row.update(semantic_scenario_id=data['scenario_id'],semantic_sound_ids=[data['speech']['sound_asset_id']],
+            semantic_human_asset_ids=[companion],semantic_start_offsets_s=[companion_starts[0]])
+    else:
+        for key in ('semantic_scenario_id','semantic_sound_ids','semantic_human_asset_ids','semantic_start_offsets_s'):
+            row.pop(key,None)
+        row['element_degradations']=deepcopy(plan.metadata.get('element_degradations',[]))
     if data['program'] is not None:
         row['phase2_animal_program_samples']={mover:deepcopy(data['program'])}
         row['phase2_sound_program_schedule_s']={mover:starts[mover]}
@@ -158,7 +169,7 @@ def row_from_plan(plan, data, base_row, catalog, records, contract):
     feedback=deepcopy(row.get('scene_demand')or demand_snapshot({},next_questions=70))
     row['scene_demand']={**feedback,'focus':'motion_quartet_template','requested_conditions':['motion_quartet'],
         'condition_families':{'motion_quartet':list(FAMILIES)},
-        'required_actual_candidate_families':list(FAMILIES),'required_asset_ids':[mover,companion],
+        'required_actual_candidate_families':list(FAMILIES),'required_asset_ids':list(plan.actors),
         'constructor':REVISION,'static_animal_call_requested':True}
     row['motion_quartet_construction']={'revision':REVISION,'route':route,
         'independent_moving_bouts':len(movement_offsets),'later_static_call':True,
@@ -228,34 +239,27 @@ class MotionAnimalPlugin:
                 candidates=[]
                 for p in people:
                     bearing=math.degrees(math.atan2(float((p-origin)@camera.right),float((p-origin)@camera.forward)))
-                    if abs(bearing)<68.:continue  # Native outside role requires >=65deg; retain emitter-offset margin.
-                    if (np.linalg.norm(p[[0,2]]-origin[[0,2]])<1.6 or line.distance(Point(*p[[0,2]]))<1.1
-                        or framing(camera,p,human)[0]!='outside'):continue
+                    if np.linalg.norm(p[[0,2]]-origin[[0,2]])<1.5 or framing(camera,p,human)[0]!='outside':continue
                     candidates.append(p)
-                if not candidates:continue
-                if context.raycaster is not None:
-                    # Core stage rays are only a cheap sound-placement domain.
-                    # The oracle still uses actual native emitters and original RIRs.
-                    mouth=np.asarray(d['companion'].get('mouth_local_glb_m',[0.,human.height_m*.8,0.]),float)
-                    delta=np.asarray(candidates)+mouth-origin
-                    hit,_=context.raycaster.first_hit(origin,delta)
-                    clear=hit>=np.linalg.norm(delta,axis=1)-.04
-                    candidates=[point for point,passed in zip(candidates,clear)if passed]
-                if not candidates:continue
                 candidates.sort(key=lambda p:(-line.distance(Point(*p[[0,2]])),float(p[0]),float(p[2])))
-                for standing in candidates[:4]:
+                # A companion is not required by any of these four questions.
+                # Keep all legal sites available, then construct the target alone.
+                failed_animal_geometry=False
+                for standing in [*candidates,None]:
+                    if failed_animal_geometry:break
                     waypoints=[far,near]if request.branch=='nearer'else[near,far]
                     try:
                         actor=construct_route(context,waypoints,species=species,speed_m_s=speed,start_s=w0,
                                               camera=camera,entity_id=mover,body=body)
                         if actor.metadata['validation']['max_snap_horizontal_m']>.002:continue
                         if bouts==2:actor=repeat_bouts(actor,offsets_s=(0.,10.),context=context,camera=camera)
-                        speaker=static_actor(companion,standing,human)
-                        if request.options.get('require_static_negative_comparator'):
+                        speaker=static_actor(companion,standing,human) if standing is not None else None
+                        if speaker is not None and request.options.get('require_static_negative_comparator'):
                             from avengine.assets.animal_motion.negative_witness import construct_negative_companion
                             speaker=construct_negative_companion(context,camera,standing,human,actor,
                                 entity_id=companion,animal_call_s=21.3,animal_duration_s=duration,admitted_asset=d['companion'])
-                        preliminary=ScenePlan(camera,{mover:actor,companion:speaker})
+                        actors={mover:actor,**({companion:speaker} if speaker is not None else {})}
+                        preliminary=ScenePlan(camera,actors)
                         if not certify_plan(context,preliminary).passed:continue
                     except ConstructionError as error:
                         if request.options.get('require_static_negative_comparator'):
@@ -277,7 +281,7 @@ class MotionAnimalPlugin:
                         allowed=(t-.2,t+duration+.3)
                         requirements.append(SoundRequirement(mover,d['record']['sound_asset_id'],d['record']['sound_class'],
                             d['animal_activity_s'],(t,t+.1),(allowed,),exclusive_group='scene_voices'))
-                    for offset in (0.,10.,20.):
+                    for offset in ((0.,10.,20.) if speaker is not None else ()):
                         first=6.2 if request.options.get('asymmetric_companion_speech')and offset==0. else 7.
                         latest=min(first+.2,9.45-d['speech_duration_s'])
                         if latest<first:break
@@ -286,7 +290,8 @@ class MotionAnimalPlugin:
                     else:
                         schedule=schedule_sound_events(requirements,silent_intervals_s=silence,start_grid_hz=10,minimum_gap_s=.1)
                         if schedule.status!='solved':continue
-                        selected=list(schedule.starts_s);file_starts={mover:selected[:len(target_starts)],companion:selected[len(target_starts):]}
+                        selected=list(schedule.starts_s);file_starts={mover:selected[:len(target_starts)]}
+                        if speaker is not None:file_starts[companion]=selected[len(target_starts):]
                         xz=actor.positions_m[:,[0,2]];slots=[]
                         for j,offset in enumerate(offsets):
                             sound_start=file_starts[mover][j];sound_end=sound_start+duration
@@ -333,16 +338,21 @@ class MotionAnimalPlugin:
                                 try:preparer(context,self.house,self.runtime,d['animal'],self.contract['animal_motion'][mover],actor,route,directory)
                                 except ValueError as error:
                                     self.geometry_failure_cache.add(key)
-                                    self.rejections[str(error)]=self.rejections.get(str(error),0)+1;continue
+                                    self.rejections[str(error)]=self.rejections.get(str(error),0)+1
+                                    failed_animal_geometry=True
+                                    continue
                                 self.geometry_cache[key]=(actor.positions_m.copy(),{
                                     name:actor.metadata[name]for name in ('native_yaw_rad','joint_animal_prepared_geometry')})
-                            plan=ScenePlan(camera,{mover:actor,companion:speaker},schedule.events,metadata={
+                            plan=ScenePlan(camera,actors,schedule.events,metadata={
                                 'animal_route':route,'source_file_starts_s':file_starts,'movement_offsets_s':offsets,
-                                'walk_intervals_s':actor.metadata['walk_intervals_s'],'roles':{mover:'inside',companion:'outside'},
+                                'walk_intervals_s':actor.metadata['walk_intervals_s'],'roles':{mover:'inside',**({companion:'outside'} if speaker is not None else {})},
                                 'third_static_call_s':file_starts[mover][-1],'sound_schedule':schedule.diagnostics,
                                 'planned_silent_intervals_s':silence,'closer_nearer_call':bool(request.options.get('closer_nearer_call')),
                                 'asymmetric_companion_speech':bool(request.options.get('asymmetric_companion_speech'))})
-                            if request.options.get('require_static_negative_comparator'):
+                            if speaker is None:
+                                plan.metadata['element_degradations']=[{'entity_id':companion,'action':'remove_optional_companion_and_its_events',
+                                    'reason':'target route retained after companion positions exhausted','rule':'PHASE2 B'}]
+                            if speaker is not None and request.options.get('require_static_negative_comparator'):
                                 from avengine.assets.animal_motion.negative_witness import companion_motion_request
                                 plan.metadata['negative_companion_motion_request']=companion_motion_request(
                                     speaker,camera,context.walkable_map,file_starts[companion][-1],d['speech_duration_s'])
@@ -406,7 +416,7 @@ class MotionAnimalPlugin:
             anchor_time=slot['start_s']+d['animal_duration_s']
             anchor=float(np.interp(anchor_time,clock,radial))
             upper=min(plan.metadata['walk_intervals_s'][index][1]-.3,
-                plan.metadata['source_file_starts_s'][d['companion']['asset_id']][index]-.2)
+                (plan.metadata['source_file_starts_s'].get(d['companion']['asset_id'],[offset+10. for offset in plan.metadata['movement_offsets_s']])[index])-.2)
             queries=[]
             for second in range(math.ceil(anchor_time+.6),math.floor(upper)+1):
                 delta=float(np.interp(second,clock,radial))-anchor
@@ -423,7 +433,7 @@ class MotionAnimalPlugin:
         yield CheckResult('animal:later_still_call','pass'if held else'fail',
                           'zero_body_translation_during_and_after_registered_call',
                           evidence={'QA-06':'still','QA-17':'no','start_s':plan.metadata['third_static_call_s']})
-        if request.options.get('require_static_negative_comparator'):
+        if plan.metadata.get('negative_companion_motion_request'):
             from avengine.assets.animal_motion.negative_witness import verify_negative_comparator
             yield from verify_negative_comparator(plan,mover,d['companion']['asset_id'],
                 plan.metadata['third_static_call_s'],d['animal_duration_s'])
