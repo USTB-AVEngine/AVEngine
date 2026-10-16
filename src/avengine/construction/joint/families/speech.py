@@ -139,7 +139,7 @@ def build_speech_row(room, house, state, catalog, semantic, contract, plan,
     return row
 
 
-def speech_camera_heights(room):
+def speech_camera_heights(room, bodies=None):
     """Retain the room's preferred listener height as a joint candidate.
 
     Legacy placement can have a different height which crops every body.
@@ -148,6 +148,11 @@ def speech_camera_heights(room):
     points = (room.get('preferred_listener_m'), room.get('placement', {}).get('camera_m'))
     heights = tuple(dict.fromkeys(float(p[1])-float(room['measured_floor_y_m'])
                                  for p in points if p is not None))
+    if bodies:
+        # Derive an additional framing proposal from the actual expanded body
+        # envelopes; no fixed camera height or unrelated distance is imposed.
+        torso_height = max(body.height_m/2 + body.margin_m for body in bodies.values())
+        heights = tuple(dict.fromkeys((*heights, torso_height)))
     return heights or None
 
 
@@ -228,8 +233,10 @@ def construct_speech_scene(room, house, state, catalog, records, semantic, contr
             output_dir=cache/'native_preflight'/scene_id, family_check=family_check,
             roles=roles, minimum_visible_pixels={aid: 100 for aid in ids},
             appearance_ids=tuple(ids), scene_factory=build_speech_scene)
+    height_candidates = speech_camera_heights(actual, bodies)
     with build_room_context(actual, house=house, runtime=runtime, cache_dir=cache/'geometry',
-            camera_heights_m=speech_camera_heights(actual), width=1280, height=720) as context:
+            camera_heights_m=height_candidates,
+            camera_limit=24*len(height_candidates or (None,)), width=1280, height=720) as context:
         solved = solve(context, request, SpeechPlugin(people, bodies, schedule, sounds),
             prepare_and_verify=prepare, budget_s=float(runtime.get('speech_planning_budget_s', 180.)),
             max_candidates=int(runtime.get('speech_max_candidates', 512)),
