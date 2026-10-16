@@ -33,7 +33,7 @@ def test_memory_headroom_waits_then_allows_new_operation(tmp_path,monkeypatch):
     a=resource.acquire_native_resource('rir');assert slept==[.5];a.close()
 
 def test_invalid_slot_count_is_rejected_before_native_work(tmp_path,monkeypatch):
-    configure(tmp_path,monkeypatch,{'slots':17})
+    configure(tmp_path,monkeypatch,{'slots':0})
     with pytest.raises(ValueError,match='resource slots'):resource.acquire_native_resource('rir')
 
 
@@ -46,3 +46,13 @@ def test_finished_operation_does_not_keep_reserving_memory(tmp_path,monkeypatch)
     monkeypatch.setattr(resource.time,'sleep',lambda seconds:(_ for _ in ()).throw(AssertionError('stale reservation blocked legal work')))
     second=resource.acquire_native_resource('rir',expected_incremental_bytes=10_000_000_000)
     second.close()
+
+
+def test_explicit_shared_budget_can_admit_more_than_sixteen_workers(tmp_path,monkeypatch):
+    configure(tmp_path,monkeypatch,{'slots':21})
+    leases=[]
+    try:
+        leases=[resource.acquire_native_resource('rir')for _ in range(21)]
+        assert {lease.receipt['slot']for lease in leases}==set(range(21))
+    finally:
+        for lease in leases:lease.close()

@@ -28,7 +28,7 @@ def acquire_native_resource(kind,expected_incremental_bytes=0):
     directory=root/'resource_slots'/kind;directory.mkdir(parents=True,exist_ok=True)
     count=int(section['slots']);cpus=section.get('cpu_ids',[])
     required_increment=max(int(expected_incremental_bytes),int(section.get('expected_incremental_bytes',0)))
-    if not 1<=count<=16 or (cpus and len(cpus)!=count):raise ValueError('invalid task native resource slots')
+    if count<1 or (cpus and len(cpus)!=count):raise ValueError('invalid task native resource slots')
     while True:
         reserved=0
         for relative in section.get('legacy_active_jobs',[]):

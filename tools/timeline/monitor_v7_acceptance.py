@@ -83,18 +83,13 @@ def output_processes(outputs):
  return processes(roots)
 
 
-def peer_processes(m):
- # Helpers may own independent SDK prefetch processes as well as their parent
- # worker. Match only the three explicitly declared helper output roots, and
- # include their descendants without ever taking ownership or signalling them.
- outputs=[str(Path(output).resolve()) for output in m.get('peer_output_roots',[])]
+def peer_processes(m, *, own_pids=None):
+ # Read-only source roots can contain this output directory. Subtract already
+ # measured owned descendants so their PSS never appears twice in admission.
+ outputs=m.get('peer_output_roots',[])
  if not outputs:return []
- roots=[]
- for path in Path('/proc').iterdir():
-  if not path.name.isdigit():continue
-  live=proc(int(path.name))
-  if live and live['state']!='Z'and any(output in live['cmd'] for output in outputs):roots.append(live['pid'])
- return processes(roots)
+ if own_pids is None:own_pids={r['pid']for r in output_processes([m['output_root']])}
+ return [r for r in output_processes(outputs)if r['pid']not in own_pids]
 
 
 def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, available_memory,combined_pss=0,combined_limit=None,disk_policy=None,maximum_task_bytes=60_000_000_000,minimum_available_bytes=30_000_000_000):
@@ -183,7 +178,7 @@ def main():
    rebalance_owned_parents(m,a.manifest);last_cpu_rebalance=time.monotonic()
   pending=sorted(set(pending)|{slot for slot in range(len(m['parents']))if slot not in active and not (o/'evidence/jobs'/f'{slot:03d}.json').exists()})
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
-  records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=__import__('avengine.timeline.v7_cpu_budget',fromlist=['compute_process_count']).compute_process_count([*records,*peers])+2
+  records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m,own_pids={r['pid']for r in records});peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=__import__('avengine.timeline.v7_cpu_budget',fromlist=['compute_process_count']).compute_process_count([*records,*peers])+2
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
   from avengine.timeline.v7_fresh_import_budget import active_import_reservation
