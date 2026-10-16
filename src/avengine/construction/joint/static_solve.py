@@ -155,6 +155,28 @@ def enumerate_joint_static_layouts(context, bodies, roles, *, point_masks=None,
                 return
         order = sorted(bodies, key=lambda key: (len(local[key]), key))
 
+        def overlap_rank(key, point, placed):
+            # Wide common yaw intervals alone favour putting visible people
+            # behind one another. Prefer separated enclosing projections; this
+            # is ONLY ordering, never an extra visibility/admission threshold.
+            if roles[key] == "outside":
+                return 0.
+            delta = (point-position)[[0, 2]]
+            angle = math.atan2(delta[0], -delta[1])
+            body = envelopes[key]
+            half = math.asin(min(1., (body.radius_m+body.margin_m)/np.linalg.norm(delta)))
+            score = 0.
+            for other, root in placed.items():
+                if roles[other] == "outside":
+                    continue
+                d = (root-position)[[0, 2]]
+                other_body = envelopes[other]
+                other_half = math.asin(min(1., (other_body.radius_m+other_body.margin_m)/np.linalg.norm(d)))
+                difference = abs((angle-math.atan2(d[0], -d[1])+math.pi)%(2*math.pi)-math.pi)
+                overlap = max(0., min(2*half, 2*other_half, half+other_half-difference))
+                score += overlap/max(min(2*half, 2*other_half), np.finfo(float).eps)
+            return score
+
         def assign(depth, placed, indices, feasible):
             if stopped():
                 return
@@ -176,6 +198,9 @@ def enumerate_joint_static_layouts(context, bodies, roles, *, point_masks=None,
                         "camera_wall_clearance_m": float(clearance),
                         "reference_distances_m": {k: references[k][indices[k]] for k in bodies},
                         "requested_distance_gaps": [list(v) for v in gaps],
+                        "projected_overlap_rank": sum(overlap_rank(k, p, {a: q for a, q in placed.items() if a != k})
+                            for k, p in placed.items())/2,
+                        "projection_overlap_is_soft_ranking_only": True,
                         "camera_role_check": check,
                         "native_pixel_preflight_required": True})
                 return
@@ -202,8 +227,8 @@ def enumerate_joint_static_layouts(context, bodies, roles, *, point_masks=None,
                 if not joint:
                     diag["yaw_intersection_rejections"] += 1
                     continue
-                choices.append((-width(joint), index, joint))
-            for _, index, joint in sorted(choices, key=lambda row: (row[0], row[1])):
+                choices.append((overlap_rank(key, point, placed), -width(joint), index, joint))
+            for _, _, index, joint in sorted(choices, key=lambda row: (row[0], row[1], row[2])):
                 yield from assign(depth+1, {**placed, key: points[index]},
                                   {**indices, key: index}, joint)
 

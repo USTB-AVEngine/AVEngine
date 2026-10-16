@@ -145,3 +145,15 @@ def test_registered_recipe_never_silently_removes_caller_constraints():
     plan.actors["a"].positions_m[-1, 0] += 1.
     with pytest.raises(ConstructionError, match="static"):
         registered_row_for_plan(c, original, plan, assets)
+
+
+def test_visible_roles_prefer_separate_projections_over_hidden_shirt(monkeypatch):
+    c = room_context()
+    c.points_m = np.array([[0., 0., -6.], [0., 0., -4.], [2., 0., -4.]])
+    single_camera(monkeypatch, c)
+    body = BodySpec("human", .3, 1.7, .02)
+    plans = list(enumerate_joint_static_layouts(c, {"a": body, "b": body},
+        {"a": "inside", "b": "inside"},
+        point_masks={"a": np.array([True, False, False]), "b": np.array([False, True, True])},
+        max_candidates=1))
+    assert plans[0].metadata["selected_point_indices"]["b"] == 2
