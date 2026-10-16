@@ -71,3 +71,6 @@ __all__ += ["enumerate_joint_static_layouts", "registered_row_for_plan"]
 
 from .connectivity import WalkableComponents, walkable_components, reachable_point_mask
 __all__ += ["WalkableComponents", "walkable_components", "reachable_point_mask"]
+
+from .shadows import MeshShadowPlacement, mesh_shadow_foreground_candidates
+__all__ += ["MeshShadowPlacement", "mesh_shadow_foreground_candidates"]
