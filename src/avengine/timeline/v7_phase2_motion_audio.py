@@ -126,6 +126,10 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
     from avengine.timeline.v7_rir_work_pool import scheduler_workers
     workers=scheduler_workers(inputs)
     submission=getattr(cache.renderer,'submission_queue',None)
+    # A resumed exact-pose memo may consume a checkpoint at a different sample.
+    # Preserve demand-driven reference consumption rather than speculating a
+    # duplicate trial group that the existing checkpoint will already satisfy.
+    if(attempt.parent/'independent_native_reference_checkpoint'/endpoint).exists():submission=None
     def submit_references(keys):
         if submission is None:return
         midpoints=sorted({sample for lo,hi in zip(keys[:-1],keys[1:])

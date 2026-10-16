@@ -349,3 +349,33 @@ def test_pool_policy_failure_can_fall_back_before_any_native_launch(policy,monke
     monkeypatch.setattr(pool.RIRWorkPool,'launch',lambda *a:(_ for _ in ()).throw(ValueError('bad policy')))
     with(tmp_path/'log').open('wb')as log:
         assert pool.launch_or_local(['native'],log,lambda:'bounded-local')=='bounded-local'
+
+
+def test_resume_does_not_speculatively_render_another_sample_at_checkpoint_pose(tmp_path,monkeypatch):
+    from avengine.timeline.v7_phase2_fresh_rir import FreshNativeContextRenderer
+    from avengine.timeline.v7_phase2_motion_audio import moving_stem_phase2
+    from avengine.timeline.continuous_pilot import PositionRIRCache
+    # Two midpoint samples share one exact pose. Only the first has a saved
+    # checkpoint; the other consumes its memo, so neither should render again.
+    trajectory=[{'time_s':i/30,'position_m':[3.,0.,0.]}for i in range(7)]
+    spec={'trajectory':trajectory};scene={'listener_m':[0.,0.,0.],'camera_forward':[1.,0.,0.],
+        'sources':{'voice1':spec,'voice2':{'trajectory':[{'time_s':0.,'position_m':[0.,0.,3.]}]}}}
+    rng=np.random.default_rng(902);t=np.arange(16000)/16000
+    w=rng.normal(size=len(t))*np.exp(-9*t)*.01;w[:140]=0;w[140]=.08
+    inputs={'fresh_rir_workers':4}
+    class Renderer(FreshNativeContextRenderer):
+        def __init__(self,root):
+            super().__init__(inputs,{}, {},{},root);self.calls=[]
+        def _render_one(self,position,role,trial):
+            p=np.asarray(position);d=p/np.linalg.norm(p)
+            self.calls.append((tuple(p),role,trial))
+            return np.stack((w,np.sqrt(3)*w*d[1],np.sqrt(3)*w*d[2],np.sqrt(3)*w*d[0])),role+str(trial),.001
+    wet=[]
+    for index,enabled in enumerate(('0','1')):
+        monkeypatch.setenv('AVENGINE_V7_RIR_PIPELINE',enabled)
+        attempt=tmp_path/('audio_'+str(index));attempt.mkdir()
+        renderer=Renderer(attempt/'native');cache=PositionRIRCache(tmp_path/'cache',renderer,{'scene':'resume'})
+        try:wet.append(moving_stem_phase2(spec,scene,inputs,cache,np.ones(3200),attempt,'voice1')[0])
+        finally:cache.db.close()
+        if index==1:assert renderer.calls==[]
+    assert np.array_equal(*wet)
