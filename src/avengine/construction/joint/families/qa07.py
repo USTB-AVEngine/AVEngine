@@ -506,11 +506,12 @@ def ranked_entry_endpoint_pairs(context, camera, body, side, *, pair_budget=512)
                     "available_pairs": total, "ranked_pairs": len(result)}
 
 
-def endpoint_route(context, camera, start, end, body, target, *, query_duration_s=10.):
+def endpoint_route(context, camera, start, end, body, target, *, query_duration_s=10., waypoints_m=None):
     """Use the shared A* and rounded-route constructor; retain its full clock."""
     from avengine.construction.joint.routes import route_between, construct_route, ConstructionError, SPEED_BANDS
     from avengine.assets.roster_motion.reflect_navmesh import reflected_distance_clock
-    waypoints = route_between(context, start, end, species=body.species)
+    waypoints = (route_between(context, start, end, species=body.species)
+                 if waypoints_m is None else np.asarray(waypoints_m, float))
     length = float(np.linalg.norm(np.diff(waypoints[:, [0, 2]], axis=0), axis=1).sum())
     outside_pause = .5  # retained QA-07 prediction margin
     stable_pause = .6  # retained QA-07 prediction margin
@@ -548,6 +549,67 @@ def endpoint_route(context, camera, start, end, body, target, *, query_duration_
                           endpoint_roles={"start": "outside", "end": "inside_full_body"},
                           selected_endpoints_m=[np.asarray(start).tolist(), np.asarray(end).tolist()])
     return actor
+
+
+def joint_entry_camera_paths(context, body, side, diagnostics, *, budget_s=300.):
+    """All endpoint roles share the core continuous camera solve (rule H).
+
+    Endpoints span the full human floor grid. The shared A* supplies a polyline;
+    its full standoff constraint participates in solving position/height/yaw.
+    No legacy context.cameras pose bounds this search.
+    """
+    import time
+    from collections import Counter
+    from avengine.construction.joint.camera_solve import roles_for_endpoints
+    from avengine.construction.joint.routes import route_between, ConstructionError
+    indices = np.flatnonzero(context.walkable_map.contains_many(context.points_m[:, [0, 2]], body.species))
+    points = context.points_m[indices]
+    delta = points[:, None, [0,2]]-points[None, :, [0,2]]
+    lengths = np.linalg.norm(delta, axis=-1)
+    order = np.argsort(-lengths.ravel(),kind="stable")
+    diagnostics.update(legacy_camera_candidates_used=False, endpoint_grid_points=len(points),
+        available_endpoint_pairs=len(points)*(len(points)-1),
+        ranked_endpoint_pairs=len(points)*(len(points)-1),
+        endpoint_pairs_considered=0, joint_camera_solves=0,
+        joint_camera_solutions=0, camera_solve_position_height_pairs=0,
+        camera_solve_role_rejections={}, endpoint_search_exhaustion=None)
+    started=time.monotonic();rejected=Counter();role_rejected=Counter()
+    for flat in order:
+        a,b=np.unravel_index(flat,lengths.shape)
+        if a==b:
+            continue
+        if time.monotonic()-started>=budget_s:
+            diagnostics["endpoint_search_exhaustion"]="geometry_compute_budget"
+            return
+        ai,bi=int(indices[a]),int(indices[b])
+        diagnostics["endpoint_pairs_considered"]+=1
+        try:
+            waypoints=route_between(context,points[a],points[b],species=body.species)
+        except ConstructionError as error:
+            rejected[error.reason]+=1
+            diagnostics["route_rejections"]=dict(rejected)
+            continue
+        roles=roles_for_endpoints("enter_"+side,points[a],points[b],body=body,
+            waypoints_m=waypoints,name="qa07.entry")
+        cameras=context.solve_cameras(roles)
+        diagnostics["joint_camera_solves"]+=1
+        diagnostics["joint_camera_solutions"]+=len(cameras.solutions)
+        diagnostics["camera_solve_position_height_pairs"]+=cameras.diagnostics["position_height_pairs"]
+        for role,counts in cameras.diagnostics["role_rejections"].items():
+            for reason,count in counts.items():
+                role_rejected[role+":"+reason]+=count
+        diagnostics["camera_solve_role_rejections"]=dict(role_rejected)
+        if not cameras.solutions:
+            rejected["no_joint_camera_for_endpoint_roles"]+=1
+            diagnostics["route_rejections"]=dict(rejected)
+        for solution in cameras.solutions:
+            if time.monotonic()-started>=budget_s:
+                diagnostics["endpoint_search_exhaustion"]="geometry_compute_budget"
+                return
+            before=time.monotonic()
+            yield solution.camera,ai,bi,solution.yaw_margin_deg,waypoints,cameras.diagnostics
+            started+=time.monotonic()-before
+    diagnostics["endpoint_search_exhaustion"]="finite_floor_grid_pairs_exhausted"
 
 
 class QA07Plugin:
@@ -593,35 +655,19 @@ class QA07Plugin:
             yield preferred
             if getattr(self, "appearance_rejected", False):
                 return
-        queues = []
-        heap = []
-        pair_budget = int(request.options.get("pairs_per_camera", 512))
-        for number, camera in enumerate(context.cameras):
-            pairs, evidence = ranked_entry_endpoint_pairs(context, camera, body, request.branch,
-                                                           pair_budget=pair_budget)
-            self.seed_diagnostics["endpoint_domains"].append({"camera_id": camera.camera_id, **evidence})
-            self.seed_diagnostics["available_endpoint_pairs"] += evidence["available_pairs"]
-            self.seed_diagnostics["ranked_endpoint_pairs"] += len(pairs)
-            queues.append(pairs)
-            if pairs:
-                self.seed_diagnostics["cameras_with_endpoint_pairs"] += 1
-                heapq.heappush(heap, (-pairs[0][0], number, 0))
         rejected = Counter()
-        while heap:
+        proposals = joint_entry_camera_paths(context,body,request.branch,self.seed_diagnostics,
+            budget_s=float(request.options.get("geometry_search_budget_s",300.)))
+        for camera, ai, bi, score, waypoints, camera_diagnostics in proposals:
             if getattr(self, "appearance_rejected", False):
                 return
-            _, number, offset = heapq.heappop(heap)
-            camera = context.cameras[number]
-            score, ai, bi = queues[number][offset]
-            if offset+1 < len(queues[number]):
-                heapq.heappush(heap, (-queues[number][offset+1][0], number, offset+1))
-            self.seed_diagnostics["endpoint_pairs_considered"] += 1
             try:
-                mover = endpoint_route(context, camera, context.points_m[ai], context.points_m[bi], body, target)
+                mover = endpoint_route(context,camera,context.points_m[ai],context.points_m[bi],
+                    body,target,waypoints_m=waypoints)
             except (ConstructionError, ValueError) as error:
                 reason = getattr(error, "reason", str(error))
                 rejected[reason] += 1
-                self.seed_diagnostics["route_rejections"] = dict(rejected)
+                self.seed_diagnostics["constructed_route_rejections"] = dict(rejected)
                 continue
             self.seed_diagnostics["routes_constructed"] += 1
             self.seed_diagnostics["stage_previews"] += 1
@@ -643,7 +689,8 @@ class QA07Plugin:
                 "keypoint_roles": entry_keypoint_roles(request.branch),
                 "candidate_endpoint_indices": [ai, bi],
                 "route_solver": "joint.route_between + joint.construct_route",
-                "endpoint_ranking_margin": score, "stage_preview_observation": stage_clear,
+                "camera_yaw_margin_deg": score, "camera_solver_diagnostics": camera_diagnostics,
+                "camera_and_endpoints_solved_jointly": True, "stage_preview_observation": stage_clear,
                 "native_preflight_required": True}
             if not companions:
                 yield ScenePlan(camera, {target: mover}, sounds=schedule.events, metadata={
@@ -1055,7 +1102,7 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     bodies = {aid: BodySpec("human", radius_m=.35, height_m=1.9, margin_m=.05) for aid in row["asset_ids"]}
     actual_room = deepcopy(room_context(room, house, attempt)["original_room"])
     request = FamilyRequest("QA-07", side, (target,), {
-        "pairs_per_camera": int(runtime.get("qa07_pairs_per_camera", 512)),
+        "geometry_search_budget_s": float(runtime.get("qa07_geometry_budget_s",300.)),
         "keypoint_roles": entry_keypoint_roles(side), "require_native_preflight": True})
     plugin = QA07Plugin(bodies, sound_requirements, clock_source=clock_source, assets=assets,
                         seed=seed, silent_target=not moving_target_speech)
