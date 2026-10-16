@@ -68,16 +68,16 @@ def test_dead_zone_and_distinct_sectors_keep_original_answer_rule():
     assert direction(camera, p(-28))[0] == 'front-left'
 
 
-def test_joint_roles_visit_second_camera_and_keep_distinct_QA_answers():
+def test_joint_roles_do_not_use_the_legacy_fixed_camera_table():
     from test_joint_core import context
     c = context()
-    c.cameras = (CameraPose((0, 1.25, .5), 180), CameraPose((0, 1.25, .5), 0))
+    c.cameras = ()
     assets = [{'asset_id': aid, 'kind': 'human', 'emitter_local_m': [0, 1.5, 0]} for aid in ('a', 'b')]
     schedule = schedule_epochs([[sound('s_0', 1), sound('s_1', 1)]], ['a', 'b'])
     plugin = SpeechPlugin(assets, {aid: BodySpec() for aid in ('a', 'b')}, schedule, ())
     request = FamilyRequest('QA-28', 'distinct_complete_speech', ('a', 'b'))
     p = next(plugin.candidates(c, request))
-    assert p.camera.yaw_deg == 0
+    assert p.metadata['camera_solver'] == 'all_legal_grid_positions_continuous_yaw'
     assert len(set(p.metadata['requested_speech_sectors'].values())) == 2
     assert all(check.status == 'pass' for check in plugin.verify(c, request, p))
     assert np.linalg.norm((p.actors['a'].positions_m[0]-p.actors['b'].positions_m[0])[[0, 2]]) >= 1
@@ -167,14 +167,33 @@ def test_exact_half_window_pack_uses_available_slack_in_full_window():
     assert events[0]['start_tick'] > 0
 
 
+def corridor_context_and_masks():
+    from avengine.rooms.walkable_map import WalkableMap, VERSION, SPECIES_RADII_M
+    from avengine.construction.joint import RoomContext
+    class FlatNav:
+        def snap_point(self, point): return np.asarray(point)
+    mask = np.ones((32, 200), bool)
+    wm = WalkableMap([-5., -.8], .05, 0., {k: mask.copy() for k in SPECIES_RADII_M},
+        {'version': VERSION, 'species_radii_m': SPECIES_RADII_M, 'room_id': 'corridor'})
+    room = {'room_label': 'corridor', 'measured_floor_y_m': 0.,
+        'floor_polygon': {'type': 'Polygon', 'coordinates': [
+            [[-5., -.8], [5., -.8], [5., .8], [-5., .8], [-5., -.8]]]},
+        'placement': {'camera_m': [0., 1.25, 0.]}}
+    c = RoomContext(room, walkable_map=wm, pathfinder=FlatNav(), grid_step_m=.5)
+    point_masks = {}
+    for aid, desired in [('a', [-4., 0., 0.]), ('b', [4., 0., 0.])]:
+        keep = np.zeros(len(c.points_m), bool)
+        keep[np.argmin(np.linalg.norm(c.points_m-np.asarray(desired), axis=1))] = True
+        point_masks[aid] = keep
+    return c, point_masks
+
+
 def test_one_visible_speaker_keeps_content_and_direction_when_reverse_is_unavailable():
-    from test_joint_core import context
-    c = context()
-    c.points_m = np.array([[0., 0., -3.], [.1, 0., -3.], [-3., 0., .5], [3., 0., .5]])
+    c, masks = corridor_context_and_masks()
     assets = [{'asset_id': aid, 'kind': 'human', 'emitter_local_m': [0, 1.5, 0]} for aid in ('a', 'b')]
     schedule = schedule_epochs([[sound('s_0', 1), sound('s_1', 1)]], ['a', 'b'])
     plugin = SpeechPlugin(assets, {aid: BodySpec() for aid in ('a', 'b')}, schedule, ())
-    request = FamilyRequest('QA-28', 'distinct_complete_speech', ('a', 'b'))
+    request = FamilyRequest('QA-28', 'distinct_complete_speech', ('a', 'b'), {'point_masks': masks})
     p = next(plugin.candidates(c, request))
     assert list(p.metadata['roles'].values()).count('inside') == 1
     assert {d['family'] for d in p.metadata['speech_family_degradations']} == {'QA-27'}
@@ -182,11 +201,9 @@ def test_one_visible_speaker_keeps_content_and_direction_when_reverse_is_unavail
 
 
 def test_explicit_question_view_roles_are_preserved_without_degradation():
-    from test_joint_core import context
-    c = context()
-    c.points_m = np.array([[0., 0., -3.], [.1, 0., -3.], [-3., 0., .5], [3., 0., .5]])
+    c, masks = corridor_context_and_masks()
     assets = [{'asset_id': aid, 'kind': 'human', 'emitter_local_m': [0, 1.5, 0]} for aid in ('a', 'b')]
     plugin = SpeechPlugin(assets, {aid: BodySpec() for aid in ('a', 'b')}, [], ())
     request = FamilyRequest('QA-27', 'two_visible_speakers', ('a', 'b'),
-                            {'roles': {'a': 'inside', 'b': 'inside'}})
+                            {'roles': {'a': 'inside', 'b': 'inside'}, 'point_masks': masks})
     assert next(plugin.candidates(c, request), None) is None

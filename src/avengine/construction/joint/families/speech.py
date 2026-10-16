@@ -56,52 +56,68 @@ class SpeechPlugin:
                 yield plan
 
     def _role_candidates(self, context, request, roles):
-        from avengine.construction.joint import enumerate_static_layouts, static_actor
-        from avengine.construction.joint.geometry import framing
-        from avengine.qa.unified_catalog import _DIRECTION_SECTORS
+        from avengine.construction.joint import enumerate_joint_static_layouts
+        from avengine.construction.joint.camera_solve import PointRole
+        from avengine.qa.unified_catalog import _DIRECTION_SECTORS, _SECTOR_DEAD_ZONE_DEG
         ids = tuple(self.assets)
-        # Every legal camera participates. Domains intersect the original sector
-        # rules before the core's finite layout beam, rather than filtering luck.
-        streams = []
-        for camera in context.cameras:
-            available, mouth_sectors = {}, {}
+        step = 360./len(_DIRECTION_SECTORS)
+        sectors = []
+        for index, (name, _, _) in enumerate(_DIRECTION_SECTORS):
+            centre = (index*step+180.) % 360.-180.
+            half = step/2-_SECTOR_DEAD_ZONE_DEG
+            sectors.append((name, ((centre-half+180.) % 360.-180.,
+                                   (centre+half+180.) % 360.-180.)))
+        diagnostics = {}
+        seen = set()
+        seeds = enumerate_joint_static_layouts(
+            context, self.bodies, roles,
+            point_masks=request.options.get('point_masks'),
+            camera_heights_m=context.camera_heights_m,
+            max_candidates=self.max_candidates,
+            budget_s=float(request.options.get('geometry_budget_s', 120.)),
+            diagnostics=diagnostics)
+        for seed in seeds:
+            # The refinement below solves EVERY legal camera for this physical
+            # layout, so another seed camera for the same roots adds no domain.
+            key = tuple((aid, *map(float, seed.actors[aid].positions_m[0])) for aid in ids)
+            if key in seen:
+                continue
+            seen.add(key)
+            available = {}
             for aid in ids:
-                offset = emitter_world(static_actor(aid, [0., 0., 0.], self.bodies[aid]), self.assets[aid])
-                sectors = np.asarray([direction(camera, p+offset)[0] for p in context.points_m], object)
-                mouth_sectors[aid] = sectors
-                frame_states = np.asarray([framing(camera, p, self.bodies[aid])[0]
-                                           for p in context.points_m])
-                available[aid] = [name for name, _, _ in _DIRECTION_SECTORS
-                    if np.any((sectors == name) & (frame_states == roles[aid]))]
-            for sectors in itertools.product(*(available[aid] for aid in ids)):
-                if len(set(sectors)) != len(sectors):
+                available[aid] = [(name, interval) for name, interval in sectors
+                    if roles[aid] != 'inside' or (
+                        interval[0] <= interval[1]
+                        and interval[0] <= seed.camera.hfov_deg/2
+                        and interval[1] >= -seed.camera.hfov_deg/2)]
+            for assignment in itertools.product(*(available[aid] for aid in ids)):
+                if len({name for name, interval in assignment}) != len(ids):
                     continue
-                masks = {aid: np.asarray(mouth_sectors[aid] == sector, bool)
-                         for aid, sector in zip(ids, sectors, strict=True)}
-                view = copy(context)
-                view.cameras = (camera,)
-                iterator = enumerate_static_layouts(view, self.bodies, roles,
-                    max_candidates=self.max_candidates, point_masks=masks)
-                streams.append((iterator, dict(zip(ids, sectors, strict=True))))
-        # Fairly visit camera/answer domains; a crowded first camera cannot use
-        # the whole construction budget without trying another legal pose.
-        yielded = 0
-        while streams:
-            remaining = []
-            for iterator, sectors in streams:
-                try:
-                    plan = next(iterator)
-                except StopIteration:
-                    continue
-                remaining.append((iterator, sectors))
-                plan.sounds = self.sounds
-                plan.metadata.update(speech_schedule=deepcopy(self.schedule),
-                    requested_speech_sectors=sectors, roles=roles)
-                yield plan
-                yielded += 1
-                if yielded >= self.max_candidates:
-                    return
-            streams = remaining
+                points = []
+                for aid, (name, interval) in zip(ids, assignment, strict=True):
+                    root = tuple(seed.actors[aid].positions_m[0])
+                    body = self.bodies[aid]
+                    points.append(PointRole(
+                        'inside_full_body' if roles[aid] == 'inside' else 'outside_full_body',
+                        root, body, name=aid+'.body'))
+                    # Root bearing is the enclosing-body construction proxy;
+                    # exact rotated mouth bearing is checked below and natively.
+                    points.append(PointRole('azimuth_sector', root, body,
+                                            name=aid+'.original_QA_sector', azimuth_deg=interval))
+                choices = context.solve_cameras(tuple(points), limit=None,
+                                                camera_heights_m=context.camera_heights_m)
+                for choice in choices.solutions:
+                    plan = deepcopy(seed)
+                    plan.camera = choice.camera
+                    plan.sounds = self.sounds
+                    plan.metadata.update(
+                        speech_schedule=deepcopy(self.schedule), roles=dict(roles),
+                        requested_speech_sectors={aid: value[0] for aid, value in zip(ids, assignment, strict=True)},
+                        camera_solver='all_legal_grid_positions_continuous_yaw',
+                        speech_joint_static_diagnostics=dict(diagnostics),
+                        camera_yaw_margin_deg=choice.yaw_margin_deg,
+                        camera_role_margins=choice.role_margins)
+                    yield plan
 
     def verify(self, context, request, plan):
         sectors, angles = {}, {}
@@ -259,7 +275,7 @@ def construct_speech_scene(room, house, state, catalog, records, semantic, contr
     height_candidates = speech_camera_heights(actual, bodies)
     with build_room_context(actual, house=house, runtime=runtime, cache_dir=cache/'geometry',
             camera_heights_m=height_candidates,
-            camera_limit=24*len(height_candidates or (None,)), width=1280, height=720) as context:
+            width=1280, height=720) as context:
         solved = solve(context, request, SpeechPlugin(people, bodies, schedule, sounds),
             prepare_and_verify=prepare, budget_s=float(runtime.get('speech_planning_budget_s', 180.)),
             max_candidates=int(runtime.get('speech_max_candidates', 512)),
