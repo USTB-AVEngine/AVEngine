@@ -26,7 +26,7 @@ def prepare_scene_motion(row,catalog):
         mode=request.get('animal_motion_admission',{}).get('mode');species=assets[aid].get('species_id') or 'human'
         kind='slide'if mode=='slide_no_animation'else species
         if kind not in SPEED_RANGES:raise ValueError('scene locomotion speed species missing')
-        if request.get('joint_entry_route') or request.get('joint_qa09_route'):
+        if request.get('joint_entry_route') or request.get('joint_qa09_route') or request.get('joint_endpoint_route'):
             speed=float(request['speed_m_s'])
             if not SPEED_RANGES[kind][0]<=speed<=SPEED_RANGES[kind][1]:
                 raise ValueError('solved entry-route speed is outside the owner species band')
@@ -52,6 +52,10 @@ def sounding_at(scene,endpoint,time_s):
 
 def curved_route_proposals(video,entry,scene,distance,local_forward,request):
     """Closed smooth waypoint routes; search alternate centres around obstacles."""
+    if request.get('joint_endpoint_route'):
+        from avengine.construction.joint.families.motion_human_endpoints import native_endpoint_route_proposals
+        yield from native_endpoint_route_proposals(video,entry,scene,distance,local_forward,request)
+        return
     if request.get('joint_qa09_route'):
         from avengine.construction.joint.families.qa09 import native_qa09_route_proposals
         yield from native_qa09_route_proposals(video,entry,scene,distance,local_forward,request)
@@ -136,7 +140,7 @@ def human_distance_driven_clock(source_times,double_support,speed,intervals,nomi
     """
     times=np.arange(901)/30.;duration=float(source_times[-1]-source_times[0])
     phase0=float(min(double_support));velocity=np.zeros(len(times));moving=np.zeros(len(times),bool)
-    if timed_route is not None and timed_route.get('reflect_walk'):
+    if timed_route is not None and (timed_route.get('reflect_walk') or timed_route.get('joint_endpoint_clock')):
         from .reflect_navmesh import reflected_distance_clock
         distance,velocity,clock=reflected_distance_clock(timed_route,nominal,phase0)
         return times,velocity>1e-8,velocity,distance,clock,{'method':'exact cumulative reflected root distance drives original gait','maximum_stable_speed_m_s':float(max(velocity)),'maximum_clock_distance_error_s':0.,'nominal_source_speed_m_s':nominal}
