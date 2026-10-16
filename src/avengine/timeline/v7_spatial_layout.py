@@ -82,7 +82,8 @@ def separated_layout(layout, count, *, seed=None):
     polygon = shape(layout['room_floor_polygon']).buffer(-.35)
     floor = float(np.median([p['position_m'][1] for p in valid]))
     x0, z0, x1, z1 = polygon.bounds
-    pool = valid + [{'position_m':[float(x),floor,float(z)]} for x in np.arange(x0,x1,.4)
+    preserve=layout.get('preserve_role_positions',False)
+    pool = list(reversed(valid[:count])) if preserve else valid + [{'position_m':[float(x),floor,float(z)]} for x in np.arange(x0,x1,.4)
                   for z in np.arange(z0,z1,.4) if polygon.covers(Point(x,z))]
     selected = []
     listener = np.asarray(layout['listener_m'])
@@ -95,12 +96,12 @@ def separated_layout(layout, count, *, seed=None):
             root = np.asarray(p['position_m'])
             separation = min((np.linalg.norm((root-np.asarray(q['position_m']))[[0,2]]) for q in selected),default=1.)
             return (min(separation,2.), -abs(np.linalg.norm((root-listener)[[0,2]])-3.))
-        pool.sort(key=score,reverse=True)
-        candidate = pool.pop(0);root=np.asarray(candidate['position_m'])
+        if not preserve:pool.sort(key=score,reverse=True)
+        candidate = pool.pop()if preserve else pool.pop(0);root=np.asarray(candidate['position_m'])
         if np.linalg.norm((root-listener)[[0,2]])<1.5-1e-6:continue
         if any(np.linalg.norm((root-np.asarray(p['position_m']))[[0,2]])<1. for p in selected):
             continue
-        if len(selected)>=2:
+        if len(selected)>=2 and(not preserve or len(selected)+1==count):
             points=np.asarray([p['position_m'] for p in selected]+[candidate['position_m']])[:,[0,2]]
             if np.linalg.svd(points-points.mean(0),compute_uv=False)[1]<.25:continue
         delta=listener-root;base=math.atan2(-delta[0],-delta[2])

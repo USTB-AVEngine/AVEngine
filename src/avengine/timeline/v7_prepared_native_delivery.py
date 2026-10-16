@@ -8,6 +8,17 @@ def scene_inputs(prepared,row):
     if prepared.closed or prepared.video is None:raise ValueError('prepared native world is already closed; solve again')
     if not prepared.certificate.passed:raise ValueError('prepared native certificate did not pass')
     if prepared.row['scene_id']!=row['scene_id']:raise ValueError('prepared native scene identity differs from requested scene')
+    # Contract provenance is metadata, not a request to rebuild the solved world.
+    receipt=row.get('production_sampling')
+    if receipt is not None:
+        from avengine.timeline.v7_production_inputs import validate_sampling_row
+        if prepared.row.get('production_sampling') not in (None,receipt):
+            raise ValueError('prepared native production contract differs from requested contract')
+        validated={**prepared.row,'production_sampling':receipt}
+        intake=validate_sampling_row(validated,prepared.assets)
+        # Preserve all five physical objects and every planned pose/event.
+        prepared.row['production_sampling']=dict(receipt)
+        if intake:prepared.scene['production_sampling_intake']=intake
     return prepared.row,prepared.house,prepared.scene,prepared.program,prepared.assets
 
 

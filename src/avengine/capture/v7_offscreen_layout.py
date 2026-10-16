@@ -53,7 +53,21 @@ def native_pixels_ok(scene,entries,counts,minimum_visible_pixels=100,unconstrain
         if scene.get('native_view_roles',{}).get(aid,{}).get('view')=='unconstrained_motion':
             if getattr(entry.get('object'),'object_id',None) is None:return False
             continue
-        if offscreen_role(scene,aid):
+        role=offscreen_role(scene,aid)
+        if role:
+            if role.get('static',True) is False:
+                if aid==new_entry_id and not entry.get('motion_episode'):
+                    if count!=0:return False
+                    continue  # Initial real drawable only; final compiled motion still needs >=100 pixels.
+                # Dynamic 'outside' role (QA-07 entry): outside at frame zero, proven on the actual posed mesh in
+                # refresh_actual_offscreen_proofs.  Before the walk is compiled (no motion_episode yet) the body
+                # stands at its frame-zero pose, so it must show 0 px; after compilation `counts` are whole-clip
+                # maxima and only the required later entry is checked (Claude 10-16; qa07 evidence
+                # moving_offscreen_view_bug_01.json, dynamic_outside_initial_phase_02.json).
+                if not entry.get('motion_episode'):
+                    if count!=0:return False
+                elif role.get('required_visible_sometime') and count<minimum_visible_pixels:return False
+                continue
             if count!=0:return False
         elif aid in unconstrained and count==0:continue      # naturally off screen; a role is assigned on acceptance
         elif count<minimum_visible_pixels:return False
@@ -141,15 +155,23 @@ def refresh_actual_offscreen_proofs(video,scene,checks):
     if not scene.get('native_view_roles'):return
     entries=video.actors
     for entry in entries:video._apply_entry(entry,scene)
-    counts,_=video._native_observed_pixels(scene,entries)
+    counts,observed=video._native_observed_pixels(scene,entries)
+    frame_zero=next((o['pixels'] for o in observed if float(o.get('time_s',-1.))==0.),None)
     # Bodies the question plan does not need in view (placement flag) are not re-required here (owner 10-15).
     unconstrained=tuple(e['declaration']['asset_id'] for e in entries if not e.get('_required_view',True))
     if not native_pixels_ok(scene,entries,counts,unconstrained=unconstrained):raise ValueError('final native frame-zero view roles do not match actual pixels')
     byid={c['asset_id']:c for c in checks}
     for entry in entries:
         aid=entry['declaration']['asset_id']
-        if not offscreen_role(scene,aid):continue
-        proof=native_projection_proof(video,scene,entry,counts[aid])
+        role=offscreen_role(scene,aid)
+        if not role:continue
+        pixels=counts[aid]
+        if role.get('static',True) is False:
+            # The proof is taken on the frame-zero pose (restored by _native_observed_pixels); a dynamic role is
+            # judged on its frame-zero pixels, not on the later entry that the role requires.
+            if frame_zero is None:raise ValueError('dynamic offscreen role needs an actual frame-zero native observation')
+            pixels=int(frame_zero.get(aid,0))
+        proof=native_projection_proof(video,scene,entry,pixels)
         if proof['status']!='pass':raise ValueError('final actual posed body is not outside native camera projection')
         byid[aid]['intentional_offscreen_proof']=proof
 

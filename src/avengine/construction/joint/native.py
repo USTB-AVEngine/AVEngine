@@ -23,7 +23,11 @@ def native_yaw(actor, asset):
     # Plan heading = atan2(world_dz, world_dx). Original native human/animal
     # local forward is -Z; floor devices use +X. Explicit metadata can override.
     heading = float(actor.headings_rad[0])
-    return -heading-(math.pi/2 if asset.get("kind") in {"human", "performer", "animal"} else 0.)
+    kind=asset.get("kind")
+    animal_or_human=(kind in {"human","performer","animal"}or(kind is None and
+        (asset.get("species_id")in {"human","dog","cat"}or
+         asset.get("entity_class")in {"articulated_human","articulated_animal"})))
+    return -heading-(math.pi/2 if animal_or_human else 0.)
 
 
 def strict_native_bindings(plan, assets, *, meshes=None, floor_y=None, clearance_m=0., root_tolerance_m=.002):
@@ -195,7 +199,8 @@ class PreparedStaticScene:
 
 def prepare_native(context, request, plan, *, row_factory, house, catalog, records,
                           semantic, runtime, output_dir, family_check=None, roles=None,
-                          minimum_visible_pixels=None, appearance_ids=(), static_only=False, acoustic_preflight=True):
+                          minimum_visible_pixels=None, appearance_ids=(), static_only=False, acoustic_preflight=True,
+                          scene_factory=None, video_factory=None):
     """A solve(..., prepare_and_verify=...) oracle: prepare one exact pin, never search.
 
     row_factory(plan) creates only family-specific row/asset/sound fields. This
@@ -224,7 +229,8 @@ def prepare_native(context, request, plan, *, row_factory, house, catalog, recor
         pins = strict_native_bindings(plan,selected,floor_y=context.room["measured_floor_y_m"])
         row.update(pins)
         row["joint_planned_sound_events"] = [asdict(e)for e in plan.sounds]
-        working,scene,program,assets = build_constructed_scene(row,house,records,catalog,semantic)
+        builder=scene_factory or build_constructed_scene
+        working,scene,program,assets = builder(row,house,records,catalog,semantic)
         # Direct scene fields too: legacy row adapters may not forward new flags.
         scene.update(deepcopy(pins))
         native_runtime = deepcopy(runtime)
@@ -236,7 +242,8 @@ def prepare_native(context, request, plan, *, row_factory, house, catalog, recor
         native_runtime["visible_placement_max_proposals_per_asset"] = 1
         native_runtime["visible_placement_max_support_candidates_per_asset"] = 1
         native_runtime["source_material_cache_directory"] = str(root/"source_materials")
-        video = NativePhase2Video(working,scene,native_runtime,assets,
+        video_type=video_factory or NativePhase2Video
+        video = video_type(working,scene,native_runtime,assets,
                     source_material_cache_directory=native_runtime["source_material_cache_directory"])
         standing = video.qualify_standing(scene,directory/"standing")
         from .certification import certify_plan

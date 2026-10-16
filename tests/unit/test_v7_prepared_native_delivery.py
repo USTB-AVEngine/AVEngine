@@ -89,3 +89,19 @@ def test_generator_does_not_rebuild_or_requalify_a_prepared_world(tmp_path,monke
     inputs={'fresh_rir_workers':8,'fresh_rir_cpu_ids':list(range(16,24))}
     with pytest.raises(StopAfterRender):generation.generate_phase2_parent(row,{},inputs,[],{'records':[]},{},str(tmp_path/'native'),prepared_native=prepared)
     assert seen['encoded']and seen['closed']and seen['audio_inputs']is inputs
+
+
+def test_consumer_preserves_and_checks_contract_metadata_without_rebuilding(monkeypatch):
+    row={'scene_id':'p'};scene={'physical':'untouched'};assets=[];program={'events':['same']};house={}
+    prepared=SimpleNamespace(closed=False,video=object(),certificate=SimpleNamespace(passed=True),row=row,scene=scene,program=program,assets=assets,house=house)
+    receipt={'manifest_path':'caller_contract','manifest_sha256':'hash'};observed=[]
+    def validate(actual,catalog):
+        observed.append((actual,catalog));return {'status':'pass'}
+    monkeypatch.setattr('avengine.timeline.v7_production_inputs.validate_sampling_row',validate)
+    actual=scene_inputs(prepared,{'scene_id':'p','production_sampling':receipt})
+    assert all(a is b for a,b in zip(actual,(row,house,scene,program,assets)))
+    assert observed[0][0]['production_sampling']==receipt and observed[0][1]is assets
+    assert scene['physical']=='untouched' and program['events']==['same']
+    assert scene['production_sampling_intake']=={'status':'pass'}
+    with pytest.raises(ValueError,match='contract differs'):
+        scene_inputs(prepared,{'scene_id':'p','production_sampling':{'manifest_path':'other'}})

@@ -54,8 +54,11 @@ def retain(source, target, owned_root, read_only_source_roots=()):
 
 def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
     pointer_path=Path(summary['seal_path']);pointer=load(pointer_path)
-    from avengine.timeline.v7_export_scene_policy import require_parent_policy
-    scene_policy=require_parent_policy(pointer_path)
+    from avengine.timeline.v7_export_scene_policy import inspect_parent_policy
+    from avengine.timeline.v7_export_window_policy import scoped_window_policy
+    scene_policy=scoped_window_policy(inspect_parent_policy(pointer_path),pointer['result']['windows'],enabled=bool(summary.get('drop_invalid_speed_windows',False)))
+    if scene_policy['status']!='pass':raise ValueError('scene delivery policy failed: '+';'.join(scene_policy['reasons']))
+    excluded_windows=set(scene_policy.get('excluded_window_ids',[]))
     parent=pointer_path.parent;seal=parent/pointer['attempt'];result=pointer['result']
     kind=result['status']
     if kind not in {'integration_pilot_admitted','formal_alpha_admitted'}:
@@ -73,6 +76,7 @@ def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
     files.append(retain(pointer_path,delivery/'private/source_producer_seal.json',owned_root,read_only_source_roots))
     training=[];logical=set();family=Counter();forms=Counter();negative=Counter();all_gold={};public_by_window={}
     for win in result['windows']:
+        if win['window_id']in excluded_windows:continue
         wid=win['window_id'];member=win.get('member',wid.rsplit('__',2)[-2])
         questions=load(seal/'windows'/wid/'questions.json')
         answers=load(seal/'private'/(wid+'_answers.json'));by_id={g['question_id']:g for g in answers};all_gold.update(by_id);public_by_window[wid]=[]
@@ -180,7 +184,9 @@ def parent_payload(summary, output, owned_root, *, read_only_source_roots=()):
     family.update(r['qa_id'] for r in unique_questions.values())
     manifest={'schema':'v7-isolated-production-format-trial-parent-v1','dataset_role':'trial_only',
         'source_seal':str(pointer_path),'source_seal_sha256':digest(pointer_path),'scene_id':scene,
-        'producer_admission_status':kind,'formal_release_promoted':False,'windows':result['windows'],
+        'producer_admission_status':kind,'formal_release_promoted':False,'windows':[w for w in result['windows']if w['window_id']not in excluded_windows],
+        'source_windows_before_exclusion':result['windows'],'excluded_window_ids':sorted(excluded_windows),
+        'window_delivery_revision':scene_policy.get('window_delivery_revision'),
         'scene_delivery_policy':scene_policy,
         'logical_questions':len(unique_questions),'raw_export_questions':raw_question_count,'independent_questions':len(unique_questions),
         'dedup_dropped':dedup_dropped,'dedup_rule_version':INDEPENDENCE_REVISION,'rows':len(training),'question_family_counts':dict(family),

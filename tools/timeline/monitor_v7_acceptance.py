@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Admit and inspect acceptance jobs; resource guards never terminate active work."""
+from avengine.timeline.v7_acceptance_tasks import task_by_slot
 import argparse,datetime,json,os,signal,subprocess,sys,time,shutil,fcntl
 from pathlib import Path
 
@@ -36,6 +37,17 @@ def stop(records):
   actual=proc(v['pid'])
   if actual and actual['start_ticks']==v['start_ticks']and actual['cmd']==v['cmd']:
    os.kill(v['pid'],signal.SIGTERM)
+
+def next_parent_log(root,slot):
+ path=Path(root)/'logs'/f'parent_{slot:03d}.log'
+ if path.exists():path=path.with_name(f'parent_{slot:03d}_launch_{time.time_ns()}.log')
+ return path
+
+
+def retained_parent_log(root,slot):
+ marker=Path(root)/'evidence/launches'/f'{slot:03d}.json'
+ return Path(load(marker)['log'])if marker.is_file()else Path(root)/'logs'/f'parent_{slot:03d}.log'
+
 
 def allocated(root):
  return int(subprocess.check_output(['du','-sx','-B1',str(root)],text=True).split()[0])
@@ -97,9 +109,33 @@ def launch_pause_reason(*, now, deadline, pss, limit, free, allocated_size, avai
  return ''
 
 
+def expected_family_construction_failure(receipt):
+ if receipt.get('error_type')=='ConstructionUnavailable':return True
+ if receipt.get('error_type')!='ValueError':return False
+ reason=str(receipt.get('reason',''))
+ return any(term in reason for term in ('no fully qualified new-house walking route',
+     'no strict native floor placement','no strict native table placement','no strict native wall placement',
+     'no strict native ceiling placement','bounded native NavMesh','requested registered occlusion',
+     'final registered scene occludes','room cannot supply requested count'))
+
+
+def hold_failed_family(manifest_path,family,reason):
+ """Quarantine only future dispatch, leaving all active native work untouched."""
+ with(manifest_path.parent/'plan.lock').open('a')as lock:
+  fcntl.flock(lock,fcntl.LOCK_EX);m=load(manifest_path);root=Path(m['output_root']);held=[]
+  for task in m['parents']:
+   if task.get('target_family')==family and not(root/'evidence/launches'/f"{task['slot']:03d}.json").exists():
+    task.update(launch_disabled=True,dispatch_hold_reason=reason);held.append(task['slot'])
+  write(manifest_path,m)
+  path=root/'evidence/FAMILY_CONSTRUCTION_HOLDS.json';observed=load(path)if path.exists()else{}
+  observed[family]={'reason':reason,'future_slots':held,'active_processes_signalled':False,
+      'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()};write(path,observed)
+ return held
+
+
 def append_progress(o,m,now,active):
  report_path=o/'PILOT_SUMMARY.json';report=load(report_path)if report_path.exists()else{}
- scenes=[m['parents'][slot]['row']['scene_id']for slot in active]
+ scenes=[task_by_slot(m,slot)['row']['scene_id']for slot in active]
  with(o/'PROGRESS.md').open('a')as f:
   f.write(now.isoformat()+' 构造/续跑场景='+','.join(scenes)+'；当前正式去重后模态平衡独立题='+str(report.get('independent_questions',0))+'；房子='+str(report.get('houses',0))+'；>=3题族='+str(report.get('families_at_least_three',0))+'；统计时间='+str(report.get('generated_utc','awaiting first final reader/report'))+'；题数只取PILOT_SUMMARY，原逐父候选/原始表不冒充最终总数。\n')
 
@@ -117,7 +153,7 @@ def construction_priority(task,observed,gaps,visual_gap,active_families,focus_fa
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--smoke-only',action='store_true');a=p.parse_args();m=load(a.manifest);o=Path(m['output_root']);w=Path(m['worktree'])
- pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;last_progress=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={};finalizer=None;last_finalize=0.
+ pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;last_progress=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={};family_failures={};finalizer=None;last_finalize=0.
  (o/'logs').mkdir(exist_ok=True)
  if m.get('live_resource_guard_enabled',True):
   end=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T07:00:00+00:00'))+datetime.timedelta(minutes=30)
@@ -129,14 +165,14 @@ def main():
   if d.get('status')=='running':
    record=proc(d['pid'])
    if record and str(o)in record['cmd']and 'run_v7_acceptance.py'in record['cmd']:
-    active[d['slot']]={'process':AdoptedProcess(record),'stream':(o/'logs'/f"parent_{d['slot']:03d}.log").open('a')}
+    active[d['slot']]={'process':AdoptedProcess(record),'stream':retained_parent_log(o,d['slot']).open('a')}
 
  for launch in (o/'evidence/launches').glob('*.json'):
   slot=int(launch.stem)
   if slot in active:continue
   d=load(launch);live=proc(d['pid'])
   if live and str(o)in live['cmd'] and 'run_v7_acceptance.py'in live['cmd'] and ('--worker '+str(slot)+' ')in (live['cmd']+' '):
-   active[slot]={'process':AdoptedProcess(live),'stream':(o/'logs'/f'parent_{slot:03d}.log').open('a')}
+   active[slot]={'process':AdoptedProcess(live),'stream':retained_parent_log(o,slot).open('a')}
  pending=[slot for slot in pending if slot not in active]
 
  for n in ['ue_tmp','ue_shm','ue_config']:(o/n).mkdir(exist_ok=True)
@@ -150,7 +186,10 @@ def main():
   records=output_processes([o]);pss=sum(v['pss_bytes']for v in records);peers=peer_processes(m);peer_pss=sum(v['pss_bytes']for v in peers);limits=admission_limits(m,now);limit=limits["maximum_pss_bytes"];forecast_cpu=__import__('avengine.timeline.v7_cpu_budget',fromlist=['compute_process_count']).compute_process_count([*records,*peers])+2
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
   deadline=datetime.datetime.fromisoformat(m.get('stop_new_jobs_utc','2026-10-15T04:00:00+00:00'))
-  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000),disk_policy=m.get('launch_disk_policy'),maximum_task_bytes=m.get('maximum_task_bytes',60_000_000_000),minimum_available_bytes=m.get('minimum_available_bytes',30_000_000_000))
+  from avengine.timeline.v7_fresh_import_budget import active_import_reservation
+  reserved_import_bytes=active_import_reservation(o)
+  future_disk_growth=len(active)*int(m.get('per_parent_disk_reserve_bytes',0))
+  resource_pause=launch_pause_reason(now=now,deadline=deadline,pss=pss,limit=limit,free=free,allocated_size=size+reserved_import_bytes+future_disk_growth,available_memory=mem,combined_pss=pss+peer_pss,combined_limit=m.get('maximum_combined_pss_bytes',190_000_000_000),disk_policy=m.get('launch_disk_policy'),maximum_task_bytes=m.get('maximum_task_bytes',60_000_000_000),minimum_available_bytes=m.get('minimum_available_bytes',30_000_000_000))
   if resource_pause=='delivery_deadline_no_new_jobs':pending=[]
   from tools.timeline.finalize_v7_acceptance import delivery_fingerprint
   delivered=o/'evidence/FINAL_MODEL_READER.json'
@@ -175,13 +214,25 @@ def main():
     if retry is not None:
      with(o/'PROGRESS.md').open('a')as f:f.write(now.isoformat()+' AUTO_CONSTRUCTION_RETRY failed_slot='+str(slot)+' next_slot='+str(retry)+'；保留人数/题族/基本种子，自动改初始朝向或同房其他合法区域，不动真值门禁。\n')
      continue
+    if m.get('isolate_expected_family_construction_failures') and expected_family_construction_failure(d):
+     family=task_by_slot(m,slot).get('target_family')
+     if family:
+      family_failures[family]=family_failures.get(family,0)+1
+      if family_failures[family]>=int(m.get('family_construction_failure_hold_count',2)):
+       held=hold_failed_family(a.manifest,family,str(d.get('reason')))
+       line=now.isoformat()+' FAMILY_CONSTRUCTION_HOLD '+family+' failed='+str(family_failures[family])+' future_slots='+str(held)+' reason='+str(d.get('reason'))+'; active native work untouched; other families continue.\n'
+       with(o/'PROGRESS.md').open('a')as f:f.write(line)
+       status=m.get('coordination_status_root')
+       if status:
+        with(Path(status)/'integrator.md').open('a')as f:f.write(line)
+      continue
     from tools.timeline.generate_v7_demand_scenes import failure_signature
     reason=failure_signature(d);failed_reasons[reason]=failed_reasons.get(reason,0)+1
     if failed_reasons[reason]>=2:pause='repeated_failure_needs_review';write(o/'REPEATED_FAILURE.json',{'reason':reason,'count':failed_reasons[reason]})
   if time.monotonic()-last_watch>=300 or not last_watch:
    rows=[]
    for slot,v in active.items():
-    tree=processes([v['process'].pid]);cpu=sum(r['cpu_s']for r in tree);old=previous.get(slot,{});log=o/'logs'/f'parent_{slot:03d}.log';mtime=log.stat().st_mtime if log.exists()else 0
+    tree=processes([v['process'].pid]);cpu=sum(r['cpu_s']for r in tree);old=previous.get(slot,{});log=Path(v['stream'].name);mtime=log.stat().st_mtime if log.exists()else 0
     entry={'slot':slot,'pid':v['process'].pid,'cpu_s':cpu,'cpu_growth_s':cpu-old.get('cpu_s',0),'log_mtime':mtime,'log_updated':mtime>old.get('log_mtime',0),'pipe_write_pids':[r['pid']for r in tree if 'pipe_write'in r['wchan']]};rows.append(entry);previous[slot]=entry
    snap={'time_utc':now.isoformat(),'active':rows,'PSS_bytes':pss,'peer_PSS_bytes':peer_pss,'combined_PSS_bytes':pss+peer_pss,'MemAvailable_bytes':mem,'data_free_bytes':free,'allocated_task_bytes':size,'admission_limits':limits,'resource_limit_scope':'own acceptance workload; peers observed; host memory floor shared','completed':len(completed),'pause':pause or resource_pause}
    with (o/'WATCH_LOG.md').open('a')as f:f.write(now.isoformat()+' '+json.dumps(snap,ensure_ascii=False)+'\n')
@@ -195,31 +246,34 @@ def main():
    from collections import Counter
    active_families=Counter()
    for active_slot in active:
-    active_task=m['parents'][active_slot];target=active_task.get('target_family')
+    active_task=task_by_slot(m,active_slot);target=active_task.get('target_family')
     if target:active_families[target]+=1
     elif active_task.get('constructor')=='motion_quartet_template':active_families.update(['QA-06','QA-15','QA-16','QA-17'])
    def demand_order(slot):
-    return construction_priority(m['parents'][slot],state.get('family_counts',{}),gaps,
+    return construction_priority(task_by_slot(m,slot),state.get('family_counts',{}),gaps,
         demand.get('modality_deficits',{}).get('vision',0.),active_families,families)
    for slot in sorted(pending,key=demand_order):
-    task=m['parents'][slot]
+    task=task_by_slot(m,slot)
     if task.get('launch_disabled'):continue
     w=Path(task.get('snapshot_worktree',m['worktree']))
     moving=task.get('focus')in {'human_motion','animal_motion','motion_quartet_template'}or task.get('target_family')in {'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'};ue=task['device']=='ue'
     if not smoke and m.get('require_single_parent_smoke',True) and (slot!=0 or active or completed):continue
     if a.smoke_only and slot!=0:continue
-    if len(active)>=limits["maximum_parents"] or ue and any(m['parents'][s]['device']=='ue'for s in active):continue
-    reserve=sum(30_000_000_000 if (m['parents'][s].get('focus')in{'human_motion','animal_motion','motion_quartet_template'}or m['parents'][s].get('target_family')in{'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'})else 7_000_000_000 for s in active)
+    if len(active)>=limits["maximum_parents"] or ue and any(task_by_slot(m,s)['device']=='ue'for s in active):continue
+    reserve=sum(30_000_000_000 if (task_by_slot(m,s).get('focus')in{'human_motion','animal_motion','motion_quartet_template'}or task_by_slot(m,s).get('target_family')in{'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'})else 7_000_000_000 for s in active)
     requested=30_000_000_000 if moving else 7_000_000_000
+    new_disk_reserve=int(m.get('per_parent_disk_reserve_bytes',0))
+    if size+reserved_import_bytes+future_disk_growth+new_disk_reserve>int(m.get('maximum_task_bytes',60_000_000_000)):continue
+    if free-reserved_import_bytes-future_disk_growth-new_disk_reserve<__import__('avengine.timeline.v7_storage_budget',fromlist=['launch_minimum_free_bytes']).launch_minimum_free_bytes(m.get('launch_disk_policy'),now):continue
     if not parent_launch_headroom(reserve,pss,requested,limit,mem,m.get('minimum_available_bytes',30_000_000_000)):continue
     if pss+peer_pss+requested>int(m.get('maximum_combined_pss_bytes',190_000_000_000)):continue
     if forecast_cpu+4>limits["maximum_cpu_processes"]:continue
     with(o/'inputs/plan.lock').open('a')as launch_lock:
      fcntl.flock(launch_lock,fcntl.LOCK_EX)
-     current=load(a.manifest);task=current['parents'][slot]
+     current=load(a.manifest);task=task_by_slot(current,slot)
      if task.get('launch_disabled'):continue
      if current.get('cpu_group_size'):
-      used={cpu for active_slot in active for cpu in current['parents'][active_slot].get('cpu_ids',[])}
+      used={cpu for active_slot in active for cpu in task_by_slot(current,active_slot).get('cpu_ids',[])}
       free_cpus=[cpu for cpu in current.get('cpu_affinity_ids',[]) if cpu not in used]
       width=int(current['cpu_group_size'])
       if len(free_cpus)<width:continue
@@ -234,8 +288,8 @@ def main():
       for n in ['nvidiactl','nvidia2','nvidia-uvm','nvidia-uvm-tools']:
        if Path('/dev/'+n).exists():prefix+=['--dev-bind','/dev/'+n,'/dev/'+n]
       cmd=prefix+['--chdir',str(w)]+cmd
-     stream=(o/'logs'/f'parent_{slot:03d}.log').open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,stdin=subprocess.DEVNULL)
-     active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(o/'logs'/f'parent_{slot:03d}.log'),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
+     log_path=next_parent_log(o,slot);stream=log_path.open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,stdin=subprocess.DEVNULL)
+     active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(log_path),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
     target=task.get('target_family')
     if target:active_families[target]+=1
     if not smoke and m.get('require_single_parent_smoke',True):break

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run isolated native acceptance parents under a committed resource policy."""
 from __future__ import annotations
+from avengine.timeline.v7_acceptance_tasks import task_by_slot
 import argparse,datetime,json,os,resource,subprocess,sys,time,traceback
 from pathlib import Path
 
@@ -37,9 +38,20 @@ def worker_cpu_policy(manifest,task,slot,runtime,*,inherited_cpu_ids=None):
     return allocated[0] if task.get('cpu_ids') else allocated[slot%len(allocated)],rir,workers
 
 
+def question_worker_cpu_policy(manifest,task,allocated_cpu_ids):
+    cpus=sorted(set(allocated_cpu_ids))
+    if not cpus:raise ValueError('question workers need an admitted parent CPU group')
+    requested=int(task.get('registered_question_workers',manifest.get('registered_question_workers',1)))
+    if requested<1:raise ValueError('at least one registered question worker required')
+    count=min(requested,5,len(cpus))
+    return {'registered_question_workers':count,'registered_question_cpu_ids':cpus[:count]}
+
+
 def run_worker(manifest,slot):
     configure_walkable_maps(manifest)
-    task=manifest['parents'][slot];row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
+    task=dict(task_by_slot(manifest,slot));row=task['row'];root=Path(manifest['output_root']).resolve();prepared_native=None
+    dispatch_profile=root/'inputs/dispatch_profiles'/f'{slot:03d}.json'
+    if dispatch_profile.exists():task['profile']=load(dispatch_profile)['profile']
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('nice >=10 required')
     cpus=manifest.get('cpu_ids') or manifest.get('cpu_affinity_ids') or sorted(os.sched_getaffinity(0))
     runtime_path=task.get('runtime_input') or manifest['runtime_'+task['device']]
@@ -58,6 +70,11 @@ def run_worker(manifest,slot):
     inputs['cpu_visual_threads']=int(task.get('cpu_visual_threads',manifest.get('cpu_visual_threads',inputs.get('cpu_visual_threads',1))))
     from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
     visual_cpu_policy=configure_cpu_visual(inputs,cpu_ids=[cpu for cpu in(task.get('cpu_ids')or cpus)if cpu in inherited_cpus])
+    inputs.update(question_worker_cpu_policy(manifest,task,[cpu for cpu in(task.get('cpu_ids')or cpus)if cpu in inherited_cpus]))
+    if task.get('construction_repair_source'):
+        repair_source=Path(task['construction_repair_source']).resolve()
+        if not repair_source.is_relative_to(root)or not repair_source.is_file():raise ValueError('construction repair source escaped owned output')
+        inputs['registered_content_repair_source']=str(repair_source)
     catalog=load(manifest['assets_'+task['device']]);catalog=catalog['assets']if isinstance(catalog,dict)else catalog
     houses=load(manifest['houses_'+task['device']])['houses'];house=next(h for h in houses if h['house']==row['house'])
     contract=load(manifest['contract']);source=load(contract['inputs']['source_admission']['path']);human=load(manifest['human_registered_cpu'] if task['profile']=='registered'and task['device']=='cpu'else manifest['human_'+task['device']])
@@ -74,7 +91,9 @@ def run_worker(manifest,slot):
             proposal=construct_requested_scene(room,house,state,catalog,source['records'],load(inputs['semantic_manifest']),contract,inputs,
                 plugin_specs=task.get('family_plugins',manifest.get('family_plugins',{})),
                 scene_id=row['scene_id'],seed=row['scene_seed'],family=task['target_family'],attempt=int(task.get('construction_attempt',0)))
-            if proposal['profile']!='phase2':raise ValueError('automatic constructor profile differs from the registered worker profile')
+            if proposal['profile']not in {'phase2','registered'}:raise ValueError('unsupported automatic constructor profile: '+str(proposal['profile']))
+            task['profile']=proposal['profile'];write(dispatch_profile,{'profile':task['profile'],'constructor':task.get('constructor'),'target_family':task.get('target_family')})
+            if task['profile']=='registered'and task['device']=='cpu':human=load(manifest['human_registered_cpu'])
             row=proposal['row']
             prepared_native=proposal.get('prepared_native',proposal.get('prepared'))
             if prepared_native is not None:row=prepared_native.row
@@ -92,10 +111,16 @@ def run_worker(manifest,slot):
         if manifest.get('require_authored_tts_per_new_parent') and not previous.exists() and row.get('scene_constructor')!='motion_quartet_template' and not row.get('automatic_construction'):
             from avengine.timeline.v7_demand import assign_authored_tts
             row=assign_authored_tts(row,catalog,load(inputs['semantic_manifest']),rotation_index=task.get('voice_rotation_index',slot))
-        inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
-        from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
-        if row.get('automatic_construction'):
-            from avengine.timeline.v7_family_clock import generate_constructed_phase2_parent as generate
+        if task['profile']=='phase2':
+            inputs.update(phase2=True,integration_pilot=True,render_backend=inputs.get('render_backend','cpu_llvmpipe'))
+            from avengine.timeline.v7_phase2_generation import generate_phase2_parent as generate
+            if row.get('automatic_construction'):
+                from avengine.timeline.v7_family_clock import generate_constructed_phase2_parent as generate
+        else:
+            row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
+            add_required_condition(row,'authored_native_quartet')
+            inputs.update(phase2=False,integration_pilot=True,render_backend='cpu_llvmpipe')
+            from avengine.timeline.v7_registered_generation import generate_registered_parent as generate
     else:
         previous=root/'inputs/planned'/f'{slot:03d}.json'
         if previous.exists():
@@ -121,7 +146,7 @@ def run_worker(manifest,slot):
     write(root/'inputs/planned'/f'{slot:03d}.json',row)
     start=time.monotonic();cpu=time.process_time()
     receipt={'slot':slot,'device':task['device'],'house':row['house'],'room_id':row['room_id'],
-        'scene_id':row['scene_id'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
+        'scene_id':row['scene_id'],'execution_profile':task['profile'],'pid':os.getpid(),'cpu_affinity':sorted(os.sched_getaffinity(0)),
         'visual_cpu_policy':visual_cpu_policy,'allocated_cpu_ids':task.get('cpu_ids',cpus),'fresh_rir_cpu_ids':rir_cpus,'fresh_rir_workers':rir_workers,
         'code_commit':task.get('snapshot_commit',manifest['code_commit']),
         'code_snapshot':task.get('snapshot_worktree',manifest['worktree']),
@@ -151,7 +176,10 @@ def run_worker(manifest,slot):
             phases.enter_context(cpu_phase(root,'audio_questions_reader',estimate_bytes=2000000000))
             result=generate(row,house,inputs,catalog,source,human,str(native_root))
         elif prepared_native is not None:
-            try:result=generate(row,house,inputs,catalog,source,human,str(native_root),prepared_native=prepared_native)
+            try:
+                if task['profile']=='registered':
+                    result=generate(row,house,inputs,catalog,source,human,str(native_root),prepared_visuals=prepared_native.visuals)
+                else:result=generate(row,house,inputs,catalog,source,human,str(native_root),prepared_native=prepared_native)
             finally:prepared_native.close()
         else:result=generate(row,house,inputs,catalog,source,human,str(native_root))
         admitted=result['status']in{'integration_pilot_admitted','formal_alpha_admitted'}
@@ -165,7 +193,8 @@ def run_worker(manifest,slot):
         pointer=next((p for p in [parent/'integration_seal_completed.json',parent/'alpha_seal_completed.json']if p.is_file()),None)
         if pointer is None:raise ValueError('original producer seal is absent')
         info={'slot':slot,'family':task['family'],'status':'passed','house':row['house'],
-              'scene_id':result['scene_id'],'parent_directory':str(parent),'seal_path':str(pointer)}
+              'scene_id':result['scene_id'],'parent_directory':str(parent),'seal_path':str(pointer),
+              'drop_invalid_speed_windows':manifest.get('drop_invalid_speed_windows',True)}
         from tools.timeline.export_v7_trial import parent_payload
         rows,exported=parent_payload(info,root/'export',root)
         for item in rows:item['dataset_role']='acceptance_only'
@@ -213,7 +242,7 @@ def run_worker(manifest,slot):
 def bind_worker_snapshot(manifest,slot,entry_root):
     from copy import deepcopy
     from avengine.timeline.v7_frozen_code import source_commit,verify_source
-    source=Path(entry_root).resolve();task=manifest['parents'][slot]
+    source=Path(entry_root).resolve();task=task_by_slot(manifest,slot)
     expected=Path(task.get('snapshot_worktree',manifest['worktree'])).resolve()
     if source!=expected:raise ValueError('executing worker differs from its frozen task snapshot')
     actual=source_commit(source)
@@ -231,7 +260,7 @@ def main():
     started=datetime.datetime.now(datetime.timezone.utc).isoformat();start=time.monotonic();cpu=time.process_time()
     try:code=run_worker(m,a.worker)
     except Exception as exc:
-        write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':m['parents'][a.worker]['row']['scene_id'],'house':m['parents'][a.worker]['row']['house'],'room_id':m['parents'][a.worker]['row']['room_id'],'pid':os.getpid(),'stage':'construction_preflight','reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})
+        write(Path(m['output_root'])/'evidence/jobs'/f'{a.worker:03d}.json',{'slot':a.worker,'status':'failed','scene_id':task_by_slot(m,a.worker)['row']['scene_id'],'house':task_by_slot(m,a.worker)['row']['house'],'room_id':task_by_slot(m,a.worker)['row']['room_id'],'pid':os.getpid(),'stage':'construction_preflight','reason':str(exc),'error_type':type(exc).__name__,'traceback':traceback.format_exc()})
         traceback.print_exc();code=2
     raise SystemExit(code)
 

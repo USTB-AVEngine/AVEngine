@@ -20,6 +20,9 @@ def admitted_receipts(manifest):
         if not path.exists():continue
         receipt=json.loads(path.read_text())
         if receipt.get('status')!='passed':continue
+        if receipt.get('scene_id')in manifest.get('delivery_excluded_parent_scene_ids',{}):
+            excluded.append({'scene_id':receipt['scene_id'],'slot':receipt['slot'],'reasons':['explicit_delivery_exclusion:'+str(manifest['delivery_excluded_parent_scene_ids'][receipt['scene_id']])]})
+            continue
         if receipt.get('reader',{}).get('status')!='pass':raise ValueError('passed parent lacks completed actual media reader')
         pointer=json.loads(Path(receipt['export']['source_seal']).read_text());recipe=pointer['recipe']['input_recipe'];row=recipe.get('row',recipe.get('seed_row'))
         reasons=[]
@@ -32,7 +35,9 @@ def admitted_receipts(manifest):
         if any(x.get('motion_kind')=='static_after_failed_route'for x in motion):reasons.append('motion_demand_became_static')
         from avengine.timeline.v7_export_scene_policy import cached_parent_policy
         try:
-            policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            source_policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            from avengine.timeline.v7_export_window_policy import scope_receipt_windows
+            receipt,policy=scope_receipt_windows(receipt,source_policy,enabled=manifest.get('drop_invalid_speed_windows',True))
             reasons.extend(policy['reasons'])
         except Exception as error:
             reasons.append('scene_policy_evidence_error:'+str(error))
@@ -50,8 +55,14 @@ def delivery_fingerprint(manifest):
         if receipt.get('status')=='passed':parents.append((task['slot'],hashlib.sha256(data).hexdigest()))
     inputs={'parents':parents,'code_commit':manifest['code_commit'],
         'motion_quartet_final_targets':manifest.get('motion_quartet_final_targets',{}),
+        'family_question_minimums':manifest.get('family_question_minimums',{}),
+        'family_protocol_panels':manifest.get('family_protocol_panels',{}),
+        'delivery_excluded_parent_scene_ids':manifest.get('delivery_excluded_parent_scene_ids',{}),
         'scene_delivery_policy':__import__('avengine.timeline.v7_export_scene_policy',fromlist=['REVISION']).REVISION,
-        'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False)}
+        'post_dedup_modality_balance':manifest.get('post_dedup_modality_balance',False),
+        'minimum_family_distinct_houses':manifest.get('minimum_family_distinct_houses',0),
+        'window_export_policy':__import__('avengine.timeline.v7_export_window_policy',fromlist=['REVISION']).REVISION,
+        'drop_invalid_speed_windows':manifest.get('drop_invalid_speed_windows',True)}
     return hashlib.sha256(json.dumps(inputs,sort_keys=True).encode()).hexdigest()
 
 
@@ -66,8 +77,9 @@ def finalize(manifest_path):
                 'excluded_historical_parents':excluded,'new_native_renders':0}
             print(json.dumps(result,ensure_ascii=False),flush=True)
             return result
-        target=manifest.get('motion_quartet_final_targets',{});minimums={f:int(target.get('minimum_independent_questions_per_family',30))for f in target.get('qa_ids',[])}
-        rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums)
+        from avengine.timeline.v7_post_dedup_selection import manifest_family_minimums
+        minimums=manifest_family_minimums(manifest)
+        rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums,minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)),family_protocol_panels=manifest.get('family_protocol_panels',{}))
         for row in rows:validate_english_model_text(row)
         if len({r['question_id']for r in rows})!=len(rows):raise ValueError('duplicate final question IDs')
         index=root/'export/train.jsonl';temporary=index.with_name(index.name+f'.{os.getpid()}.tmp')

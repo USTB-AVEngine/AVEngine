@@ -809,3 +809,175 @@ def test_independent_pair_reports_finite_budget_without_certifying_collision():
     assert not plans
     assert stats["stop_reason"]=="evaluation_budget_exhausted"
     assert stats["rejections"]["independent_continuous_pair_distance"]==1
+
+
+def test_whole_track_outside_rejects_crossing_between_two_outside_rests():
+    c=context();camera=c.cameras[0]
+    path=[[-3.9,0,-2.8],[3.9,0,-2.8]]
+    actor=construct_route(c,path,speed_m_s=1.2,camera=camera)
+    assert track_framing_check(camera,actor,frame_indices=[0,900]).status=="pass"
+    check=track_framing_check(camera,actor)
+    assert check.status=="fail"and check.evidence["failed_frame_count"]>0
+    assert check.evidence["state_counts"]["inside"]>0
+    with pytest.raises(ConstructionError,match="route_framing_constraint"):
+        construct_route(c,path,speed_m_s=1.2,camera=camera,required_framing="outside")
+    assert track_framing_check(camera,actor,frame_indices=[]).status=="unknown"
+
+
+def test_fixed_clock_outside_route_checks_all_frames_and_preserves_clock():
+    c=context();d=np.clip(np.arange(901)/30-1.,0.,.6)
+    actor=bind_distance_clock(c,d,origin_m=[2.5,0,.5],heading_rad=0.,camera=c.cameras[0],required_framing="outside")
+    np.testing.assert_array_equal(actor.metadata["distance_clock_m"],d)
+    check=actor.metadata["framing_constraint"]
+    assert check["status"]=="pass"and check["evidence"]["checked_frames"]==901
+    assert not check["evidence"]["native_pixels_verified"]
+    with pytest.raises(ConstructionError,match="requires_camera"):
+        bind_distance_clock(c,d,origin_m=[2.5,0,.5],heading_rad=0.,required_framing="outside")
+
+
+def _registered_test_plans():
+    base=ScenePlan(CameraPose((0.,1.25,.5),0.),{
+        "a":static_actor("a",[-1.,0,-4.],facing_rad=0.),"b":static_actor("b",[1.,0,-4.8],facing_rad=math.pi/2)},
+        sounds=(SoundEvent("a","one","speech",1.,2.,2.5),SoundEvent("b","two","speech",3.,4.,4.5)))
+    return {"v0":base,"v1":swapped_visual_plan(base,("a","b"))}
+
+
+def _bundle_member(tmp_path,key,checks,closed,video=None):
+    from avengine.construction.joint.native import PreparedStaticScene
+    video=video or SimpleNamespace(sim=object(),close=lambda:closed.append(key))
+    directory=tmp_path/key;directory.mkdir(exist_ok=True)
+    payload=PreparedStaticScene(video,{"scene_id":"test-parent","sources":{}},{"scene_id":"test-parent"}, {},[],{},directory,
+        Certificate(tuple(checks),"native_prepared_preflight"))
+    return PreparedCandidate(payload,tuple(checks),payload.close)
+
+
+def test_registered_bundle_retains_two_worlds_and_original_baseline_row(tmp_path):
+    c=context();plans=_registered_test_plans();closed=[]
+    proof=(CheckResult("native:test","pass"),)
+    bundle=prepare_native_bundle(c,FamilyRequest("V7-CONTENT-BIND","swap"),plans,
+        lambda key,*args:_bundle_member(tmp_path,key,proof,closed),
+        group_check=lambda group:(CheckResult("native:group_original_predicate","pass"),),directory=tmp_path).payload
+    assert isinstance(bundle,PreparedNativeBundle)and bundle.row is bundle.visuals["v0"].row
+    assert bundle.visuals["v0"].video.sim is not bundle.visuals["v1"].video.sim
+    np.testing.assert_array_equal(plans["v1"].actors["a"].positions_m,plans["v0"].actors["b"].positions_m)
+    assert plans["v1"].sounds[0].entity_id=="b"and plans["v0"].sounds[0].entity_id=="a"
+    bundle.bind_solution({"solver_entry":"avengine.construction.joint.solve","native_preflight_status":"pass"})
+    assert bundle.row["joint_solution"]["prepared_visual_count"]==2
+    bundle.close();bundle.close()
+    assert closed==["v0","v1"]
+
+
+def test_registered_bundle_closes_first_world_when_second_fails_or_throws(tmp_path):
+    c=context();plans=_registered_test_plans();request=FamilyRequest("V7-CONTENT-BIND","swap")
+    closed=[]
+    def prepare(key,*args):
+        if key=="v1":return PreparedCandidate(None,(CheckResult("native:original_contact","fail"),))
+        return _bundle_member(tmp_path,key,(CheckResult("native:test","pass"),),closed)
+    result=prepare_native_bundle(c,request,plans,prepare)
+    assert result.payload is None and closed==["v0"]
+    assert any(c.name=="v1:native:original_contact"and c.status=="fail"for c in result.checks)
+    closed.clear()
+    def throwing(key,*args):
+        if key=="v1":raise RuntimeError("native constructor fault")
+        return _bundle_member(tmp_path,key,(CheckResult("native:test","pass"),),closed)
+    with pytest.raises(RuntimeError,match="constructor fault"):
+        prepare_native_bundle(c,request,plans,throwing)
+    assert closed==["v0"]
+
+
+def test_registered_bundle_cannot_reuse_one_world_or_omit_native_group_check(tmp_path):
+    c=context();plans=_registered_test_plans();request=FamilyRequest("V7-CONTENT-BIND","swap")
+    closed=[];shared=_bundle_member(tmp_path,"shared",(CheckResult("native:test","pass"),),closed)
+    result=prepare_native_bundle(c,request,plans,lambda *a:shared,group_check=lambda b:[CheckResult("group","pass")])
+    assert result.payload is None and closed==["shared"]
+    assert any(c.name=="native:two_visual_worlds"and c.status=="fail"for c in result.checks)
+    closed.clear()
+    result=prepare_native_bundle(c,request,plans,
+        lambda key,*a:_bundle_member(tmp_path,key,(CheckResult("native:test","pass"),),closed))
+    assert result.payload is None and closed==["v0","v1"]
+    assert any(c.reason=="group_native_family_checks_not_supplied"and c.status=="unknown"for c in result.checks)
+
+
+def test_bundle_fallback_proof_cannot_be_borrowed_from_other_visual(tmp_path):
+    import trimesh
+    c=context();c.allow_native_map_fallback=True;c.walkable_map.layers["human"][:]=False
+    c.pathfinder=SimpleNamespace(snap_point=lambda p:np.asarray(p),distance_to_closest_obstacle=lambda p,r:1.)
+    floor=trimesh.creation.box((20.,.1,20.));floor.apply_translation([0,-.05,0]);c.floor_raycaster=MeshRaycaster(floor)
+    plans=_registered_test_plans();closed=[]
+    names=["native:identities","native:camera_unchanged","native:a:exact_pose","native:b:exact_pose",
+           "native:a:full_pose_physics","native:b:full_pose_physics"]
+    def prepare(key,*args):
+        checks=tuple(CheckResult(name,"pass")for name in (names if key=="v0"else names[:-1]))
+        return _bundle_member(tmp_path,key,checks,closed)
+    result=prepare_native_bundle(c,FamilyRequest("V7-CONTENT-BIND","swap"),plans,prepare,
+        group_check=lambda b:[CheckResult("group","pass")])
+    assert result.payload is None and closed==["v0","v1"]
+    assert any(c.name=="v1:b:route"and c.status=="unknown"for c in result.checks)
+
+
+def test_registered_native_heading_uses_declared_body_kind_without_kind_field():
+    from avengine.construction.joint.native import native_yaw
+    actor=static_actor("a",[0,0,-4],facing_rad=0.)
+    assert native_yaw(actor,{"entity_class":"articulated_human","species_id":"human"})==pytest.approx(-math.pi/2)
+    assert native_yaw(actor,{"kind":"object","entity_class":"device"})==0.
+
+
+@pytest.mark.parametrize("fail_result_write",[False,True])
+def test_registered_factory_compiles_original_program_once_and_swaps_real_endpoints(tmp_path,monkeypatch,fail_result_write):
+    import avengine.construction.joint.native as native
+    import avengine.timeline.v7_registered_sampling as sampling
+    plans=_registered_test_plans();base=plans["v0"];closed=[];compiled=[]
+    assets=[{"asset_id":key,"endpoint_id":"voice"+str(i+1),"native_instance_id":i+1,
+             "kind":"human","mouth_local_glb_m":[.05,1.5,.1]}for i,key in enumerate(("a","b"))]
+    original_scene={"scene_id":"test-parent","sources":{"voice1":{},"voice2":{}},"events":[]}
+    program={"events":[{"original":"unchanged"}]}
+    monkeypatch.setattr(sampling,"choose_assets",lambda *a:deepcopy(assets))
+    def build(*a,**kw):
+        compiled.append(True)
+        return {"room":{"placement":{}}},deepcopy(original_scene),program
+    monkeypatch.setattr(sampling,"build_registered_scene",build)
+    observed={}
+    def prepare(ctx,request,plan,**kw):
+        row=kw["row_factory"](plan)
+        house,scene,actual_program,selected=kw["scene_factory"](row,None,None,None,None)
+        key=row["joint_prepared_visual_variant"];observed[key]=(plan,scene,selected)
+        candidate=_bundle_member(tmp_path,key,(CheckResult("native:test","pass"),),closed)
+        p=candidate.payload;p.row=row;p.scene=scene;p.house=house;p.assets=selected;p.program=actual_program
+        return candidate
+    monkeypatch.setattr(native,"prepare_native",prepare)
+    from copy import deepcopy
+    import functools
+    operation=functools.partial(prepare_registered_bundle,context(),FamilyRequest("V7-CONTENT-BIND","swap"),base,
+        row_factory=lambda p:{"scene_id":"test-parent","production_scenario":{},"members":["v0_a0","v0_a1","v1_a0","v1_a1"]},
+        house={},catalog=[],records=[],semantic={},runtime={},output_dir=tmp_path/"group",
+        group_check=lambda b:[CheckResult("group","pass")])
+    if fail_result_write:
+        import avengine.timeline.continuous_pilot as pilot
+        original=pilot.write_json
+        def write(path,data):
+            if path.name=="native_bundle_result.json":raise OSError("unit disk write fault")
+            return original(path,data)
+        monkeypatch.setattr(pilot,"write_json",write)
+        with pytest.raises(OSError,match="disk write fault"):operation()
+        assert closed==["v0","v1"]
+        return
+    result=operation()
+    assert compiled==[True]and result.payload is not None
+    assert [(a["asset_id"],a["endpoint_id"])for a in observed["v1"][2]]==[("b","voice1"),("a","voice2")]
+    np.testing.assert_allclose(observed["v1"][1]["sources"]["voice1"]["trajectory"][0]["position_m"],[-1.1,1.5,-3.95])
+    assert result.payload.visuals["v0"].program is result.payload.visuals["v1"].program is program
+    assert original_scene["sources"]["voice1"]=={}
+    result.close();assert closed==["v0","v1"]
+
+
+def test_registered_bundle_rejects_recompiled_audio_and_closes_members_without_wrapper_callback(tmp_path):
+    c=context();plans=_registered_test_plans();closed=[]
+    def prepare(key,*args):
+        candidate=_bundle_member(tmp_path,key,(CheckResult("native:test","pass"),),closed)
+        candidate.close=None # compatible payload.close still owns the native world
+        if key=="v1":candidate.payload.program={"different_recording":"not the baseline audio"}
+        return candidate
+    result=prepare_native_bundle(c,FamilyRequest("V7-CONTENT-BIND","swap"),plans,prepare,
+        group_check=lambda b:[CheckResult("group","pass")])
+    assert result.payload is None and closed==["v0","v1"]
+    assert any(c.name=="native:registered_parent_contract"and c.status=="fail"for c in result.checks)

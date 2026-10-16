@@ -16,7 +16,10 @@ def publish_current_parents(root):
         for path in sorted((root/'evidence/jobs').glob('[0-9][0-9][0-9].json')):
             receipt=json.loads(path.read_text())
             if receipt.get('status')!='passed':continue
-            policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            if receipt.get('scene_id')in manifest.get('delivery_excluded_parent_scene_ids',{}):continue
+            source_policy=cached_parent_policy(receipt['export']['source_seal'],root/'evidence/scene_delivery_policy')
+            from avengine.timeline.v7_export_window_policy import scope_receipt_windows
+            receipt,policy=scope_receipt_windows(receipt,source_policy,enabled=manifest.get('drop_invalid_speed_windows',True))
             prior=receipt['export'].get('scene_delivery_policy',{})
             if prior.get('revision')!=REVISION or policy['status']!='pass':
                 from avengine.timeline.v7_admitted_pool_reselection import save
@@ -33,14 +36,18 @@ def publish_current_parents(root):
             if receipt.get('reader',{}).get('status')!='pass':raise ValueError('cannot publish before actual parent media readback')
             assert_new_generation_output(receipt['export']['source_seal'])
             table=root/'export/parent_rows'/f"{receipt['slot']:03d}.jsonl"
-            rows.extend(json.loads(s)for s in table.read_text().splitlines()if s.strip());parents.append(receipt)
+            allowed_windows={w['window_id']for w in receipt['export']['windows']}
+            rows.extend(r for s in table.read_text().splitlines()if s.strip()for r in [json.loads(s)]if r['window_id']in allowed_windows);parents.append(receipt)
         for row in rows:validate_english_model_text(row)
         ids=[r['question_id']for r in rows]
         if len(set(ids))!=len(ids):raise ValueError('duplicate physical parent publication rows')
         if manifest.get('supplement_answer_branch_candidates')and parents:
             from avengine.timeline.v7_admitted_pool_reselection import balanced_batch
             try:
-                rows,_=balanced_batch(parents,root,read_only_source_roots=manifest.get('peer_output_roots',[]))
+                rows,_=balanced_batch(parents,root,read_only_source_roots=manifest.get('peer_output_roots',[]),
+                    minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)),
+                    family_protocol_panels=manifest.get('family_protocol_panels',{}),
+                    family_minimums=__import__('avengine.timeline.v7_post_dedup_selection',fromlist=['manifest_family_minimums']).manifest_family_minimums(manifest))
             except ValueError as error:
                 if not any(text in str(error)for text in ('30/25/45 batch','modality budget cannot preserve')):raise
         content=''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in rows);content_sha=hashlib.sha256(content.encode()).hexdigest()

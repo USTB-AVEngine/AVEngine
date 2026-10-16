@@ -191,6 +191,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             video._prepared_cpu_visual_inputs=inputs
         else:video=NativeVisibleVideo(working,native_scene,inputs,assets,source_material_cache_directory=material_cache)
         gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json');video.acoustic_position_admission=gate.check
+        from avengine.timeline.v7_cpu_visual_runtime import configure_cpu_visual
+        configure_cpu_visual(inputs)
         try:visual=video.encode(native_scene,attempt/'scene_video.mp4',collect_pixel_visibility=True)
         finally:
             gate.close()

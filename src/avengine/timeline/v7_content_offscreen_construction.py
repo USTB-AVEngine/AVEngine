@@ -18,7 +18,7 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         break
     else:raise ConstructionUnavailable('pure authored quartet needs a third legal registered body and three complete distinct fixed voices across three scenarios; no person or member is removed')
     if len(ctx['source_proposals'])<2:raise ConstructionUnavailable('whole native quartet needs the original legal room height proposals')
-    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,1,row['scene_seed']+attempt,visible_people=3 if include_silent_bystander else 2)
+    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,1,row['scene_seed']+attempt,visible_people=3 if include_silent_bystander else 2,minimum_visible_radial_difference_m=.95 if include_silent_bystander else 0.)
     floor_height=sum(p[1]for p in ctx['source_proposals'])/len(ctx['source_proposals'])
     points=[inside[0],inside[1],outside[0],*([inside[2]]if include_silent_bystander else[])]
     positions=[[p[0],floor_height,p[1]]for p in points];ids=[a['asset_id']for a in actual];extra_id=ids[2]
@@ -34,7 +34,7 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         semantic_sound_ids=[s['sound_asset_id']for s in epochs[0]],semantic_start_offsets_s=[3.,6.5,0.],
         camera_yaw_deg=yaw,camera_yaw_knots=[{'time_s':0.,'yaw_deg':yaw},{'time_s':30.,'yaw_deg':yaw}],
         seeds={key:stable_seed(row['scene_seed'],key)for key in ('appearance','audio','camera','trajectory','event_schedule','pose','qa')},
-        measured_static_layout={'listener_m':ctx['listener_m'],'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],
+        measured_static_layout={'listener_m':ctx['listener_m'],'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],'preserve_role_positions':True,
             'admission_status':'unqualified; all three bodies require fresh native admission'},
         production_scenario={'speaker_count':3,'gender':actual[0]['visual_gender'][0].upper(),'asset_ids':ids,
             'non_speech_class':None,'category_focus_class':None,'camera_yaw_deg':yaw,'camera_policy':'hold',
@@ -46,6 +46,9 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
         offscreen_construction={'revision':'pure-authored-offscreen-quartet-v1','offscreen_asset_ids':[extra_id],
             'visible_asset_ids':[ids[0],ids[1],*([ids[3]]if include_silent_bystander else[])],'all_waveforms_author_tts':True,'all_waveforms_complete':True,
             'speaker_count_whole_world':3,'audio_only_points':0,'first_sounding_view_requested':'outside'})
+    if include_silent_bystander:
+        row['native_minimum_endpoint_distance_gaps']=[{'endpoints':['voice1','voice2'],'minimum_difference_m':.6}]
+        row['native_require_complete_visible_bodies']=True
     row['automatic_construction'].update(family='V7-CONTENT-BIND',constructor='construct_pure_tts_offscreen_quartet',required_role_count=len(ids))
     _request(row,state,'V7-CONTENT-BIND')
     row=plan_registered_content_demand(row,state,actual,semantic)
@@ -54,5 +57,40 @@ def construct_pure_tts_offscreen_quartet(row,people,state,semantic,ctx,attempt,c
     row['production_scenario']['binding_camera_yaw_offset_deg']=0.
     row['scene_demand'].update(target_family='V7-CONTENT-BIND',required_independent_family_counts={'V7-CONTENT-BIND':3},
         required_distinct_semantic_direction_sectors=False)
+    validate_recipe(row,catalog,contract)
+    return {'profile':'registered','row':row}
+
+
+def repair_registered_content_geometry(original,ctx,*,scene_id):
+    """Solve a missing visual witness while retaining every person and utterance."""
+    from avengine.timeline.v7_offscreen_construction import joint_offscreen_floor
+    row=deepcopy(original)
+    ctx,yaw,inside,outside=joint_offscreen_floor(ctx,1,row['scene_seed'],visible_people=3,minimum_visible_radial_difference_m=.95)
+    height=sum(p[1]for p in ctx['source_proposals'])/len(ctx['source_proposals'])
+    points=[inside[0],inside[1],outside[0],inside[2]]
+    positions=[[p[0],height,p[1]]for p in points];valid=[]
+    for i,p in enumerate(positions):
+        look=positions[1-i]if i<2 else[2*p[k]-ctx['listener_m'][k]for k in range(3)]
+        delta=[look[k]-p[k]for k in range(3)]
+        valid.append({'position_m':p,'body_yaw_deg':math.degrees(math.atan2(delta[0],-delta[2])),'status':'automatic geometry repair; original native checks required'})
+    row.update(scene_id=scene_id,independent_parent_scene_id=scene_id,listener_m=list(ctx['listener_m']),camera_yaw_deg=yaw,
+        camera_yaw_knots=[{'time_s':t,'yaw_deg':yaw}for t in (0.,30.)],
+        measured_static_layout={'listener_m':list(ctx['listener_m']),'valid':valid,'room_floor_polygon':ctx['room_floor_polygon'],'preserve_role_positions':True,'admission_status':'unqualified repaired geometry'},
+        native_minimum_endpoint_distance_gaps=[{'endpoints':['voice1','voice2'],'minimum_difference_m':.6}],native_require_complete_visible_bodies=True)
+    row.pop('native_endpoint_distance_bands_m',None)
+    row['production_scenario']['camera_yaw_deg']=yaw
+    row['automatic_construction']['geometry_repair']={'source_scene_id':original['scene_id'],'required_visual_witness':'two actual reviewed visible people separated by at least the unchanged 0.5m margin','people_and_complete_utterances_preserved':True}
+    return row
+
+
+def construct_registered_content_repair(room,house,state,catalog,records,semantic,contract,runtime,*,scene_id,seed,family='V7-CONTENT-BIND',attempt=0):
+    import json
+    from pathlib import Path
+    from avengine.timeline.v7_family_constructors import room_context
+    from avengine.timeline.v7_production_inputs import validate_recipe
+    original=json.loads(Path(runtime['registered_content_repair_source']).read_text())['seed_row']
+    if family!='V7-CONTENT-BIND'or original['house']!=room['house']or original['room_id']!=room['room_id']or original['scene_seed']!=seed:
+        raise ValueError('content repair must preserve its original legal cell and base seed')
+    row=repair_registered_content_geometry(original,room_context(room,house,0),scene_id=scene_id)
     validate_recipe(row,catalog,contract)
     return {'profile':'registered','row':row}

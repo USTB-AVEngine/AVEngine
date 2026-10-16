@@ -7,8 +7,17 @@ from __future__ import annotations
 from collections import Counter,defaultdict
 import json
 
-REVISION='independent-parent-rounded-modality-capacity-observation-20261015-v3'
+REVISION='independent-parent-rounded-modality-house-coverage-v4'
 WEIGHTS={'vision':6,'audio':5,'audiovisual':9}
+
+
+def manifest_family_minimums(manifest):
+    """Preserve configured family targets in both immediate and final exports."""
+    target=manifest.get('motion_quartet_final_targets',{})
+    floors={f:int(target.get('minimum_independent_questions_per_family',30))for f in target.get('qa_ids',[])}
+    floors.update({f:int(n)for f,n in manifest.get('family_question_minimums',{}).items()})
+    if any(n<0 for n in floors.values()):raise ValueError('family question minimum must be nonnegative')
+    return floors
 
 
 def rounded_modality_quotas(capacity,minimums=None):
@@ -30,7 +39,7 @@ def rounded_modality_quotas(capacity,minimums=None):
     raise ValueError('modality budget cannot preserve the available family floor in a rounded 30/25/45 batch')
 
 
-def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minimums=None):
+def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minimums=None,minimum_houses_per_family=0):
     """Keep earliest crop, then rounded 30/25/45 with family and parent coverage.
 
     An entry contains the public row plus its private physical independence key.
@@ -52,6 +61,11 @@ def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minim
     if set(capacity)-set(WEIGHTS):raise ValueError('unknown model modality')
     available_families=Counter(e['row']['qa_id']for e in pool)
     floors={f:min(max(minimum_family,(family_minimums or {}).get(f,minimum_family)),n)for f,n in available_families.items()}
+    available_houses=defaultdict(set)
+    for e in pool:
+        if e['row'].get('house')is not None:available_houses[e['row']['qa_id']].add(e['row']['house'])
+    house_floors={f:min(int(minimum_houses_per_family),len(houses))for f,houses in available_houses.items()}
+    floors={f:max(n,house_floors.get(f,0))for f,n in floors.items()}
     family_modalities=defaultdict(set)
     for e in pool:family_modalities[e['row']['qa_id']].add(e['row']['modality'])
     fixed_floors=Counter()
@@ -59,7 +73,7 @@ def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minim
         if len(modalities)==1:fixed_floors[next(iter(modalities))]+=floors[family]
     quotas=rounded_modality_quotas(capacity,fixed_floors)
     from avengine.timeline.v7_answer_branch_demand import branch,selection_priority,summarize
-    used=set();counts=Counter();families=Counter();parents=Counter();selected=[];branch_counts=Counter()
+    used=set();counts=Counter();families=Counter();parents=Counter();selected=[];branch_counts=Counter();family_houses=defaultdict(set)
     byfamily=defaultdict(list);byparent=defaultdict(list)
     for i,e in enumerate(pool):
         byfamily[e['row']['qa_id']].append(i)
@@ -70,15 +84,16 @@ def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minim
         if counts[m]>=quotas[m]:return False
         used.add(i);selected.append(pool[i]);counts[m]+=1
         families[r['qa_id']]+=1;parents[r['independent_parent_scene_id']]+=1
+        if r.get('house')is not None:family_houses[r['qa_id']].add(r['house'])
         branch_counts[(r['qa_id'],branch(r))]+=1
         return True
     # Reserve scarce families before common families consume a modality budget.
     for family in sorted(byfamily,key=lambda f:(len(byfamily[f]),f)):
-        while families[family]<floors[family]:
+        while families[family]<floors[family]or len(family_houses[family])<house_floors.get(family,0):
             choices=[i for i in byfamily[family]if i not in used and counts[pool[i]['row']['modality']]<quotas[pool[i]['row']['modality']]]
             if not choices:break
-            take(min(choices,key=lambda i:(selection_priority(pool[i]['row'],families,branch_counts),i)))
-        if families[family]<floors[family]:
+            take(min(choices,key=lambda i:(len(family_houses[family])<house_floors.get(family,0)and pool[i]['row'].get('house')in family_houses[family],selection_priority(pool[i]['row'],families,branch_counts),i)))
+        if families[family]<floors[family]or len(family_houses[family])<house_floors.get(family,0):
             raise ValueError('modality budget cannot preserve the available family floor: '+family)
     # All admitted parents and houses remain represented in the balanced batch.
     for parent in sorted(byparent,key=lambda p:(len(byparent[p]),p)):
@@ -97,6 +112,7 @@ def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minim
         'modality_quotas':quotas,'quota_rounding':'Hamilton; less than one question per modality',
         'selected_rows':len(selected),'selected_by_modality':dict(counts),
         'selected_family_counts':dict(families),'available_family_floors':floors,
+        'available_family_house_floors':house_floors,'selected_family_house_counts':{f:len(houses)for f,houses in family_houses.items()},
         'represented_parents':len(parents),'target_proportions':{m:w/20 for m,w in WEIGHTS.items()},
         'independent_candidates_not_selected':len(pool)-len(selected),
         'answer_branch_distribution':summarize([e['row']for e in selected]),
@@ -104,7 +120,7 @@ def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minim
     return [e['row']for e in selected],report
 
 
-def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
+def select_independent_rows(entries, *, minimum_family=3, family_minimums=None,minimum_houses_per_family=0):
     """Prefer 30/25/45, but never reject native truth for a sampling shortage.
 
     A capacity-limited partial batch preserves every validated independent row
@@ -112,7 +128,7 @@ def select_independent_rows(entries, *, minimum_family=3, family_minimums=None):
     modalities, contradictory answers and all upstream truth gates stay strict.
     """
     try:
-        return _select_independent_rows_balanced(entries,minimum_family=minimum_family,family_minimums=family_minimums)
+        return _select_independent_rows_balanced(entries,minimum_family=minimum_family,family_minimums=family_minimums,minimum_houses_per_family=minimum_houses_per_family)
     except ValueError as error:
         if not any(token in str(error)for token in ('modality budget cannot preserve','validated independent pool cannot fill')):raise
         reason=str(error)

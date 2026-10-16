@@ -14,7 +14,7 @@ from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_candidate_generation import read_json,stage
 from avengine.timeline.continuous_scene import partitioned_convolve
 
-CONTENT_BRIDGE_REVISION='registered-native-content-quartet-backend-readback-v3'
+CONTENT_BRIDGE_REVISION='registered-native-content-quartet-backend-readback-v4-rendered-tail-cap'
 MEMBERS=('v0_a0','v0_a1','v1_a0','v1_a1')
 
 
@@ -34,6 +34,14 @@ def retain_readback(path,value):
     else:write_json(path,value)
 
 
+def _subject_for_appearance(row,actors,assets):
+    color=assets[row['asset_ids'][0]].get('color')
+    matches=[a for a in actors if a.get('visible')and assets[a['asset_id']].get('color')==color]
+    if color is None or len(matches)!=1:
+        raise ValueError('content counterfactual subject needs one actual visible registered appearance')
+    return matches[0]
+
+
 def _source_components(root,scene,factor):
     marker=read_json(root/'dry_completed.json');folder=root/marker['attempt']
     dry={ep:np.load(folder/(ep+'.npy'),allow_pickle=False) for ep in scene['sources']}
@@ -49,6 +57,10 @@ def _source_components(root,scene,factor):
         key=json.dumps(point,separators=(',',':'));index=poses[key]
         rir=np.load(cache/f'rir_{index:06d}.npy',allow_pickle=False)
         stems[ep]=partitioned_convolve(dry[ep],[rir],[0])
+        # Reconstruct the waveform that the registered renderer actually emits.
+        # The float32 samplewise equality predicate below remains unchanged.
+        from avengine.timeline.v7_wet_support import cap_wet_tail
+        stems[ep],_=cap_wet_tail(stems[ep],dry[ep])
         # Exact finite input/filter support proves silence without introducing
         # an audibility/SNR threshold for the other physical emitters.
         samples=np.flatnonzero(dry[ep]);supports[ep]=(samples,len(rir[0]))
@@ -111,6 +123,8 @@ def augment_content_binding(row,members,root):
         if not frozen.is_file() or not marker.is_file():break
         fp=read_json(frozen);cp=read_json(marker);frozen_directory=root/fp['attempt']
         wanted={'revision':CONTENT_BRIDGE_REVISION,'source_pool':str(frozen_directory)}
+        from avengine.timeline.v7_native_stage_resume import compatible_relocated_pool_recipe
+        wanted=compatible_relocated_pool_recipe(root,'content_pools_'+name,wanted)
         if (fp['recipe']['original_native_registry_sha256']!=original_registry_sha
                 or fp['recipe']['actual_registry_sha256']!=mapped_sha or cp['recipe']!=wanted):
             raise ValueError('completed content registry or recipe changed')
@@ -173,7 +187,10 @@ def augment_content_binding(row,members,root):
                     windows.append({'window_id':wid,'logical_candidates':len({x['logical_question_id'] for x in q})})
                 for record,files in qa.results():windows.append(record);required.extend(files)
             return {'windows':windows},required
-        directory,result,resumed=stage(root,'frozen_dialogue_pools_'+name,{'revision':'frozen-native-dialogue-qa-pool-v1','source_pool':str(source),'actual_registry_sha256':mapped_sha,'original_native_registry_sha256':original_registry_sha,'retained_snapshot':registry},requalify)
+        from avengine.timeline.v7_native_stage_resume import compatible_relocated_pool_recipe
+        frozen_recipe={'revision':'frozen-native-dialogue-qa-pool-v1','source_pool':str(source),'actual_registry_sha256':mapped_sha,'original_native_registry_sha256':original_registry_sha,'retained_snapshot':registry}
+        frozen_recipe=compatible_relocated_pool_recipe(root,'frozen_dialogue_pools_'+name,frozen_recipe)
+        directory,result,resumed=stage(root,'frozen_dialogue_pools_'+name,frozen_recipe,requalify)
         qualified.append({**member,'windows_directory':str(directory),'windows':result['windows'],'frozen_dialogue_pool_resumed':resumed})
     members=qualified
     assets={r['asset_id']:r for r in roster['records']};by_member={m['member']:m for m in members}
@@ -259,9 +276,9 @@ def augment_content_binding(row,members,root):
                 readbacks={k:{'status':'pass','source':str(receipt_path)} for k in keys}
                 readbacks['source_order_listener_order_agree']={'status':'pass' if order_pass else 'blocked','source':str(receipt_path)}
                 scenes[member]={'window_s':[0.,10.],'actors':actors,'emissions':emissions,'native_readback':readbacks}
-                blue=next(a for a in actors if assets[a['asset_id']].get('color')=='blue')
+                subject=_subject_for_appearance(row,actors,assets)
                 queries[member]=[{'kind':'same_class_actor','time_s':anchor,'public_time_s':anchor,'content_class':'speech'},
-                    {'kind':'offscreen_origin','time_s':anchor,'public_time_s':anchor,'subject_actor_id':blue['actor_id'],'subject_descriptor_zh':blue['descriptor_zh']},
+                    {'kind':'offscreen_origin','time_s':anchor,'public_time_s':anchor,'subject_actor_id':subject['actor_id'],'subject_descriptor_zh':subject['descriptor_zh']},
                     {'kind':'first_actor'}]
                 domains[member]=sorted(a['descriptor_zh'] for a in actors if a['visible']);media[member]={'video_path':str(c['folder']/'video.mp4'),'audio_path':str(c['folder']/'audio_foa.wav')}
             group_path=proofroot/f'group_w{wi:02d}.json';records={m:[] for m in MEMBERS};pair_audits=[]

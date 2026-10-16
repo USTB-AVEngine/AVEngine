@@ -282,7 +282,9 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
     accepted=None;prepared_solver=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     search_floor=shape(scene['production_scenario']['motion_floor_polygon'])
-    poly=(search_floor.convex_hull if request.get('motion_quartet_route') else search_floor).buffer(.000001).buffer(-.02)
+    # Close floating-point seams (1 um) before the 2 cm erosion; eroding first widens a nanometre seam to 4 cm
+    # (qa07 evidence polygon_erosion_order_02.json).  Real holes and walls are unaffected.
+    poly=(search_floor.convex_hull if request.get('motion_quartet_route') else search_floor).buffer(1e-6).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
@@ -317,7 +319,9 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             if not matches_distance_request(positions,times,scene['listener_m'],request):
                 prefilter['demand_distance_trend_rejected']=prefilter.get('demand_distance_trend_rejected',0)+1
                 continue
-            if not poly.covers(LineString(positions[:,[0,2]])):
+            # 1 um tolerance: qa07 evidence qa07_native_polygon_conflict_01.json -- a 3.32 m route failed only
+            # because 3.2e-9 m of it fell into a floating-point seam of the floor polygon (0 frames outside).
+            if not poly.buffer(1e-6).covers(LineString(positions[:,[0,2]])):
                 prefilter['polygon_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
             prefilter['full_gate_attempted']+=1

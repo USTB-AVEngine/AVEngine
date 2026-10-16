@@ -91,15 +91,18 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         a=math.radians(spec['body_yaw_deg']);f=np.array([math.sin(a),0.,-math.cos(a)])
         root=np.eye(4);root[:3,:3]=np.stack((np.cross(f,[0.,1.,0.]),[0.,1.,0.],-f),axis=1)
         root[:3,3]=[p[0],p[1]-1.3,p[2]]
-        if 'floor_adjustment' not in entry:
-            vertices=np.asarray(entry['original_mesh'].vertices)@root[:3,:3].T+root[:3,3]
-            points=[]
-            for side in sole_regions(np.asarray(entry['original_mesh'].vertices),asset):
-                values=vertices[side];points.append(values[np.argmin(values[:,1])])
-            soles=stage_sole_rays(self,points);delta=-min(x['signed_contact_error_m'] for x in soles)
-            if abs(delta)>.5:raise ValueError('registered floor adjustment outside bounded support')
-            entry['floor_adjustment']=delta
-        root[1,3]+=entry['floor_adjustment']
+        from avengine.timeline.v7_registered_prepared_delivery import apply_registered_root_pin
+        strict=apply_registered_root_pin(scene,entry,root)
+        if not strict:
+            if 'floor_adjustment' not in entry:
+                vertices=np.asarray(entry['original_mesh'].vertices)@root[:3,:3].T+root[:3,3]
+                points=[]
+                for side in sole_regions(np.asarray(entry['original_mesh'].vertices),asset):
+                    values=vertices[side];points.append(values[np.argmin(values[:,1])])
+                soles=stage_sole_rays(self,points);delta=-min(x['signed_contact_error_m'] for x in soles)
+                if abs(delta)>.5:raise ValueError('registered floor adjustment outside bounded support')
+                entry['floor_adjustment']=delta
+            root[1,3]+=entry['floor_adjustment']
         _apply_root_with_habitat(entry['object'],root,qt=self.qt,mn=self.mn)
         native=np.asarray(entry['object'].root_scene_node.absolute_transformation(),float)
         error=float(np.max(np.abs(native-root)))
@@ -241,22 +244,52 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         return NativeVisibleVideo._native_observed_pixels(self,scene,entries)
 
     def qualify_standing(self,scene,directory):
+        if getattr(self,'_prepared_registered_scene',None)is not None:
+            from avengine.timeline.v7_registered_prepared_delivery import consume_registered_qualification
+            return consume_registered_qualification(self,scene,directory)
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True);checks=[];bounds=[];attempts=[]
         candidates=scene.get('native_placement_candidates',[]);placed=[]
         for entry in self.actors:entry['object'].translation=self.mn.Vector3(0.,-1000.,0.)
         for entry in self.actors:
             original=scene['sources'][entry['endpoint_id']]['trajectory'][0]['position_m']
             accepted=None
-            for position in [original,*candidates]:
+            for position in ([original]if scene.get('joint_strict_placement')else[original,*candidates]):
                 entry['placement_override_m']=position;entry.pop('floor_adjustment',None)
                 try:
-                    self._apply_entry(entry,scene)
+                    observed=self._apply_entry(entry,scene)
+                    from avengine.timeline.v7_registered_sampling import registered_distance_band
+                    band=registered_distance_band(scene,entry['endpoint_id'],entry['declaration']['asset_id'])
+                    if band is not None:
+                        distance=float(np.linalg.norm((np.asarray(observed['emitter_position_m'])-np.asarray(scene['listener_m']))[[0,2]]))
+                        if not band[0]<=distance<=band[1]:
+                            attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'reason':'requested_visual_distance_witness_band','measured_m':distance,'requested_band_m':band})
+                            continue
+                    relation_failed=False
+                    for relation in scene.get('native_minimum_endpoint_distance_gaps',[]):
+                        if entry['endpoint_id']not in relation['endpoints']:continue
+                        for other in placed:
+                            if other['endpoint_id']not in relation['endpoints']:continue
+                            previous=self._apply_entry(other,scene)['emitter_position_m']
+                            listener=np.asarray(scene['listener_m'])
+                            gap=abs(np.linalg.norm(np.asarray(observed['emitter_position_m'])-listener)-np.linalg.norm(np.asarray(previous)-listener))
+                            if gap<relation['minimum_difference_m']:
+                                relation_failed=True
+                                attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'reason':'actual_visual_distance_witness_gap','measured_gap_m':float(gap),'requested_gap_m':relation['minimum_difference_m']})
+                    if relation_failed:continue
                     entry['resolved_root_m']=entry['applied_root_input'][:3,3].copy()
                     from avengine.capture.v7_social_layout import spacing_violation
                     if spacing_violation(scene,entry['declaration'],entry['resolved_root_m'],placed) is not None:continue
                     from avengine.capture.v7_offscreen_layout import native_pixels_ok,native_projection_proof
                     counts,_=self._native_observed_pixels(scene,[*placed,entry])
                     if not native_pixels_ok(scene,[*placed,entry],counts):continue
+                    if scene.get('native_require_complete_visible_bodies'):
+                        from avengine.capture.v7_offscreen_layout import offscreen_role
+                        if not offscreen_role(scene,entry['declaration']['asset_id']):
+                            from avengine.construction.joint.native import native_rest_framing
+                            framing=native_rest_framing(self,entry)
+                            if framing['state']!='inside':
+                                attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'reason':'requested_complete_visible_body','observed_framing':framing})
+                                continue
                     offscreen=native_projection_proof(self,scene,entry,counts[entry['declaration']['asset_id']])
                     if offscreen is not None and offscreen['status']!='pass':continue
                     check=self._probe_entry(entry,directory)

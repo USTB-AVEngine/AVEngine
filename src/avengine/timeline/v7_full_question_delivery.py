@@ -281,11 +281,15 @@ def available_single_parent_allocation(public,private,requested):
 
 def current_selection_snapshot(demand,*,next_questions):
     from avengine.timeline.v7_demand import demand_snapshot,read_demand_state,SELECTION_FEEDBACK_ENV
-    state={'logical_questions':demand['observed_logical_questions'],
-           'family_counts':demand['observed_family_counts']}
     if os.environ.get(SELECTION_FEEDBACK_ENV):
         state=read_demand_state(os.environ[SELECTION_FEEDBACK_ENV])
-    return demand_snapshot({**state,'target_shares':demand['target_shares']},next_questions=next_questions)
+    else:
+        counts=demand.get('observed_family_counts',{})
+        state={'logical_questions':demand.get('observed_logical_questions',sum(counts.values())),
+               'family_counts':counts}
+    if demand.get('target_shares') is not None:
+        state={**state,'target_shares':demand['target_shares']}
+    return demand_snapshot(state,next_questions=next_questions)
 
 
 def advance_independent_feedback(parent_id,chosen,answers,counts,seen):
@@ -334,9 +338,14 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
         for name in names:ordinary[name],branch_audits[name]=restrict_constructed_branch(ordinary[name],private[name],demand)
         if names==quartet:
             ordinary,pair_audit=filter_observed_nuisance_candidates(ordinary,private,window_ids)
+            quartet_allocation={}
+            for name in names:
+                allocations[name],quartet_allocation[name]=available_single_parent_allocation(ordinary[name],private[name],allocations[name])
             chosen,gold,audit=select_counterfactual_group(ordinary,private,allocations,
                 binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index,family_counts=family_counts)
             audit['observed_nuisance_preselection']=pair_audit
+            audit['owner_quartet_available_candidate_allocation']=quartet_allocation
+            audit['post_dedup_modality_target']={'vision':.30,'audio':.25,'audiovisual':.45}
         else:
             partial_audit=None
             if partial:

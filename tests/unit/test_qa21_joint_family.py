@@ -163,7 +163,7 @@ def test_geometry_preflight_accounts_for_other_actual_body_plans():
                 visible_pixels_lower=0 if occluders else 1000, edge_margin_px=20.)
     body = NS(radius_m=.3)
     actors = {'cat': NS(positions_m=np.tile([0., 0., -4.], (901, 1)), body=body),
-              'dog': NS(positions_m=np.tile([0., 0., -3.], (901, 1)), body=body)}
+              'dog': NS(positions_m=np.tile([0., 0., -2.8], (901, 1)), body=body)}
     plugin = Qa21Plugin({'cat': body, 'dog': body}, {}, 'cat', 'cat_meow',
         sounds=[NS(entity_id='cat', sound_class='cat_meow')])
     checks = list(plugin.verify(Context(), NS(branch='cat_meow', target_ids=('cat',)),
@@ -201,3 +201,193 @@ def test_native_appearance_preflight_uses_original_reviewer_and_restores_video_s
     video._check_source_frame = wrong
     assert native_appearance_check(video, scene, [entry])['status'] == 'fail'
     assert video.color_checks is old_colors
+
+
+def test_actual_core_proxy_is_not_an_actual_pixel_lower_bound_and_exact_mesh_is_used(tmp_path):
+    import trimesh
+    from avengine.construction.joint import CameraPose, BodySpec, ActorPlan, ScenePlan, SoundEvent, FamilyRequest
+    from avengine.construction.joint.geometry import DepthBuffer, predict_visibility
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    camera = CameraPose((0., 1.25, 0.), 0., width=320, height=180)
+    depth = DepthBuffer(camera, np.full((180, 320), np.inf), source='visual_mesh')
+    root = np.array([0., 0., -3.8]);body = BodySpec('cat', .4, .6, .04)
+    proxy = predict_visibility(camera, root, body, depth=depth)
+    assert proxy.visible_pixels_lower == 0
+    assert proxy.evidence['inner_proxy_visible_pixels'] > 100
+    mesh = trimesh.creation.box(extents=[.65, .65, .35]);mesh.apply_translation([0., .325, 0.])
+    path = tmp_path/'cat.glb';mesh.export(path)
+    actor = ActorPlan('cat', np.tile(root, (901, 1)), body)
+    event = SoundEvent('cat', 'actual_record', 'cat_meow', 1., 2., 2.5)
+    plan = ScenePlan(camera, {'cat': actor}, (event,))
+    plugin = Qa21Plugin({'cat': body}, {'cat': 'inside'}, 'cat', 'cat_meow', sounds=(event,),
+        assets={'cat': {'habitat_glb': str(path), 'kind': 'animal', 'species_id': 'cat'}})
+    context = NS(depth=lambda pose: depth)
+    request = FamilyRequest('QA-21', 'cat_meow', ('cat',))
+    checks = list(plugin.verify(context, request, plan))
+    visible = next(c for c in checks if c.name == 'qa21_visible_cat')
+    assert visible.status == 'pass'
+    assert visible.evidence['prediction_confidence'] == 'exact_mesh_prediction'
+    assert visible.evidence['mesh_prepared']
+    assert visible.evidence['visible_pixels_lower'] >= 300
+
+
+def test_static_domain_precheck_delegates_to_core_and_does_not_mutate_shared_grid(monkeypatch):
+    from avengine.construction.joint import CameraPose, BodySpec, Certificate, CheckResult
+    from avengine.construction.joint.context import CandidateGrid
+    from avengine.construction.joint.families.qa21 import _StaticDomainContext
+    import avengine.construction.joint.certification as core
+    points = np.array([[-1., 0., -3.], [1., 0., -3.]])
+    camera = CameraPose((0., 1.25, 0.), 0.);body = BodySpec('cat', .2, .5)
+    grid = CandidateGrid(points, np.ones(2), np.zeros(2), np.array(['inside', 'outside']),
+        np.ones(2), np.zeros(2, bool), np.array(['', '']), {'shared': True})
+    calls = []
+    def check(context, plan):
+        actor = plan.actors['qa21_static_point'];calls.append(actor.positions_m.copy())
+        return Certificate((CheckResult('core_clearance', 'pass' if actor.positions_m[0, 0] > 0 else 'fail'),))
+    monkeypatch.setattr(core, 'certify_plan', check)
+    base = NS(points_m=points, grid=lambda camera, body: grid)
+    wrapped = _StaticDomainContext(base)
+    filtered = wrapped.grid(camera, body)
+    assert filtered.frustum_state.tolist() == ['edge', 'outside']
+    assert grid.frustum_state.tolist() == ['inside', 'outside'] and grid.evidence == {'shared': True}
+    assert all(p.shape == (2, 3) and np.array_equal(p[0], p[1]) for p in calls)
+    assert wrapped.grid(camera, body) is filtered and len(calls) == 2
+
+
+def test_exact_target_visibility_is_part_of_the_single_source_domain(tmp_path):
+    import trimesh
+    from avengine.construction.joint import CameraPose, BodySpec
+    from avengine.construction.joint.geometry import DepthBuffer
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    camera = CameraPose((0., 1.25, 0.), 0., width=320, height=180)
+    mesh = trimesh.creation.box(extents=[.65, .65, .35]);mesh.apply_translation([0., .325, 0.])
+    path=tmp_path/'cat.glb';mesh.export(path);body=BodySpec('cat',.4,.65,.04)
+    plugin=Qa21Plugin({'cat':body},{'cat':'inside'},'cat','cat_meow',
+        assets={'cat':{'habitat_glb':str(path),'kind':'animal','species_id':'cat'}})
+    clear=NS(depth=lambda _:DepthBuffer(camera,np.full((180,320),np.inf),source='visual_mesh'))
+    blocked=NS(depth=lambda _:DepthBuffer(camera,np.ones((180,320)),source='visual_mesh'))
+    assert plugin.point_visible(clear,camera,body,np.array([0.,0.,-3.8]))
+    assert not plugin.point_visible(blocked,camera,body,np.array([0.,0.,-3.8]))
+
+
+def test_proven_outside_target_points_do_not_launch_near_plane_full_image_rays():
+    from avengine.construction.joint import CameraPose, BodySpec
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    body=BodySpec('cat',.3,.5,.04);camera=CameraPose((0.,1.25,0.),0.,width=320,height=180)
+    plugin=Qa21Plugin({'cat':body},{'cat':'inside'},'cat','cat_meow',
+        assets={'cat':{'habitat_glb':'not_opened.glb','kind':'animal','species_id':'cat'}})
+    assert not plugin.point_visible(None,camera,body,np.array([.6,0.,0.]))
+
+
+def test_native_support_contract_replays_the_solved_mesh_root(tmp_path):
+    import trimesh
+    from avengine.construction.joint import CameraPose,BodySpec,ActorPlan,ScenePlan
+    from avengine.construction.joint.families.qa21 import solved_native_supports
+    from avengine.capture.v7_visible_native import attachment_template
+    from avengine.capture.v7_visible_attachment import support_points
+    from avengine.capture.v7_visible_mesh import indexed_static_mesh
+    mesh=trimesh.creation.box(extents=[.4,.8,.4]);mesh.apply_translation([.1,.4,-.15])
+    path=tmp_path/'speaker.glb';mesh.export(path)
+    asset={'asset_id':'speaker','kind':'object','attachment_surface':'floor','habitat_glb':str(path)}
+    root=np.array([2.,0.,-4.]);actor=ActorPlan('speaker',np.tile(root,(901,1)),BodySpec('slide',.5,.8))
+    plan=ScenePlan(CameraPose((0.,1.25,0.),0.),{'speaker':actor})
+    room={'floor_polygon':{'type':'Polygon','coordinates':[[[-10,-10],[10,-10],[10,10],[-10,10],[-10,-10]]]},'measured_floor_y_m':0.}
+    supports=solved_native_supports(plan,{'speaker':asset},42,room);pin=supports['speaker']
+    original=indexed_static_mesh(str(path));meta={**asset,'_attachment_template':attachment_template(np.asarray(original.vertices),'floor','object',mesh=original)}
+    observed,yaw,_,_=support_points(meta,pin)
+    assert pin['joint_solved_pose'] and np.allclose(observed,root,atol=1.e-8)
+    assert pin['qa21_expected_root_m']==root.tolist()
+
+
+def test_real_stage_ray_rejects_a_hidden_emission_part():
+    import trimesh
+    from avengine.construction.joint import CameraPose,BodySpec,ActorPlan,ScenePlan
+    from avengine.construction.joint.geometry import MeshRaycaster
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    camera=CameraPose((0.,1.25,0.),0.);body=BodySpec('cat',.2,.5)
+    actor=ActorPlan('cat',np.tile([0.,0.,-3.8],(901,1)),body)
+    plan=ScenePlan(camera,{'cat':actor})
+    plugin=Qa21Plugin({'cat':body},{'cat':'inside'},'cat','cat_meow',assets={
+        'cat':{'kind':'animal','emitter_local_m':[0.,.25,0.]}})
+    wall=trimesh.creation.box(extents=[2.,2.,.1]);wall.apply_translation([0.,1.,-2.])
+    assert plugin.emitter_path_clear(NS(raycaster=MeshRaycaster(wall)),plan,'cat') is False
+    wall.apply_translation([5.,0.,0.])
+    assert plugin.emitter_path_clear(NS(raycaster=MeshRaycaster(wall)),plan,'cat') is True
+
+
+def test_explicit_playback_class_keeps_three_actual_capable_distinct_bodies():
+    from avengine.construction.joint.families.qa21 import select_target_set
+    cat = animal('cat', 'cat', 'cat_meow'); dog = animal('dog', 'dog', 'dog_bark')
+    speaker = {'asset_id': 'speaker', 'kind': 'object', 'entity_class': 'loudspeaker',
+        'allowed_classes': ['music_playback', 'speech_playback'], 'attachment_surface': 'floor',
+        'label_color': 'white', 'standing_registered_qualified': True}
+    catalog = [cat, dog, speaker]; original = deepcopy(catalog)
+    records = [{'sound_class': c} for c in ('cat_meow', 'dog_bark', 'music_playback', 'speech_playback')]
+    room = {'family': 'hm3d', 'categories': ['floor_cat', 'floor_dog', 'floor_object']}
+    options = target_options(room, catalog, records, {}, {},
+        preferred_asset_ids=['cat', 'dog', 'speaker'], asset_class_choices={'speaker': 'speech_playback'})
+    assert {a['asset_id']: cls for a, cls, _ in select_target_set(options)} == {
+        'cat': 'cat_meow', 'dog': 'dog_bark', 'speaker': 'speech_playback'}
+    assert catalog == original
+    with pytest.raises(ValueError, match='capability'):
+        target_options(room, catalog, records, {}, {}, asset_class_choices={'speaker': 'cat_meow'})
+    with pytest.raises(ValueError, match='not an admitted source'):
+        target_options(room, catalog, records[:-1], {}, {}, asset_class_choices={'speaker': 'speech_playback'})
+
+
+def test_family_preflight_keeps_only_appearance_while_core_owns_acoustic_gate(monkeypatch):
+    import avengine.construction.joint.families.qa21 as module
+    monkeypatch.setattr(module, 'native_candidate_check', lambda *args: {'status': 'pass', 'actual_pixels': 500})
+    video = NS(_native_pair_pixels=lambda scene, entries: {'target': 500})
+    checks = list(module.native_family_obligations(video, {}, []))
+    assert len(checks) == 1 and checks[0].name == 'native:qa21:appearance_and_pixels'
+    assert checks[0].status == 'pass' and checks[0].evidence['actual_pixels'] == 500
+
+
+def test_delivered_class_feedback_cannot_replace_explicitly_preferred_reviewed_bodies():
+    from avengine.construction.joint.families.qa21 import select_target_set
+    cat = animal('cat', 'cat', 'cat_meow'); dog = animal('dog', 'dog', 'dog_bark')
+    speaker = {'asset_id': 'speaker', 'kind': 'object', 'entity_class': 'loudspeaker',
+        'allowed_classes': ['music_playback', 'speech_playback'], 'attachment_surface': 'floor',
+        'label_color': 'white', 'standing_registered_qualified': True}
+    distractor = {**speaker, 'asset_id': 'other_speaker'}
+    catalog = [cat, dog, speaker, distractor];original = deepcopy(catalog)
+    records = [{'sound_class': c} for c in ('cat_meow', 'dog_bark', 'music_playback', 'speech_playback')]
+    room = {'family': 'hm3d', 'categories': ['floor_cat', 'floor_dog', 'floor_object']}
+    feedback = {'qa21_positive_counts': {'cat_meow': 10, 'dog_bark': 10, 'music_playback': 10}}
+    selected = select_target_set(target_options(room, catalog, records, {}, feedback,
+        preferred_asset_ids=['cat', 'dog', 'speaker'], asset_class_choices={'speaker': 'music_playback'}))
+    assert {a['asset_id']: cls for a, cls, _ in selected} == {
+        'cat': 'cat_meow', 'dog': 'dog_bark', 'speaker': 'music_playback'}
+    assert catalog == original
+
+
+def test_dog_height_is_solved_from_actual_scan_before_any_native_execution(monkeypatch):
+    import trimesh
+    from avengine.construction.joint import CameraPose, BodySpec, ScenePlan, SoundEvent
+    from avengine.construction.joint.routes import static_actor
+    from avengine.construction.joint import MeshRaycaster
+    from avengine.construction.joint.families.qa21 import Qa21Plugin
+    import avengine.construction.joint as core
+    import avengine.capture.v7_visible_mesh as meshes
+    floor = trimesh.creation.box((10., .1, 10.));floor.apply_translation([0., -.038, 0.])
+    mesh = trimesh.creation.box((.6, .6, .4));mesh.apply_translation([0., .3, 0.])
+    actor = static_actor('dog', [0., .002, -4.], BodySpec('dog', .35, .6), facing_rad=0.)
+    sound = SoundEvent('dog', 'bark_record', 'dog_bark', 2., 3., wet_end_s=3.5)
+    base = ScenePlan(CameraPose((0., 1.25, 0.), 0.), {'dog': actor}, sounds=(sound,))
+    monkeypatch.setattr(core, 'enumerate_static_layouts', lambda *a, **kw: iter([base]))
+    monkeypatch.setattr(meshes, 'indexed_static_mesh', lambda path: mesh)
+    asset = {**animal('dog', 'dog', 'dog_bark'), 'habitat_glb': 'actual-admitted-dog.glb'}
+    plugin = Qa21Plugin({'dog': actor.body}, {'dog': 'inside'}, 'dog', 'dog_bark', sounds=(sound,), assets={'dog': asset})
+    result = list(plugin.candidates(NS(floor_raycaster=MeshRaycaster(floor)), None))[0]
+    # Original grid height is10mm below this actual scan; the selected original
+    # probe solution is2mm above it, and has not touched the original actor.
+    assert result.actors['dog'].positions_m[0, 1] == pytest.approx(.014, abs=1e-6)
+    np.testing.assert_allclose(actor.positions_m[:, 1], .002)
+    np.testing.assert_array_equal(result.actors['dog'].positions_m[:, [0, 2]], actor.positions_m[:, [0, 2]])
+    np.testing.assert_array_equal(result.actors['dog'].headings_rad, actor.headings_rad)
+    assert result.sounds == base.sounds
+    assert result.actors['dog'].metadata['floor_contact_refinement']['native_contact_checks_required']
+    fallback = list(plugin.candidates(NS(), None))[0]
+    np.testing.assert_array_equal(fallback.actors['dog'].positions_m, actor.positions_m)
+    assert 'dog' in fallback.metadata['qa21_grounding_proposal_skipped']

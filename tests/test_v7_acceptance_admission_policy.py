@@ -160,7 +160,7 @@ def test_worker_keeps_its_frozen_snapshot_after_global_manifest_advances(tmp_pat
     old=tmp_path/'old';new=tmp_path/'new';old.mkdir();new.mkdir()
     monkeypatch.setattr('avengine.timeline.v7_frozen_code.source_commit',lambda root:'old_sha')
     monkeypatch.setattr('avengine.timeline.v7_frozen_code.verify_source',lambda root:True)
-    manifest={'worktree':str(new),'code_commit':'new_sha','parents':[{'snapshot_worktree':str(old),'snapshot_commit':'old_sha'}]}
+    manifest={'worktree':str(new),'code_commit':'new_sha','parents':[{'slot':9,'snapshot_worktree':str(new),'snapshot_commit':'new_sha'},{'slot':0,'snapshot_worktree':str(old),'snapshot_commit':'old_sha'}]}
     actual=bind_worker_snapshot(manifest,0,old)
     assert actual['code_commit']=='old_sha'and actual['worktree']==str(old)
     assert manifest['code_commit']=='new_sha'
@@ -202,3 +202,27 @@ def test_runtime_and_manifest_cannot_bypass_the_inherited_taskset():
     assert parent==16 and rir==list(range(16,32)) and workers==8
     with pytest.raises(ValueError,match='inherited taskset'):
         worker_cpu_policy(broad,{'cpu_ids':[0,1]},0,{},inherited_cpu_ids={16,17})
+
+
+def test_only_expected_geometry_failures_are_isolated_from_other_families():
+    from tools.timeline.monitor_v7_acceptance import expected_family_construction_failure
+    assert expected_family_construction_failure({'error_type':'ConstructionUnavailable','reason':'no viable pair'})
+    assert expected_family_construction_failure({'error_type':'ValueError','reason':'admitted human has no fully qualified new-house walking route'})
+    assert not expected_family_construction_failure({'error_type':'ImportError','reason':'missing runtime'})
+    assert not expected_family_construction_failure({'error_type':'ValueError','reason':'scene delivery policy failed: camera moved'})
+
+
+def test_holding_a_family_preserves_running_jobs_and_other_families(tmp_path):
+    import json
+    from tools.timeline.monitor_v7_acceptance import hold_failed_family
+    (tmp_path/'inputs').mkdir();(tmp_path/'evidence/launches').mkdir(parents=True)
+    (tmp_path/'evidence/launches/000.json').write_text('{}')
+    path=tmp_path/'inputs/plan.json'
+    path.write_text(json.dumps({'output_root':str(tmp_path),'parents':[
+        {'slot':0,'target_family':'QA-14'},{'slot':1,'target_family':'QA-14'},
+        {'slot':2,'target_family':'QA-01'}]}))
+    assert hold_failed_family(path,'QA-14','preflight failed')==[1]
+    tasks=json.loads(path.read_text())['parents']
+    assert not tasks[0].get('launch_disabled')
+    assert tasks[1]['launch_disabled']
+    assert not tasks[2].get('launch_disabled')
