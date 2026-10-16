@@ -380,9 +380,10 @@ def test_dog_height_is_solved_from_actual_scan_before_any_native_execution(monke
     asset = {**animal('dog', 'dog', 'dog_bark'), 'habitat_glb': 'actual-admitted-dog.glb'}
     plugin = Qa21Plugin({'dog': actor.body}, {'dog': 'inside'}, 'dog', 'dog_bark', sounds=(sound,), assets={'dog': asset})
     result = list(plugin.candidates(NS(floor_raycaster=MeshRaycaster(floor)), None))[0]
-    # Original grid height is10mm below this actual scan; the selected original
-    # probe solution is2mm above it, and has not touched the original actor.
-    assert result.actors['dog'].positions_m[0, 1] == pytest.approx(.014, abs=1e-6)
+    # Construct at the measured scan floor, recording residuals instead of
+    # selecting the former cosmetic 2mm floating variant; input stays immutable.
+    assert result.actors['dog'].positions_m[0, 1] == pytest.approx(.012, abs=1e-6)
+    assert result.actors['dog'].metadata['contact_quality_observation']['root_support_verified']
     np.testing.assert_allclose(actor.positions_m[:, 1], .002)
     np.testing.assert_array_equal(result.actors['dog'].positions_m[:, [0, 2]], actor.positions_m[:, [0, 2]])
     np.testing.assert_array_equal(result.actors['dog'].headings_rad, actor.headings_rad)

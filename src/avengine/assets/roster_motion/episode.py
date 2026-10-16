@@ -28,6 +28,7 @@ class PhysicalFloor:
         self.video=video;self.reference=float(reference);self.ignore=set(ignore)
         self.reference_tolerance_m=max(float(reference_tolerance_m),FLOOR_STEP_RANGE_M)
         self.current_root_floor_m=None;self.missing_peripheral_support_samples=0
+        self.peripheral_floor_outliers=[];self.root_support_verified=False
         self.original_ray=None;self.native_ray_agreements=[];self.native_ray_count=0
         if getattr(video,'motion_inputs',{}).get('phase2'):
             from avengine.assets.v7_phase2_floor import OriginalVerticalStageRay
@@ -50,12 +51,15 @@ class PhysicalFloor:
             return self.current_root_floor_m
         y=float(hits[0].point[1]);self.native_ray_count+=1
         if self.original_ray is not None:
-            original=float(self.original_ray.many([p])[0])
+            try:original=float(self.original_ray.many([p])[0])
+            except ValueError as error:
+                if self.current_root_floor_m is None or 'no vertical support' not in str(error):raise
+                self.missing_peripheral_support_samples+=1
+                return self.current_root_floor_m
             error=abs(original-y);self.native_ray_agreements.append(error)
             # Both readings are retained; the original visual mesh supplies Y.
             y=original
-        if abs(y-self.reference)>self.reference_tolerance_m:raise ValueError('motion support ray hit furniture or a different floor level')
-        return y
+        return float(self._peripheral_floor_values([y])[0])
     def many(self, points):
         if self.original_ray is None:return np.array([self(p) for p in points])
         try:
@@ -70,14 +74,31 @@ class PhysicalFloor:
                     self.missing_peripheral_support_samples+=1
                     values.append(self.current_root_floor_m)
             y=np.asarray(values)
-        if np.any(abs(y-self.reference)>self.reference_tolerance_m):raise ValueError('candidate support hit furniture or a different floor level')
+        return self._peripheral_floor_values(y)
+
+    def _peripheral_floor_values(self, values):
+        y=np.asarray(values,float).copy()
+        outside=np.abs(y-self.reference)>self.reference_tolerance_m
+        if np.any(outside):
+            if self.current_root_floor_m is None:
+                raise ValueError('candidate support hit furniture or a different floor level')
+            # Root support was independently measured for this actual frame.
+            # A peripheral foot probe hitting furniture does not relocate the
+            # body onto it; IK uses the root floor and original full mesh
+            # non-floor collision checks still reject actual intersections.
+            if not hasattr(self,'peripheral_floor_outliers'):self.peripheral_floor_outliers=[]
+            self.peripheral_floor_outliers.extend({
+                'measured_support_y_m':float(value),'root_floor_y_m':float(self.current_root_floor_m),
+                'residual_m':float(value-self.current_root_floor_m)}for value in y[outside])
+            y[outside]=self.current_root_floor_m
         return y
 
     def ground_roots(self, positions):
         # No fallback at body roots: every frame must have actual ground.
-        self.current_root_floor_m=None
+        self.current_root_floor_m=None;self.root_support_verified=False
         result=np.asarray(positions,float).copy()
         result[:,1]=self.many(result)
+        self.root_support_verified=True
         return result
 
     def observation(self):
@@ -85,7 +106,8 @@ class PhysicalFloor:
             native_original_worst_difference_m=max(self.native_ray_agreements,default=0.),
             missing_peripheral_support_samples=self.missing_peripheral_support_samples,
             peripheral_missing_support_policy='IK uses the independently measured current root floor; no hit fabricated',
-            root_support_verified=True)
+            peripheral_support_outliers=getattr(self,'peripheral_floor_outliers',[]),
+            root_support_verified=getattr(self,'root_support_verified',False))
 
 
 

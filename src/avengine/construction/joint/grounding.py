@@ -1,7 +1,6 @@
 """Solve root-height variants from real scan rays before native preparation."""
 from __future__ import annotations
 from copy import deepcopy
-import math
 import numpy as np
 from .routes import ConstructionError
 from .types import ActorPlan
@@ -28,7 +27,10 @@ def floor_contact_variants(context, actor, mesh, *, asset=None, yaw_rad=None, ma
     root=np.asarray(actor.positions_m[0],float)
     world=np.asarray(local)@rotation(yaw).T+root
     from avengine.construction.contact_policy import contact_quality_observation, FLOOR_STEP_RANGE_M
-    reference=float(context.room["measured_floor_y_m"])
+    # Older leaf adapters expose only the original scan raycaster. Their
+    # supplied root is the reference proposal; real RoomContext uses its room
+    # floor authority. No extra adapter-only admission requirement is added.
+    reference=float(getattr(context,"room",{}).get("measured_floor_y_m",root[1]))
     roots=np.asarray(actor.positions_m,float)
     root_origins=roots.copy();root_origins[:,1]=reference+.2
     root_ranges,_=ray.first_hit(root_origins,np.tile([0.,-1.,0.],(len(roots),1)))

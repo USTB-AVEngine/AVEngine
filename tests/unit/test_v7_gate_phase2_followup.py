@@ -173,3 +173,19 @@ def test_native_prepared_adapter_retains_common_world_but_never_hides_physics_fa
     else:
         assert result.payload is None and closed
     assert closed
+
+
+def test_peripheral_furniture_height_is_observed_only_after_real_root_grounding():
+    from avengine.assets.roster_motion.episode import PhysicalFloor
+    floor=object.__new__(PhysicalFloor)
+    floor.reference=0.;floor.reference_tolerance_m=.08
+    floor.current_root_floor_m=None
+    floor.original_ray=SimpleNamespace(many=lambda points:np.where(np.asarray(points)[:,0]>.1,.3,0.))
+    grounded=floor.ground_roots([[0.,0.,0.]])
+    assert grounded[0,1]==0.
+    floor.current_root_floor_m=float(grounded[0,1])
+    np.testing.assert_allclose(floor.many([[.2,0.,0.],[-.2,0.,0.]]),[0.,0.])
+    assert floor.peripheral_floor_outliers[0]['measured_support_y_m']==.3
+    # The same hit at the root remains an illegal stand, not a residual.
+    with pytest.raises(ValueError,match='furniture'):
+        floor.ground_roots([[.2,0.,0.]])

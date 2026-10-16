@@ -174,8 +174,9 @@ def plan_parent_motion(row,working,scene,program,assets,inputs,root):
         context=native_endpoint_context(video,scene,working,inputs,root/'motion_planning')
         # Height is solved alongside positions/yaw using the camera owner's API.
         floor=working['room']['measured_floor_y_m']
-        original_height=float(row['listener_m'][1])-floor
-        context.camera_heights_m=tuple(sorted(set((original_height,1.25))))
+        known=[row['listener_m'],working['room'].get('preferred_listener_m'),
+               working['room'].get('placement',{}).get('camera_m')]
+        context.camera_heights_m=tuple(sorted({float(point[1])-floor for point in known if point is not None}))
         for aid,request in wanted.items():
             asset=humans[aid];entry={'declaration':asset,'endpoint_id':asset['endpoint_id'],
                                     'prepared_glb':asset['habitat_glb']}
