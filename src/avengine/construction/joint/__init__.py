@@ -68,3 +68,6 @@ __all__ += ["PreparedNativeBundle", "prepare_native_bundle", "prepare_registered
 from .static_solve import enumerate_joint_static_layouts
 from .registered import registered_row_for_plan
 __all__ += ["enumerate_joint_static_layouts", "registered_row_for_plan"]
+
+from .connectivity import WalkableComponents, walkable_components, reachable_point_mask
+__all__ += ["WalkableComponents", "walkable_components", "reachable_point_mask"]

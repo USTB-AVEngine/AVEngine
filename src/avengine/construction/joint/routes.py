@@ -135,6 +135,13 @@ def route_between(context, start_m, end_m, *, species="human", max_expansions=10
         raise ConstructionError("route_endpoints_not_walkable")
     if m.segment_free(start[[0, 2]], end[[0, 2]], species):
         return np.array([start, end])
+    from .connectivity import walkable_components
+    components = walkable_components(context, species)
+    labels = components.labels_for_points([start, end])
+    if labels[0] == 0 or labels[0] != labels[1]:
+        raise ConstructionError("no_grid_route", {"expanded": 0,
+            "domain": "selected_species_v2_grid", "start_component": int(labels[0]),
+            "end_component": int(labels[1]), "component_mask_sha256": components.mask_sha256})
     def cell(p):
         x, z = np.floor((p[[0, 2]]-m.origin)/m.resolution).astype(int)
         return int(z), int(x)
