@@ -988,3 +988,23 @@ def test_four_human_domains_prune_conflicts_before_spending_product_budget():
     plans=list(enumerate_static_layouts(c,bodies,{key:"inside"for key in bodies},max_candidates=1))
     assert len(plans)==1
     assert certify_plan(c,plans[0]).passed
+
+
+@pytest.mark.parametrize("colour_status",["pass","blocked"])
+def test_registered_material_journal_is_not_mistaken_for_colour_admission(monkeypatch,colour_status):
+    import avengine.qa.v7_visual_admission as admission
+    from avengine.construction.joint.native import native_appearance_checks
+    rgb=np.zeros((16,16,4),np.uint8);semantic=np.ones((16,16),np.int32);calls=[]
+    def measure(actual_rgb,actual_semantic,semantic_id,expected):
+        assert np.shares_memory(actual_rgb,rgb)and actual_semantic is semantic
+        calls.append((semantic_id,expected))
+        return {"status":colour_status,"native_pixels":256}
+    monkeypatch.setattr(admission,"measure_native_color",measure)
+    entry={"declaration":{"asset_id":"a","kind":"human","color":"green"},"semantic_id":1}
+    video=SimpleNamespace(actors=[entry],material_checks=[{"old":True}],
+        sim=SimpleNamespace(get_sensor_observations=lambda:{"rgb":rgb,"semantic":semantic}))
+    video._check_source_frame=lambda *a:video.material_checks.append({"asset_id":"a","status":"pass"})
+    checks=native_appearance_checks(video,["a"])
+    assert calls==[(1,"green")]
+    assert checks[0].status==("pass"if colour_status=="pass"else"fail")
+    assert video.material_checks==[{"old":True}]and not hasattr(video,"color_checks")
