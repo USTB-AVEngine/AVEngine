@@ -243,3 +243,48 @@ def test_stationary_turn_preserves_the_promised_registered_hidden_probe_interval
     assert max(relation["query_times_s"]) + 1 / 15 < start
     assert end < gait_intervals("yes", "out_and_back")[1][0]
     assert gait_intervals("no", "out_and_back") == [[1.5, 3.3]]
+
+
+@pytest.mark.parametrize("sign", [0, 2, float("nan"), float("inf")])
+def test_arc_turn_sign_rejects_invalid_input_before_asset_loading(sign):
+    from avengine.construction.joint.families.qa09 import prepare_gait_geometry
+    with pytest.raises(ValueError, match="turn sign"):
+        prepare_gait_geometry({}, {"qa09_arc_turn_sign": sign}, {}, "yes")
+
+
+def test_opposite_arc_has_separate_pose_cache_and_preserves_the_admitted_clock(monkeypatch, tmp_path):
+    import numpy as np
+    import avengine.assets.roster_motion.episode as episode
+    import avengine.assets.roster_motion.contact as contact
+    import avengine.construction.joint as joint
+    from avengine.construction.joint.families.qa09 import prepare_gait_geometry
+    lineage = {"master_sha256": "test-master", "admitted_clip": "test-clip"}
+    times = np.arange(901) / 30
+    distance = final_clock()
+    captures = []
+    class RecordedClock:
+        def __init__(self, d, b, action, phases, positions, yaws, *args):
+            captures.append((np.asarray(phases), np.asarray(positions), np.asarray(yaws)))
+        def frame(self, index):
+            return None, None, None
+    monkeypatch.setattr(episode, "admitted_master", lambda *a: ({}, b"", {}, lineage))
+    monkeypatch.setattr(episode, "triangle_mesh", lambda *a: (np.zeros((3, 3)), np.array([[0, 1, 2]])))
+    monkeypatch.setattr(contact, "FootPlant", RecordedClock)
+    monkeypatch.setattr(joint, "admitted_human_clock_source", lambda *a: {
+        "source_lineage": lineage, "source_times_s": np.array([0., 1.])})
+    monkeypatch.setattr(joint, "complete_human_gait_clock", lambda *a: {
+        "times_s": times, "distance_m": distance, "phase_s": times, "certificate": {}})
+    asset = {"asset_id": "target", "habitat_glb": "unused"}
+    runtime = {"joint_cache_directory": str(tmp_path), "qa09_arc_radius_m": .5}
+    positive = prepare_gait_geometry(asset, runtime, {}, "yes")
+    negative = prepare_gait_geometry(asset, dict(runtime, qa09_arc_turn_sign=-1), {}, "yes")
+    cached = prepare_gait_geometry(asset, runtime, {}, "yes")
+    assert len(captures) == 2  # Opposite direction must not load the forward pose cache.
+    assert len(list(tmp_path.glob("qa09_gait_*.npz"))) == 2
+    assert negative["metadata"]["turn_sign"] == -1
+    assert positive["metadata"] == cached["metadata"]
+    np.testing.assert_array_equal(captures[0][0], captures[1][0])
+    np.testing.assert_array_equal(negative["distance"], positive["distance"])
+    np.testing.assert_allclose(captures[1][1][:, 0], captures[0][1][:, 0])
+    np.testing.assert_allclose(captures[1][1][:, 2], -captures[0][1][:, 2])
+    np.testing.assert_allclose(captures[1][2] + captures[0][2], -np.pi)
