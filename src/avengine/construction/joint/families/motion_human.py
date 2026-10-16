@@ -168,26 +168,59 @@ def single_walker_geometry_proposal(base_row, saved_row):
 
 
 def reframe_single_geometry(context, row, plan):
-    """Use core's fixed-view solver on the real remaining bodies before native."""
+    """Solve the fixed camera from core's precomputed legal positions and view API."""
     from avengine.construction.joint.paired import _joint_rest_camera
     from avengine.construction.joint.geometry import framing
+    from avengine.construction.joint.routes import minimum_track_distance
     roles={aid:('inside'if aid in row['semantic_human_asset_ids']else'any')for aid in plan.actors}
-    solved=_joint_rest_camera(context,plan.camera,tuple(plan.actors.values()),roles,30.)
-    if solved is None:
-        return False
-    selected,evidence=solved
-    plan.camera=selected
-    row['camera_yaw_deg']=float(selected.yaw_deg)
-    row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':float(selected.yaw_deg)},
-                             {'time_s':30.,'yaw_deg':float(selected.yaw_deg)}]
-    for request in row['motion_requests'].values():
-        request['motion_quartet_route']['camera_yaw_deg']=float(selected.yaw_deg)
+    original=plan.camera
+    domain=[original]
+    seen={tuple(original.position_m)}
+    for camera in sorted(getattr(context,'cameras',()),key=lambda c:float(np.linalg.norm(np.asarray(c.position_m)-original.position_m))):
+        key=tuple(camera.position_m)
+        if key not in seen:
+            seen.add(key);domain.append(camera)
+        if len(domain)>=48:break
     control=row.get('motion_wrong_emitter_control')
-    if control:
-        actor=plan.actors[control['asset_id']]
-        control['frame_state']=framing(selected,actor.positions_m[0],actor.body)[0]
-    row['motion_quartet_construction']['single_walker_core_view']=evidence
-    return True
+    tracks=plan.metadata.get('planned_emitter_positions_by_asset',{})
+    for camera in domain:
+        listener=np.asarray(camera.position_m,float)
+        if any(minimum_track_distance(actor.positions_m,listener)<1.5-1e-8 for actor in plan.actors.values()):
+            continue
+        if control and tracks:
+            wrong=np.asarray(plan.actors[control['asset_id']].positions_m[0],float)-listener
+            angle=180.
+            for aid in row['motion_requests']:
+                vectors=np.asarray(tracks[aid],float)-listener
+                cosine=np.sum(vectors*wrong,axis=1)/(np.linalg.norm(vectors,axis=1)*np.linalg.norm(wrong))
+                angle=min(angle,float(np.degrees(np.arccos(np.clip(cosine,-1.,1.))).min()))
+            if not np.isfinite(angle)or angle<24.:continue
+        witness=(motion_certificate(row['motion_during_condition_plan'],tracks,listener)
+                 if row.get('motion_during_condition_plan')and tracks else None)
+        if witness is not None and not witness.passed:
+            continue
+        solved=_joint_rest_camera(context,camera,tuple(plan.actors.values()),roles,30.)
+        if solved is None:
+            continue
+        selected,evidence=solved
+        plan.camera=selected
+        row['listener_m']=list(selected.position_m)
+        row['camera_yaw_deg']=float(selected.yaw_deg)
+        row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':float(selected.yaw_deg)},
+                                 {'time_s':30.,'yaw_deg':float(selected.yaw_deg)}]
+        for request in row['motion_requests'].values():
+            request['motion_quartet_route']['camera_yaw_deg']=float(selected.yaw_deg)
+        if control:
+            actor=plan.actors[control['asset_id']]
+            control['frame_state']=framing(selected,actor.positions_m[0],actor.body)[0]
+            if tracks:control['minimum_planned_wrong_angle_deg']=angle
+        if witness is not None:row['joint_motion_witness_certificate']=certificate_record(witness)
+        row['motion_quartet_construction']['single_walker_core_view']={
+            **evidence,'camera_domain':'core precomputed legal camera positions',
+            'old_listener_m':list(original.position_m),'selected_listener_m':list(selected.position_m),
+            'all_original_motion_witnesses_rechecked':witness is not None}
+        return True
+    return False
 
 
 class HumanMotionPlugin:
