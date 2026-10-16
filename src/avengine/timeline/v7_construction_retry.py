@@ -5,6 +5,10 @@ import fcntl,json,os
 
 
 def spatial_construction_failure(receipt):
+    # A parent with actual legal questions is retained; only its missing family
+    # may use queue_unmet_family_retry, which already preserves valid output.
+    if receipt.get('status')=='passed' or any(receipt.get('export',{}).get('question_family_counts',{}).values()):
+        return False
     reason=str(receipt.get('reason',''))
     evidence_collision=receipt.get('error_type')=='FileExistsError'and ('attachment_rejection.json'in reason or 'occlusion_proposal_'in reason)
     if evidence_collision:return True

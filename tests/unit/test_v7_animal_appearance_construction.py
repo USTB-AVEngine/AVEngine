@@ -88,7 +88,9 @@ def test_animal_floor_fallback_remeasures_every_ray_and_keeps_contacts_honest(mo
     monkeypatch.setattr(attachment,'ray',lambda sim,r,p,d,length:np.array([p[0],0.,p[2]]))
     support={'point':[0.,0.,0.],'normal':[0.,1.,0.],'surface':'floor'}
     result=construct_animal_floor_support(None,None,meta,support)
-    assert result['contact_deltas_m']==pytest.approx([.0004,.0304])
+    assert result['contact_deltas_m']==pytest.approx([0.,.03])
+    assert result['contact_quality_observation']['max_gap_m']==pytest.approx(.03)
+    assert result['contact_quality_observation']['root_support_verified']
     assert len(result['support_raycast_points_m'])==2 and result['appearance_warnings']
     assert support['point']==[0.,0.,0.]
     admitted={**result,'attachment_surface':'floor','support_type':'floor','skin_pass':True,'attachment_worst_error_m':.0304}

@@ -12,6 +12,11 @@ from avengine.capture.continuous_native_video import NativeContinuousVideo
 from avengine.capture.v7_alpha_native import NativeAlphaVideo,forward_at,stage_sole_rays
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.continuous_scene import camera_basis
+from avengine.construction.contact_policy import (
+    is_body, construct_body_floor_support, native_contact_row, nonfloor_contacts_clear,
+    contact_quality_observation, MotionRouteUnavailable, degrade_motion_to_standing,
+    optional_placement_failure,
+)
 
 REGISTERED_VISUAL_REVISION='registered-contact-movement-native-emitter-v7-exact-target-mask'
 
@@ -93,7 +98,27 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         root[:3,3]=[p[0],p[1]-1.3,p[2]]
         from avengine.timeline.v7_registered_prepared_delivery import apply_registered_root_pin
         strict=apply_registered_root_pin(scene,entry,root)
-        if not strict:
+        if is_body(asset):
+            if 'floor_adjustment' not in entry:
+                from types import SimpleNamespace
+                from avengine.capture.v7_visible_native import attachment_template
+                from avengine.capture.v7_visible_attachment import rotation
+                local=np.asarray(entry['original_mesh'].vertices)
+                kind=asset.get('kind','animal' if asset.get('entity_class')=='articulated_animal' else 'human')
+                template=attachment_template(local,'floor',kind,asset.get('landmarks_local_m'),entry['original_mesh'])
+                yaw=math.atan2(root[0,2],root[0,0])
+                point=root[:3,3]+rotation(yaw)@template[0]
+                reference=float(self.motion_house['room']['measured_floor_y_m'])
+                support={'point':point.tolist(),'normal':[0.,1.,0.],'surface':'floor','floor_y':reference,'yaw_rad':yaw}
+                runtime=SimpleNamespace(habitat_sim=self.hs,magnum=self.mn,pathfinder=self.pathfinder)
+                placement=construct_body_floor_support(self.sim,runtime,
+                    {**asset,'attachment_surface':'floor','_attachment_template':template},support,floor_y=reference)
+                if placement is None:raise ValueError('registered body has no actual floor support or is on furniture')
+                entry['floor_adjustment']=float(placement['root_m'][1]-root[1,3])
+                entry['contact_quality_observation']=placement['contact_quality_observation']
+                entry['body_floor_placement']=placement
+            root[1,3]+=entry['floor_adjustment']
+        elif not strict:
             if 'floor_adjustment' not in entry:
                 vertices=np.asarray(entry['original_mesh'].vertices)@root[:3,:3].T+root[:3,3]
                 points=[]
@@ -181,6 +206,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         errors=coverage_errors(scene,[e['declaration']for e in self.actors],{'visible_attachment_checks':self.standing_checks},counts)
         if errors:raise ValueError('; '.join(errors))
         if len(self.environment_frame_readbacks)!=450:raise ValueError('incomplete native environmental source clock')
+        result['element_degradation']=scene.get('element_degradation',[])
         result['environmental_emitter_readbacks']=self.environment_frame_readbacks
         result['native_motion_admissions']={e['endpoint_id']:e['motion_episode'] for e in self.actors if e.get('motion_episode')}
         for ep,record in result['native_motion_admissions'].items():
@@ -224,7 +250,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             self.sim.perform_discrete_collision_detection();result=[]
             for c in self.sim.get_physics_contact_points():
                 pair={int(c.object_id_a),int(c.object_id_b)}
-                if int(obj.object_id) in pair and not pair.intersection(actor_ids):result.append({'object_id_a':int(c.object_id_a),'object_id_b':int(c.object_id_b),'contact_distance_m':float(c.contact_distance)})
+                if int(obj.object_id) in pair and not pair.intersection(actor_ids):result.append(native_contact_row(c,obj.object_id))
             return result
         try:
             actual=contacts();obj.translation=self.mn.Vector3(matrix[:3,3]-[0.,.1,0.]);bad=contacts()
@@ -232,8 +258,22 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         points=[]
         for side in sole_regions(local,entry['declaration']):
             v=vertices[side];points.append(v[np.argmin(v[:,1])])
-        soles=stage_sole_rays(self,points);floor_ok=all(abs(x['signed_contact_error_m'])<=tolerance for x in soles);skin_ok=all(x['contact_distance_m']>=-tolerance for x in actual);bad_detected=any(x['contact_distance_m']<-tolerance for x in bad)
-        return {'status':'pass' if floor_ok and skin_ok and bad_detected else 'blocked','endpoint_id':entry['endpoint_id'],'asset_id':entry['declaration']['asset_id'],'action':'registered_stand','contact_tolerance_m':tolerance,'tolerance_changed':False,'sole_readbacks':soles,'native_skin_vertices':len(vertices),'native_triangles':len(original.faces),'full_skin_covered':True,'native_full_skin_bounds_m':[vertices.min(0).tolist(),vertices.max(0).tolist()],'compound_hulls':hulls,'compound_margin_m':.001,'contacts':actual,'known_bad_10cm_floor_contacts':bad,'known_bad_detected':bad_detected,'proxy_path':path,'source_original_glb':entry['declaration']['habitat_glb'],'motion_admission':'stand only; no walk/sit/seat qualification'}
+        if is_body(entry['declaration']) and entry.get('body_floor_placement'):
+            placement=entry['body_floor_placement']
+            soles=[{'floor_world_m':p,'signed_contact_error_m':d} for p,d in
+                   zip(placement['support_raycast_points_m'],placement['contact_deltas_m'])]
+            floor_ok=True
+            skin_ok=nonfloor_contacts_clear(actual,self.motion_house['room']['measured_floor_y_m'],tolerance)
+            observation=entry['contact_quality_observation']
+            observation['native_contact_controls']={'contacts':actual,'known_bad_contacts':bad}
+        else:
+            soles=stage_sole_rays(self,points)
+            floor_ok=all(abs(x['signed_contact_error_m'])<=tolerance for x in soles)
+            skin_ok=all(x['contact_distance_m']>=-tolerance for x in actual)
+            observation=None
+        bad_detected=any(x['contact_distance_m']<-tolerance for x in bad)
+        return {'status':'pass' if floor_ok and skin_ok and (observation is not None or bad_detected) else 'blocked',
+            'contact_quality_observation':observation,'nonfloor_skin_pass':skin_ok,'endpoint_id':entry['endpoint_id'],'asset_id':entry['declaration']['asset_id'],'action':'registered_stand','contact_tolerance_m':tolerance,'tolerance_changed':False,'sole_readbacks':soles,'native_skin_vertices':len(vertices),'native_triangles':len(original.faces),'full_skin_covered':True,'native_full_skin_bounds_m':[vertices.min(0).tolist(),vertices.max(0).tolist()],'compound_hulls':hulls,'compound_margin_m':.001,'contacts':actual,'known_bad_10cm_floor_contacts':bad,'known_bad_detected':bad_detected,'proxy_path':path,'source_original_glb':entry['declaration']['habitat_glb'],'motion_admission':'stand only; no walk/sit/seat qualification'}
 
     def _native_pair_pixels(self,scene,entries,forward=None):
         from avengine.capture.v7_visible_native import NativeVisibleVideo
@@ -250,7 +290,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True);checks=[];bounds=[];attempts=[]
         candidates=scene.get('native_placement_candidates',[]);placed=[]
         for entry in self.actors:entry['object'].translation=self.mn.Vector3(0.,-1000.,0.)
-        for entry in self.actors:
+        for entry in list(self.actors):
             original=scene['sources'][entry['endpoint_id']]['trajectory'][0]['position_m']
             accepted=None
             for position in ([original]if scene.get('joint_strict_placement')else[original,*candidates]):
@@ -308,6 +348,10 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 except ValueError as error:
                     attempts.append({'endpoint_id':entry['endpoint_id'],'candidate_m':position,'status':'blocked','reason':str(error)})
             if accepted is None:
+                failure=optional_placement_failure(scene,entry,'native placement alternatives exhausted')
+                if failure is not None:
+                    write_json(directory/('element_degradation_'+entry['endpoint_id']+'.json'),failure.element_degradation)
+                    raise failure
                 write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts})
                 raise ValueError('registered actor has no native-qualified nonoverlapping room placement')
             accepted['resolved_body_root_world_m']=entry['applied_root_input'][:3,3].tolist();accepted['candidate_emitter_plan_m']=entry['placement_override_m'];checks.append(accepted);placed.append(entry)
@@ -327,14 +371,20 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 ep=entry['endpoint_id']
                 if ep not in requests:continue
                 request=requests[ep]
-                if request['action']=='walk'and entry['declaration'].get('entity_class')=='articulated_animal':
-                    from avengine.assets.roster_motion.animal import compile_continuous_dog_walking
-                    record=compile_continuous_dog_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
-                elif request['action']=='walk':record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
-                elif request['action']=='sit':
-                    from avengine.assets.roster_motion.seating import compile_seated
-                    record=compile_seated(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
-                else:raise ValueError('unsupported admitted motion action; no static substitution')
+                try:
+                    if request['action']=='walk'and entry['declaration'].get('entity_class')=='articulated_animal':
+                        from avengine.assets.roster_motion.animal import compile_continuous_dog_walking
+                        record=compile_continuous_dog_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                    elif request['action']=='walk':record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                    elif request['action']=='sit':
+                        from avengine.assets.roster_motion.seating import compile_seated
+                        record=compile_seated(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                    else:raise ValueError('unsupported admitted motion action; no static substitution')
+                except MotionRouteUnavailable as error:
+                    degradation=degrade_motion_to_standing(scene,entry,request,error)
+                    self._apply_entry(entry,scene)
+                    write_json(directory/('element_degradation_'+ep+'.json'),degradation)
+                    continue
                 entry['motion_episode']=record;actual=[]
                 for index in range(901):
                     row=self._apply_motion_entry(entry,index);row.update(frame_index=index,time_s=index/30)
@@ -350,4 +400,4 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         recenter_on_actual_roots(scene,self.actors)
         from avengine.capture.v7_offscreen_layout import refresh_actual_offscreen_proofs
         refresh_actual_offscreen_proofs(self,scene,checks)
-        self.standing_checks=checks;write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts,'original_contact_gate_preserved':True});self.camera_frame_readbacks=[];return checks
+        self.standing_checks=checks;write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts,'contact_policy':'construct_then_record','element_degradation':scene.get('element_degradation',[])});self.camera_frame_readbacks=[];return checks

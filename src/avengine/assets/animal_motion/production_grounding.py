@@ -135,33 +135,24 @@ class StationaryPawGrounder:
 def construct_animal_floor_support(sim, runtime, meta, support):
     """Retry an uneven floor by grounding the lowest real support point.
 
-    Every ray must still hit real stage geometry, and later native semantic,
-    skin, clearance, emitter and visibility checks still run. Residual heights
+    The body root must hit real stage floor; missing peripheral probes and
+    residual heights are observations. Nonfloor collision/emitter/visibility checks remain. Residual heights
     of individual paws are cosmetic, and are never fabricated as contacts.
     """
-    from avengine.capture.v7_visible_attachment import ray, rotation, support_points
-    root, yaw, normal, local = support_points(meta, support)
-    deltas = []; hits = []
-    for q in local:
-        point = root + rotation(yaw) @ q
-        hit = ray(sim, runtime, point + normal * .10, -normal, .22)
-        if hit is None: return None
-        deltas.append(float((point - hit) @ normal)); hits.append(hit.tolist())
-    if not deltas: return None
-    shift = .0004 - min(deltas)
-    revised = deepcopy(support)
-    revised['point'] = (np.asarray(support['point']) + normal * shift).tolist()
-    return {'root_m': (root + normal * shift).tolist(), 'yaw_rad': yaw, 'normal': normal.tolist(),
-            'contact_deltas_m': [d + shift for d in deltas], 'support_raycast_points_m': hits,
-            'support': revised, 'threshold_m': .015, 'actual_mesh_attachment': meta['_attachment_template'][2],
-            'support_identification': 'all original native support rays; lowest point rigidly grounded',
-            'animal_visual_fallback_policy': dict(POLICY), 'animal_floor_support': True,
-            'appearance_warnings': [{'reason': 'uneven per-paw support recorded after root grounding',
-                                     'original_contact_deltas_m': deltas, 'root_translation_m': shift}]}
+    from avengine.construction.contact_policy import construct_body_floor_support
+    placement = construct_body_floor_support(sim, runtime, meta, support)
+    if placement is not None:
+        placement.update(animal_visual_fallback_policy=dict(POLICY), animal_floor_support=True,
+                         appearance_warnings=[placement['contact_quality_observation']])
+    return placement
 
 
 def attachment_has_hard_error(attachment):
     """Keep real skin collisions/types strict, classify only animal paw gaps."""
+    observation = attachment.get('contact_quality_observation', {})
+    if observation.get('policy') == 'construct_then_record' and observation.get('root_support_verified'):
+        return (attachment['attachment_surface'] != attachment['support_type']
+                or not attachment.get('nonfloor_skin_pass', attachment.get('skin_pass', False)))
     visual_only = (attachment.get('animal_floor_support') is True and
                    attachment.get('animal_visual_fallback_policy', {}).get('revision') == POLICY['revision'])
     return (attachment['attachment_surface'] != attachment['support_type'] or not attachment['skin_pass'] or

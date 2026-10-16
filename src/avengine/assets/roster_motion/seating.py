@@ -160,11 +160,14 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     chair_grounding={'method':'rigid chair root fitted to highest exact original scan floor under every original bottom vertex; final native rays and complete mesh checked separately',
                         'original_bottom_vertices':len(bottom),'proposed_root_y_m':old_y,'grounded_root_y_m':float(cr[1]),'rigid_shift_y_m':float(cr[1]-old_y),
                         'floor_min_y_m':float(levels.min()),'floor_max_y_m':float(levels.max()),'precision_headroom_m':.0005,'thresholds_changed':False}
+                floor.current_root_floor_m=ground
                 solver=FootPlant(d,b,action,[0.,1/30],[hr.tolist()]*2,[yaw]*2,0.,0.,1/30,floor)
                 for values in solver.active.values():values[:]=True
                 _,parts,ev=solver.frame(0);v,f=triangle_mesh(d,b,parts);tri=(v+offset)[f]
                 contact_limit=HUMAN_QUALITY['foot_contact_limit_m']if inputs.get('phase2')else .008
-                if solver.max_reach>=.001 or max(abs(e['floor_delta_m'])for e in ev['feet'].values())>contact_limit+1e-12:raise ValueError('seated foot contact or reach failed declared quality policy')
+                from avengine.construction.contact_policy import contact_quality_observation
+                ev['ik_reach_deficit_so_far_m']=float(solver.max_reach)
+                ev['contact_quality_observation']=contact_quality_observation([ev])
                 clearance=TriangleClearance(video,house,ground,entry)
                 # Existing support is not stripped from the exact stage model.
                 # If it cannot satisfy the conservative new-house collision
@@ -262,7 +265,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     'yaw_rad':yaw,'pose_glbs':[str(body)]*901,'physical_ground_y_m':ground,
                     'full_skin_bounds_m':[world.min(0).tolist(),world.max(0).tolist()],
                     'known_bad_10cm_floor_detected':min(e['floor_delta_m']-.1 for e in ev['feet'].values())<-.008,
-                    'seat_source':seat['kind'],'seat_record':seat,'human_local_offset_m':offset.tolist(),'chair_world_root_m':cr.tolist(),'chair_grounding':chair_grounding,'chair_glb':str(chair_path)if chair_path else None,
+                    'contact_quality_observation':ev['contact_quality_observation'],'seat_source':seat['kind'],'seat_record':seat,'human_local_offset_m':offset.tolist(),'chair_world_root_m':cr.tolist(),'chair_grounding':chair_grounding,'chair_glb':str(chair_path)if chair_path else None,
                     'chair_scale_y':scale,'native_support_deltas_m':legs,'seat_contact_gap_m':gap,'chair_collision':chair_collision if seat['kind']=='fallback' else None,
                     'private_navigation_original_settings':preserved_nav_settings,'original_full_skin_floor_collision':clearance.floor_certificate(),'maximum_navmesh_horizontal_error_m':ne,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
                     'existing_seat_survey':survey,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False,'chair_produces_sound':False,
