@@ -1,0 +1,59 @@
+{
+  "artifact_uri": "artifact://m6/mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+  "dataset_admission": false,
+  "derivation": {
+    "derived_array_hashes": {
+      "triangle_material_ids": "6439f0f093563982af1471a257d59bd0b018b3728130852e6b46bbb07dd5e21b",
+      "triangles": "6fce9ecc021b2c7bc9673e1638ecf6d1f1b085ec3e2924c4c136f1532893a4af",
+      "vertices": "8115968d326ddfe1f6e4b69111c7ce37e3911e240054b666e8c7edcad96ab503"
+    },
+    "derived_triangle_count": 215299,
+    "policy": "m3_research_remove_geometry_qa_degenerate_triangles_v1",
+    "producer": "avengine.acoustics.research_cleanup:derive_research_package",
+    "record_content_sha256": "0628d549d1745e4ba7da562a87175b01ffdd6ea50fbc5d028e28f19a78994759",
+    "removed_triangle_area_max_m2": 0.0,
+    "removed_triangle_count": 458,
+    "removed_triangle_indices_sha256": "dd2ba4281bda8a957586b71b3a339501216367c8ed5cda2c736a27a4de583584",
+    "source_array_hashes": {
+      "triangle_material_ids": "eed297dc171e35cfd0c4e26e8dbd36ae2582ecc88f1d6de6a71cbbf85aa02266",
+      "triangles": "f70c86cd131092f8213e1ef9bc7e7d10d5ba58e284dd001aaaf3402589251d70",
+      "vertices": "baede5c9ae84737bf103be4bafa9ff86c789fac045aa14b5c72784cf48e7e186"
+    },
+    "source_triangle_count": 215757
+  },
+  "descriptor_content_sha256": "79a538fa05d7fee1863a812741144b4a15f7358bb4f2512999df5aa0365a4874",
+  "package": {
+    "artifact_set_sha256": "2ed0e3a7f03dd7d7e5ed52188f62bf521a3ae5e81be59d2ae96d48d141b35de9",
+    "artifacts": [
+      {"byte_size": 17260, "path": "acoustic/material_categories.json", "sha256": "d8e1f10abf82c9ecfa75c38e1f5ce18141b1cd5054351a85842e566da10399ae"},
+      {"byte_size": 17941, "path": "acoustic/material_database.json", "sha256": "d57621f12e98236bba513fb2e0dce1937363be1609e956ac132208dd84f6c970"},
+      {"byte_size": 861324, "path": "acoustic/triangle_material_ids.npy", "sha256": "ddafa8a0bfc5059b2a7154994947322cf3181a3b6f05f14bb96834be9bb17c65"},
+      {"byte_size": 2583716, "path": "acoustic/triangles.npy", "sha256": "109df7080dd0f125e47fd522f9894b8944fe2479d3d8d7bb5aa00aab69e26538"},
+      {"byte_size": 2298764, "path": "acoustic/vertices.npy", "sha256": "c58da9c24e36dc2266470125897740fd915c5fde3c6e896b7bcd85a022d1d507"},
+      {"byte_size": 66948, "path": "manifest.json", "sha256": "f35e4f451d795c26a685e8da192ae08ae49922bd654a5fe340d1ab37c26da5b2"},
+      {"byte_size": 16758, "path": "provenance/source_material_database.json", "sha256": "4068624f3350d88712ed70afb30c4013f9efee33b9306ceed649950201421cc4"},
+      {"byte_size": 11596, "path": "provenance/source_material_mapping.json", "sha256": "7d72746fd719562d0800deac7c4ca2ccf563cfe252b612302acfdfad63f4587c"},
+      {"byte_size": 11678933, "path": "qa/compiler_acoustic_mesh.obj", "sha256": "1baa35cbc5982e9b11dc277131000b7df86ca8ab26ee162673aba07bcbf6ef0a"},
+      {"byte_size": 11247, "path": "qa/compiler_source_to_package_parity.json", "sha256": "fe82a761372e1c5cd627718ff908c169092d9e0bfbfa87aa3623437668f7e867"},
+      {"byte_size": 24350, "path": "qa/geometry_report.json", "sha256": "1a5407a810e3fb2d9f66f0016f4ac224f57fc5594119afc3f152dd3774b8eeee"},
+      {"byte_size": 14783, "path": "qa/material_coverage.json", "sha256": "795ed99c626e38ee60eaeb004386912253ed974b9ca3edd650c64541a96a6309"},
+      {"byte_size": 351, "path": "qa/ray_leakage.json", "sha256": "f69bb0caa9b69101990dd6166a55e3446c15610af6eb6a1599c2e1c544434b71"}
+    ],
+    "manifest": {"byte_size": 66948, "path": "manifest.json", "sha256": "f35e4f451d795c26a685e8da192ae08ae49922bd654a5fe340d1ab37c26da5b2"},
+    "package_content_sha256": "70f1d66a711350e9dc22f69ac92dac699817dbb2ed936293f3c37f5bc6812f41",
+    "resource_id": "mp3d_declared_proxy_v2",
+    "package_id": "mp3d_mJXqzFtmKg4_m5_1_research_20260718_01_rlr_degenerate_filter_v1"
+  },
+  "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+  "qualification_claim": false,
+  "representation_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+  "revision": "v2_research_zero_area_cleanup",
+  "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+  "schema": "avengine_m6_derived_acoustic_proxy_v1",
+  "source": {
+    "raw_package_manifest_sha256": "1cf1ac1616eb83df4e6898798455ffb015c64374b3a53b5c8bf30c4361a201ac",
+    "representation_id": "mp3d_17DRP5sb8fy_raw_source_v1",
+    "resource_id": "mp3d_raw_visual_surface",
+    "sha256": "334456925e056c83a9a7a5c768b3d37cdd23425d8ca20743bfce015be3f56b04"
+  }
+}

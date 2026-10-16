@@ -1,0 +1,15 @@
+{
+  "schema": "avengine_qa_v2_endpoint_evidence_v1",
+  "source_endpoint_id": "qa_v2_human_2_blue_mouth",
+  "created": "2026-08-23",
+  "binding": {
+    "entity_instance_id": "human_2",
+    "entity_asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+    "entity_asset_revision": "controlled_material_ue_v3",
+    "emitter_anchor_id": "mouth",
+    "emitter_height_m": 1.641311
+  },
+  "rationale": "QA v2 pilot48 same-species pair batch (checkpoint PILOT48_AND_AV_SMOKE_20260823): endpoint binds the registered runtime asset's measured default emitter anchor to the timeline instance used by the batch's actor selections.",
+  "research_only": true,
+  "qualification_claim": false
+}

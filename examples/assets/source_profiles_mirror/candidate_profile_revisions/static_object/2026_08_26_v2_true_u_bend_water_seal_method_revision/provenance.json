@@ -1,0 +1,53 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/plumbing_fixture_floor_drain_exposed_p_trap_product_view_v1.json",
+  "sha256": "101bba60e0e70f6fb152066eed454623c4b84266365e46b9b1707cc5cc8175b5",
+  "size_bytes": 5442,
+  "profile_schema_id": "plumbing_fixture_floor_drain_exposed_p_trap_product_view_v1",
+  "profile_revision": "2026_08_26_v2_true_u_bend_water_seal_method_revision",
+  "canonical_sha256": "89c6c9decb5bd7037b2b69db6a10f14d2af58f54b5a0b703585abbf4685d3b5f"
+ },
+ "method_revision": {
+  "kind": "true_p_trap_geometry_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_static_sound_forms",
+  "superseded_profile_canonical_sha256": "6ecff6e16b977281484f25acfdd061655ad192cc9a69a06c57a6b165223a27d0",
+  "reason": "Two different v1 requests both produced the same wrong object: a straight vertical tube with a perpendicular side branch and no U-shaped water seal. That repeat failure shows the term exposed P-trap was under-specified for the image method. The v2 method defines the complete two-ended flow path and excludes tee and three-opening fittings.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "e4f7dfc371c3214ff78b9b7f6087614079f1ba6f44e88ceb5f2dc2afe177d494",
+   "ba6c9a2c9253700371593c405ff16769ad2332d5bf1aab09af9a0457914f3397"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "a85092c9b6fba8dafbecd08c2b624f0fac9decd20c7d0474051c11e13cdb23f8",
+   "7a8d87a1582225a71d6b61eb98fc2137c9efa6d1c3b34995df2e433f6211af22"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_sources_retry_20260826_r2/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_visual_review_under_owner_instruction_20260826",
+  "instances": [
+   {
+    "instance_id": "plumbing_fixture_floor_drain_exposed_p_trap_product_view_e4f7dfc371c3",
+    "request_sha256": "e4f7dfc371c3214ff78b9b7f6087614079f1ba6f44e88ceb5f2dc2afe177d494",
+    "candidate_sha256": "a85092c9b6fba8dafbecd08c2b624f0fac9decd20c7d0474051c11e13cdb23f8",
+    "sampled_attributes": {
+     "body_color": "silver"
+    }
+   },
+   {
+    "instance_id": "plumbing_fixture_floor_drain_exposed_p_trap_product_view_ba6c9a2c9253",
+    "request_sha256": "ba6c9a2c9253700371593c405ff16769ad2332d5bf1aab09af9a0457914f3397",
+    "candidate_sha256": "7a8d87a1582225a71d6b61eb98fc2137c9efa6d1c3b34995df2e433f6211af22",
+    "sampled_attributes": {
+     "body_color": "silver"
+    }
+   }
+  ]
+ }
+}

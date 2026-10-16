@@ -1,0 +1,506 @@
+# 工具能力索引
+
+> 由 `tools/build_tool_index.py` 从每个工具自己的 docstring 生成，
+> 改完工具重新运行即可刷新（`--check` 已入单测回归，索引过期会红）。
+
+自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
+本表按目录列出每个工具做什么。
+当前共 379 个工具脚本。
+
+## 资产生成与装配（`tools/assets/`）
+
+*从图像/网格到可运行资产：生成、修复、绑骨、动作、验收、打包、变体*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/assets/add_missing_uv0.py` | Add deterministic zero UV0 accessors when a GLB safely omits them |
+| `tools/assets/append_loop_closure.py` | Append one 15 Hz return-to-start sample to each GLB action channel |
+| `tools/assets/assemble_variant_package.py` | Assemble a generic M2 animal research package from real QA evidence |
+| `tools/assets/audit_candidate.py` | Write bounded automatic QA reports for an M2 research candidate |
+| `tools/assets/audit_variant_candidate.py` | Run body-plan-neutral automatic M2 QA using explicit variant anchors |
+| `tools/assets/audit_world_contacts.py` | Fit M2 root cadence and emit hash-bound world-contact artifacts |
+| `tools/assets/bake_actions.py` | Bake the strict M2 Idle/Walking action artifact and hash-bound report |
+| `tools/assets/bake_local_tr_actions.py` | Bake deterministic research-only local-translation action poses from one GLB |
+| `tools/assets/bake_uniform_skin_scale.py` | Bake one positive uniform skin-ancestor scale into GLB payload data |
+| `tools/assets/build_appearance_variant_inputs.py` | Bind one realized appearance request into package spec and source lineage |
+| `tools/assets/build_canary_request.py` | Build one hash-bound formal M2 canary capture request |
+| `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
+| `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
+| `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
+| `tools/assets/build_sound_harvest_map.py` | 生成事件类到 FSD50K 标签的对照表草案。 |
+| `tools/assets/capture_animal_variant_review.py` | Build and run one single-view animal-variant Habitat review capture |
+| `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
+| `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
+| `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
+| `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
+| `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
+| `tools/assets/compile_animal_package.py` | Compile a pinned Rocketbox Beagle M2 research-candidate package |
+| `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
+| `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
+| `tools/assets/force_matte_materials.py` | Force a complete opaque matte-dielectric GLB material policy |
+| `tools/assets/gate_retopology.py` | Reject a mesh preparation that damaged the animal, before it is rigged |
+| `tools/assets/gate_rigged_asset.py` | Accept or reject a rigged animal from how its surface tears during the walk |
+| `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
+| `tools/assets/harvest_fsd50k_clips.py` | Fill the sound-effect classes from the FSD50K copy already on this machine |
+| `tools/assets/harvest_vctk_speech.py` | Pull English speech with transcripts from the VCTK copy on this machine |
+| `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
+| `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
+| `tools/assets/measure_static_resting_pose.py` | Measure the resting or mounting pose of a published rigid static asset |
+| `tools/assets/measure_static_upright_correction.py` | Measure how far a rigid reconstruction is from standing straight |
+| `tools/assets/measure_walk_deformation.py` | How badly a rigged animal's surface tears, over the whole walk cycle |
+| `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
+| `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
+| `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
+| `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
+| `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
+| `tools/assets/probe_habitat_skin_rest.py` | Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor |
+| `tools/assets/probe_heading_axis.py` |  |
+| `tools/assets/promote_canary.py` | Promote one hash-closed M2 research candidate to a new canary package |
+| `tools/assets/publish_animal_assets.py` | Publish accepted generated animals into the shared sound-source asset tree |
+| `tools/assets/publish_static_source_assets.py` | Publish admitted static sound sources into the shared asset tree |
+| `tools/assets/qc_sound_library.py` | Check every clip in the dry-sound library and say what is wrong, in words |
+| `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
+| `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
+| `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
+| `tools/assets/render_habitat_action_review.py` | Render hash-bound M2 Idle/Walk review media in Habitat |
+| `tools/assets/render_habitat_local_tr_review.py` | Render a non-qualifying 75-frame Habitat local-TR v2 review |
+| `tools/assets/render_turntable_review.py` | Orbit the camera once around a posed asset, with soft shadow-free lighting |
+| `tools/assets/render_walk_review.py` | Render a walk cycle with soft, shadow-free lighting and the asset's own materials |
+| `tools/assets/retime_actions.py` | Apply explicit action durations without changing sampled pose values |
+| `tools/assets/retopologize_for_rigging.py` | Rebuild a generated mesh as a manifold surface, then reduce it for rigging |
+| `tools/assets/rigger_loopback_bpy_server.py` | Loopback-only launcher for the vendored TokenRig bpy server |
+| `tools/assets/run_generated_animal_chain.sh` | Take one generated animal from a raw reconstruction to a reviewable rigged |
+| `tools/assets/run_pixal3d_mesh.py` | Run the vendored Pixal3D image-to-3D stage on an already-matted candidate |
+| `tools/assets/segment_canonical_2d.py` | Cut the canonical 2D candidate out of its background with the local ISNet model |
+| `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
+| `tools/assets/v7_human_roster_actions.py` | Materialize real source-motion frames for native Habitat action-family probes |
+| `tools/assets/v7_human_roster_blender.py` | Task-scoped Rocketbox UV extraction and native animation builds |
+| `tools/assets/v7_human_roster_color_qa.py` | Native rendered shirt colour measurements; never used as a UE admission gate |
+| `tools/assets/v7_human_roster_cpu_build.py` | Resumable, bounded CPU-only native builds in the caller's task directory |
+| `tools/assets/v7_human_roster_delivery.py` | Build the deliverable hierarchy from saved native evidence, with qualified states |
+| `tools/assets/v7_human_roster_extend.py` | Bake official Rocketbox gesture/turn clips into task-owned derivatives |
+| `tools/assets/v7_human_roster_extend_normalize.py` | Normalize extended human rigs and emit complete source-motion pose metadata |
+| `tools/assets/v7_human_roster_feet.py` | Check semantic human shoe vertices, not just whole-asset minimum height |
+| `tools/assets/v7_human_roster_gpu.py` | One owned GPU process tree at a time, with free-memory reserve and evidence |
+| `tools/assets/v7_human_roster_habitat.py` | Native Habitat review in real MP3D/HM3D rooms; explicit RGB and garment mask |
+| `tools/assets/v7_human_roster_materials.py` | Explicit garment masks and single-attribute counterfactual GLBs |
+| `tools/assets/v7_human_roster_motion_cache.py` | Repair source-motion caches using every animation channel's key times |
+| `tools/assets/v7_human_roster_pose.py` | glTF linear skinning, metric pose GLBs and resumable Habitat motion cache |
+| `tools/assets/v7_human_roster_profiles.py` | Write legacy-strict three-value profiles and immutable requests for the 96 colours |
+| `tools/assets/v7_human_roster_roi.py` | Perspective-correct visible shirt ROI from native camera and glTF UVs |
+| `tools/assets/v7_human_roster_survey.py` | Read-only source survey for the v7 human roster |
+| `tools/assets/v7_human_roster_ue_actions.py` | Capture source-matched skeletal poses in native UE, with dynamic FOA readback |
+| `tools/assets/v7_human_roster_ue_animation_qa.py` | Compare UE-native animation anchors to the source metric glTF rig |
+| `tools/assets/v7_human_roster_ue_blueprints.py` | Build one-actor static human Blueprints and audit their native component transforms |
+| `tools/assets/v7_human_roster_ue_capture_qa.py` | Read UE scene captures and fail closed on occlusion, scale and placement |
+| `tools/assets/v7_human_roster_ue_floor.py` | Locate an empty review volume in the actual USD geometry; no stage mutation |
+| `tools/assets/v7_human_roster_ue_import.py` | Executed by UE 5.5 Python commandlet; imports into this task's project only |
+| `tools/assets/v7_human_roster_ue_namespace.sh` |  |
+| `tools/assets/v7_human_roster_ue_rendered_floor.py` | Check visible feet/support height from native UE SceneDepth |
+| `tools/assets/v7_human_roster_ue_review.py` | UE-native image review and composite actor readback in the copied Kujiale map |
+| `tools/assets/v7_human_roster_ue_root.py` | Include animated non-joint armature roots in derived UE skins without changing weights |
+| `tools/assets/v7_human_roster_ue_root_import.py` | Import derived root-aware Rocketbox rigs into this task's private UE project |
+| `tools/assets/v7_human_roster_ue_wide_view.py` | Find a broad unobstructed native-room review view from composed USD triangles |
+| `tools/assets/v7_object_collect.py` | Collect only declared, successful owned geometry receipts into the current new-asset manifest |
+| `tools/assets/v7_object_collect_native.py` | Merge owned native batches, retaining only evidence for each current derived GLB |
+| `tools/assets/v7_object_color.py` | Calibrate CIELAB colour families on known native shirts, then measure object body pixels |
+| `tools/assets/v7_object_color_recheck.py` | Refine neutral chroma on known-shirt training pixels and reproducibly remeasure native body ROIs |
+| `tools/assets/v7_object_delivery.py` | Assemble machine-only object admission, crossed counts and a self-contained Chinese evidence page |
+| `tools/assets/v7_object_finish_repair.py` | Repair a derived casing's PBR finish, preserving functional faces and actual triangle geometry |
+| `tools/assets/v7_object_flux_worker.py` | Generate declared static object references with one resident FLUX.2-klein pipeline |
+| `tools/assets/v7_object_jobs.py` | Run one bounded owned job with GPU admission, process identity and resource accounting |
+| `tools/assets/v7_object_memory.py` | Recognize GPU OOM from PyTorch and CUDA extensions before retrying a smaller reconstruction |
+| `tools/assets/v7_object_merge_batches.py` | Compatibility entry point: collect all declared plans from per-asset receipts |
+| `tools/assets/v7_object_native.py` | Admit static objects on raycast stage supports in MP3D and HM3D with native PBR, geometry and colour metrics |
+| `tools/assets/v7_object_pixal_entry.py` | Task-owned Pixal3D inference entry, copied read-only from Pixal3D-lead-b; MIT; 60k triangles and PNG textures |
+| `tools/assets/v7_object_pixal_worker.py` | Run a resident Pixal3D batch with bounded setup, three seeds, one lower-resolution OOM retry and resource checks |
+| `tools/assets/v7_object_plan.py` | Declare shape-by-colour object requests before generation; independent silhouettes share each colour |
+| `tools/assets/v7_object_prepare.py` | Derive production PBR static objects and verify support pose, dimensions and emitter geometry |
+| `tools/assets/v7_object_progress.py` | Append recoverable owned-task milestones without rewriting previous progress |
+| `tools/assets/v7_object_scope.py` | Apply the owner amendment to this task's derived metadata; retain removed evidence |
+| `tools/assets/v7_object_segment.py` | Run a resident CPU ISNet session for object cutouts, optionally following a bounded FLUX batch |
+| `tools/assets/v7_object_trellis_worker.py` | Use MIT TRELLIS.2 only after three recorded Pixal3D seed failures or a recorded 30-minute setup failure |
+| `tools/assets/v7_object_validate.py` | Validate registered evidence against actual GLBs, native measurements and owner scope |
+| `tools/assets/v7_pet_bird_reference.py` | Task-owned FLUX.2 pet-bird reference; 3D remains owner-review pending |
+| `tools/assets/v7_pet_bird_segment.py` | CPU ISNet cut-out of this task's pet-bird candidate |
+| `tools/assets/v7_pet_birds_hy3d_generate.py` | Local-weight Hunyuan3D 2.1 shape/PBR generation into one task-owned asset directory |
+| `tools/assets/v7_pet_birds_hy3d_habitat.py` | Qualify static Hunyuan birds in native MP3D/HM3D using production PBR preparation |
+| `tools/assets/v7_pet_birds_hy3d_habitat_geometry.py` | Check complete bird meshes against original Habitat scene triangles and native floor rays |
+| `tools/assets/v7_pet_birds_hy3d_landmarks.py` | Resolve reviewed 2D landmark pixels onto the generated mesh with Blender rays |
+| `tools/assets/v7_pet_birds_hy3d_normalize.py` | Scale the reviewed generated bird and repair only its wooden stand for floor placement |
+| `tools/assets/v7_pet_birds_hy3d_pbr.py` | Export Hunyuan's UV mesh and generated albedo/metal/roughness maps as a PBR GLB |
+| `tools/assets/v7_pet_birds_hy3d_preview.py` | Four cardinal CPU Blender views of a generated bird; record exact camera matrices |
+| `tools/assets/v7_pet_birds_hy3d_reference.py` | Generate fixed-seed canary references using the installed FLUX.2-klein-4B |
+| `tools/assets/v7_pet_birds_hy3d_segment.py` | CPU ISNet segmentation and image-boundary checks for generated bird references |
+| `tools/assets/v7_pet_birds_hy3d_ue.py` | Import both generated birds and capture their native one-actor Kujiale placements |
+| `tools/assets/v7_pet_birds_hy3d_ue_geometry.py` | Check static birds against the read-only composed Kujiale source mesh and plan UE cameras |
+| `tools/assets/v7_pet_birds_hy3d_ue_qa.py` | Audit native UE scene context, matte appearance, bounds and emitter attachment |
+| `tools/assets/v7_roster_animation_nodes.py` | Discard only animation channels on unreachable, non-skin placeholder nodes |
+| `tools/assets/v7_roster_baseline_restore.py` | Restore byte-identical baseline mesh and source actions after Blender adds clips |
+| `tools/assets/v7_roster_bird_feet.py` | Measure original bird foot regions against its own derived perch, without altering either source |
+| `tools/assets/v7_roster_chair_compatibility.py` | Fit silent chair styles to exact seated surfaces, then check triangle penetration |
+| `tools/assets/v7_roster_chairs.py` | Create five matte chair styles, joined meshes, in canonical metric GLB |
+| `tools/assets/v7_roster_collision.py` | Triangle versus box SAT for seating and furniture clearance checks |
+| `tools/assets/v7_roster_colour_motion.py` | Apply a selected shirt variant's PBR appearance to the unique motion master in memory |
+| `tools/assets/v7_roster_contact_ik.py` | World-space foot planting and two-bone IK for source-authored motion |
+| `tools/assets/v7_roster_delivery.py` | Build Chinese inventories, a sourced report and one JPEG-embedded review page |
+| `tools/assets/v7_roster_disk.py` | Enforce a 50 GiB disk reserve and at most 15 GiB net growth after cleanup |
+| `tools/assets/v7_roster_dog_motion.py` | Audit dog four-paw contact using their native meshes and donor bone angles |
+| `tools/assets/v7_roster_dog_normalize.py` | Normalize native dog rigs, preserving their own skin and complete donor motion |
+| `tools/assets/v7_roster_extra_actions.py` | Build floor-fixed speech gestures and turn actions from official Rocketbox clips |
+| `tools/assets/v7_roster_extra_scene_collision.py` | Exact source-room triangle checks for stationary actions, chairs and dog motions |
+| `tools/assets/v7_roster_final_manifest.py` | Merge conservative motion, seat, dog, bird and chair admissions into one roster |
+| `tools/assets/v7_roster_floor_grid.py` | Sample real native stage floors near each verified navigation path |
+| `tools/assets/v7_roster_followup_audit.py` | Read-only audit of interrupted jobs, mouth qualifications and admitted audio links |
+| `tools/assets/v7_roster_foot_events.py` | Export contact-onset events without confusing toe roll with a new footstep |
+| `tools/assets/v7_roster_german_shepherd.py` | Retarget the retained Beagle motion onto the original German Shepherd rig |
+| `tools/assets/v7_roster_habitat_bird.py` | Native Habitat qualification of the MIT library sparrow on its silent perch |
+| `tools/assets/v7_roster_habitat_dogs.py` | Replay full rigid-pose clips with native Habitat stage physics and FOA nodes |
+| `tools/assets/v7_roster_habitat_extra.py` | Sample official gesture/turn adapters in both native Habitat scenes, with seated chairs |
+| `tools/assets/v7_roster_habitat_motion.py` | Replay full rigid-pose clips with native Habitat stage physics and FOA nodes |
+| `tools/assets/v7_roster_habitat_pet_parrot.py` | Qualify the licensed static pet parrot in native Habitat reference houses |
+| `tools/assets/v7_roster_habitat_walk_visual.py` | Reselect native Habitat cameras that show sampled walk mouths and both feet |
+| `tools/assets/v7_roster_kujiale_path.py` | Recast planning on actual Kujiale USD triangles; UE remains RGB authority |
+| `tools/assets/v7_roster_lx_anchors.py` | Primary LX sound anchors from manually reviewed native pixels and original triangles |
+| `tools/assets/v7_roster_native_paths.py` | Build native Recast paths in the real MP3D/HM3D rooms |
+| `tools/assets/v7_roster_native_seating.py` | Native seat fitting with floor support, furniture collision and retained navigation |
+| `tools/assets/v7_roster_pet_parrot.py` | Freeze the CC-BY author parrot idle pose on a silent matte perch |
+| `tools/assets/v7_roster_pet_parrot_geometry.py` | Check licensed parrot geometry, true source-floor support and UE camera rays |
+| `tools/assets/v7_roster_pet_parrot_qa.py` | Audit native UE parrot screenshots, actual geometry bounds and beak attachment |
+| `tools/assets/v7_roster_round4_manifest.py` | Patch final registries with explicit mouth visibility and licensed pet-bird receipts |
+| `tools/assets/v7_roster_scene_collision.py` | Full-frame scene triangle collision checks against the exact Kujiale USD mesh |
+| `tools/assets/v7_roster_seat_rgbd.py` | Recover existing seats from actual native RGB-D-semantic surfaces, not faulty bounds |
+| `tools/assets/v7_roster_seat_survey.py` | Survey native semantic seats and review silent fallback chairs in real homes |
+| `tools/assets/v7_roster_seated.py` | Create seat geometry fitted to source sitting pose and a seated upper-body talk clip |
+| `tools/assets/v7_roster_seated_contact.py` | Bake terrain-corrected sitting poses with actual task-owned chair geometry |
+| `tools/assets/v7_roster_source_audit.py` | Audit original mesh, old animation surfaces and inverse binds without modifying assets |
+| `tools/assets/v7_roster_sparrow_fallback.py` | Prepare the explicitly allowed library sparrow fallback, static on a silent perch |
+| `tools/assets/v7_roster_ue_camera_plan.py` | Choose UE review cameras with clear rays through the actual source-room mesh |
+| `tools/assets/v7_roster_ue_capture.py` | Sample native UE scene and isolated JPEGs for motions and paired silent seats |
+| `tools/assets/v7_roster_ue_capture_qa.py` | Audit native JPEG visibility/highlight proxies without UE texture-colour matching |
+| `tools/assets/v7_roster_ue_dog_readback.py` | Validate each native UE dog animation key and its four paw / mouth transforms |
+| `tools/assets/v7_roster_ue_extra_readback.py` | Read native UE speech/turn bone positions at every baked action key |
+| `tools/assets/v7_roster_ue_import.py` | Import new human action masters, silent chairs and static dog candidates privately |
+| `tools/assets/v7_roster_ue_lx_anchors.py` | Verify static LX primary sound anchors on their actual native UE Blueprint actors |
+| `tools/assets/v7_roster_ue_motion_readback.py` | Read every imported Kujiale walk key with native UE AnimPose evaluation |
+| `tools/assets/v7_roster_ue_pet_parrot.py` | Import and capture the licensed static parrot as one native UE Blueprint actor |
+| `tools/assets/v7_roster_walk_compile.py` | Bake paired navigation paths and contact-corrected Rocketbox walking clips |
+| `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
+
+## 房间（`tools/rooms/`）
+
+*房间引入、制备、审计、资格金丝雀（Habitat 与 SPEAR/UE 两条腿都在这里）*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/rooms/audit_real_surface_mesh.py` | Audit a glTF/GLB as evidence for the M1 real-surface geometry gate |
+| `tools/rooms/audit_skokloster_glb.py` | Audit the exact Habitat Skokloster GLB for visual and acoustic staging |
+| `tools/rooms/author_current_residential_visual_episode.py` | Author one current residential visual-only research episode |
+| `tools/rooms/blender_build_exterior_proxy.py` | Blender-side builder for an inward-facing, textured exterior sphere |
+| `tools/rooms/build_fixed_apartment_canary.py` | Build the fixed SPEAR Apartment S0--S5 M6.x review bundle |
+| `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
+| `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
+| `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
+| `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
+| `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
+| `tools/rooms/prepare_skokloster_interchange_glb.py` | Bake Skokloster's legacy source axes into a canonical glTF for UE import |
+| `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
+| `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
+| `tools/rooms/run_habitat_replicacad_lighting_canary.py` | Run the real ReplicaCAD Habitat capture with one shared lighting profile |
+| `tools/rooms/run_room_qualification_attempt.py` | Run or verify the read-only M6 representative-room qualification attempt |
+| `tools/rooms/run_spear_apartment_canary.py` | Render M6.x S0/S3/S4 through the native SPEAR Apartment map |
+| `tools/rooms/run_spear_kujiale_canary.py` | Capture an external InteriorAgent/Kujiale room through SPEAR and UE |
+| `tools/rooms/run_spear_mp3d_canary.py` | Render the retained 270-frame MP3D route through packaged SPEAR |
+| `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
+| `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential human+Beagle episode through SPEAR/UE |
+
+## 场景放置（`tools/scene/`）
+
+*基于真实场景表面规划并核验实体放置*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/scene/choose_listener_pose.py` | Choose listener poses for a route, so nothing downstream has to invent one |
+| `tools/scene/plan_supported_placement.py` | Place speakers on surfaces that exist, and check the sightline against geometry |
+
+## 声学（`tools/acoustics/`）
+
+*声学场景包、材质、RIR 缓存与计划、声学核验*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
+| `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
+| `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
+| `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
+| `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
+| `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
+| `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
+| `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
+| `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
+| `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
+
+## 相机与路径（`tools/routes/`）
+
+*相机机位、可行域、路径库、轨迹选择、发声锚点*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/routes/build_apartment_route_bank.py` | Precompute an apartment route bank from UE's own navigation system |
+| `tools/routes/build_camera_pose_request.py` | Build one camera/listener-coherent M1 request at an arbitrary room pose |
+| `tools/routes/build_four_motion_anchor_profile.py` | Build and benchmark the reusable emitter-anchor profile from a pilot |
+| `tools/routes/build_hm3d_rir_plan.py` | Turn an HM3D floor bank and an accepted listener pose into a QA plan-dir |
+| `tools/routes/compile_apartment_feasibility_bank.py` | Compile Apartment feasibility, a four-case trajectory bank, and Topdown QA |
+| `tools/routes/compile_hm3d_dynamic_source_bank.py` | Ask whether a moving sound source can find legal routes in an HM3D scene |
+| `tools/routes/compile_kujiale_feasibility_bank.py` | Compile a Kujiale room polygon into reusable source-center trajectories |
+| `tools/routes/import_legacy_apartment_route.py` | Import the legacy 18 s apartment route into the M5.1 route manifest |
+| `tools/routes/plot_route_bank.py` | Render the apartment route bank as a top-down map: engine navigation vs the hand-mined corridors |
+| `tools/routes/probe_camera_pose_native.py` | Render one lightweight native Habitat camera-pose probe |
+| `tools/routes/select_asset_bound_trajectories.py` | Select asset-bound source-slot routes that pass the real center-point gate |
+| `tools/routes/verify_route_legality.py` | Is the path itself legal? Occlusion is not the question here |
+
+## episode 捕获（`tools/capture/`）
+
+*演员级 episode 的视觉捕获与动作试点*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/capture/capture_human_beagle_legacy.py` | Capture the committed 270-frame Rocketbox-human + Beagle legacy route |
+| `tools/capture/capture_human_beagle_mp3d.py` | Run the real-navmesh 270-frame MP3D human + Beagle visual canary |
+| `tools/capture/capture_human_beagle_replicacad.py` | Run the real ReplicaCAD apt_0 human + Beagle visual/placement review |
+| `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
+| `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
+
+## 视觉回放（`tools/visual/`）
+
+*在 AVEngine 原生视觉路径中回放、渲染与核验放置结果*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/visual/render_moving_source_video.py` | Render the route the acoustic pass rendered, as frames that can carry that audio |
+| `tools/visual/replay_placement_in_avengine.py` | Render the same speaker placement the acoustic chain used, in AVEngine's own runtime |
+
+## 空间音频（`tools/audio/`）
+
+*双耳/FOA 渲染与混音（src/avengine/spatial_audio，工具暂无）*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/audio/build_hm3d_material_map.py` | Extend the acoustic material database to HM3D's category vocabulary |
+| `tools/audio/calibrate_surface_materials.py` | Ask which material the room's dominant surfaces should point at |
+| `tools/audio/compare_material_acoustics.py` | Does turning HM3D semantics into acoustic materials change the sound? |
+| `tools/audio/fit_foa_axes.py` | Fit the map from SoundSpaces FOA channels to Habitat world axes |
+| `tools/audio/hm3d_download.sh` | Download the HM3D val split into the shared dataset root. |
+| `tools/audio/hm3d_download_pieces.sh` | Fetch HM3D pieces for one split. |
+| `tools/audio/hm3d_semantic_download.sh` | Fetch the HM3D semantic annotations for the val split. |
+| `tools/audio/insert_speakers_and_render_foa.py` | Put our published speakers into a Habitat scene and render RGB plus FOA |
+| `tools/audio/make_source_orbit_bank.py` | Write a bank whose source circles the listener, for hearing the surround field |
+| `tools/audio/measure_semantic_surface_area.py` | Rank HM3D semantic categories by surface area, which is what acoustics sees |
+| `tools/audio/plan_from_navmesh.py` | Build a speaker placement from the scene's navmesh |
+| `tools/audio/render_moving_source.py` | Render a moving sound source in one of the renderer's two output layouts |
+
+## 出题与认证（`tools/qa/`）
+
+*题型设计、出题、闸门核验、held-out 划分、评测与打分*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
+| `tools/qa/audit_strict_two_human_camera_pan_motion_realism.py` | Audit camera-pan motion realism against authoritative 15 Hz camera poses |
+| `tools/qa/audit_strict_two_human_room_expansion.py` | Audit two additional cooked SPEAR maps for the strict M/F/C room closure |
+| `tools/qa/bind_native_paper_balance_episode.py` | Bind one full native SPEAR capture to the paper-balance QuestionSpec strata |
+| `tools/qa/bind_native_pixel_fact_episode.py` | Bind one full native SPEAR pixel capture to Facts and QuestionSpecs |
+| `tools/qa/bind_native_spear_episode.py` | Bind one compiled QA Fact table to retained native SPEAR/UE evidence |
+| `tools/qa/build_batch_review_page.py` | Build a self-contained lazy-loading review page for one QA v2 batch |
+| `tools/qa/build_full_episode_semantic_authority.py` | Build an approved full-Episode semantic authority without overwriting output |
+| `tools/qa/build_full_episode_validation_batch.py` | Build one validation batch from an explicit request |
+| `tools/qa/build_native_controlled_audio_program.py` | Build controlled dog/speech AudioProgram contracts for the A native canary |
+| `tools/qa/build_native_full_occlusion_reappearance_episode.py` | Prepare one native, dynamic-rig full-occlusion/reappearance episode |
+| `tools/qa/build_native_paper_balance_episode.py` | Plan one fail-closed native Episode that closes paper answer balance |
+| `tools/qa/build_pixel_visibility_canaries.py` | Build five hermetic modal/target-only pixel-visibility canaries |
+| `tools/qa/build_skokloster_strict_two_human_preflight.py` | Build a file-evidence-free CPU preflight for the Skokloster strict M/F Episode |
+| `tools/qa/build_strict_two_human_camera_pan_v2_candidate.py` | Build one CPU-only camera-pan/both-static full75 geometry candidate |
+| `tools/qa/build_strict_two_human_canary_preflight.py` | Validate and publish the CPU preflight for one strict two-human canary |
+| `tools/qa/build_strict_two_human_canary_recipe.py` | Build one exact static two-human Apartment recipe and AudioProgram |
+| `tools/qa/build_strict_two_human_debug_room_preflight.py` | Prepare fail-closed visual probes for two additional cooked SPEAR maps |
+| `tools/qa/build_strict_two_human_distractor_moves_v2_candidate.py` | Build the CPU-only distractor-moves v2 geometry candidate |
+| `tools/qa/build_strict_two_human_dynamic_canary_preflight.py` | Select four independent true-motion full75 canaries without launching a GPU |
+| `tools/qa/build_strict_two_human_expansion_acoustic_batch.py` | Prepare and validate rows 2-8 of the strict two-human CPU acoustic batch |
+| `tools/qa/build_strict_two_human_expansion_preflight.py` | Validate and publish the CPU-only strict two-human eight-row plan |
+| `tools/qa/build_strict_two_human_full_episode_batch.py` | Build a fail-closed CPU plan for 100 independent strict two-human Episodes |
+| `tools/qa/build_strict_two_human_ground_contact_diagnostic.py` | Build a fail-closed f0/f37/f74 live foot-floor diagnostic request |
+| `tools/qa/build_strict_two_human_motion_realism_receipt.py` | Build a CPU-only, fail-closed motion-realism release receipt |
+| `tools/qa/build_strict_two_human_mp3d_room_preflight.py` | Build a CPU-only MP3D strict-two-human room/capture/RIR preflight |
+| `tools/qa/build_strict_two_human_native_rate_dynamic_candidates.py` | Build CPU-only native-rate full75 dynamic candidate preflights |
+| `tools/qa/build_strict_two_human_row7_v2_acoustic.py` | Prepare and finalize the CPU-only strict two-human row7 v2 acoustics |
+| `tools/qa/build_strict_two_human_row7_v2_preflight.py` | Validate and publish the CPU-only strict two-human row7 v2 overlay |
+| `tools/qa/capture_skokloster_strict_two_human_episode.py` | Bind the native pixel runner to the isolated Skokloster package archive |
+| `tools/qa/capture_spear_imported_glb_strict_two_human_episode.py` | Capture an imported-MP3D strict two-human SPEAR review Episode |
+| `tools/qa/capture_spear_native_pixel_episode.py` | Capture a full native SPEAR RGB/depth/pixel-truth Episode |
+| `tools/qa/capture_spear_native_pixel_room_batch.py` | Concrete one-process SPEAR adapter for strict full75 room batches |
+| `tools/qa/certify_axis1_questions.py` | Fact-level axis-1 (route-swap) certification for mined simple questions |
+| `tools/qa/compare_question_spec_fresh.py` | Fresh QuestionSpec re-evaluation versus retained bind-time records |
+| `tools/qa/compile_apartment_fact_tables.py` | Compile per-episode QA fact tables for the asset-bound Apartment batch |
+| `tools/qa/compile_question_protocol_coverage.py` | Compile or independently validate the 12-type native QuestionSpec protocol |
+| `tools/qa/derive_native_occluder_evidence.py` | Derive static occluder identity from native modal/target-only pixels |
+| `tools/qa/design_qa_batch.py` | Design and author one constraint-driven QA v2 batch (reverse fitting) |
+| `tools/qa/evaluate_question_specs.py` | Evaluate registry-bound QuestionSpecs and render a standalone review page |
+| `tools/qa/finalize_batch_visuals.py` | Retire raw rgb.npy arrays for a finished QA v2 batch (owner policy |
+| `tools/qa/finalize_native_full_occlusion_reappearance_episode.py` | Compile Facts and finalize the native full-occlusion suite after audio render |
+| `tools/qa/finalize_native_paper_balance_episode.py` | Finalize one paper-balance recipe after native RLR binaural rendering |
+| `tools/qa/finalize_native_pixel_artifacts.py` | Finalize and verify a native SPEAR pixel-capture artifact inventory |
+| `tools/qa/finalize_strict_two_human_canary.py` | Finalize and fail-closed validate the strict two-human sparse canary |
+| `tools/qa/finalize_strict_two_human_dynamic_full75_canary.py` | Fail-closed finalizer for strict two-human dynamic full75 canaries |
+| `tools/qa/finalize_strict_two_human_full75_canary.py` | Fail-closed finalizer for one strict two-human 75-frame native canary |
+| `tools/qa/finalize_strict_two_human_raw_episode.py` | CPU-only finalizer for one atomically published strict full75 raw spool |
+| `tools/qa/generate_qa_v2_questions.py` | QA v2 question generation for a constraint-driven batch |
+| `tools/qa/materialize_strict_two_human_dynamic_canary.py` | Materialize one true-motion strict two-human full75 CPU closure |
+| `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
+| `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
+| `tools/qa/pre_gpu_launch_ledger.py` | Fail-closed archival for prepared attempts that never reached a GPU launch |
+| `tools/qa/probe_packaged_imported_glb_room.py` | Fail-closed NullRHI packaged readback for an imported-GLB room adapter |
+| `tools/qa/probe_packaged_skokloster_room.py` | Fail-closed NullRHI packaged-object readback for Skokloster Castle |
+| `tools/qa/probe_ue_capture_animation.py` | Probe a static-camera capture for scheduled-but-unrendered walk animation |
+| `tools/qa/publish_strict_two_human_full75_canary_summary.py` | Publish a reviewable four-row summary for strict two-human full75 canaries |
+| `tools/qa/publish_strict_two_human_review.py` | Publish a lightweight, server-linked review for the strict two-human gates |
+| `tools/qa/recompile_native_pixel_truth.py` | Recompile retained metric-depth truth with the current lossless fields |
+| `tools/qa/refresh_strict_two_human_row8_ready.py` | Refresh the row8 sparse request against the current split visibility contract |
+| `tools/qa/render_axis1_twin_audio.py` | Render route-swap twin binaural audio for axis-1 certified episodes |
+| `tools/qa/render_intermittent_batch.py` | Render intermittent-window binaural mixtures for a declared episode subset |
+| `tools/qa/run_strict_two_human_dynamic_full75_canary.py` | Launch one CPU-qualified dynamic full75 canary on physical GPU1 only |
+| `tools/qa/run_strict_two_human_full75_canary.py` | Run one planned full75 canary only after the physical-GPU1 idle gate |
+| `tools/qa/run_strict_two_human_full75_room_batch.py` | Fail-closed controller for one same-room strict full75 batch |
+| `tools/qa/run_strict_two_human_ground_contact_diagnostic.py` | Prepare and launch one fail-closed f0/f37/f74 ground-contact diagnostic |
+| `tools/qa/run_strict_two_human_mp3d_f15_probe.py` | Prepare and launch one MP3D strict-two-human diagnostic f15 probe |
+| `tools/qa/run_strict_two_human_mp3d_f15_probe_v3.py` | Freeze the MP3D v2 failure and prepare the independent v3 f15 candidate |
+| `tools/qa/run_strict_two_human_mp3d_f15_probe_v4.py` | Freeze the MP3D v3 failure and prepare the independent v4 f15 candidate |
+| `tools/qa/run_strict_two_human_skokloster_f15_probe.py` | Prepare and run one fail-closed Skokloster strict-two-human f15 probe |
+| `tools/qa/run_strict_two_human_skokloster_f15_probe_v2.py` | Freeze the Skokloster v1 environment failure and prepare f15 revision v2 |
+| `tools/qa/search_mp3d_strict_two_human_nav_positions.py` | Search the real MP3D navmesh for a safer two-adult static probe pair |
+| `tools/qa/search_skokloster_strict_listener.py` | Search one coupled Skokloster camera/listener for a strict two-adult probe |
+| `tools/qa/spear_imported_glb_room_adapter.py` | Runtime adapter for reload-verified GLB scenes imported into cooked SPEAR |
+| `tools/qa/spear_room_batch_lifecycle.py` | SPEAR same-room Episode lifecycle gates staged for a two-Episode canary |
+| `tools/qa/spear_skokloster_room_adapter.py` | Generic imported-GLB runtime contract specialized to Skokloster's one mesh |
+| `tools/qa/spike_spear_native_pixel_visibility.py` | Capture one real SPEAR RGB/depth/modal/target-only visibility spike |
+| `tools/qa/strict_two_human_cpu_finalize_queue.py` | Low-priority one-worker CPU finalization queue for strict room batches |
+| `tools/qa/strict_two_human_raw_spool.py` | Exact, crash-safe raw spool used by the shared-room full75 capture adapter |
+| `tools/qa/upgrade_static_spear_suite_camera.py` | Bind legacy static-camera SPEAR plans to audited QA capture requests |
+| `tools/qa/validate_strict_two_human_camera_pan_motion_realism.py` | Validate or deterministically replay the camera-pan motion audit receipt |
+| `tools/qa/validate_strict_two_human_motion_realism_receipt.py` | Validate a strict two-human CPU motion-realism receipt, optionally by replay |
+| `tools/qa/validate_strict_two_human_native_rate_dynamic_candidates.py` | Validate a fail-closed native-rate full75 dynamic candidate pair |
+| `tools/qa/validate_strict_two_human_publication_plan.py` | Fail-closed validation for the strict two-human publication plan |
+
+## 数据集装配（`tools/dataset/`）
+
+*训练/评测数据的规模化装配、重组、吞吐批与验证*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/dataset/build_asset_bound_apartment_ue_bundle.py` | Materialize M7 source1/source2 routes as one reusable Apartment UE bundle |
+| `tools/dataset/build_asset_bound_dataset_index.py` | Index 1,000 samples without copying visual, audio, or room media |
+| `tools/dataset/build_asset_bound_visual_reviews.py` | Build Habitat-only internal visual QA reviews for the M7 throughput batch |
+| `tools/dataset/build_cached_apartment_dataset_examples.py` | Build four cache-bound Apartment dataset examples for UE review |
+| `tools/dataset/build_mp3d_room_evaluation_review.py` | Build one hash-bound MP3D room-evaluation listening review |
+| `tools/dataset/build_room_evaluation_plan.py` | Select balanced generic source trajectories for one room evaluation |
+| `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
+| `tools/dataset/compare_rir_cache_metrics.py` | Compare EDT/DRR/late-energy between two retained RIR caches on matched jobs |
+| `tools/dataset/merge_spear_apartment_render_shards.py` | Merge independently rendered SPEAR Apartment shards without copying media |
+| `tools/dataset/recombine_source_trajectory_bank.py` | Build many unique two-source episodes from one finite single-path pool |
+| `tools/dataset/render_asset_bound_binaural_batch.py` | Assemble many binaural training items from one completed asset-bound cache |
+| `tools/dataset/render_asset_bound_binaural_canary.py` | Render two real dry recordings through one completed asset-bound RIR cache |
+| `tools/dataset/render_current_apartment_dynamic_audio.py` | Render motion-following binaural audio for a current Apartment UE capture |
+| `tools/dataset/render_room_evaluation_binaural.py` | Mix generic room-evaluation sound classes through a completed RIR cache |
+| `tools/dataset/run_habitat_room_batch.py` | Batch Habitat-native RGB rendering for registry-selected rooms |
+| `tools/dataset/verify_asset_bound_batch.py` | Verify the complete M7 asset-bound binaural throughput batch |
+
+## 审阅（`tools/review/`）
+
+*审阅页、交付片段、对比与评审证据*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/review/build_current_mp3d_dynamic_review_clip.py` | Build the current MP3D dynamic-audio review clip from engine artifacts |
+| `tools/review/build_legacy_delivery.py` | Build the final annotated 18-second M5.1 legacy comparison delivery |
+| `tools/review/build_mp3d_delivery.py` | Build an 18-second Habitat-native human/Beagle annotated binaural review |
+| `tools/review/build_review_index.py` | Build a small local review page for optional SPEAR/UE room renders |
+| `tools/review/build_six_case_review.py` | Validate, plan, or build the immutable M6 six-case human-review package |
+| `tools/review/machine_audition_hm3d_episode.py` | Machine-audit one rendered HM3D episode and write the verdict beside it |
+| `tools/review/render_review_acoustics.py` | Render and retain variable-duration M5.1 binaural RIR evidence |
+
+## 注册表与发布（`tools/registry/`）
+
+*注册表发布与核验*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/registry/publish_static_object_registry.py` | Publish or verify one fail-closed M6 static-object research registration |
+| `tools/registry/reseal_examples.py` | Reseal and re-pin example evidence bindings after a legitimate content change |
+
+## 发布（`tools/release/`）
+
+*发布包组装*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/release/build_manifest.py` | Prepare or verify the two-commit AVEngine cross-repository release manifest |
+
+## Studio（`tools/studio/`）
+
+*审阅与任务网页台*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/studio/build_studio_scene_bundle.py` | Build a Studio scene bundle: preview mesh plus draft obstacle snapshot |
+| `tools/studio/feed_hm3d_fleet.py` | Keep the studio queue fed with the next un-attempted HM3D houses |
+| `tools/studio/make_paired_ablation.py` | Paired ablation variants for a rendered dynamic-audio bundle |
+| `tools/studio/run_apartment_end_to_end.py` | Studio end-to-end Apartment chain: author timeline → UE capture → audio → clip |
+| `tools/studio/run_hm3d_end_to_end.py` | One HM3D house, start to finish, in a single task |
+| `tools/studio/run_hm3d_episode.py` | Render one HM3D moving-source episode: pose, FOA, first-person video, binaural |
+| `tools/studio/run_kujiale_acoustic_package.py` | Compile a Kujiale USD room into an RLR-loadable research acoustic package |
+| `tools/studio/run_mp3d_end_to_end.py` | Studio end-to-end MP3D chain: author route → capture → dynamic audio → clip |
+| `tools/studio/run_studio_server.py` | Launch the AVEngine Studio backend server (loopback only) |
+| `tools/studio/ue_export_apartment_gltf.py` | Headless UE editor export: apartment_0000 level -> textured glb |
+
+## UE 工程（`tools/ue/`）
+
+*UE 编辑器内脚本：导入、修复、建图、导出*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/ue/assemble_package_stage.py` | Assemble a fresh UE package stage for the current Apartment visual route |
+| `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
+| `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
+| `tools/ue/export_apartment_gltf.py` | Export the legacy SPEAR apartment as real UE render-surface geometry |
+| `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
+| `tools/ue/import_spear_3d_front_sample_editor.py` | Import the local 3D-FRONT Toolbox sample proxy into a persistent UE map |
+| `tools/ue/import_spear_replicacad_editor.py` | Import and assemble the prepared ReplicaCAD apt_0 scene inside UE 5.5 |
+| `tools/ue/import_spear_skokloster_editor.py` | Import the prepared Skokloster GLB into one isolated SPEAR/UE content root |
+| `tools/ue/prepare_spear_mp3d_execution.py` | Bind a compiled Timeline-v2 visual plan to the imported MP3D UE scene |
+| `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |
+| `tools/ue/probe_spear_replicacad_environment.py` | Probe whether ReplicaCAD can be imported/cooked without touching old SPEAR |
+| `tools/ue/unreal_export_approaching_storm.py` | Unreal Editor-side exporter for the stock approaching_storm TextureCube |
+
+## Blender 工程（`tools/blender/`）
+
+*Blender 内运行的资产处理脚本*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/blender/build_custom_room.py` | Build the controlled two-zone Blender room used by the M1 canary |
+| `tools/blender/normalize_asset_skinned_glb.py` | Bake an armature object transform into a Habitat-oriented GLB candidate |
+| `tools/blender/realize_animal_appearance.py` | Realize one hash-bound animal appearance request without changing its rig |
+| `tools/blender/render_instance_diversity_check.py` | Render several finished assets in one frame at room distance |
+| `tools/blender/verify_asset_rebased_glb.py` | Verify sampled deformation equivalence across the M2 GLB root rebase |
+| `tools/blender/verify_motion_projection.py` | Measure sampled deformation drift from a source to a rotation-only GLB |
+
+## 动作（`tools/motion/`）
+
+*动作重定向与接触相位*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/motion/audit_asset_retarget.py` | Audit one profile-bound retargeted M2 action with body-plan-neutral QA |
+| `tools/motion/build_self_retarget_profile.py` | Build a hash-bound identity-skeleton retarget probe profile |
+| `tools/motion/derive_contacts.py` | Derive hash-bound M2 four-paw contact phases from explicit inputs |
+| `tools/motion/retarget_blender.py` | Retarget audited GLB motion onto an audited target GLB in Blender |

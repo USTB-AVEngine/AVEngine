@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m4_audio_bundle_v1.schema.json",
+  "title": "AVEngine M4 Multi-Source Audio Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "bundle_id",
+    "request_id",
+    "overall_status",
+    "failure_reasons",
+    "source_identity_manifest",
+    "listener_id",
+    "canonical_source_order",
+    "sample_rate_hz",
+    "spatial_audio",
+    "pairs",
+    "binaural_decoder",
+    "bundle_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m4_audio_bundle_v1"},
+    "bundle_id": {"$ref": "#/$defs/stable_id"},
+    "request_id": {"$ref": "#/$defs/stable_id"},
+    "overall_status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+    "failure_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "source_identity_manifest": {"$ref": "#/$defs/file_record"},
+    "listener_id": {"$ref": "#/$defs/stable_id"},
+    "canonical_source_order": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/stable_id"}
+    },
+    "sample_rate_hz": {"type": "integer", "minimum": 16000},
+    "spatial_audio": {"$ref": "#/$defs/foa_contract"},
+    "pairs": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/pair"}
+    },
+    "binaural_decoder": {
+      "oneOf": [
+        {"$ref": "#/$defs/binaural_not_run"},
+        {"$ref": "#/$defs/binaural_blocked"},
+        {"$ref": "#/$defs/binaural_pass"}
+      ]
+    },
+    "bundle_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"overall_status": {"const": "pass"}},
+        "required": ["overall_status"]
+      },
+      "then": {
+        "properties": {
+          "failure_reasons": {"maxItems": 0},
+          "pairs": {
+            "items": {
+              "properties": {
+                "rir": {"$ref": "#/$defs/available_audio"},
+                "stem": {"$ref": "#/$defs/available_audio"}
+              }
+            }
+          },
+          "binaural_decoder": {"$ref": "#/$defs/binaural_pass"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*\\$)(?!.*~)[^\\\\]+$"
+        },
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "foa_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_id",
+        "ambisonic_order",
+        "channel_count",
+        "raw_channel_order",
+        "acn_indices",
+        "normalization",
+        "coordinate_frame",
+        "handedness",
+        "axes",
+        "raw_array_layout",
+        "dtype"
+      ],
+      "properties": {
+        "format_id": {"const": "rlr_foa_acn_n3d_world_v1"},
+        "ambisonic_order": {"const": 1},
+        "channel_count": {"const": 4},
+        "raw_channel_order": {"const": ["W", "Y", "Z", "X"]},
+        "acn_indices": {"const": [0, 1, 2, 3]},
+        "normalization": {"const": "N3D"},
+        "coordinate_frame": {"const": "avengine_world"},
+        "handedness": {"const": "right"},
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["right", "up", "back", "forward"],
+          "properties": {
+            "right": {"const": "+X"},
+            "up": {"const": "+Y"},
+            "back": {"const": "+Z"},
+            "forward": {"const": "-Z"}
+          }
+        },
+        "raw_array_layout": {"const": "channel_major_[channels,samples]"},
+        "dtype": {"const": "float32_le"}
+      }
+    },
+    "available_audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "storage",
+        "file",
+        "sample_sha256",
+        "sample_count",
+        "channel_count",
+        "dtype"
+      ],
+      "properties": {
+        "status": {"const": "available"},
+        "storage": {"enum": ["npy_channel_major", "wav_float32_interleaved"]},
+        "file": {"$ref": "#/$defs/file_record"},
+        "sidecar": {"$ref": "#/$defs/file_record"},
+        "sample_sha256": {"$ref": "#/$defs/sha256"},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "channel_count": {"const": 4},
+        "dtype": {"const": "float32_le"}
+      }
+    },
+    "unavailable_audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"enum": ["blocked", "not_run"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "audio_result": {
+      "oneOf": [
+        {"$ref": "#/$defs/available_audio"},
+        {"$ref": "#/$defs/unavailable_audio"}
+      ]
+    },
+    "dry_signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dry_audio_id", "sample_sha256", "sample_count", "channel_count", "dtype"],
+      "properties": {
+        "dry_audio_id": {"$ref": "#/$defs/stable_id"},
+        "sample_sha256": {"$ref": "#/$defs/sha256"},
+        "sample_count": {"type": "integer", "minimum": 2},
+        "channel_count": {"const": 1},
+        "dtype": {"const": "float64_le"}
+      }
+    },
+    "pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listener_id", "source_id", "dry", "rir", "stem"],
+      "properties": {
+        "listener_id": {"$ref": "#/$defs/stable_id"},
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "dry": {"$ref": "#/$defs/dry_signal"},
+        "rir": {"$ref": "#/$defs/audio_result"},
+        "stem": {"$ref": "#/$defs/audio_result"}
+      }
+    },
+    "binaural_not_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "qualification_claim", "reason"],
+      "properties": {
+        "status": {"const": "not_run"},
+        "qualification_claim": {"const": false},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "binaural_blocked": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "qualification_claim", "reason"],
+      "properties": {
+        "status": {"const": "blocked"},
+        "qualification_claim": {"const": false},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "binaural_pass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "qualification_claim",
+        "verification_scope",
+        "rendering_method",
+        "renderer",
+        "channel_layout",
+        "hrtf_policy",
+        "avengine_resampling_policy",
+        "native_rate_adaptation_policy",
+        "normalization_policy",
+        "limiter_policy",
+        "hrtf",
+        "rights",
+        "sample_rate_binding",
+        "dependency_preflight_status",
+        "native_cardinal_validation",
+        "outputs"
+      ],
+      "properties": {
+        "status": {"const": "pass"},
+        "qualification_claim": {"const": true},
+        "verification_scope": {"const": "native_binaural_cardinal_canary"},
+        "rendering_method": {"const": "rlr_native_binaural_v1"},
+        "renderer": {"const": "RLR native binaural listener"},
+        "channel_layout": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "channel_count", "channel_order"],
+          "properties": {
+            "type": {"const": "binaural"},
+            "channel_count": {"const": 2},
+            "channel_order": {"const": ["left", "right"]}
+          }
+        },
+        "hrtf_policy": {"const": "explicit_hash_and_license_required"},
+        "avengine_resampling_policy": {"const": "forbidden"},
+        "native_rate_adaptation_policy": {
+          "const": "allowed only when explicitly bound to an RLR binary SHA-256"
+        },
+        "normalization_policy": {"const": "forbidden"},
+        "limiter_policy": {"const": "forbidden"},
+        "hrtf": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["asset_id", "file", "sample_rate_hz"],
+          "properties": {
+            "asset_id": {"$ref": "#/$defs/stable_id"},
+            "file": {"$ref": "#/$defs/file_record"},
+            "sample_rate_hz": {"type": "integer", "minimum": 16000}
+          }
+        },
+        "rights": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["license_id", "citation", "license_file"],
+          "properties": {
+            "license_id": {"type": "string", "minLength": 1},
+            "citation": {"type": "string", "minLength": 1},
+            "license_file": {"$ref": "#/$defs/file_record"}
+          }
+        },
+        "sample_rate_binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policy",
+            "render_sample_rate_hz",
+            "hrtf_input_sample_rate_hz",
+            "avengine_resampling_performed",
+            "native_rate_adaptation"
+          ],
+          "properties": {
+            "policy": {
+              "enum": [
+                "strict_match",
+                "rlr_native_internal_bound_to_binary"
+              ]
+            },
+            "render_sample_rate_hz": {"type": "integer", "minimum": 16000},
+            "hrtf_input_sample_rate_hz": {"type": "integer", "minimum": 16000},
+            "avengine_resampling_performed": {"const": false},
+            "native_rate_adaptation": {
+              "enum": [
+                "not_required",
+                "performed_inside_pinned_rlr_binary"
+              ]
+            },
+            "rlr_binary_sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "policy": {"const": "rlr_native_internal_bound_to_binary"}
+                },
+                "required": ["policy"]
+              },
+              "then": {"required": ["rlr_binary_sha256"]},
+              "else": {"not": {"required": ["rlr_binary_sha256"]}}
+            }
+          ]
+        },
+        "dependency_preflight_status": {"const": "pass"},
+        "native_cardinal_validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "report"],
+          "properties": {
+            "status": {"const": "pass"},
+            "report": {"type": "object"}
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_id", "file", "sidecar"],
+            "properties": {
+              "source_id": {"$ref": "#/$defs/stable_id"},
+              "file": {"$ref": "#/$defs/file_record"},
+              "sidecar": {"$ref": "#/$defs/file_record"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

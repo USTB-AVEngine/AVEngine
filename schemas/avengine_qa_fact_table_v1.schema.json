@@ -1,0 +1,986 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/avengine_qa_fact_table_v1.schema.json",
+  "title": "AVEngine QA per-episode fact table v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "qualification_claim",
+    "claim_boundary",
+    "episode_id",
+    "motion_case",
+    "room",
+    "time",
+    "listener",
+    "instances",
+    "sound_events",
+    "tracks",
+    "anchors",
+    "relations",
+    "visibility",
+    "frame_events",
+    "flags",
+    "audio",
+    "provenance"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_qa_fact_table_v1"},
+    "status": {"const": "pass"},
+    "qualification_claim": {"const": false},
+    "claim_boundary": {"type": "string", "minLength": 1},
+    "episode_id": {"type": "string", "minLength": 1},
+    "motion_case": {"type": "string", "minLength": 1},
+    "counterfactual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "twin_of", "visual_bytes_identical", "rir_cache_reused"],
+      "properties": {
+        "kind": {"const": "axis1_route_swap"},
+        "twin_of": {"type": "string", "minLength": 1},
+        "visual_bytes_identical": {"const": true},
+        "rir_cache_reused": {"const": true}
+      }
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["room_capsule_id", "revision"],
+      "properties": {
+        "room_capsule_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1}
+      }
+    },
+    "time": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_count",
+        "frame_rate_hz",
+        "duration_seconds",
+        "time_base_hz",
+        "ticks_per_frame",
+        "audio_sample_rate_hz",
+        "audio_sample_count"
+      ],
+      "properties": {
+        "frame_count": {"const": 75},
+        "frame_rate_hz": {"const": 15},
+        "duration_seconds": {"const": 5.0},
+        "time_base_hz": {"const": 48000},
+        "ticks_per_frame": {"const": 3200},
+        "audio_sample_rate_hz": {"const": 16000},
+        "audio_sample_count": {"const": 80000}
+      }
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position_m",
+        "orientation_wxyz",
+        "forward_world",
+        "yaw_deg",
+        "static",
+        "azimuth_convention"
+      ],
+      "properties": {
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "orientation_wxyz": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"type": "number"}
+        },
+        "forward_world": {"$ref": "#/$defs/vec3"},
+        "yaw_deg": {"type": "number"},
+        "static": {"type": "boolean"},
+        "azimuth_convention": {
+          "const": "avengine_native_full_circle_front0_right_plus90"
+        },
+        "sensor_rig_trajectory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "trajectory_id",
+            "pose_hash_algorithm",
+            "first_pose_hash",
+            "last_pose_hash",
+            "dynamic"
+          ],
+          "properties": {
+            "schema": {"const": "avengine_sensor_rig_trajectory_v1"},
+            "trajectory_id": {"type": "string", "minLength": 1},
+            "pose_hash_algorithm": {
+              "const": "avengine_sensor_rig_pose_hash_v1"
+            },
+            "first_pose_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "last_pose_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "dynamic": {"type": "boolean"}
+          }
+        },
+        "positions_m_by_frame": {"$ref": "#/$defs/frameVec3Track"},
+        "orientations_wxyz_by_frame": {"$ref": "#/$defs/frameQuatTrack"},
+        "forward_world_by_frame": {"$ref": "#/$defs/frameVec3Track"},
+        "yaw_deg_by_frame": {"$ref": "#/$defs/frameScalarTrack"}
+      },
+      "dependentRequired": {
+        "sensor_rig_trajectory": [
+          "positions_m_by_frame",
+          "orientations_wxyz_by_frame",
+          "forward_world_by_frame",
+          "yaw_deg_by_frame"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"static": {"const": false}},
+            "required": ["static"]
+          },
+          "then": {
+            "required": [
+              "sensor_rig_trajectory",
+              "positions_m_by_frame",
+              "orientations_wxyz_by_frame",
+              "forward_world_by_frame",
+              "yaw_deg_by_frame"
+            ]
+          }
+        }
+      ]
+    },
+    "instances": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instance_id",
+          "source_slot_id",
+          "asset_id",
+          "display_label",
+          "entity_class",
+          "species_id",
+          "breed_id",
+          "attributes",
+          "emitter",
+          "registry"
+        ],
+        "properties": {
+          "instance_id": {"type": "string", "minLength": 1},
+          "source_slot_id": {"type": "string", "minLength": 1},
+          "asset_id": {"type": "string", "minLength": 1},
+          "display_label": {"type": "string", "minLength": 1},
+          "entity_class": {"type": "string", "minLength": 1},
+          "species_id": {"type": "string", "minLength": 1},
+          "breed_id": {"type": ["string", "null"]},
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "size",
+              "body_build",
+              "life_stage",
+              "coat_profile_id",
+              "coat_value"
+            ],
+            "properties": {
+              "size": {"type": ["string", "null"]},
+              "body_build": {"type": ["string", "null"]},
+              "life_stage": {"type": ["string", "null"]},
+              "sex_or_gender_label": {"type": ["string", "null"]},
+              "coat_profile_id": {"type": ["string", "null"]},
+              "coat_value": {"type": ["string", "null"]}
+            }
+          },
+          "emitter": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["anchor_id", "anchor_type", "offset_m", "offset_space"],
+            "properties": {
+              "anchor_id": {"type": "string", "minLength": 1},
+              "anchor_type": {"type": "string", "minLength": 1},
+              "offset_m": {"$ref": "#/$defs/vec3"},
+              "offset_space": {"type": "string", "minLength": 1}
+            }
+          },
+          "registry": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "registry_id",
+              "revision",
+              "asset_revision",
+              "admission_state"
+            ],
+            "properties": {
+              "registry_id": {"type": "string", "minLength": 1},
+              "revision": {"type": "string", "minLength": 1},
+              "asset_revision": {"type": "string", "minLength": 1},
+              "admission_state": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "sound_events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "source_slot_id",
+          "asset_id",
+          "sound_class",
+          "start_frame",
+          "end_frame",
+          "start_tick",
+          "end_tick",
+          "start_sample",
+          "end_sample",
+          "active_full_window",
+          "window_authority",
+          "dry_variant"
+        ],
+        "properties": {
+          "event_id": {"type": "string", "minLength": 1},
+          "source_slot_id": {"type": "string", "minLength": 1},
+          "asset_id": {"type": "string", "minLength": 1},
+          "sound_class": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["species_id", "display_label"],
+            "properties": {
+              "species_id": {"type": "string", "minLength": 1},
+              "display_label": {"type": "string", "minLength": 1}
+            }
+          },
+          "start_frame": {"type": "integer", "minimum": 0},
+          "end_frame": {"type": "integer", "minimum": 1},
+          "start_tick": {"type": "integer", "minimum": 0},
+          "end_tick": {"type": "integer", "minimum": 1},
+          "start_sample": {"type": "integer", "minimum": 0},
+          "end_sample": {"type": "integer", "minimum": 1},
+          "active_full_window": {"type": "boolean"},
+          "window_authority": {
+            "enum": [
+              "asset_bound_batch_continuous_v1",
+              "declared_intermittent_program_v1"
+            ]
+          },
+          "voice_asset_id": {"type": "string", "minLength": 1},
+          "sound_asset_id": {
+            "type": "string",
+            "minLength": 1,
+            "not": {"pattern": "^[0-9a-fA-F]{32,}$"}
+          },
+          "statement_id": {
+            "type": "string",
+            "minLength": 1,
+            "not": {"pattern": "^[0-9a-fA-F]{32,}$"}
+          },
+          "transcript": {"type": "string", "minLength": 1},
+          "language": {"type": "string", "minLength": 1},
+          "fade_samples": {"type": "integer", "minimum": 0},
+          "gating": {"type": "string", "minLength": 1},
+          "dry_variant": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["variant_index", "input_path", "input_sha256", "linear_gain"],
+            "properties": {
+              "variant_index": {"type": "integer", "minimum": 0},
+              "input_path": {"type": "string", "minLength": 1},
+              "input_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "linear_gain": {"type": "number", "exclusiveMinimum": 0}
+            }
+          }
+        },
+        "dependentRequired": {
+          "statement_id": ["sound_asset_id", "transcript", "language"],
+          "transcript": ["sound_asset_id", "statement_id", "language"],
+          "language": ["sound_asset_id", "statement_id", "transcript"]
+        }
+      }
+    },
+    "tracks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["per_frame_count", "instances", "pairwise"],
+      "properties": {
+        "per_frame_count": {"const": 75},
+        "instances": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "root_position_m",
+              "emitter_position_m",
+              "speed_mps",
+              "moving",
+              "moving_threshold_mps",
+              "facing_yaw_deg",
+              "doa",
+              "summary"
+            ],
+            "properties": {
+              "root_position_m": {"$ref": "#/$defs/frameVec3Track"},
+              "emitter_position_m": {"$ref": "#/$defs/frameVec3Track"},
+              "speed_mps": {"$ref": "#/$defs/frameScalarTrack"},
+              "moving": {
+                "type": "array",
+                "minItems": 75,
+                "maxItems": 75,
+                "items": {"type": "boolean"}
+              },
+              "moving_threshold_mps": {"const": 0.05},
+              "facing_yaw_deg": {
+                "oneOf": [
+                  {"$ref": "#/$defs/frameScalarTrack"},
+                  {"type": "null"}
+                ]
+              },
+              "doa": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["azimuth_deg", "elevation_deg", "distance_m"],
+                "properties": {
+                  "azimuth_deg": {"$ref": "#/$defs/frameScalarTrack"},
+                  "elevation_deg": {"$ref": "#/$defs/frameScalarTrack"},
+                  "distance_m": {"$ref": "#/$defs/frameScalarTrack"}
+                }
+              },
+              "summary": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "moving_frame_count",
+                  "distance_min_m",
+                  "distance_max_m",
+                  "distance_mean_m",
+                  "azimuth_min_deg",
+                  "azimuth_max_deg",
+                  "azimuth_at_first_frame_deg",
+                  "azimuth_at_last_frame_deg"
+                ],
+                "properties": {
+                  "moving_frame_count": {"type": "integer", "minimum": 0},
+                  "distance_min_m": {"type": "number", "exclusiveMinimum": 0},
+                  "distance_max_m": {"type": "number", "exclusiveMinimum": 0},
+                  "distance_mean_m": {"type": "number", "exclusiveMinimum": 0},
+                  "azimuth_min_deg": {"type": "number"},
+                  "azimuth_max_deg": {"type": "number"},
+                  "azimuth_at_first_frame_deg": {"type": "number"},
+                  "azimuth_at_last_frame_deg": {"type": "number"}
+                }
+              }
+            }
+          }
+        },
+        "pairwise": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["emitter_distance_m", "min_m", "max_m", "mean_m"],
+            "properties": {
+              "emitter_distance_m": {"$ref": "#/$defs/frameScalarTrack"},
+              "min_m": {"type": "number", "minimum": 0},
+              "max_m": {"type": "number", "minimum": 0},
+              "mean_m": {"type": "number", "minimum": 0}
+            }
+          }
+        }
+      }
+    },
+    "anchors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["anchor_id", "kind", "position_m", "yaw_deg"],
+        "properties": {
+          "anchor_id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "position_m": {"$ref": "#/$defs/vec3"},
+          "yaw_deg": {"type": ["number", "null"]}
+        }
+      }
+    },
+    "relations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allocentric_status", "anchor_distances"],
+      "properties": {
+        "allocentric_status": {
+          "const": "deferred_pending_furniture_obb_snapshot"
+        },
+        "anchor_distances": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["min_m", "max_m", "mean_m", "argmin_frame"],
+              "properties": {
+                "min_m": {"type": "number", "minimum": 0},
+                "max_m": {"type": "number", "minimum": 0},
+                "mean_m": {"type": "number", "minimum": 0},
+                "argmin_frame": {"type": "integer", "minimum": 0, "maximum": 74}
+              }
+            }
+          }
+        }
+      }
+    },
+    "visibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "authority",
+        "hfov_degrees",
+        "resolution_hw",
+        "per_instance",
+        "pixel_truth"
+      ],
+      "properties": {
+        "status": {"const": "computed_center_point_v0"},
+        "authority": {
+          "const": "center_point_pinhole_frustum_no_occlusion_v1"
+        },
+        "hfov_degrees": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180},
+        "resolution_hw": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "per_instance": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "in_frustum",
+              "in_frustum_frame_count",
+              "always_outside_frustum",
+              "always_inside_frustum"
+            ],
+            "properties": {
+              "in_frustum": {
+                "type": "array",
+                "minItems": 75,
+                "maxItems": 75,
+                "items": {"type": "boolean"}
+              },
+              "in_frustum_frame_count": {"type": "integer", "minimum": 0, "maximum": 75},
+              "always_outside_frustum": {"type": "boolean"},
+              "always_inside_frustum": {"type": "boolean"}
+            }
+          }
+        },
+        "pixel_truth": {
+          "oneOf": [
+            {"const": "pending_P1_amodal_modal_pass"},
+            {"$ref": "#/$defs/pixelVisibilityTruth"}
+          ]
+        },
+        "occluder_evidence": {
+          "$ref": "#/$defs/nativeStaticOccluderEvidence"
+        }
+      }
+    },
+    "frame_events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "authority", "events"],
+      "properties": {
+        "status": {"const": "computed_center_point_v0"},
+        "authority": {
+          "const": "center_point_pinhole_frustum_no_occlusion_v1"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "instance_id",
+              "kind",
+              "frame",
+              "side",
+              "azimuth_deg_at_event"
+            ],
+            "properties": {
+              "instance_id": {"type": "string", "minLength": 1},
+              "kind": {"enum": ["entry", "exit"]},
+              "frame": {"type": "integer", "minimum": 1, "maximum": 74},
+              "side": {"enum": ["left", "right"]},
+              "azimuth_deg_at_event": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"const": "not_evaluated"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mixture_path",
+        "mixture_sha256",
+        "sample_rate_hz",
+        "sample_count",
+        "channel_count",
+        "peak_absolute",
+        "rir_cache_request_identity_sha256"
+      ],
+      "properties": {
+        "mixture_path": {"type": "string", "minLength": 1},
+        "mixture_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sample_rate_hz": {"const": 16000},
+        "sample_count": {"const": 80000},
+        "channel_count": {"const": 2},
+        "peak_absolute": {"type": "number", "minimum": 0, "maximum": 1},
+        "rir_cache_request_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs"],
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["role", "path", "sha256"],
+            "properties": {
+              "role": {"type": "string", "minLength": 1},
+              "path": {"type": "string", "minLength": 1},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nativeStaticOccluderEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "authority",
+        "camera_pose_ids",
+        "decision_policy",
+        "source_artifacts",
+        "occluder_registry",
+        "frame_records"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_native_static_occluder_evidence_v1"},
+        "status": {"const": "computed_native_static_object_ids_v1"},
+        "authority": {
+          "const": "same_renderer_same_camera_occluded_target_footprint_normal_static_object_ids_v1"
+        },
+        "camera_pose_ids": {
+          "type": "array",
+          "minItems": 75,
+          "maxItems": 75,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "decision_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum_occluded_pixels",
+            "unique_static_object_required",
+            "all_occluded_pixels_require_known_static_object_id",
+            "unknown_raw_ids_are_never_admitted"
+          ],
+          "properties": {
+            "minimum_occluded_pixels": {"type": "integer", "minimum": 1},
+            "unique_static_object_required": {"const": true},
+            "all_occluded_pixels_require_known_static_object_id": {"const": true},
+            "unknown_raw_ids_are_never_admitted": {"const": true}
+          }
+        },
+        "source_artifacts": {
+          "type": "object",
+          "minProperties": 4,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        },
+        "occluder_registry": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "occluder_id",
+              "display_label",
+              "actor_stable_name",
+              "actor_names",
+              "raw_object_ids"
+            ],
+            "properties": {
+              "occluder_id": {"type": "string", "minLength": 1},
+              "display_label": {"type": "string", "minLength": 1},
+              "actor_stable_name": {"type": "string", "minLength": 1},
+              "actor_names": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true
+              },
+              "raw_object_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "integer", "minimum": 1},
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "frame_records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_instance_id",
+              "frame_index",
+              "pixel_state",
+              "occluded_pixels",
+              "known_static_object_pixels",
+              "candidates",
+              "occluder_instance_ids",
+              "decision"
+            ],
+            "properties": {
+              "target_instance_id": {"type": "string", "minLength": 1},
+              "frame_index": {"type": "integer", "minimum": 0, "maximum": 74},
+              "pixel_state": {
+                "enum": ["visible_occluded", "fully_occluded"]
+              },
+              "occluded_pixels": {"type": "integer", "minimum": 1},
+              "known_static_object_pixels": {"type": "integer", "minimum": 0},
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "occluder_id",
+                    "pixel_count",
+                    "fraction_of_occluded_target",
+                    "raw_object_ids"
+                  ],
+                  "properties": {
+                    "occluder_id": {"type": "string", "minLength": 1},
+                    "pixel_count": {"type": "integer", "minimum": 1},
+                    "fraction_of_occluded_target": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1
+                    },
+                    "raw_object_ids": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {"type": "integer", "minimum": 1},
+                      "uniqueItems": true
+                    }
+                  }
+                }
+              },
+              "occluder_instance_ids": {
+                "type": "array",
+                "maxItems": 1,
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true
+              },
+              "decision": {
+                "enum": [
+                  "unique_static_occluder",
+                  "rejected_ambiguous_or_insufficient"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "pixelVisibilityTruth": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "authority": {
+                "const": "same_renderer_same_camera_normal_vs_target_only_metric_depth_v1"
+              }
+            }
+          },
+          "then": {"required": ["depth_comparison"]},
+          "else": {"not": {"required": ["depth_comparison"]}}
+        }
+      ],
+      "required": [
+        "schema",
+        "status",
+        "authority",
+        "renderer_backend",
+        "rgb_renderer_backend",
+        "camera_contract_id",
+        "semantic_id_namespace",
+        "resolution_hw",
+        "frame_indices",
+        "camera_pose_ids",
+        "fraction_policy",
+        "out_of_view_fraction_policy",
+        "per_instance"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_qa_pixel_visibility_truth_v1"},
+        "status": {"const": "computed_modal_target_only_v1"},
+        "authority": {
+          "enum": [
+            "same_renderer_same_camera_modal_target_only_semantic_masks_v1",
+            "same_renderer_same_camera_normal_vs_target_only_metric_depth_v1"
+          ]
+        },
+        "depth_comparison": {
+          "$ref": "#/$defs/pixelVisibilityDepthComparison"
+        },
+        "renderer_backend": {"type": "string", "minLength": 1},
+        "rgb_renderer_backend": {"type": "string", "minLength": 1},
+        "camera_contract_id": {"type": "string", "minLength": 1},
+        "semantic_id_namespace": {"type": "string", "minLength": 1},
+        "resolution_hw": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "frame_indices": {
+          "type": "array",
+          "minItems": 75,
+          "maxItems": 75,
+          "items": {"type": "integer", "minimum": 0, "maximum": 74}
+        },
+        "camera_pose_ids": {
+          "type": "array",
+          "minItems": 75,
+          "maxItems": 75,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "fraction_policy": {
+          "const": "visible_pixels_divided_by_in_view_target_only_pixels_v1"
+        },
+        "out_of_view_fraction_policy": {
+          "const": "null_no_in_view_target_denominator"
+        },
+        "per_instance": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["semantic_id", "frames", "state_counts"],
+            "properties": {
+              "semantic_id": {"type": "integer", "minimum": 1},
+              "frames": {
+                "type": "array",
+                "minItems": 75,
+                "maxItems": 75,
+                "items": {"$ref": "#/$defs/pixelVisibilityFrame"}
+              },
+              "state_counts": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "out_of_view",
+                  "visible_clear",
+                  "visible_occluded",
+                  "fully_occluded"
+                ],
+                "properties": {
+                  "out_of_view": {"type": "integer", "minimum": 0},
+                  "visible_clear": {"type": "integer", "minimum": 0},
+                  "visible_occluded": {"type": "integer", "minimum": 0},
+                  "fully_occluded": {"type": "integer", "minimum": 0}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "pixelVisibilityDepthComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "units",
+        "normal_pass",
+        "target_only_pass",
+        "target_footprint_policy",
+        "visibility_policy",
+        "target_only_background_depth_m",
+        "absolute_tolerance_m",
+        "relative_tolerance",
+        "overlap_resolution"
+      ],
+      "properties": {
+        "units": {"const": "meters"},
+        "normal_pass": {"const": "full_scene_metric_depth"},
+        "target_only_pass": {"const": "show_only_target_metric_depth"},
+        "target_footprint_policy": {
+          "const": "target_depth_below_background_sentinel_v1"
+        },
+        "visibility_policy": {
+          "const": "absolute_normal_minus_target_depth_lte_absolute_plus_relative_v1"
+        },
+        "target_only_background_depth_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "absolute_tolerance_m": {"type": "number", "minimum": 0},
+        "relative_tolerance": {"type": "number", "minimum": 0},
+        "overlap_resolution": {
+          "const": "minimum_depth_residual_then_instance_id_v1"
+        }
+      }
+    },
+    "pixelVisibilityFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_index",
+        "visible_pixels",
+        "target_pixels",
+        "visible_fraction",
+        "occlusion_fraction",
+        "state"
+      ],
+      "properties": {
+        "frame_index": {"type": "integer", "minimum": 0, "maximum": 74},
+        "visible_pixels": {"type": "integer", "minimum": 0},
+        "target_pixels": {"type": "integer", "minimum": 0},
+        "visible_fraction": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "occlusion_fraction": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "target_bbox_xyxy_px": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {"type": "integer", "minimum": 0}
+            }
+          ]
+        },
+        "target_centroid_xy_px": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {"type": "number", "minimum": 0}
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "out_of_view",
+            "visible_clear",
+            "visible_occluded",
+            "fully_occluded"
+          ]
+        }
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "number"}
+    },
+    "frameScalarTrack": {
+      "type": "array",
+      "minItems": 75,
+      "maxItems": 75,
+      "items": {"type": "number"}
+    },
+    "frameVec3Track": {
+      "type": "array",
+      "minItems": 75,
+      "maxItems": 75,
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": {"type": "number"}
+      }
+    },
+    "frameQuatTrack": {
+      "type": "array",
+      "minItems": 75,
+      "maxItems": 75,
+      "items": {
+        "type": "array",
+        "minItems": 4,
+        "maxItems": 4,
+        "items": {"type": "number"}
+      }
+    }
+  }
+}

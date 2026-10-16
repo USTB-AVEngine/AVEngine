@@ -1,0 +1,95 @@
+schema_version: 1
+status: m2_research_candidate_review
+
+avengine:
+  repository: git@github.com:Eastforward/AVEngine.git
+  branch: feature/m2-articulated-dog-runtime
+  legacy_migration_base_commit: 92775d4d2050a3a9b277357eb83c9243468f4cd3
+  version: 0.1.0-alpha+unreleased
+
+habitat_runtime:
+  repository: git@github.com:Eastforward/habitat-sim-AVEngine.git
+  branch: feature/m2-articulated-dog-runtime
+  fork_governance_commit: bcca512aa58e8b2819454716b710ef3da72f7f47
+  source_baseline_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+  upstream_repository: https://github.com/facebookresearch/habitat-sim.git
+  upstream_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+  merge_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+  ahead_of_upstream: 4
+  behind_upstream: 0
+  avengine_runtime_modifications:
+    - id: M2-SKIN-FRAME-01
+      path: src/esp/physics/bullet/BulletPhysicsManager.cpp
+      opt_in_config_key: user_defined.avengine_native_gltf_skin_frame
+      default_behavior: upstream
+      public_api_change: false
+
+rlr:
+  repository: https://github.com/facebookresearch/rlr-audio-propagation
+  commit: 4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
+  license: CC-BY-NC-4.0
+
+runtime_test_environment:
+  conda_environment: avengine-habitat-runtime
+  python: "3.12.13"
+  git_lfs: "3.7.1"
+  jsonschema: "4.26.0"
+  required_m2_native_binding_sha256: 06079ce3a06053088e921a1852a98fba10a5409009f8502c44ed03f75dbd1211
+
+runtime_test_assets:
+  habitat_test_scenes:
+    status: pass
+    preferred_huggingface_git_route: pass
+    preferred_huggingface_commit: 910c783fb954da8497ea5f811b843a76590ddddc
+    preferred_huggingface_git_observation: "initial 504/timeouts were transient; a later full shallow Git LFS clone passed with HF_ENDPOINT unset and Git LFS 3.7.1"
+    fallback_source: https://dl.fbaipublicfiles.com/habitat/habitat-test-scenes_v1.0.zip
+    fallback_archive_sha256: 072c053c00d8e49132e48837eea38f8b6cd19e3079c40fd705ffef12347d7302
+    local_test_only: true
+  auxiliary_example_assets:
+    status: pass
+    source_definition_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+    packages:
+      - habitat_example_objects_0.2
+      - mp3d_example_scene_1.1
+      - locobot_merged_0.2
+    local_test_only: true
+
+verification:
+  repository_audit: pass
+  runtime_submodules_initialized: pass
+  habitat_clean_build: pass
+  habitat_import_with_quaternion_workaround: pass
+  habitat_direct_import: fail
+  rlr_shared_library_resolution: pass
+  habitat_core_unit_subset: pass
+  habitat_core_unit_subset_summary: "163 passed, 2 skipped (CUDA), 1 warning"
+  habitat_scene_dependent_selected_suite: pass
+  habitat_full_test_collection: pass
+  habitat_full_test_collection_summary: "776 tests collected, 1 torch-dependent test skipped"
+  habitat_test_scene_assets: pass
+  habitat_test_scene_huggingface_git_route: pass
+  habitat_auxiliary_example_assets: pass
+  habitat_full_test_suite: fail
+  habitat_full_test_suite_initial_summary: "27 failed, 421 passed, 329 skipped, 26410 warnings in 796.57s"
+  habitat_full_test_suite_post_asset_summary: "all 6 former asset-dependent failures passed targeted reruns; 21 GreedyGeodesicFollower.find_path cases remained failing"
+  habitat_greedy_follower_binding_cases: fail
+  habitat_greedy_follower_binding_summary: "21 failed, 1 warning in 76.63s; PyCapsule iterator returned NULL without setting an exception"
+  audio_sensor_canary: not_run
+  visual_canary: pass
+  visual_canary_summary: "three-room, one-view RGB/depth/semantic canary passed with a co-located listener pose anchor and at least two named source transforms; RLR audio was not run"
+  visual_canary_room_kinds:
+    habitat_native: pass
+    blender_custom: pass
+    legacy_ue_real_surface_export: pass
+  habitat_m2_opt_in_skin_frame_build: pass
+  habitat_m2_opt_in_skin_frame_probe: pass
+  habitat_upstream_skinned_articulated_object_regression: pass
+  habitat_upstream_skinned_articulated_object_regression_summary: "SimTest testArticulatedObjectSkinned cases 37/38 passed with 0 errors out of 62 checks; independent initial and posed golden-image comparisons were pixel-exact"
+  articulated_animal_review_only_capture: pass
+  articulated_animal_review_only_capture_summary: "research candidate executed 75 explicit states on one view0 with co-located RGB/depth/semantic; world time stayed 0.0; qualification_claim remained false"
+  articulated_animal_canary: not_run
+  articulated_animal_canary_reason: "formal capture requires a hash-bound human-reviewed canary_qualified package; current dog remains a research candidate with known hind-leg gait and contact warnings"
+  acoustic_material_canary: not_run
+  multi_source_canary: not_run
+  timeline_canary: not_run
+  end_to_end_dataset_canary: not_run

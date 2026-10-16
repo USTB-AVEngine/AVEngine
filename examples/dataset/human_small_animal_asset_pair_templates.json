@@ -1,0 +1,59 @@
+{
+  "schema": "avengine_asset_emitter_scenario_set_v1",
+  "selection": {
+    "purpose": "pairing templates for asset-bound trajectory selection",
+    "note": "The two route IDs only establish stable human_cat and small_dog_cat names; the selector evaluates every route in the supplied bank."
+  },
+  "scenarios": [
+    {
+      "trajectory_episode_id": "static_static_001",
+      "output_episode_id": "human_cat_static_static_001",
+      "binding_set": {
+        "schema": "avengine_asset_emitter_binding_set_v1",
+        "bindings": [
+          {
+            "source_slot_id": "source1",
+            "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+            "semantic_anchor_id": "mouth",
+            "emitter_offset_m": [0.0, 1.61, 0.0],
+            "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+            "offset_space": "final_scaled_asset_root"
+          },
+          {
+            "source_slot_id": "source2",
+            "asset_id": "quaternius_domestic_cat_generic_diagnostic_v1",
+            "semantic_anchor_id": "muzzle",
+            "emitter_offset_m": [0.312, 0.252, 0.0],
+            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+            "offset_space": "final_scaled_asset_root"
+          }
+        ]
+      }
+    },
+    {
+      "trajectory_episode_id": "static_static_000",
+      "output_episode_id": "small_dog_cat_static_static_000",
+      "binding_set": {
+        "schema": "avengine_asset_emitter_binding_set_v1",
+        "bindings": [
+          {
+            "source_slot_id": "source1",
+            "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+            "semantic_anchor_id": "muzzle",
+            "emitter_offset_m": [0.424, 0.407, -0.137],
+            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+            "offset_space": "final_scaled_asset_root"
+          },
+          {
+            "source_slot_id": "source2",
+            "asset_id": "quaternius_domestic_cat_generic_diagnostic_v1",
+            "semantic_anchor_id": "muzzle",
+            "emitter_offset_m": [0.312, 0.252, 0.0],
+            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+            "offset_space": "final_scaled_asset_root"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema": "avengine_rir_cache_simulation_request_v1",
+  "request_id": "soundspaces2_public_reference_20260730",
+  "qualification_claim": false,
+  "notes": [
+    "Explicit public SoundSpaces 2 / modern RLR reference parameters for room-acoustic calibration experiments.",
+    "The values match the public modern RLR context defaults: 44.1 kHz, 4 bands, direct SH3, indirect SH1, 500 direct rays, 5000 indirect rays at depth 200, and 200 source rays at depth 10.",
+    "global_volume is explicitly 1.0 because the modern Context API and deprecated Configuration API used different defaults.",
+    "This profile does not contain the unpublished FRL Apartment fitted material coefficients, seven source/listener poses, or exact Replica scan identifier, so qualification_claim remains false."
+  ],
+  "simulation": {
+    "sample_rate_hz": 44100,
+    "max_ir_seconds": 4.0,
+    "frequency_bands": 4,
+    "direct_sh_order": 3,
+    "indirect_sh_order": 1,
+    "direct_ray_count": 500,
+    "indirect_ray_count": 5000,
+    "indirect_ray_depth": 200,
+    "source_ray_count": 200,
+    "source_ray_depth": 10,
+    "max_diffraction_order": 10,
+    "thread_count": 1,
+    "unit_scale": 1.0,
+    "global_volume": 1.0,
+    "speed_of_sound_m_s": 343.0,
+    "direct": true,
+    "indirect": true,
+    "diffraction": true,
+    "transmission": true,
+    "mesh_simplification": false,
+    "temporal_coherence": false,
+    "channel_layout": {
+      "type": "ambisonics",
+      "channel_count": 4
+    }
+  }
+}

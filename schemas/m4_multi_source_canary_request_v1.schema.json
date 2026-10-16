@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m4_multi_source_canary_request_v1.schema.json",
+  "title": "AVEngine M4 Multi-Source Canary Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "qualification_claim",
+    "inputs",
+    "listeners",
+    "sources",
+    "canonical_source_order",
+    "registration_orders",
+    "spatial_audio",
+    "simulation",
+    "thresholds",
+    "request_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m4_multi_source_canary_request_v1"},
+    "request_id": {"$ref": "#/$defs/stable_id"},
+    "qualification_claim": {"const": false},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "m1_capture_request",
+        "m3_acoustic_canary_request",
+        "source_identity_manifest"
+      ],
+      "properties": {
+        "m1_capture_request": {"$ref": "#/$defs/file_record"},
+        "m3_acoustic_canary_request": {"$ref": "#/$defs/file_record"},
+        "source_identity_manifest": {"$ref": "#/$defs/file_record"}
+      }
+    },
+    "listeners": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {"$ref": "#/$defs/listener"}
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "canonical_source_order": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/stable_id"}
+    },
+    "registration_orders": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_id", "source_ids"],
+        "properties": {
+          "order_id": {"$ref": "#/$defs/stable_id"},
+          "source_ids": {
+            "type": "array",
+            "minItems": 2,
+            "uniqueItems": true,
+            "items": {"$ref": "#/$defs/stable_id"}
+          }
+        }
+      }
+    },
+    "spatial_audio": {"$ref": "#/$defs/foa_contract"},
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_rate_hz",
+        "max_ir_seconds",
+        "frequency_bands",
+        "direct_sh_order",
+        "indirect_sh_order",
+        "direct_ray_count",
+        "indirect_ray_count",
+        "indirect_ray_depth",
+        "source_ray_count",
+        "source_ray_depth",
+        "max_diffraction_order",
+        "thread_count",
+        "unit_scale",
+        "global_volume",
+        "speed_of_sound_m_s",
+        "direct",
+        "indirect",
+        "diffraction",
+        "transmission",
+        "mesh_simplification",
+        "temporal_coherence",
+        "channel_layout"
+      ],
+      "properties": {
+        "sample_rate_hz": {"type": "integer", "minimum": 16000},
+        "max_ir_seconds": {"type": "number", "minimum": 4.0},
+        "frequency_bands": {"const": 4},
+        "direct_sh_order": {"type": "integer", "minimum": 1},
+        "indirect_sh_order": {"type": "integer", "minimum": 1},
+        "direct_ray_count": {"type": "integer", "minimum": 500},
+        "indirect_ray_count": {"type": "integer", "minimum": 5000},
+        "indirect_ray_depth": {"type": "integer", "minimum": 100},
+        "source_ray_count": {"type": "integer", "minimum": 500},
+        "source_ray_depth": {"type": "integer", "minimum": 20},
+        "max_diffraction_order": {"type": "integer", "minimum": 10},
+        "thread_count": {"const": 1},
+        "unit_scale": {"const": 1.0},
+        "global_volume": {"type": "number", "exclusiveMinimum": 0},
+        "speed_of_sound_m_s": {"const": 343.0},
+        "direct": {"const": true},
+        "indirect": {"const": true},
+        "diffraction": {"const": true},
+        "transmission": {"const": false},
+        "mesh_simplification": {"const": false},
+        "temporal_coherence": {"const": false},
+        "channel_layout": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "channel_count"],
+          "properties": {
+            "type": {"const": "ambisonics"},
+            "channel_count": {"const": 4}
+          }
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_anchor_transform_error",
+        "maximum_direct_arrival_error_samples",
+        "canonical_registration_required",
+        "exact_order_hash_required",
+        "maximum_order_metric_relative_difference",
+        "cardinal_probe_distance_m",
+        "minimum_binaural_ild_db",
+        "performance_repeat_count"
+      ],
+      "properties": {
+        "maximum_anchor_transform_error": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1e-9
+        },
+        "maximum_direct_arrival_error_samples": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2.0
+        },
+        "canonical_registration_required": {"const": true},
+        "exact_order_hash_required": {"const": true},
+        "maximum_order_metric_relative_difference": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.1
+        },
+        "cardinal_probe_distance_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.5
+        },
+        "minimum_binaural_ild_db": {
+          "type": "number",
+          "minimum": 3.0
+        },
+        "performance_repeat_count": {
+          "type": "integer",
+          "minimum": 2
+        }
+      }
+    },
+    "request_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*\\$)(?!.*~)[^\\\\]+$"
+        },
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "quat_wxyz": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "listener_id",
+        "camera_rig_id",
+        "view_id",
+        "position_m",
+        "orientation_wxyz",
+        "radius_m"
+      ],
+      "properties": {
+        "listener_id": {"$ref": "#/$defs/stable_id"},
+        "camera_rig_id": {"const": "camera_rig_0"},
+        "view_id": {"const": "view0"},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "orientation_wxyz": {"$ref": "#/$defs/quat_wxyz"},
+        "radius_m": {"const": 0.0}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "position_m", "radius_m"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "radius_m": {"const": 0.0}
+      }
+    },
+    "foa_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_id",
+        "ambisonic_order",
+        "channel_count",
+        "raw_channel_order",
+        "acn_indices",
+        "normalization",
+        "coordinate_frame",
+        "handedness",
+        "axes",
+        "raw_array_layout",
+        "dtype"
+      ],
+      "properties": {
+        "format_id": {"const": "rlr_foa_acn_n3d_world_v1"},
+        "ambisonic_order": {"const": 1},
+        "channel_count": {"const": 4},
+        "raw_channel_order": {
+          "const": ["W", "Y", "Z", "X"]
+        },
+        "acn_indices": {"const": [0, 1, 2, 3]},
+        "normalization": {"const": "N3D"},
+        "coordinate_frame": {"const": "avengine_world"},
+        "handedness": {"const": "right"},
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["right", "up", "back", "forward"],
+          "properties": {
+            "right": {"const": "+X"},
+            "up": {"const": "+Y"},
+            "back": {"const": "+Z"},
+            "forward": {"const": "-Z"}
+          }
+        },
+        "raw_array_layout": {"const": "channel_major_[channels,samples]"},
+        "dtype": {"const": "float32_le"}
+      }
+    }
+  }
+}

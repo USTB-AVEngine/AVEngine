@@ -1,0 +1,312 @@
+{
+  "status": "declared_not_generated",
+  "requests": [
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_indoor_square_box_black_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "indoor_square_box",
+      "intended_color": "black",
+      "prompt": "One matte black one indoor wall-mounted square doorbell chime, broad coloured casing, a small narrow speaker slot and wide flat rear mounting plate. Main structural housing colour: matte black, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101308,
+      "target_dimensions_m": [
+        0.045,
+        0.17,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_indoor_square_box_white_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "indoor_square_box",
+      "intended_color": "white",
+      "prompt": "One matte white one indoor wall-mounted square doorbell chime, broad coloured casing, a small narrow speaker slot and wide flat rear mounting plate. Main structural housing colour: matte white, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101309,
+      "target_dimensions_m": [
+        0.045,
+        0.17,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_indoor_square_box_silver_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "indoor_square_box",
+      "intended_color": "silver",
+      "prompt": "One brushed neutral silver-grey one indoor wall-mounted square doorbell chime, broad coloured casing, a small narrow speaker slot and wide flat rear mounting plate. Main structural housing colour: brushed neutral silver-grey, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101310,
+      "target_dimensions_m": [
+        0.045,
+        0.17,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_indoor_round_disc_black_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "indoor_round_disc",
+      "intended_color": "black",
+      "prompt": "One matte black one indoor wall-mounted round disc doorbell chime, broad coloured circular casing, a small central speaker opening and wide flat rear mounting plate. Main structural housing colour: matte black, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101311,
+      "target_dimensions_m": [
+        0.045,
+        0.16,
+        0.16
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_indoor_round_disc_white_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "indoor_round_disc",
+      "intended_color": "white",
+      "prompt": "One matte white one indoor wall-mounted round disc doorbell chime, broad coloured circular casing, a small central speaker opening and wide flat rear mounting plate. Main structural housing colour: matte white, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101312,
+      "target_dimensions_m": [
+        0.045,
+        0.16,
+        0.16
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_indoor_round_disc_silver_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "indoor_round_disc",
+      "intended_color": "silver",
+      "prompt": "One brushed neutral silver-grey one indoor wall-mounted round disc doorbell chime, broad coloured circular casing, a small central speaker opening and wide flat rear mounting plate. Main structural housing colour: brushed neutral silver-grey, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101313,
+      "target_dimensions_m": [
+        0.045,
+        0.16,
+        0.16
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_vertical_tubular_chime_black_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "vertical_tubular_chime",
+      "intended_color": "black",
+      "prompt": "One matte black one indoor tubular doorbell chime, two short vertical metal chime tubes in a broad coloured flat-backed wall housing, complete integrated mounting back. Main structural housing colour: matte black, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101314,
+      "target_dimensions_m": [
+        0.07,
+        0.32,
+        0.18
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_vertical_tubular_chime_white_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "vertical_tubular_chime",
+      "intended_color": "white",
+      "prompt": "One matte white one indoor tubular doorbell chime, two short vertical metal chime tubes in a broad coloured flat-backed wall housing, complete integrated mounting back. Main structural housing colour: matte white, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101315,
+      "target_dimensions_m": [
+        0.07,
+        0.32,
+        0.18
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_vertical_tubular_chime_silver_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "vertical_tubular_chime",
+      "intended_color": "silver",
+      "prompt": "One brushed neutral silver-grey one indoor tubular doorbell chime, two short vertical metal chime tubes in a broad coloured flat-backed wall housing, complete integrated mounting back. Main structural housing colour: brushed neutral silver-grey, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101316,
+      "target_dimensions_m": [
+        0.07,
+        0.32,
+        0.18
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_video_doorbell_black_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "video_doorbell",
+      "intended_color": "black",
+      "prompt": "One matte black one slim wall-mounted video doorbell, broad coloured casing, one small dark camera lens near the top, a small button and small speaker slot, wide flat rear mounting plate. Main structural housing colour: matte black, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101317,
+      "target_dimensions_m": [
+        0.04,
+        0.15,
+        0.06
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_video_doorbell_white_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "video_doorbell",
+      "intended_color": "white",
+      "prompt": "One matte white one slim wall-mounted video doorbell, broad coloured casing, one small dark camera lens near the top, a small button and small speaker slot, wide flat rear mounting plate. Main structural housing colour: matte white, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101318,
+      "target_dimensions_m": [
+        0.04,
+        0.15,
+        0.06
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_doorbell_chime_unit_video_doorbell_silver_20261012",
+      "object_type": "doorbell_chime_unit",
+      "counting_kind": "doorbell_chime_unit",
+      "form_factor": "video_doorbell",
+      "intended_color": "silver",
+      "prompt": "One brushed neutral silver-grey one slim wall-mounted video doorbell, broad coloured casing, one small dark camera lens near the top, a small button and small speaker slot, wide flat rear mounting plate. Main structural housing colour: brushed neutral silver-grey, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101319,
+      "target_dimensions_m": [
+        0.04,
+        0.15,
+        0.06
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "owner doorbell amendment"
+    },
+    {
+      "asset_id": "v7_object_smoke_detector_wall_square_black_20261012",
+      "object_type": "smoke_detector",
+      "counting_kind": "smoke_detector",
+      "form_factor": "wall_square",
+      "intended_color": "black",
+      "prompt": "One matte black one compact wall-mounted smoke alarm with broad black housing, small vents, a small test button and wide flat rear mounting plate. Main structural housing colour: matte black, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101320,
+      "target_dimensions_m": [
+        0.05,
+        0.14,
+        0.11
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "cross black label on two wall-mounted forms; black smoke alarm is manufacturer-documented"
+    },
+    {
+      "asset_id": "v7_object_smoke_detector_compact_rectangular_black_20261012",
+      "object_type": "smoke_detector",
+      "counting_kind": "smoke_detector",
+      "form_factor": "compact_rectangular",
+      "intended_color": "black",
+      "prompt": "One matte black one compact wall-mounted smoke alarm with broad black housing, small vents, a small test button and wide flat rear mounting plate. Main structural housing colour: matte black, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101321,
+      "target_dimensions_m": [
+        0.05,
+        0.14,
+        0.11
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "cross black label on two wall-mounted forms; black smoke alarm is manufacturer-documented"
+    },
+    {
+      "asset_id": "v7_object_desk_telephone_modern_compact_pushbutton_silver_20261012",
+      "object_type": "desk_telephone",
+      "counting_kind": "desk_telephone",
+      "form_factor": "modern_compact_pushbutton",
+      "intended_color": "silver",
+      "prompt": "One brushed neutral silver-grey one modern compact silver-grey pushbutton desk telephone, handset correctly resting on its cradle, compact buttons, broad silver housing and wide flat base. Main structural housing colour: brushed neutral silver-grey, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101322,
+      "target_dimensions_m": [
+        0.19,
+        0.13,
+        0.2
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "cross existing measured gray-silver telephone label over modern real silver telephone forms"
+    },
+    {
+      "asset_id": "v7_object_desk_telephone_modern_office_display_silver_20261012",
+      "object_type": "desk_telephone",
+      "counting_kind": "desk_telephone",
+      "form_factor": "modern_office_display",
+      "intended_color": "silver",
+      "prompt": "One brushed neutral silver-grey one modern office silver-grey desk telephone with handset in its cradle, a small dark display, compact buttons, broad silver housing and wide flat base. Main structural housing colour: brushed neutral silver-grey, visibly covering at least two thirds of the casing. Exactly one complete, correctly oriented, physically realistic object. Three-quarter product view showing front and right side, slightly elevated camera. Plain seamless light grey background, even soft studio lighting, minimal contact shadow. No text, logos, labels, people, hands, furniture, wires, duplicate objects, cropping or reflections of surroundings.",
+      "seed": 2026101323,
+      "target_dimensions_m": [
+        0.19,
+        0.13,
+        0.2
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine candidate_profiles/static_object copied into this worktree; independently declared shape and colour",
+      "max_shape_seeds": 3,
+      "addition_reason": "cross existing measured gray-silver telephone label over modern real silver telephone forms"
+    }
+  ],
+  "count": 16,
+  "doorbell_requests": 12,
+  "crossing": "four independent doorbell forms x three real housing colours; no texture-only mesh copies counted"
+}

@@ -1,0 +1,783 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m5_1_source_manifest_v1.schema.json",
+  "title": "AVEngine M5.1 Research Source and Event Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "manifest_id",
+    "research_only",
+    "qualification_claim",
+    "dataset_admission",
+    "claim_boundary",
+    "clip",
+    "observer",
+    "legacy_flag_thresholds",
+    "sources",
+    "frame_event_state",
+    "relationships",
+    "clip_flags",
+    "manifest_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m5_1_source_manifest_v1"},
+    "manifest_id": {"$ref": "#/$defs/stable_id"},
+    "research_only": {"const": true},
+    "qualification_claim": {"const": false},
+    "dataset_admission": {"const": "not_requested"},
+    "claim_boundary": {"type": "string", "minLength": 1},
+    "clip": {"$ref": "#/$defs/clip"},
+    "observer": {"$ref": "#/$defs/observer"},
+    "legacy_flag_thresholds": {"$ref": "#/$defs/legacy_flag_thresholds"},
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "frame_event_state": {
+      "type": "array",
+      "minItems": 75,
+      "maxItems": 270,
+      "items": {"$ref": "#/$defs/frame_event_state"}
+    },
+    "relationships": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/relationship"}
+    },
+    "clip_flags": {"$ref": "#/$defs/all_flags"},
+    "manifest_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "clip": {
+            "properties": {"frame_count": {"const": 75}},
+            "required": ["frame_count"]
+          }
+        },
+        "required": ["clip"]
+      },
+      "then": {
+        "properties": {
+          "frame_event_state": {"minItems": 75, "maxItems": 75}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "clip": {
+            "properties": {"frame_count": {"const": 270}},
+            "required": ["frame_count"]
+          }
+        },
+        "required": ["clip"]
+      },
+      "then": {
+        "properties": {
+          "frame_event_state": {"minItems": 270, "maxItems": 270}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "uri": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9+.-]*://[^\\s]+$"
+    },
+    "vec3": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "clip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clip_id",
+        "coordinate_frame",
+        "time_base_hz",
+        "duration_ticks",
+        "fps_num",
+        "fps_den",
+        "frame_count",
+        "ticks_per_frame",
+        "sample_rate_hz",
+        "sample_count",
+        "ticks_per_sample"
+      ],
+      "properties": {
+        "clip_id": {"$ref": "#/$defs/stable_id"},
+        "coordinate_frame": {"const": "avengine_world_right_handed_y_up_m"},
+        "time_base_hz": {"const": 48000},
+        "duration_ticks": {"enum": [240000, 864000]},
+        "fps_num": {"const": 15},
+        "fps_den": {"const": 1},
+        "frame_count": {"enum": [75, 270]},
+        "ticks_per_frame": {"const": 3200},
+        "sample_rate_hz": {"const": 16000},
+        "sample_count": {"enum": [80000, 288000]},
+        "ticks_per_sample": {"const": 3}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"frame_count": {"const": 75}},
+            "required": ["frame_count"]
+          },
+          "then": {
+            "properties": {
+              "duration_ticks": {"const": 240000},
+              "sample_count": {"const": 80000}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"frame_count": {"const": 270}},
+            "required": ["frame_count"]
+          },
+          "then": {
+            "properties": {
+              "duration_ticks": {"const": 864000},
+              "sample_count": {"const": 288000}
+            }
+          }
+        }
+      ]
+    },
+    "observer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observer_id",
+        "role",
+        "coordinate_frame",
+        "position_m",
+        "yaw_deg",
+        "horizontal_fov_deg",
+        "authority_uri",
+        "authority_file_sha256"
+      ],
+      "properties": {
+        "observer_id": {"$ref": "#/$defs/stable_id"},
+        "role": {"const": "co_located_camera_and_listener"},
+        "coordinate_frame": {"const": "avengine_world_right_handed_y_up_m"},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "yaw_deg": {"type": "number"},
+        "horizontal_fov_deg": {"type": "number", "exclusiveMinimum": 0, "maximum": 180},
+        "authority_uri": {"$ref": "#/$defs/uri"},
+        "authority_file_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "legacy_flag_thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passes_close_to_mic_m",
+        "far_from_mic_whole_clip_m",
+        "stationary_mean_speed_mps",
+        "steady_walk_min_mean_speed_mps",
+        "steady_walk_max_speed_cv",
+        "stop_and_go_stop_speed_mps",
+        "stop_and_go_min_stopped_frames",
+        "stop_and_go_min_moving_frames",
+        "sources_pass_each_other_m"
+      ],
+      "properties": {
+        "passes_close_to_mic_m": {"const": 1.0},
+        "far_from_mic_whole_clip_m": {"const": 4.0},
+        "stationary_mean_speed_mps": {"const": 0.1},
+        "steady_walk_min_mean_speed_mps": {"const": 0.15},
+        "steady_walk_max_speed_cv": {"const": 0.4},
+        "stop_and_go_stop_speed_mps": {"const": 0.05},
+        "stop_and_go_min_stopped_frames": {"const": 3},
+        "stop_and_go_min_moving_frames": {"const": 3},
+        "sources_pass_each_other_m": {"const": 0.5}
+      }
+    },
+    "human_demographic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "age_group",
+        "sex_or_gender_label",
+        "annotation_basis",
+        "real_person_identity_claim"
+      ],
+      "properties": {
+        "age_group": {
+          "enum": ["child", "adolescent", "adult", "older_adult", "unspecified"]
+        },
+        "sex_or_gender_label": {
+          "enum": ["female", "male", "nonbinary", "unspecified"]
+        },
+        "annotation_basis": {
+          "enum": ["asset_catalog_metadata", "manual_asset_annotation", "generated_metadata"]
+        },
+        "real_person_identity_claim": {"const": false}
+      }
+    },
+    "animal_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "species_common_name",
+        "species_scientific_name",
+        "breed",
+        "age_group"
+      ],
+      "properties": {
+        "species_common_name": {"type": "string", "minLength": 1},
+        "species_scientific_name": {"type": "string", "minLength": 1},
+        "breed": {"type": "string", "minLength": 1},
+        "age_group": {
+          "enum": ["juvenile", "adult", "senior", "unspecified"]
+        }
+      }
+    },
+    "voice_taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taxonomy_id",
+        "vocalization_type",
+        "content_class",
+        "language_bcp47",
+        "speaker_identity_status"
+      ],
+      "properties": {
+        "taxonomy_id": {"$ref": "#/$defs/stable_id"},
+        "vocalization_type": {
+          "enum": ["speech", "singing", "nonverbal_vocalization"]
+        },
+        "content_class": {
+          "enum": ["read_speech", "spontaneous_speech", "conversation", "other"]
+        },
+        "language_bcp47": {
+          "type": "string",
+          "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+        },
+        "speaker_identity_status": {
+          "enum": ["corpus_speaker_id", "synthetic_asset_actor", "unknown"]
+        }
+      }
+    },
+    "call_taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taxonomy_id", "call_type", "call_subtype"],
+      "properties": {
+        "taxonomy_id": {"$ref": "#/$defs/stable_id"},
+        "call_type": {
+          "enum": ["bark", "growl", "howl", "whine", "meow", "purr", "chirp", "other"]
+        },
+        "call_subtype": {"type": "string", "minLength": 1}
+      }
+    },
+    "emitter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "emitter_id",
+        "semantic_anchor_id",
+        "link_name",
+        "position_authority",
+        "path_sha256"
+      ],
+      "properties": {
+        "emitter_id": {"$ref": "#/$defs/stable_id"},
+        "semantic_anchor_id": {"enum": ["mouth", "muzzle"]},
+        "link_name": {"type": "string", "minLength": 1},
+        "position_authority": {
+          "enum": [
+            "route_root_plus_nominal_emitter_offset",
+            "retained_animated_link_world_transform"
+          ]
+        },
+        "path_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "trajectory_keyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frame_index", "position_m"],
+      "properties": {
+        "frame_index": {"type": "integer", "minimum": 0, "maximum": 269},
+        "position_m": {"$ref": "#/$defs/vec3"}
+      }
+    },
+    "trajectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "coordinate_frame",
+        "position_role",
+        "interpolation",
+        "keyframes",
+        "route_binding",
+        "trajectory_content_sha256"
+      ],
+      "properties": {
+        "representation": {"const": "piecewise_linear_frame_keyframes_v1"},
+        "coordinate_frame": {"const": "avengine_world_right_handed_y_up_m"},
+        "position_role": {"const": "emitter_anchor"},
+        "interpolation": {"const": "linear_between_inclusive_frame_keyframes"},
+        "keyframes": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/trajectory_keyframe"}
+        },
+        "route_binding": {"$ref": "#/$defs/route_binding"},
+        "trajectory_content_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "route_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_uri",
+        "authority_file_sha256",
+        "authority_manifest_content_sha256",
+        "authority_schema",
+        "authority_route_id",
+        "route_key",
+        "route_trajectory_sha256",
+        "source_frame_start",
+        "source_frame_step",
+        "point_count",
+        "emitter_height_offset_m",
+        "derivation"
+      ],
+      "properties": {
+        "authority_uri": {"$ref": "#/$defs/uri"},
+        "authority_file_sha256": {"$ref": "#/$defs/sha256"},
+        "authority_manifest_content_sha256": {"$ref": "#/$defs/sha256"},
+        "authority_schema": {"const": "avengine_m5_1_legacy_apartment_route_v1"},
+        "authority_route_id": {"$ref": "#/$defs/stable_id"},
+        "route_key": {"enum": ["human_path", "dog_path"]},
+        "route_trajectory_sha256": {"$ref": "#/$defs/sha256"},
+        "source_frame_start": {"type": "integer", "minimum": 0},
+        "source_frame_step": {"type": "integer", "minimum": 1},
+        "point_count": {"type": "integer", "minimum": 2},
+        "emitter_height_offset_m": {"type": "number"},
+        "derivation": {"const": "route_habitat_position_plus_constant_y_offset"}
+      }
+    },
+    "artifact_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "media_kind",
+        "origin",
+        "uri",
+        "sha256",
+        "rights_status",
+        "license_id",
+        "rights_evidence_kind",
+        "rights_evidence_sha256"
+      ],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "media_kind": {"enum": ["mesh", "audio"]},
+        "origin": {
+          "enum": [
+            "rocketbox",
+            "avengine_generated",
+            "legacy_avengine_registry",
+            "corpus_recording",
+            "research_recording"
+          ]
+        },
+        "uri": {"$ref": "#/$defs/uri"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "rights_status": {
+          "enum": ["licensed", "research_use_only", "unresolved_item_level_review"]
+        },
+        "license_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/stable_id"},
+            {"type": "null"}
+          ]
+        },
+        "rights_evidence_kind": {
+          "enum": ["license_text", "asset_registry_or_spec", "upstream_audit_manifest"]
+        },
+        "rights_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "sample_rate_hz": {"type": "integer", "minimum": 1},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "channel_count": {"type": "integer", "minimum": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"media_kind": {"const": "audio"}}, "required": ["media_kind"]},
+          "then": {"required": ["sample_rate_hz", "sample_count", "channel_count"]}
+        },
+        {
+          "if": {"properties": {"rights_status": {"const": "licensed"}}, "required": ["rights_status"]},
+          "then": {
+            "properties": {
+              "license_id": {"$ref": "#/$defs/stable_id"},
+              "rights_evidence_kind": {"const": "license_text"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"rights_status": {"const": "unresolved_item_level_review"}}, "required": ["rights_status"]},
+          "then": {
+            "properties": {
+              "license_id": {"type": "null"},
+              "rights_evidence_kind": {"const": "upstream_audit_manifest"}
+            }
+          }
+        }
+      ]
+    },
+    "migration_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legacy_system", "legacy_source_id", "migration_mode"],
+      "properties": {
+        "legacy_system": {"const": "legacy_avengine_spear_spike_rlr"},
+        "legacy_source_id": {"type": "string", "minLength": 1},
+        "migration_mode": {"const": "semantic_migration_not_ui_copy"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visual_asset", "audio_assets", "migration"],
+      "properties": {
+        "visual_asset": {"$ref": "#/$defs/artifact_provenance"},
+        "audio_assets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/artifact_provenance"}
+        },
+        "migration": {"$ref": "#/$defs/migration_provenance"}
+      }
+    },
+    "event_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "source_id",
+        "taxonomy_id",
+        "event_class",
+        "start_frame",
+        "end_frame_exclusive",
+        "start_sample",
+        "end_sample_exclusive",
+        "dry_audio_asset_id",
+        "dry_audio_asset_sha256",
+        "audio_program",
+        "activity_mode",
+        "semantic_sync_required"
+      ],
+      "properties": {
+        "event_id": {"$ref": "#/$defs/stable_id"},
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "taxonomy_id": {"$ref": "#/$defs/stable_id"},
+        "event_class": {"enum": ["human_voice", "animal_call"]},
+        "start_frame": {"type": "integer", "minimum": 0, "maximum": 269},
+        "end_frame_exclusive": {"type": "integer", "minimum": 1, "maximum": 270},
+        "start_sample": {"type": "integer", "minimum": 0, "maximum": 287999},
+        "end_sample_exclusive": {"type": "integer", "minimum": 1, "maximum": 288000},
+        "dry_audio_asset_id": {"$ref": "#/$defs/stable_id"},
+        "dry_audio_asset_sha256": {"$ref": "#/$defs/sha256"},
+        "audio_program": {"$ref": "#/$defs/audio_program"},
+        "activity_mode": {"const": "active_in_declared_half_open_window"},
+        "semantic_sync_required": {"type": "boolean"}
+      }
+    },
+    "audio_program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_sample_rate_hz",
+        "source_start_sample",
+        "source_end_sample_exclusive",
+        "render_sample_rate_hz",
+        "resample_policy",
+        "resampled_content_sample_count",
+        "event_sample_count",
+        "tail_padding_samples",
+        "padding_policy"
+      ],
+      "properties": {
+        "source_sample_rate_hz": {"type": "integer", "minimum": 1},
+        "source_start_sample": {"type": "integer", "minimum": 0},
+        "source_end_sample_exclusive": {"type": "integer", "minimum": 1},
+        "render_sample_rate_hz": {"const": 16000},
+        "resample_policy": {"enum": ["none", "deterministic_rate_conversion"]},
+        "resampled_content_sample_count": {"type": "integer", "minimum": 1},
+        "event_sample_count": {"type": "integer", "minimum": 1},
+        "tail_padding_samples": {"type": "integer", "minimum": 0},
+        "padding_policy": {"const": "zero_tail_to_exact_frame_boundary"}
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "value", "unit"],
+      "properties": {
+        "metric": {"type": "string", "minLength": 1},
+        "value": {"type": "number"},
+        "unit": {"type": "string", "minLength": 1},
+        "comparison": {"enum": ["lt", "lte", "eq", "gte", "gt"]},
+        "threshold": {"type": "number"}
+      }
+    },
+    "flag_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "uri", "sha256", "summary"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/stable_id"},
+        "kind": {
+          "enum": ["metric", "frame_interval", "artifact", "manual_review", "missing_dependency"]
+        },
+        "uri": {"$ref": "#/$defs/uri"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "summary": {"type": "string", "minLength": 1},
+        "measurement": {"$ref": "#/$defs/measurement"}
+      }
+    },
+    "flag_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "status", "value", "reason_code", "reason", "evidence"],
+      "properties": {
+        "scope": {"enum": ["per_source", "pairwise", "clip"]},
+        "status": {"enum": ["present", "absent", "not_evaluated"]},
+        "value": {
+          "oneOf": [
+            {"type": "boolean"},
+            {"type": "null"}
+          ]
+        },
+        "reason_code": {"$ref": "#/$defs/stable_id"},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/flag_evidence"}
+        }
+      }
+    },
+    "source_flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "occluded_by_furniture",
+        "occluded_by_wall",
+        "never_occluded",
+        "leaves_camera_fov",
+        "stays_in_camera_fov",
+        "crosses_azimuth_zero",
+        "passes_close_to_mic",
+        "far_from_mic_whole_clip",
+        "stationary",
+        "steady_walk",
+        "stop_and_go"
+      ],
+      "properties": {
+        "occluded_by_furniture": {"$ref": "#/$defs/flag_assessment"},
+        "occluded_by_wall": {"$ref": "#/$defs/flag_assessment"},
+        "never_occluded": {"$ref": "#/$defs/flag_assessment"},
+        "leaves_camera_fov": {"$ref": "#/$defs/flag_assessment"},
+        "stays_in_camera_fov": {"$ref": "#/$defs/flag_assessment"},
+        "crosses_azimuth_zero": {"$ref": "#/$defs/flag_assessment"},
+        "passes_close_to_mic": {"$ref": "#/$defs/flag_assessment"},
+        "far_from_mic_whole_clip": {"$ref": "#/$defs/flag_assessment"},
+        "stationary": {"$ref": "#/$defs/flag_assessment"},
+        "steady_walk": {"$ref": "#/$defs/flag_assessment"},
+        "stop_and_go": {"$ref": "#/$defs/flag_assessment"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "actor_id",
+        "asset_id",
+        "asset_class",
+        "emitter",
+        "trajectory",
+        "provenance",
+        "event_windows",
+        "flags"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "asset_class": {"enum": ["human", "animal"]},
+        "human_demographic": {"$ref": "#/$defs/human_demographic"},
+        "animal_identity": {"$ref": "#/$defs/animal_identity"},
+        "voice_taxonomy": {"$ref": "#/$defs/voice_taxonomy"},
+        "call_taxonomy": {"$ref": "#/$defs/call_taxonomy"},
+        "emitter": {"$ref": "#/$defs/emitter"},
+        "trajectory": {"$ref": "#/$defs/trajectory"},
+        "provenance": {"$ref": "#/$defs/provenance"},
+        "event_windows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/event_window"}
+        },
+        "flags": {"$ref": "#/$defs/source_flags"}
+      },
+      "oneOf": [
+        {
+          "properties": {"asset_class": {"const": "human"}},
+          "required": ["human_demographic", "voice_taxonomy"],
+          "not": {
+            "anyOf": [
+              {"required": ["animal_identity"]},
+              {"required": ["call_taxonomy"]}
+            ]
+          }
+        },
+        {
+          "properties": {"asset_class": {"const": "animal"}},
+          "required": ["animal_identity", "call_taxonomy"],
+          "not": {
+            "anyOf": [
+              {"required": ["human_demographic"]},
+              {"required": ["voice_taxonomy"]}
+            ]
+          }
+        }
+      ]
+    },
+    "current_event": {
+      "oneOf": [
+        {"$ref": "#/$defs/stable_id"},
+        {"type": "null"}
+      ]
+    },
+    "frame_event_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_index",
+        "pts_ticks",
+        "sample_start",
+        "sample_end",
+        "current_event_by_source"
+      ],
+      "properties": {
+        "frame_index": {"type": "integer", "minimum": 0, "maximum": 269},
+        "pts_ticks": {"type": "integer", "minimum": 0, "multipleOf": 3200},
+        "sample_start": {"type": "integer", "minimum": 0, "maximum": 288000},
+        "sample_end": {"type": "integer", "minimum": 0, "maximum": 288000},
+        "current_event_by_source": {
+          "type": "object",
+          "minProperties": 2,
+          "additionalProperties": {"$ref": "#/$defs/current_event"}
+        }
+      }
+    },
+    "overlap_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_ids", "start_frame", "end_frame_exclusive"],
+      "properties": {
+        "event_ids": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/stable_id"}
+        },
+        "start_frame": {"type": "integer", "minimum": 0, "maximum": 269},
+        "end_frame_exclusive": {"type": "integer", "minimum": 1, "maximum": 270}
+      }
+    },
+    "relationship_flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources_pass_each_other"],
+      "properties": {
+        "sources_pass_each_other": {"$ref": "#/$defs/flag_assessment"}
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relationship_id",
+        "relationship_type",
+        "source_ids",
+        "event_overlap_windows",
+        "flags"
+      ],
+      "properties": {
+        "relationship_id": {"$ref": "#/$defs/stable_id"},
+        "relationship_type": {"const": "pairwise_source_relation"},
+        "source_ids": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/stable_id"}
+        },
+        "event_overlap_windows": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/overlap_window"}
+        },
+        "flags": {"$ref": "#/$defs/relationship_flags"}
+      }
+    },
+    "all_flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "occluded_by_furniture",
+        "occluded_by_wall",
+        "never_occluded",
+        "leaves_camera_fov",
+        "stays_in_camera_fov",
+        "crosses_azimuth_zero",
+        "passes_close_to_mic",
+        "far_from_mic_whole_clip",
+        "stationary",
+        "steady_walk",
+        "stop_and_go",
+        "sources_pass_each_other"
+      ],
+      "properties": {
+        "occluded_by_furniture": {"$ref": "#/$defs/flag_assessment"},
+        "occluded_by_wall": {"$ref": "#/$defs/flag_assessment"},
+        "never_occluded": {"$ref": "#/$defs/flag_assessment"},
+        "leaves_camera_fov": {"$ref": "#/$defs/flag_assessment"},
+        "stays_in_camera_fov": {"$ref": "#/$defs/flag_assessment"},
+        "crosses_azimuth_zero": {"$ref": "#/$defs/flag_assessment"},
+        "passes_close_to_mic": {"$ref": "#/$defs/flag_assessment"},
+        "far_from_mic_whole_clip": {"$ref": "#/$defs/flag_assessment"},
+        "stationary": {"$ref": "#/$defs/flag_assessment"},
+        "steady_walk": {"$ref": "#/$defs/flag_assessment"},
+        "stop_and_go": {"$ref": "#/$defs/flag_assessment"},
+        "sources_pass_each_other": {"$ref": "#/$defs/flag_assessment"}
+      }
+    }
+  }
+}

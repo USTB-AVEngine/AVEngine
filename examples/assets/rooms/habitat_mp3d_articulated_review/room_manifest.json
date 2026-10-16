@@ -1,0 +1,79 @@
+{
+  "schema": "avengine_room_package_v1",
+  "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+  "room_kind": "habitat_native",
+  "geometry_representation": "real_surface_mesh",
+  "coordinate_system": {
+    "handedness": "right",
+    "up_axis": "+Y",
+    "forward_axis": "-Z",
+    "linear_unit": "meter",
+    "quaternion_order": "xyzw"
+  },
+  "scene": {
+    "scene_id_kind": "path",
+    "scene_id": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
+    "dataset_config_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+    "navmesh_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+    "navmesh_policy": "load_declared",
+    "load_semantic_mesh": true,
+    "enable_physics": true
+  },
+  "assets": [
+    {
+      "role": "render_surface_mesh",
+      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
+      "license": "Matterport3D Terms of Use",
+      "redistribution": "external_test_asset_not_committed"
+    },
+    {
+      "role": "semantic_surface_mesh",
+      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply",
+      "license": "Matterport3D Terms of Use",
+      "redistribution": "external_test_asset_not_committed"
+    },
+    {
+      "role": "semantic_descriptor",
+      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house",
+      "license": "Matterport3D Terms of Use",
+      "redistribution": "external_test_asset_not_committed"
+    },
+    {
+      "role": "scene_dataset_config",
+      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+      "license": "Habitat-Sim/Matterport3D package terms",
+      "redistribution": "external_test_asset_not_committed"
+    },
+    {
+      "role": "navmesh",
+      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+      "license": "Matterport3D Terms of Use",
+      "redistribution": "external_test_asset_not_committed"
+    }
+  ],
+  "semantics": {
+    "interpretation": "MP3D semantic mesh IDs are resolved through the paired .house descriptor"
+  },
+  "navigation": {
+    "agent_height_m": 1.5,
+    "agent_radius_m": 0.1,
+    "include_static_objects": false
+  },
+  "openings": [],
+  "connectivity_pairs": [
+    {
+      "pair_id": "bedroom_to_living_area",
+      "start_m": [-8.9947223663, 0.072447, -1.3424873352],
+      "end_m": [-4.1499128342, 0.072447, -1.2454376221]
+    }
+  ],
+  "ray_checks": [],
+  "acoustics": {
+    "status": "deferred_to_m3",
+    "reason": "M1 validates visual geometry and coordinate contracts only"
+  },
+  "provenance": {
+    "source": "Habitat-Sim official mp3d_example package (Matterport3D sample)",
+    "source_revision": "habitat_example_scene package installed by pinned Habitat downloader; Bullet enabled only to instantiate a kinematic articulated review actor"
+  }
+}

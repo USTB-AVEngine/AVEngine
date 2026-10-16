@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schemas/avengine_native_paper_balance_episode_plan_v1.schema.json",
+  "title": "AVEngine native paper-balance Episode plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "qualification_claim",
+    "fail_closed",
+    "source_authority",
+    "evidence_requirements",
+    "gpu_policy",
+    "episodes"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_native_paper_balance_episode_plan_v1"},
+    "status": {"const": "planned_pending_native_capture"},
+    "qualification_claim": {"const": false},
+    "fail_closed": {"const": true},
+    "source_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["renderer", "room", "trajectory", "audio"],
+      "properties": {
+        "renderer": {"const": "native_spear_unreal_engine"},
+        "room": {"const": "native_apartment"},
+        "trajectory": {"const": "native_runtime_readback"},
+        "audio": {"const": "native_rlr_hrtf_binaural"}
+      }
+    },
+    "evidence_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rgb",
+        "metric_depth",
+        "target_only_depth",
+        "normal_object_ids_policy",
+        "runtime_readbacks",
+        "controlled_audio"
+      ],
+      "properties": {
+        "rgb": {"const": true},
+        "metric_depth": {"const": true},
+        "target_only_depth": {"const": true},
+        "normal_object_ids_policy": {
+          "const": "optional_nonskeletal_occluders_only"
+        },
+        "runtime_readbacks": {"const": true},
+        "controlled_audio": {"const": true}
+      }
+    },
+    "gpu_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physical_gpu_index", "require_idle_before_launch", "forbidden_gpu_indices"],
+      "properties": {
+        "physical_gpu_index": {"const": 2},
+        "require_idle_before_launch": {"const": true},
+        "forbidden_gpu_indices": {
+          "const": [0, 3]
+        }
+      }
+    },
+    "episodes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {"$ref": "#/$defs/stationaryFirst"},
+        {"$ref": "#/$defs/rightEntry"}
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "commonEpisode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episode_id",
+        "variant",
+        "target_source_slot_id",
+        "source1_event_count",
+        "source2_sound_asset_id",
+        "required_answers"
+      ],
+      "properties": {
+        "episode_id": {"type": "string", "minLength": 1},
+        "variant": {"enum": ["stationary_source2_first", "source2_right_entry_second_transcript"]},
+        "target_source_slot_id": {"const": "source2"},
+        "source1_event_count": {"const": 0},
+        "source2_sound_asset_id": {"type": "string", "minLength": 1},
+        "required_answers": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "stationaryFirst": {
+      "allOf": [
+        {"$ref": "#/$defs/commonEpisode"},
+        {
+          "properties": {
+            "variant": {"const": "stationary_source2_first"},
+            "source2_sound_asset_id": {"const": "speech_cremad_1001_ieo_neu_v1"},
+            "required_answers": {
+              "const": {
+                "appearance_to_speaking": "no",
+                "who_spoke_first": "source2",
+                "speaking_while_moving": "no"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "rightEntry": {
+      "allOf": [
+        {"$ref": "#/$defs/commonEpisode"},
+        {
+          "properties": {
+            "variant": {"const": "source2_right_entry_second_transcript"},
+            "source2_sound_asset_id": {"const": "speech_cremad_1005_tie_neu_v1"},
+            "required_answers": {
+              "const": {
+                "offscreen_to_onscreen": "right",
+                "appearance_to_spoken_content": "That is exactly what happened."
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/household_clock_alarm_clock_digital_cube_product_view_v1.json",
+  "sha256": "46d3f2100a0b5e45d6252c2efabc067279b30f82ad0a0c6ba45bdd1b5341c95a",
+  "size_bytes": 5518,
+  "profile_schema_id": "household_clock_alarm_clock_digital_cube_product_view_v1",
+  "profile_revision": "2026_08_26_v2_digital_clock_identity_method_revision",
+  "canonical_sha256": "67626dd962684e2d22bd257324e13d52263fba2c8cf468974e6d556abb679f93"
+ },
+ "method_revision": {
+  "kind": "digital_clock_category_identity_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_static_sound_forms",
+  "superseded_profile_canonical_sha256": "0765d0c61b7db1dfd742fb96ca3692d655fba724e3f567981d546a1f91373226",
+  "reason": "The v1 candidate was a black cube with a blank inset panel and a large side grille, so it read as a miniature television or generic speaker box rather than a digital alarm clock. This is a method failure, not an unlucky seed: the v1 method explicitly requested a blank display and supplied no clock-specific snooze control. The v2 method permits only functional unlit seven-segment clock digits, adds a snooze bar, and puts the buzzer holes on the visible front bezel.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "1049b0ad09070cba7f4f5b0eada1ab0f246fe9a3f84b15d1bc6b6b1e48a85075"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "d1c6222702c05e0b2623c72a1c810b5f6a29c96d9fd20990d3cf3b8a9b9fd9b8"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_sources_first_pass_20260826_r1/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_visual_review_under_owner_instruction_20260826",
+  "instances": [
+   {
+    "instance_id": "household_clock_alarm_clock_digital_cube_product_view_1049b0ad0907",
+    "request_sha256": "1049b0ad09070cba7f4f5b0eada1ab0f246fe9a3f84b15d1bc6b6b1e48a85075",
+    "candidate_sha256": "d1c6222702c05e0b2623c72a1c810b5f6a29c96d9fd20990d3cf3b8a9b9fd9b8",
+    "sampled_attributes": {
+     "body_color": "black"
+    }
+   }
+  ]
+ }
+}

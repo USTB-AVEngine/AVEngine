@@ -1,0 +1,75 @@
+{
+  "baseline": {
+    "episode_count": 1,
+    "manifest_file_count": 85,
+    "manifest_output_bytes_excluding_visual_audit": 111348424,
+    "observed_first_rgb_offset_seconds": 17.448771,
+    "observed_first_to_last_rgb_seconds": 18.203825,
+    "observed_manifest_offset_seconds": 82.364149,
+    "observed_subprocess_wall_seconds": 82.540327,
+    "source": "dynamic target_moves full75 launch receipt and artifact mtimes",
+    "source_episode": "strict2h_dynamic_canary_01_target_moves_v1"
+  },
+  "claim_boundary": {
+    "measured_two_episode_shared_process": false,
+    "projection_only": true,
+    "required_next_measurement": "two-Episode same-room segmentation reset canary on physical GPU1",
+    "status": "cpu_design_estimate_not_gpu_qualification"
+  },
+  "models": {
+    "current_one_process_per_episode": {
+      "projected_ten_episode_wall_seconds": 825.40327,
+      "speedup": 1.0
+    },
+    "fallback_process_per_episode_gpu_producer_plus_cpu_consumer": {
+      "assumed_cpu_finalize_tail_seconds": 25.0,
+      "assumed_native_raw_capture_plus_repeated_startup_seconds_per_episode": 57.448771,
+      "projected_ten_episode_wall_seconds": 599.48771,
+      "speedup": 1.376849,
+      "use_when": "the two-Episode segmentation terminate/reinitialize canary fails"
+    },
+    "shared_process_but_inline_cpu_postprocess": {
+      "assumption": "only nine repeated startup/warmup intervals are removed",
+      "projected_ten_episode_wall_seconds": 668.364331,
+      "speedup": 1.23496
+    },
+    "shared_process_raw_capture_plus_cpu_pipeline_expected_high": {
+      "assumed_cpu_finalize_tail_seconds": 25.0,
+      "assumed_raw_capture_seconds_per_episode": 40.0,
+      "projected_ten_episode_wall_seconds": 442.448771,
+      "speedup": 1.865534
+    },
+    "shared_process_raw_capture_plus_cpu_pipeline_expected_low": {
+      "assumed_cpu_finalize_tail_seconds": 30.0,
+      "assumed_raw_capture_seconds_per_episode": 45.0,
+      "projected_ten_episode_wall_seconds": 497.448771,
+      "speedup": 1.659273
+    },
+    "shared_process_raw_capture_plus_cpu_pipeline_pessimistic": {
+      "assumed_cpu_finalize_tail_seconds": 35.0,
+      "assumed_raw_capture_seconds_per_episode": 50.0,
+      "projected_ten_episode_wall_seconds": 552.448771,
+      "speedup": 1.494081
+    }
+  },
+  "pipeline": {
+    "cpu_worker_count": 1,
+    "cpu_worker_nice_increment": 10,
+    "cpu_worker_thread_cap_per_library": 2,
+    "queue_depth": 2,
+    "rir_and_binaural_precomputed_before_gpu": true,
+    "stage_1": "one shared SPEAR room process writes RGB and four exact raw memmaps",
+    "stage_2": "CPU worker derives masks/truth, compresses NPZ, encodes/muxes video, hashes artifacts and publishes FINAL_READY"
+  },
+  "schema": "avengine_native_strict_two_human_room_batch_benchmark_estimate_v1",
+  "storage": {
+    "fixed_raw_memmap_bytes_per_episode": 691200000,
+    "observed_rgb_png_bytes_per_episode": 77882826,
+    "projected_raw_spool_bytes_per_episode_before_metadata": 769082826,
+    "projected_raw_spool_bytes_per_ten_episode_shard_before_metadata": 7690828260,
+    "projected_final_output_bytes_per_ten_episode_shard_at_observed_rate": 1113484240,
+    "recommended_active_shard_free_space_bytes": 10000000000,
+    "raw_spool_retention": "retain through complete batch validation; deletion is a separate explicit destructive operation",
+    "warning": "retaining raw spools for all 100 Episodes adds roughly 77 GB before metadata and CPU working arrays"
+  }
+}

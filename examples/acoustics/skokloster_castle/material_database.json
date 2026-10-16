@@ -1,0 +1,35 @@
+{
+  "schema": "avengine_m3_acoustic_material_database_v1",
+  "database_id": "skokloster_neutral_research_placeholder_v1",
+  "version": "1",
+  "bands_hz": [125.0, 500.0, 2000.0, 8000.0],
+  "coefficient_units": {
+    "absorption": "fraction_of_incident_sound_pressure",
+    "scattering": "fraction_of_incident_sound_pressure",
+    "transmission": "fraction_of_incident_sound_pressure",
+    "damping": "decibels_per_meter",
+    "density": "kilograms_per_cubic_meter",
+    "speed": "meters_per_second"
+  },
+  "provenance": {
+    "source": "Neutral deterministic research placeholder; no claim that the single visual slot represents one physical material",
+    "confidence": 0.0,
+    "material_semantics": "research_placeholder",
+    "intended_use": "research_compiler_diagnostics"
+  },
+  "materials": [
+    {
+      "material_key": "skokloster_research_placeholder",
+      "name": "Skokloster neutral research placeholder",
+      "labels": ["skokloster_unreviewed_surface"],
+      "absorption": [0.1, 0.1, 0.1, 0.1],
+      "scattering": [0.1, 0.1, 0.1, 0.1],
+      "transmission": [0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "AVEngine deterministic non-physical research placeholder",
+      "confidence": 0.0
+    }
+  ]
+}

@@ -1,0 +1,661 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m1_visual_evidence_v1.schema.json",
+  "title": "AVEngine M1 Visual Capture Evidence v1",
+  "oneOf": [
+    {"$ref": "#/$defs/completed_capture"},
+    {"$ref": "#/$defs/blocked_attempt"}
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "quat": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["translation_m", "rotation_xyzw"],
+      "properties": {
+        "translation_m": {"$ref": "#/$defs/vec3"},
+        "rotation_xyzw": {"$ref": "#/$defs/quat"}
+      }
+    },
+    "input_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "byte_size": {"type": "integer", "minimum": 0}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "byte_size"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "byte_size": {"type": "integer", "minimum": 0}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "required", "status", "measured", "threshold"],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "measured": {},
+        "threshold": {},
+        "artifact": {"type": "string", "minLength": 1},
+        "failure_reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "scene_asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "declared_path",
+        "resolved_path",
+        "exists",
+        "byte_size",
+        "sha256"
+      ],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "declared_path": {"type": "string", "minLength": 1},
+        "resolved_path": {"type": "string", "minLength": 1},
+        "exists": {"const": true},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projection",
+        "resolution_hw",
+        "hfov_degrees",
+        "near_m",
+        "far_m",
+        "rig_from_sensor"
+      ],
+      "properties": {
+        "projection": {"const": "pinhole"},
+        "resolution_hw": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {"type": "integer", "minimum": 1},
+            {"type": "integer", "minimum": 1}
+          ],
+          "items": false
+        },
+        "hfov_degrees": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 180
+        },
+        "near_m": {"type": "number", "exclusiveMinimum": 0},
+        "far_m": {"type": "number", "exclusiveMinimum": 0},
+        "rig_from_sensor": {"$ref": "#/$defs/transform"}
+      }
+    },
+    "modality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modality", "sensor_uuid"],
+      "properties": {
+        "modality": {"enum": ["rgb", "depth", "semantic"]},
+        "sensor_uuid": {"type": "string", "minLength": 1}
+      }
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listener_id", "attached_to", "rig_from_listener"],
+      "properties": {
+        "listener_id": {"const": "listener0"},
+        "attached_to": {"const": "camera_rig_0"},
+        "rig_from_listener": {"$ref": "#/$defs/transform"}
+      }
+    },
+    "sensor_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rig_id",
+        "view_id",
+        "world_from_rig",
+        "shared_calibration",
+        "modalities",
+        "listener",
+        "audio_propagation_status",
+        "audio_propagation_reason"
+      ],
+      "properties": {
+        "rig_id": {"const": "camera_rig_0"},
+        "view_id": {"const": "view0"},
+        "world_from_rig": {"$ref": "#/$defs/transform"},
+        "shared_calibration": {"$ref": "#/$defs/calibration"},
+        "modalities": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/modality"}
+        },
+        "listener": {"$ref": "#/$defs/listener"},
+        "audio_propagation_status": {"const": "not_run"},
+        "audio_propagation_reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "state_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["world_time_seconds", "agent", "sensors"],
+      "properties": {
+        "world_time_seconds": {"type": "number"},
+        "agent": {"$ref": "#/$defs/transform"},
+        "sensors": {
+          "type": "object",
+          "minProperties": 4,
+          "additionalProperties": {"$ref": "#/$defs/transform"}
+        }
+      }
+    },
+    "capture_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "after", "before_sha256", "after_sha256"],
+      "properties": {
+        "before": {"$ref": "#/$defs/state_snapshot"},
+        "after": {"$ref": "#/$defs/state_snapshot"},
+        "before_sha256": {"$ref": "#/$defs/sha256"},
+        "after_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "repeat_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rgb", "depth", "semantic"],
+      "properties": {
+        "rgb": {"$ref": "#/$defs/sha256"},
+        "depth": {"$ref": "#/$defs/sha256"},
+        "semantic": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "observation_base": {
+      "type": "object",
+      "required": [
+        "sensor_uuid",
+        "dtype",
+        "shape",
+        "raw_array_sha256",
+        "artifact",
+        "statistics"
+      ],
+      "properties": {
+        "sensor_uuid": {"type": "string", "minLength": 1},
+        "dtype": {"type": "string", "minLength": 1},
+        "shape": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "raw_array_sha256": {"$ref": "#/$defs/sha256"},
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "preview_artifact": {"$ref": "#/$defs/artifact"},
+        "statistics": {"type": "object"}
+      }
+    },
+    "rgb_observation": {
+      "allOf": [
+        {"$ref": "#/$defs/observation_base"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sensor_uuid",
+            "dtype",
+            "shape",
+            "raw_array_sha256",
+            "artifact",
+            "statistics"
+          ],
+          "properties": {
+            "sensor_uuid": {"type": "string", "minLength": 1},
+            "dtype": {"type": "string", "minLength": 1},
+            "shape": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {"type": "integer", "minimum": 1}
+            },
+            "raw_array_sha256": {"$ref": "#/$defs/sha256"},
+            "artifact": {"$ref": "#/$defs/artifact"},
+            "statistics": {"type": "object"}
+          }
+        }
+      ]
+    },
+    "array_observation": {
+      "allOf": [
+        {"$ref": "#/$defs/observation_base"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sensor_uuid",
+            "dtype",
+            "shape",
+            "raw_array_sha256",
+            "artifact",
+            "preview_artifact",
+            "statistics"
+          ],
+          "properties": {
+            "sensor_uuid": {"type": "string", "minLength": 1},
+            "dtype": {"type": "string", "minLength": 1},
+            "shape": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {"type": "integer", "minimum": 1}
+            },
+            "raw_array_sha256": {"$ref": "#/$defs/sha256"},
+            "artifact": {"$ref": "#/$defs/artifact"},
+            "preview_artifact": {"$ref": "#/$defs/artifact"},
+            "statistics": {"type": "object"}
+          }
+        }
+      ]
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rgb", "depth", "semantic"],
+      "properties": {
+        "rgb": {"$ref": "#/$defs/rgb_observation"},
+        "depth": {"$ref": "#/$defs/array_observation"},
+        "semantic": {"$ref": "#/$defs/array_observation"}
+      }
+    },
+    "source_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "world_from_source",
+        "rig_from_source",
+        "recovered_world_from_source",
+        "roundtrip_max_error"
+      ],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "world_from_source": {"$ref": "#/$defs/transform"},
+        "rig_from_source": {"$ref": "#/$defs/transform"},
+        "recovered_world_from_source": {"$ref": "#/$defs/transform"},
+        "roundtrip_max_error": {"type": "number", "minimum": 0}
+      }
+    },
+    "connectivity_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pair_id",
+        "requested_start_m",
+        "requested_end_m",
+        "snapped_start_m",
+        "snapped_end_m",
+        "start_snap_distance_m",
+        "end_snap_distance_m",
+        "found",
+        "geodesic_distance_m",
+        "path_point_count"
+      ],
+      "properties": {
+        "pair_id": {"type": "string", "minLength": 1},
+        "requested_start_m": {"$ref": "#/$defs/vec3"},
+        "requested_end_m": {"$ref": "#/$defs/vec3"},
+        "snapped_start_m": {"$ref": "#/$defs/vec3"},
+        "snapped_end_m": {"$ref": "#/$defs/vec3"},
+        "start_snap_distance_m": {"type": "number", "minimum": 0},
+        "end_snap_distance_m": {"type": "number", "minimum": 0},
+        "found": {"type": "boolean"},
+        "geodesic_distance_m": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "path_point_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "ray_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "expectation",
+        "distance_m",
+        "nearest_hit_m",
+        "passed"
+      ],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "expectation": {"enum": ["clear_until_m", "hit_within_m"]},
+        "distance_m": {"type": "number", "exclusiveMinimum": 0},
+        "nearest_hit_m": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "passed": {"type": "boolean"}
+      }
+    },
+    "qa_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qa_id",
+        "kind",
+        "formal_view",
+        "meters_per_pixel",
+        "height_m",
+        "shape",
+        "navigable_pixel_count",
+        "artifact"
+      ],
+      "properties": {
+        "qa_id": {"type": "string", "minLength": 1},
+        "kind": {"const": "topdown"},
+        "formal_view": {"const": false},
+        "meters_per_pixel": {"type": "number", "exclusiveMinimum": 0},
+        "height_m": {"type": "number"},
+        "shape": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "navigable_pixel_count": {"type": "integer", "minimum": 0},
+        "artifact": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "avengine_commit",
+        "avengine_worktree_dirty",
+        "habitat_runtime_root",
+        "habitat_runtime_commit",
+        "habitat_runtime_worktree_dirty",
+        "locked_habitat_runtime_commit",
+        "runtime_lock_sha256",
+        "habitat_module_path",
+        "native_binding_path",
+        "native_binding_sha256",
+        "habitat_python_version",
+        "habitat_audio_enabled",
+        "habitat_bullet_enabled",
+        "habitat_cuda_enabled",
+        "python",
+        "platform",
+        "numpy",
+        "pillow"
+      ],
+      "properties": {
+        "avengine_commit": {"$ref": "#/$defs/git_commit"},
+        "avengine_worktree_dirty": {"type": "boolean"},
+        "habitat_runtime_root": {"type": "string", "minLength": 1},
+        "habitat_runtime_commit": {"$ref": "#/$defs/git_commit"},
+        "habitat_runtime_worktree_dirty": {"type": "boolean"},
+        "locked_habitat_runtime_commit": {"$ref": "#/$defs/git_commit"},
+        "runtime_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "habitat_module_path": {"type": "string", "minLength": 1},
+        "native_binding_path": {"type": "string", "minLength": 1},
+        "native_binding_sha256": {"$ref": "#/$defs/sha256"},
+        "habitat_python_version": {
+          "oneOf": [{"type": "string"}, {"type": "null"}]
+        },
+        "habitat_audio_enabled": {"type": "boolean"},
+        "habitat_bullet_enabled": {"type": "boolean"},
+        "habitat_cuda_enabled": {"type": "boolean"},
+        "python": {"type": "string", "minLength": 1},
+        "platform": {"type": "string", "minLength": 1},
+        "numpy": {"type": "string", "minLength": 1},
+        "pillow": {"type": "string", "minLength": 1}
+      }
+    },
+    "producer_process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process_instance_id",
+        "pid",
+        "initial_pid",
+        "started_at_utc"
+      ],
+      "properties": {
+        "process_instance_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "pid": {"type": "integer", "minimum": 1},
+        "initial_pid": {"type": "integer", "minimum": 1},
+        "started_at_utc": {"type": "string", "minLength": 1}
+      }
+    },
+    "independent_reference": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "evidence_content_sha256", "artifact"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "evidence_content_sha256": {"$ref": "#/$defs/sha256"},
+            "artifact": {"$ref": "#/$defs/artifact"}
+          }
+        }
+      ]
+    },
+    "known_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "status", "reason"],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "status": {"const": "fail"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "completed_capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "evidence_kind",
+        "room_id",
+        "room_kind",
+        "request_id",
+        "producer_process",
+        "capture_batch_id",
+        "formal_view_ids",
+        "room_manifest",
+        "capture_request",
+        "runtime",
+        "scene_assets",
+        "sensor_contract",
+        "capture_state",
+        "repeat_observation_hashes",
+        "observations",
+        "sources",
+        "connectivity",
+        "ray_checks",
+        "qa_observations",
+        "independent_reference",
+        "known_runtime_failures_carried_forward",
+        "checks",
+        "overall_status",
+        "evidence_content_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_m1_visual_evidence_v1"},
+        "evidence_kind": {"const": "completed_capture"},
+        "room_id": {"type": "string", "minLength": 1},
+        "room_kind": {
+          "enum": [
+            "habitat_native",
+            "blender_custom",
+            "legacy_ue_real_surface_export"
+          ]
+        },
+        "request_id": {"type": "string", "minLength": 1},
+        "producer_process": {"$ref": "#/$defs/producer_process"},
+        "capture_batch_id": {"$ref": "#/$defs/sha256"},
+        "formal_view_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "prefixItems": [{"const": "view0"}],
+          "items": false
+        },
+        "room_manifest": {"$ref": "#/$defs/input_file"},
+        "capture_request": {"$ref": "#/$defs/input_file"},
+        "runtime": {"$ref": "#/$defs/runtime"},
+        "scene_assets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/scene_asset"}
+        },
+        "sensor_contract": {"$ref": "#/$defs/sensor_contract"},
+        "capture_state": {"$ref": "#/$defs/capture_state"},
+        "repeat_observation_hashes": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/repeat_hashes"}
+        },
+        "observations": {"$ref": "#/$defs/observations"},
+        "sources": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/source_report"}
+        },
+        "connectivity": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/connectivity_report"}
+        },
+        "ray_checks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ray_report"}
+        },
+        "qa_observations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/qa_report"}
+        },
+        "independent_reference": {"$ref": "#/$defs/independent_reference"},
+        "known_runtime_failures_carried_forward": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/known_failure"}
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/check"}
+        },
+        "overall_status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "evidence_content_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "blocked_attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "evidence_kind",
+        "room_id",
+        "room_kind",
+        "request_id",
+        "room_manifest",
+        "capture_request",
+        "output_directory",
+        "exception",
+        "checks",
+        "overall_status",
+        "evidence_content_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_m1_visual_evidence_v1"},
+        "evidence_kind": {"const": "blocked_attempt"},
+        "room_id": {"type": "string", "minLength": 1},
+        "room_kind": {
+          "enum": [
+            "habitat_native",
+            "blender_custom",
+            "legacy_ue_real_surface_export"
+          ]
+        },
+        "request_id": {"type": "string", "minLength": 1},
+        "room_manifest": {"$ref": "#/$defs/input_file"},
+        "capture_request": {"$ref": "#/$defs/input_file"},
+        "output_directory": {"type": "string", "minLength": 1},
+        "exception": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "message"],
+          "properties": {
+            "type": {"type": "string", "minLength": 1},
+            "message": {"type": "string", "minLength": 1}
+          }
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/check"}
+        },
+        "overall_status": {"const": "blocked"},
+        "evidence_content_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

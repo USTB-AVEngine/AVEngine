@@ -1,0 +1,24 @@
+{
+  "stages": {
+    "paths": {
+      ".glb": [
+        "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/versioned_data/habitat_test_scenes_v1.0/skokloster-castle.glb"
+      ]
+    },
+    "default_attributes": {
+      "shader_type": "material",
+      "nav_asset": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/versioned_data/habitat_test_scenes_v1.0/skokloster-castle.navmesh",
+      "up": [0.0, 0.0, 1.0],
+      "front": [0.0, 1.0, 0.0],
+      "origin": [0.0, 0.0, 0.0],
+      "units_to_meters": 1.0
+    }
+  },
+  "objects": {},
+  "light_setups": {},
+  "scene_instances": {
+    "default_attributes": {
+      "default_lighting": "no_lights"
+    }
+  }
+}

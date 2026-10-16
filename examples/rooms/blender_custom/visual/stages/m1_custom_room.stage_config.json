@@ -1,0 +1,12 @@
+{
+  "render_asset": "m1_custom_room.glb",
+  "collision_asset": "m1_custom_room.glb",
+  "up": [0, 1, 0],
+  "front": [0, 0, -1],
+  "units_to_meters": 1.0,
+  "requires_lighting": true,
+  "force_flat_shading": false,
+  "margin": 0.01,
+  "friction_coefficient": 0.8,
+  "restitution_coefficient": 0.0
+}

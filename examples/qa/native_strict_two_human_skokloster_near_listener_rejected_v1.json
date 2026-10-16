@@ -1,0 +1,74 @@
+{
+  "camera_listener_contract": {
+    "camera_and_acoustic_listener_share_position": true,
+    "camera_habitat_yaw_deg": 79.91754325521669,
+    "horizontal_fov_deg": 105.0,
+    "listener_position_habitat_m": [
+      3.93178129196167,
+      1.6583894044160843,
+      9.969188690185547
+    ],
+    "resolution_hw": [
+      720,
+      1280
+    ]
+  },
+  "formal_dataset_count": 0,
+  "frame_index": 15,
+  "projection_evidence": [
+    {
+      "depth_m": 1.4327056037926256,
+      "full_height_envelope_pixel_bbox_xyxy": [
+        402.1932585754115,
+        195.6969982442111,
+        402.1932585754115,
+        881.2380766158379
+      ],
+      "mouth_pixel_uv": [
+        402.1932585754115,
+        329.37750852667835
+      ],
+      "root_pixel_uv": [
+        402.1932585754115,
+        881.2380766158379
+      ],
+      "source_id": "source1",
+      "top_2m_pixel_uv": [
+        402.1932585754115,
+        195.6969982442111
+      ]
+    },
+    {
+      "depth_m": 1.3999365149265919,
+      "full_height_envelope_pixel_bbox_xyxy": [
+        933.1269193982973,
+        199.04622059297455,
+        933.1269193982973,
+        900.6341384312142
+      ],
+      "mouth_pixel_uv": [
+        933.1269193982973,
+        350.23404894908106
+      ],
+      "root_pixel_uv": [
+        933.1269193982973,
+        900.6341384312142
+      ],
+      "source_id": "source2",
+      "top_2m_pixel_uv": [
+        933.1269193982973,
+        199.04622059297455
+      ]
+    }
+  ],
+  "qualification_claim": false,
+  "rejection_reasons": [
+    "source1 0-2m envelope exits the bottom image boundary",
+    "source2 0-2m envelope exits the bottom image boundary",
+    "the required 48px full-body edge margin is therefore impossible"
+  ],
+  "schema": "avengine_skokloster_strict_near_listener_cpu_rejection_v1",
+  "semantics": "Mouth separation passes, but mouth-only projection is insufficient evidence for the strict full-body visibility gate.",
+  "status": "rejected_cpu_geometry",
+  "strict_edge_margin_px": 48.0
+}

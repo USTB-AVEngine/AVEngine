@@ -1,0 +1,80 @@
+{
+  "schema": "avengine_m6_animal_template_registry_v1",
+  "registry_id": "m6_animal_templates_canary_v1",
+  "revision": "v1",
+  "templates": [
+    {
+      "template_id": "rocketbox_dog_beagle_01",
+      "revision": "m2_v7_world_contact_r5",
+      "body_plan_id": "quadruped_mammal_canid_v1",
+      "morphotype_id": "beagle",
+      "taxonomy": {"species_id": "dog", "breed_id": "beagle"},
+      "asset_revisions": {
+        "topology_sha256": "90fb480d90d432c78eb30d79fc73a28eef65dcfb7879e60779dfb191dba99bdb",
+        "uv_sha256": "a99380882f1dd8f904ead04aa31055f8f486803fbe135d417d4fcfc7b2da1524",
+        "skeleton_revision": "rocketbox-beagle-skeleton-m2-v4-world-left",
+        "skeleton_sha256": "711ce9669235a7d0547bd9b88dbf4c0d056149d96bcd0f451598943dbcd32841",
+        "skin_weights_revision": "rocketbox-beagle-weights-m2-v3",
+        "skin_weights_sha256": "b2e73c00fb395f0de432185514cc2e0e98a80d2d14a7730dd5b930020c0769b5",
+        "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+        "collision_sha256": "fc4905519291995d71d3f526a0ee7b2e08761671c6ac3ef6f59dec8a16e9a66e"
+      },
+      "action_families": [
+        {"action_family_id": "idle", "revision": "rocketbox-beagle-idle-walk-world-left-v2", "sha256": "b77457be2808fc0495ca7a8bc97978681598afca1caff18aca0761de5891c645"},
+        {"action_family_id": "walk", "revision": "rocketbox-beagle-idle-walk-world-left-v2", "sha256": "b77457be2808fc0495ca7a8bc97978681598afca1caff18aca0761de5891c645"}
+      ],
+      "morphology_reference": {
+        "bbox_height_to_length": 0.9068,
+        "bbox_width_to_length": 0.3239,
+        "shoulder_height_m": 0.36
+      },
+      "allowed_morphology_range": {
+        "bbox_height_to_length": {"minimum": 0.75, "maximum": 1.05},
+        "bbox_width_to_length": {"minimum": 0.25, "maximum": 0.4},
+        "shoulder_height_m": {"minimum": 0.3, "maximum": 0.42}
+      },
+      "appearance_domains": {
+        "size": ["small", "medium", "large"],
+        "body_build": ["slim", "standard", "stocky"],
+        "life_stage": ["young", "adult", "senior"],
+        "coat_profile": {
+          "profile_id": "dog_beagle_tricolor_v1",
+          "values": ["light_tricolor", "standard_tricolor", "dark_tricolor"]
+        }
+      },
+      "native_qa_baseline": [
+        {"check_id": "m2_articulated_runtime", "status": "pass", "uri": "repo://docs/roadmap/M2_STATUS.md", "sha256": "d34d7659480f2c31637d04934b28edd4eae05f615daae0430a5e014c357a94dc"}
+      ],
+      "emitter_anchors": [
+        {"anchor_id": "body", "anchor_type": "body", "joint_id": "beagle Pelvis", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "head", "anchor_type": "head", "joint_id": "beagle Head", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "muzzle", "anchor_type": "muzzle", "joint_id": "beagle Xtra Mouth", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_front_left", "anchor_type": "paw", "joint_id": "beagle L Finger0", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_front_right", "anchor_type": "paw", "joint_id": "beagle R Finger0", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_hind_left", "anchor_type": "paw", "joint_id": "beagle L Toe0", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_hind_right", "anchor_type": "paw", "joint_id": "beagle R Toe0", "local_position_m": [0.0, 0.0, 0.0]}
+      ],
+      "contact_semantics": [
+        {"contact_id": "paw_front_left", "anchor_id": "paw_front_left", "semantic_role": "both"},
+        {"contact_id": "paw_front_right", "anchor_id": "paw_front_right", "semantic_role": "both"},
+        {"contact_id": "paw_hind_left", "anchor_id": "paw_hind_left", "semantic_role": "both"},
+        {"contact_id": "paw_hind_right", "anchor_id": "paw_hind_right", "semantic_role": "both"}
+      ],
+      "collision_proxy": {
+        "proxy_id": "rocketbox_beagle_kinematic_proxy",
+        "revision": "m2-kinematic-rest-bbox-proxy-v1",
+        "sha256": "fc4905519291995d71d3f526a0ee7b2e08761671c6ac3ef6f59dec8a16e9a66e",
+        "kind": "kinematic_proxy"
+      },
+      "provenance": {
+        "source": "Microsoft Rocketbox Dog_Beagle_01 and AVEngine M2 review",
+        "source_revision": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+        "license": "MIT",
+        "rights_status": "research_use_only",
+        "evidence_sha256": "ad5df61f4b955980f6ab3d6d00e44f31942cb31ce3d2f2a3c1a1f353c307e240"
+      },
+      "status": "formal"
+    }
+  ],
+  "registry_content_sha256": "4829a27e7870b90a09b2e3078b96a25d1e802c02fe923d108f570655613e9213"
+}

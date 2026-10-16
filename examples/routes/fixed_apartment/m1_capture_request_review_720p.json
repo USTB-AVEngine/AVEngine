@@ -1,0 +1,62 @@
+{
+  "listener": {
+    "attached_to": "camera_rig_0",
+    "listener_id": "listener0",
+    "rig_from_listener": {
+      "rotation_xyzw": [0, 0, 0, 1],
+      "translation_m": [0, 0, 0]
+    }
+  },
+  "primary_camera_rig": {
+    "modalities": [
+      {"modality": "rgb", "sensor_uuid": "rig_rgb"},
+      {"modality": "depth", "sensor_uuid": "rig_depth"},
+      {"modality": "semantic", "sensor_uuid": "rig_semantic"}
+    ],
+    "rig_id": "camera_rig_0",
+    "shared_calibration": {
+      "far_m": 50,
+      "hfov_degrees": 105,
+      "near_m": 0.05,
+      "projection": "pinhole",
+      "resolution_hw": [720, 1280],
+      "rig_from_sensor": {
+        "rotation_xyzw": [0, 0, 0, 1],
+        "translation_m": [0, 0, 0]
+      }
+    },
+    "view_id": "view0",
+    "world_from_rig": {
+      "rotation_xyzw": [0, 0.4617486132350339, 0, 0.8870108331782217],
+      "translation_m": [-0.7, 1.471, 0.65]
+    }
+  },
+  "qa_views": [
+    {
+      "height_m": 0.271,
+      "kind": "topdown",
+      "meters_per_pixel": 0.04,
+      "qa_id": "navmesh_topdown"
+    }
+  ],
+  "request_id": "m6x_spear_apartment_review_720p_view0_v1",
+  "room_id": "legacy_ue_apartment_0000_v1",
+  "schema": "avengine_m1_capture_request_v1",
+  "seed": 29,
+  "sources": [
+    {
+      "source_id": "source0",
+      "world_from_source": {
+        "rotation_xyzw": [0, 0, 0, 1],
+        "translation_m": [-2.88, 0.721, -0.75]
+      }
+    },
+    {
+      "source_id": "source1",
+      "world_from_source": {
+        "rotation_xyzw": [0, 0, 0, 1],
+        "translation_m": [1.48, 0.721, 4.36]
+      }
+    }
+  ]
+}

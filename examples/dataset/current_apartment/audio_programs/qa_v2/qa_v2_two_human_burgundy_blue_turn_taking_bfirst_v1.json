@@ -1,0 +1,84 @@
+{
+  "schema": "avengine_m6_audio_program_v1",
+  "program_id": "qa_v2_two_human_burgundy_blue_turn_taking_bfirst_v1",
+  "revision": "v1",
+  "mode": "sequential_sources",
+  "timeline": {
+    "time_base_hz": 48000,
+    "ticks_per_frame": 3200,
+    "video_fps": 15,
+    "frame_count": 75,
+    "sample_rate_hz": 16000,
+    "ticks_per_sample": 3,
+    "sample_count": 80000
+  },
+  "candidate_source_endpoint_ids": [
+    "qa_v2_human_1_burgundy_mouth",
+    "qa_v2_human_2_blue_mouth"
+  ],
+  "events": [
+    {
+      "event_id": "src2_event_0",
+      "source_endpoint_id": "qa_v2_human_2_blue_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 12000,
+      "end_tick_exclusive": 54000,
+      "start_sample": 4000,
+      "end_sample_exclusive": 18000,
+      "source_start_sample": 0,
+      "source_end_sample_exclusive": 14000,
+      "linear_gain": 0.22,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "src1_event_1",
+      "source_endpoint_id": "qa_v2_human_1_burgundy_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 72000,
+      "end_tick_exclusive": 114000,
+      "start_sample": 24000,
+      "end_sample_exclusive": 38000,
+      "source_start_sample": 20000,
+      "source_end_sample_exclusive": 34000,
+      "linear_gain": 0.22,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "src2_event_2",
+      "source_endpoint_id": "qa_v2_human_2_blue_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 132000,
+      "end_tick_exclusive": 168000,
+      "start_sample": 44000,
+      "end_sample_exclusive": 56000,
+      "source_start_sample": 40000,
+      "source_end_sample_exclusive": 52000,
+      "linear_gain": 0.22,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "src1_event_3",
+      "source_endpoint_id": "qa_v2_human_1_burgundy_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 186000,
+      "end_tick_exclusive": 228000,
+      "start_sample": 62000,
+      "end_sample_exclusive": 76000,
+      "source_start_sample": 56000,
+      "source_end_sample_exclusive": 70000,
+      "linear_gain": 0.22,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    }
+  ],
+  "source_specific_stems": true,
+  "admission_state": "research",
+  "program_content_sha256": "69dff42149f47f1259225ea2b7fb68b02b9e5ed6ae1de484839a199eee326914"
+}

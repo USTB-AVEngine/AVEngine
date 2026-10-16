@@ -1,0 +1,121 @@
+{
+ "schema": "avengine_attribute_profile_v1",
+ "profile_schema_id": "audio_playback_television_product_view_v1",
+ "profile_revision": "2026_08_27_v3_thin_featureless_back_level_camera_method_revision",
+ "asset_class": "static_object",
+ "lineage_group_id": "static_product_view_t2i_flux2_v1",
+ "state_classification": "research_candidate",
+ "taxonomy": {
+  "category": "audio_playback",
+  "object_type": "television"
+ },
+ "base_template": {
+  "template_id": "static_object_text_prompt_only_v1",
+  "kind": "text_prompt_only",
+  "artifact": null,
+  "provenance_status": "verified",
+  "usage_scope": "research_candidate"
+ },
+ "fixed_attributes": {
+  "form_factor": "flat_panel_16_9",
+  "material": "plastic"
+ },
+ "sampled_attribute_domains": {
+  "stand_type": [
+   "central_pedestal",
+   "two_splayed_feet"
+  ]
+ },
+ "forbidden_combinations": [],
+ "generation_contract": {
+  "route": "flux2_pixal3d_static_v1",
+  "prompt_template_id": "static_product_view_t2i_v3_thin_featureless_back_level_camera",
+  "base_acquisition_policy": {
+   "policy_id": "static_object_per_request_one_shot_v1",
+   "acquisition_unit": "one_frozen_asset_per_request",
+   "sampled_domains_must_be_singleton": false,
+   "downstream_instance_route": "flux2_pixal3d_static_v1",
+   "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
+  },
+  "positive_template": "One {material} {form_factor} {object_type} standing on a {stand_type}, a household {category}: one large 16:9 flat-screen television, far wider than tall, with a blank matte dark screen. One narrow perforated speaker grille spans the full lower bezel. Excluding the feet, the display is a uniformly thin slab less than one twelfth of the screen width. Its rear is one plain shallow panel without cables, ports, brackets, vents, recesses, protrusions, or boxes. It rests on a table, not a wall.",
+  "pose_guard_prompt": "Render one object, centered and stable on a flat neutral surface against a seamless light-gray background. Near-frontal view at screen-centre height, only 15 degrees to one side and 5 degrees above: show the blank screen, full grille, and one narrow side edge. The complete object fits with a clear margin. Even studio lighting and one soft shadow beneath. Neutral reconstruction reference, not an advertisement.",
+  "negative_prompt": "human, hand, text, logo, watermark, multiple objects, cropped object, extreme perspective, fisheye, tilted camera, floating object, cluttered background, room scene, packaging, advertisement, collage, wall mounted, wall bracket, soundbar, remote control, screen content, bright screen, curved screen, computer monitor, keyboard, media console, shelf, speakers, speaker stand, subwoofer, amplifier, receiver, turntable, cables, removed panel, exploded view, cutaway, bezel with no grille, hidden speakers, small screen, thick cabinet, bulky rear, rear electronics, rear ports, mounting arms, back vents, rear relief, cable bundle, detached cable, floating disc, rear box, deep three-quarter view",
+  "value_labels": {
+   "category": {
+    "audio_playback": "audio playback device"
+   },
+   "object_type": {
+    "television": "television"
+   },
+   "form_factor": {
+    "flat_panel_16_9": "16:9 flat panel"
+   },
+   "material": {
+    "plastic": "moulded plastic"
+   },
+   "stand_type": {
+    "central_pedestal": "wide flat plate pedestal",
+    "two_splayed_feet": "two splayed feet at the outer edges"
+   }
+  },
+  "model_revisions": {
+   "flux2": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+   "pixal3d": "0b31f9160aa400719af409098bff7936a932f726",
+   "dino": "3c276edd87d6f6e569ff0c4400e086807d0f3881"
+  }
+ },
+ "target_physical_profiles": {
+  "profile_id": "audio_playback_television_product_view_v1_physical_candidate_v1",
+  "control_attribute": null,
+  "measurement": "height_cm",
+  "mode": "absolute_measurement",
+  "reference_value_cm": 72,
+  "reference_provenance": {
+   "status": "provisional",
+   "source_id": "fifty_five_inch_television_typical_retail_dimension_v1",
+   "artifact": null,
+   "notes": "Provisional typical retail dimension; measure the approved mesh before formal registration. Uniform height scaling amplifies any aspect error from reconstruction, so check the width and depth of the finalized mesh as well."
+  },
+  "values": {
+   "fixed": {
+    "target_value_cm": 72,
+    "tolerance_cm": 10
+   }
+  }
+ },
+ "rig_profile": null,
+ "acoustic_profile": {
+  "profile_id": "television_playback_v1",
+  "default_event_class": "speech_playback",
+  "allowed_event_classes": [
+   "music_playback",
+   "speech_playback",
+   "any_audioset_class_playback",
+   "silent"
+  ],
+  "selection_attributes": [
+   "category",
+   "object_type"
+  ]
+ },
+ "locked_attributes": [
+  "category",
+  "object_type",
+  "form_factor",
+  "material"
+ ],
+ "qa_contract": {
+  "subject_label": "television",
+  "attributes": {
+   "stand_type": {
+    "kind": "categorical",
+    "label": "stand type",
+    "value_labels": {
+     "central_pedestal": "wide flat plate pedestal",
+     "two_splayed_feet": "two splayed feet at the outer edges"
+    },
+    "identification_question": "What stand does {instance_label} stand on?"
+   }
+  }
+ }
+}

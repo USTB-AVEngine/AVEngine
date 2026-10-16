@@ -1,0 +1,53 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/plumbing_fixture_bathtub_freestanding_product_view_v1.json",
+  "sha256": "4f7778bd83a2b51b0653ea5b3e63f7631ddd3cd1f6e1efcef2636335874734e7",
+  "size_bytes": 5432,
+  "profile_schema_id": "plumbing_fixture_bathtub_freestanding_product_view_v1",
+  "profile_revision": "2026_08_26_v2_integrated_filler_no_external_plumbing_method_revision",
+  "canonical_sha256": "9b2eadf3ce4ecefc00e179a65eb858a5477cb228dd2cc587a24e63b7de7d537e"
+ },
+ "method_revision": {
+  "kind": "integrated_visible_filler_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_static_sound_forms",
+  "superseded_profile_canonical_sha256": "3479f4695cfba534a2bee2fdd0071502eb07ba64023361448cf85d53b71964de",
+  "reason": "The v1 method failed in two different ways across two frozen requests. The first candidate contained the requested filler in 2D but Pixal3D grew a long exposed external pipe and bulbous plumbing below the tub, causing a 3D construction rejection. The second seed produced a clean tub but omitted the filler entirely, so emitter_feature_visible failed. The method must bind one compact filler to the rim and explicitly keep all underside plumbing enclosed; another blind seed retry is not enough.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "cb6dabe11eab71be06854910a3cb6241b6c8e06a5719b00307bc3ab6c0472378",
+   "58b4917701d7134b4c142365d56b16b250cb5d3ecda61f2ee446c7567d2e4e9f"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "894ca4fc76c9fc45d2f816baaf6d0a2a033b8043a1925362fcb111dc2ccf0bb5",
+   "2643bfec1146eb50bca0f3c00d363f0667ad909421bce6e2d427b6538a682ecc"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_sources_retry_20260826_r2/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_visual_review_under_owner_instruction_20260826",
+  "instances": [
+   {
+    "instance_id": "plumbing_fixture_bathtub_freestanding_product_view_cb6dabe11eab",
+    "request_sha256": "cb6dabe11eab71be06854910a3cb6241b6c8e06a5719b00307bc3ab6c0472378",
+    "candidate_sha256": "894ca4fc76c9fc45d2f816baaf6d0a2a033b8043a1925362fcb111dc2ccf0bb5",
+    "sampled_attributes": {
+     "body_color": "white"
+    }
+   },
+   {
+    "instance_id": "plumbing_fixture_bathtub_freestanding_product_view_58b4917701d7",
+    "request_sha256": "58b4917701d7134b4c142365d56b16b250cb5d3ecda61f2ee446c7567d2e4e9f",
+    "candidate_sha256": "2643bfec1146eb50bca0f3c00d363f0667ad909421bce6e2d427b6538a682ecc",
+    "sampled_attributes": {
+     "body_color": "white"
+    }
+   }
+  ]
+ }
+}

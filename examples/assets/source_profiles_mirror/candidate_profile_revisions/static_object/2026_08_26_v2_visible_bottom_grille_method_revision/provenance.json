@@ -1,0 +1,63 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/audio_playback_television_product_view_v1.json",
+  "sha256": "92a85d85642d58f9b547ce926eebae4d8549a5ea810ef613fe85c2a67a09e0e3",
+  "size_bytes": 5629,
+  "profile_schema_id": "audio_playback_television_product_view_v1",
+  "profile_revision": "2026_08_26_v2_visible_bottom_grille_method_revision",
+  "canonical_sha256": "573a7a0f6e344448e11fc2a3501d15cdbf6c3f9614804cf9b3f4c862998d5a90"
+ },
+ "method_revision": {
+  "kind": "visible_emitter_feature_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_audio_playback_base",
+  "superseded_profile_canonical_sha256": "ad106326a22c5dcfa22b70b8fd270e762a1fe2f953f1510bab2fd12cd2147eaf",
+  "reason": "Every v1 television candidate had to be rejected on the emitter_feature_visible hard gate: modern television speakers fire downward behind an invisible bottom vent, and the static review route deliberately refuses not_applicable on that gate, so no seed can rescue the method. Placing an emitter anchor on a surface no reviewer can see is exactly what the gate exists to prevent. The v2 method asks for the front-facing bottom grille strip that mid-range televisions actually have, which makes the anchor reviewable. The same revision also pushes the pedestal value away from computer monitors, which is what the v1 pedestal candidate came back as.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "fe83ed5e668214fc2c5f2f923f9654ec07d78fc72b79b2f7fbf0dce726409b37",
+   "5daa484aeaaf81699071e88a4a22d5823f8ab81f8f0ee60aca32caad18a1e27f",
+   "5f95ce65d7a7e5556a4db2c0ea09169f3f02f9334a15d7595d428168741fe45d"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "06be985bfbe7816e6ceda863716568a1a7dc3d442957dfe37193f1c384f99958",
+   "621c1c85b9e455c515b5cb11e9536e5cab58da26d723976f87b8249f3b2150ab",
+   "1dfc07cd3ed819afd5443fe9d905c3cda5d4b5a5e62002ebd4e62dc3b176a637"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/audio_playback_statics_v1/review_2d/review_batch_manifest.json",
+  "reviewer": "first_author_claude_visual_review_under_project_lead_delegation_20260826",
+  "instances": [
+   {
+    "instance_id": "audio_playback_television_product_view_fe83ed5e6682",
+    "request_sha256": "fe83ed5e668214fc2c5f2f923f9654ec07d78fc72b79b2f7fbf0dce726409b37",
+    "candidate_sha256": "06be985bfbe7816e6ceda863716568a1a7dc3d442957dfe37193f1c384f99958",
+    "sampled_attributes": {
+     "stand_type": "central_pedestal"
+    }
+   },
+   {
+    "instance_id": "audio_playback_television_product_view_5daa484aeaaf",
+    "request_sha256": "5daa484aeaaf81699071e88a4a22d5823f8ab81f8f0ee60aca32caad18a1e27f",
+    "candidate_sha256": "621c1c85b9e455c515b5cb11e9536e5cab58da26d723976f87b8249f3b2150ab",
+    "sampled_attributes": {
+     "stand_type": "two_splayed_feet"
+    }
+   },
+   {
+    "instance_id": "audio_playback_television_product_view_5f95ce65d7a7",
+    "request_sha256": "5f95ce65d7a7e5556a4db2c0ea09169f3f02f9334a15d7595d428168741fe45d",
+    "candidate_sha256": "1dfc07cd3ed819afd5443fe9d905c3cda5d4b5a5e62002ebd4e62dc3b176a637",
+    "sampled_attributes": {
+     "stand_type": "two_splayed_feet"
+    }
+   }
+  ]
+ }
+}

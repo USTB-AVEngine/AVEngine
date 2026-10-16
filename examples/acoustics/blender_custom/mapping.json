@@ -1,0 +1,62 @@
+{
+  "schema": "avengine_m3_acoustic_material_mapping_v1",
+  "mapping_id": "m3_blender_custom_explicit_slots_v1",
+  "room_id": "blender_custom_two_zone_v1",
+  "mapping_source_kind": "explicit_author_slot",
+  "source_to_canonical": {
+    "matrix_row_major": [
+      1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      0.0, 0.0, 0.0, 1.0
+    ],
+    "source": "Blender export_yup=true; M1 build report confirms Habitat +Y-up restoration",
+    "reviewed": true
+  },
+  "entries": [
+    {
+      "source_material_name": "FloorWarmGray",
+      "material_id": 0,
+      "category_name": "avm3_floor_warmgray_c91f",
+      "material_key": "floor_extreme_c91f",
+      "mapping_source": "Controlled room author slot FloorWarmGray",
+      "mapping_confidence": 1.0,
+      "human_override": true,
+      "randomized": false,
+      "fallback": false
+    },
+    {
+      "source_material_name": "WallSoftBlue",
+      "material_id": 1,
+      "category_name": "avm3_wall_softblue_d42a",
+      "material_key": "wall_extreme_d42a",
+      "mapping_source": "Controlled room author slot WallSoftBlue",
+      "mapping_confidence": 1.0,
+      "human_override": true,
+      "randomized": false,
+      "fallback": false
+    },
+    {
+      "source_material_name": "CeilingOffWhite",
+      "material_id": 2,
+      "category_name": "avm3_ceiling_offwhite_e73b",
+      "material_key": "ceiling_extreme_e73b",
+      "mapping_source": "Controlled room author slot CeilingOffWhite",
+      "mapping_confidence": 1.0,
+      "human_override": true,
+      "randomized": false,
+      "fallback": false
+    },
+    {
+      "source_material_name": "DoorFrameAccent",
+      "material_id": 3,
+      "category_name": "avm3_doorframe_accent_f84c",
+      "material_key": "doorframe_extreme_f84c",
+      "mapping_source": "Controlled room author slot DoorFrameAccent",
+      "mapping_confidence": 1.0,
+      "human_override": true,
+      "randomized": false,
+      "fallback": false
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "avengine_native_paper_balance_episode_plan_v1",
+  "status": "planned_pending_native_capture",
+  "qualification_claim": false,
+  "fail_closed": true,
+  "source_authority": {
+    "renderer": "native_spear_unreal_engine",
+    "room": "native_apartment",
+    "trajectory": "native_runtime_readback",
+    "audio": "native_rlr_hrtf_binaural"
+  },
+  "evidence_requirements": {
+    "rgb": true,
+    "metric_depth": true,
+    "target_only_depth": true,
+    "normal_object_ids_policy": "optional_nonskeletal_occluders_only",
+    "runtime_readbacks": true,
+    "controlled_audio": true
+  },
+  "gpu_policy": {
+    "physical_gpu_index": 2,
+    "require_idle_before_launch": true,
+    "forbidden_gpu_indices": [0, 3]
+  },
+  "episodes": [
+    {
+      "episode_id": "border_collie_human__paper_balance_stationary_first_v1",
+      "variant": "stationary_source2_first",
+      "target_source_slot_id": "source2",
+      "source1_event_count": 0,
+      "source2_sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+      "required_answers": {
+        "appearance_to_speaking": "no",
+        "who_spoke_first": "source2",
+        "speaking_while_moving": "no"
+      }
+    },
+    {
+      "episode_id": "border_collie_human__paper_balance_right_entry_v1",
+      "variant": "source2_right_entry_second_transcript",
+      "target_source_slot_id": "source2",
+      "source1_event_count": 0,
+      "source2_sound_asset_id": "speech_cremad_1005_tie_neu_v1",
+      "required_answers": {
+        "offscreen_to_onscreen": "right",
+        "appearance_to_spoken_content": "That is exactly what happened."
+      }
+    }
+  ]
+}

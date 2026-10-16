@@ -1,0 +1,7 @@
+{
+  "render_asset": "source_marker_1.glb",
+  "collision_asset": "source_marker_1.glb",
+  "semantic_id": 102,
+  "mass": 1.0,
+  "join_collision_meshes": true
+}

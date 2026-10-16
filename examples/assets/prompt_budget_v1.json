@@ -1,0 +1,24 @@
+{
+ "schema": "avengine_prompt_budget_v1",
+ "spec_id": "prompt_budget_v1",
+ "revision": "v1",
+ "decided_on": "2026-08-25",
+ "model_window": {
+  "model": "black-forest-labs/FLUX.2-klein",
+  "max_sequence_length": 512,
+  "policy": "the effective prompt must fit the window for every breed and every sampled value; the window is never raised"
+ },
+ "rationale": "The worker concatenates the negative clause into the positive prompt and then truncates at max_sequence_length, so an overlong prompt silently drops its tail. Every authored i2i profile measured over the window, so the reconstruction-safe constraints at the end of the text never reached the model. Shortening the prompt is the fix; raising the window would only hide the problem behind a different number.",
+ "caps_tokens": {
+  "positive_template_rendered": 140,
+  "pose_guard_prompt": 250,
+  "negative_prompt": 110,
+  "effective_prompt": 512,
+  "headroom_note": "140 + 250 + 110 plus the joiner leaves about 10 tokens of slack; a breed needing more must shorten its own positive text, never the shared blocks"
+ },
+ "shared_blocks": {
+  "pose_guard_prompt": "The input is an untextured clay pose guide, not an appearance reference. Replace every clay surface, including neck, torso, near-side and far-side limbs, paws, head, ears and tail, with one coherent photorealistic coat. Preserve the authored rest stance, silhouette, proportions and joint order exactly. Render a strict orthographic lateral view: the camera axis is perpendicular to the sagittal plane, the animal faces image-right, and the torso centerline is parallel to the image plane. Show the side of the rib cage, never the front of the chest and never a rear quarter. All four legs stay visible and separated with clear gaps, every paw rests on one level ground line, and the tail stays clearly clear of both hind legs. Plain solid white background, no props, no ground shadow.",
+  "negative_prompt": "three-quarter view, front view, rear view, camera yaw, torso yaw, twisted spine, curved body axis, two visible eyes, head turned, walking, lifted paw, crouching, sitting, lying down, merged legs, overlapping legs, overlapping paws, hidden legs, hidden paws, mismatched paw height, tail touching leg, tail overlapping leg, fused tail, extra limbs, cropped body, clay patch, untextured patch, collar, accessory, background object, text"
+ },
+ "authoring_rule": "A new breed authors only its positive_template. The two shared blocks are reused verbatim so the per-breed budget is predictable, and tools/assets/check_prompt_token_budget.py must pass before any GPU time is spent."
+}

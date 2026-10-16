@@ -1,0 +1,1374 @@
+{
+  "status": "declared_not_generated",
+  "purpose": "complete measured object-kind colour/form deficits; independent new realistic shapes, no audio or sampler integration",
+  "requests": [
+    {
+      "asset_id": "v7_object_soundbar_compact_box_three_driver_black_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "compact_box_three_driver",
+      "intended_color": "black",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: compact box three driver. Straight box enclosure, three small separated front drivers. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101324,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_soundbar_compact_box_three_driver_white_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "compact_box_three_driver",
+      "intended_color": "white",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: compact box three driver. Straight box enclosure, three small separated front drivers. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101325,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_soundbar_compact_box_three_driver_gray_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "compact_box_three_driver",
+      "intended_color": "gray",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: compact box three driver. Straight box enclosure, three small separated front drivers. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101326,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_soundbar_compact_box_three_driver_wood_brown_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "compact_box_three_driver",
+      "intended_color": "wood_brown",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: compact box three driver. Straight box enclosure, three small separated front drivers. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101327,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_soundbar_curved_end_wood_bar_black_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "curved_end_wood_bar",
+      "intended_color": "black",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: curved end wood bar. Rounded end caps and curved shoulders. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101328,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_soundbar_curved_end_wood_bar_white_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "curved_end_wood_bar",
+      "intended_color": "white",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: curved end wood bar. Rounded end caps and curved shoulders. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101329,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_soundbar_curved_end_wood_bar_gray_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "curved_end_wood_bar",
+      "intended_color": "gray",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: curved end wood bar. Rounded end caps and curved shoulders. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101330,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_soundbar_curved_end_wood_bar_wood_brown_20261012",
+      "object_type": "soundbar",
+      "counting_kind": "soundbar",
+      "form_factor": "curved_end_wood_bar",
+      "intended_color": "wood_brown",
+      "prompt": "one low horizontal television soundbar, broad complete coloured housing, a narrow dark front grille, flat full-length base, no stand. Shape: curved end wood bar. Rounded end caps and curved shoulders. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101331,
+      "target_dimensions_m": [
+        0.12,
+        0.12,
+        0.72
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_portable_sloped_crt_black_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "portable_sloped_crt",
+      "intended_color": "black",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: portable sloped crt. Rounded sloped cabinet with integral flat bottom, no separate feet. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101332,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_portable_sloped_crt_white_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "portable_sloped_crt",
+      "intended_color": "white",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: portable sloped crt. Rounded sloped cabinet with integral flat bottom, no separate feet. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101333,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_portable_sloped_crt_silver_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "portable_sloped_crt",
+      "intended_color": "silver",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: portable sloped crt. Rounded sloped cabinet with integral flat bottom, no separate feet. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral brushed silver-grey, without warm or blue colour casts, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101334,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_portable_sloped_crt_blue_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "portable_sloped_crt",
+      "intended_color": "blue",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: portable sloped crt. Rounded sloped cabinet with integral flat bottom, no separate feet. The ENTIRE structural casing, sides, rear housing and all large panels are saturated blue, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101335,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_box_crt_carry_handle_black_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "box_crt_carry_handle",
+      "intended_color": "black",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: box crt carry handle. Square deep cabinet, small top carry handle and flat bottom. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101336,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_box_crt_carry_handle_white_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "box_crt_carry_handle",
+      "intended_color": "white",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: box crt carry handle. Square deep cabinet, small top carry handle and flat bottom. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101337,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_box_crt_carry_handle_silver_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "box_crt_carry_handle",
+      "intended_color": "silver",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: box crt carry handle. Square deep cabinet, small top carry handle and flat bottom. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral brushed silver-grey, without warm or blue colour casts, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101338,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_television_box_crt_carry_handle_blue_20261012",
+      "object_type": "television",
+      "counting_kind": "television",
+      "form_factor": "box_crt_carry_handle",
+      "intended_color": "blue",
+      "prompt": "one compact portable CRT television with a broad fully coloured ABS cabinet and back, small blank dark screen, small knobs and loudspeaker below screen, wide flat stable base. Shape: box crt carry handle. Square deep cabinet, small top carry handle and flat bottom. The ENTIRE structural casing, sides, rear housing and all large panels are saturated blue, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101339,
+      "target_dimensions_m": [
+        0.35,
+        0.38,
+        0.52
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_wall_clock_hexagonal_analog_black_20261012",
+      "object_type": "wall_clock",
+      "counting_kind": "wall_clock",
+      "form_factor": "hexagonal_analog",
+      "intended_color": "black",
+      "prompt": "one wall-mounted analog clock with a broad polygonal coloured housing and rim, small white dial, dark hands, a complete flat coloured back plate. Shape: hexagonal analog. Six-sided outer case. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101340,
+      "target_dimensions_m": [
+        0.04,
+        0.3,
+        0.3
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_wall_clock_hexagonal_analog_white_20261012",
+      "object_type": "wall_clock",
+      "counting_kind": "wall_clock",
+      "form_factor": "hexagonal_analog",
+      "intended_color": "white",
+      "prompt": "one wall-mounted analog clock with a broad polygonal coloured housing and rim, small white dial, dark hands, a complete flat coloured back plate. Shape: hexagonal analog. Six-sided outer case. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101341,
+      "target_dimensions_m": [
+        0.04,
+        0.3,
+        0.3
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_wall_clock_hexagonal_analog_red_20261012",
+      "object_type": "wall_clock",
+      "counting_kind": "wall_clock",
+      "form_factor": "hexagonal_analog",
+      "intended_color": "red",
+      "prompt": "one wall-mounted analog clock with a broad polygonal coloured housing and rim, small white dial, dark hands, a complete flat coloured back plate. Shape: hexagonal analog. Six-sided outer case. The ENTIRE structural casing, sides, rear housing and all large panels are deep saturated red, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101342,
+      "target_dimensions_m": [
+        0.04,
+        0.3,
+        0.3
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_wall_clock_octagonal_rim_analog_black_20261012",
+      "object_type": "wall_clock",
+      "counting_kind": "wall_clock",
+      "form_factor": "octagonal_rim_analog",
+      "intended_color": "black",
+      "prompt": "one wall-mounted analog clock with a broad polygonal coloured housing and rim, small white dial, dark hands, a complete flat coloured back plate. Shape: octagonal rim analog. Eight-sided thick outer case. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101343,
+      "target_dimensions_m": [
+        0.04,
+        0.3,
+        0.3
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_wall_clock_octagonal_rim_analog_white_20261012",
+      "object_type": "wall_clock",
+      "counting_kind": "wall_clock",
+      "form_factor": "octagonal_rim_analog",
+      "intended_color": "white",
+      "prompt": "one wall-mounted analog clock with a broad polygonal coloured housing and rim, small white dial, dark hands, a complete flat coloured back plate. Shape: octagonal rim analog. Eight-sided thick outer case. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101344,
+      "target_dimensions_m": [
+        0.04,
+        0.3,
+        0.3
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_wall_clock_octagonal_rim_analog_red_20261012",
+      "object_type": "wall_clock",
+      "counting_kind": "wall_clock",
+      "form_factor": "octagonal_rim_analog",
+      "intended_color": "red",
+      "prompt": "one wall-mounted analog clock with a broad polygonal coloured housing and rim, small white dial, dark hands, a complete flat coloured back plate. Shape: octagonal rim analog. Eight-sided thick outer case. The ENTIRE structural casing, sides, rear housing and all large panels are deep saturated red, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101345,
+      "target_dimensions_m": [
+        0.04,
+        0.3,
+        0.3
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_mantel_clock_wide_bracket_analog_black_20261012",
+      "object_type": "mantel_clock",
+      "counting_kind": "mantel_clock",
+      "form_factor": "wide_bracket_analog",
+      "intended_color": "black",
+      "prompt": "one tabletop analog mantel clock, broad complete coloured casing and back, small white dial with dark hands, wide integral flat stable foot. Shape: wide bracket analog. Broad rectangular bracket-shaped case with straight flat bottom. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101346,
+      "target_dimensions_m": [
+        0.09,
+        0.22,
+        0.27
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_mantel_clock_wide_bracket_analog_white_20261012",
+      "object_type": "mantel_clock",
+      "counting_kind": "mantel_clock",
+      "form_factor": "wide_bracket_analog",
+      "intended_color": "white",
+      "prompt": "one tabletop analog mantel clock, broad complete coloured casing and back, small white dial with dark hands, wide integral flat stable foot. Shape: wide bracket analog. Broad rectangular bracket-shaped case with straight flat bottom. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101347,
+      "target_dimensions_m": [
+        0.09,
+        0.22,
+        0.27
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_mantel_clock_wide_bracket_analog_wood_brown_20261012",
+      "object_type": "mantel_clock",
+      "counting_kind": "mantel_clock",
+      "form_factor": "wide_bracket_analog",
+      "intended_color": "wood_brown",
+      "prompt": "one tabletop analog mantel clock, broad complete coloured casing and back, small white dial with dark hands, wide integral flat stable foot. Shape: wide bracket analog. Broad rectangular bracket-shaped case with straight flat bottom. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101348,
+      "target_dimensions_m": [
+        0.09,
+        0.22,
+        0.27
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_mantel_clock_round_clock_pedestal_black_20261012",
+      "object_type": "mantel_clock",
+      "counting_kind": "mantel_clock",
+      "form_factor": "round_clock_pedestal",
+      "intended_color": "black",
+      "prompt": "one tabletop analog mantel clock, broad complete coloured casing and back, small white dial with dark hands, wide integral flat stable foot. Shape: round clock pedestal. Circular case on a single short broad pedestal. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101349,
+      "target_dimensions_m": [
+        0.09,
+        0.22,
+        0.27
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_mantel_clock_round_clock_pedestal_white_20261012",
+      "object_type": "mantel_clock",
+      "counting_kind": "mantel_clock",
+      "form_factor": "round_clock_pedestal",
+      "intended_color": "white",
+      "prompt": "one tabletop analog mantel clock, broad complete coloured casing and back, small white dial with dark hands, wide integral flat stable foot. Shape: round clock pedestal. Circular case on a single short broad pedestal. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101350,
+      "target_dimensions_m": [
+        0.09,
+        0.22,
+        0.27
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_mantel_clock_round_clock_pedestal_wood_brown_20261012",
+      "object_type": "mantel_clock",
+      "counting_kind": "mantel_clock",
+      "form_factor": "round_clock_pedestal",
+      "intended_color": "wood_brown",
+      "prompt": "one tabletop analog mantel clock, broad complete coloured casing and back, small white dial with dark hands, wide integral flat stable foot. Shape: round clock pedestal. Circular case on a single short broad pedestal. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101351,
+      "target_dimensions_m": [
+        0.09,
+        0.22,
+        0.27
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_carbon_monoxide_alarm_co_oval_shell_black_20261012",
+      "object_type": "carbon_monoxide_alarm",
+      "counting_kind": "carbon_monoxide_alarm",
+      "form_factor": "co_oval_shell",
+      "intended_color": "black",
+      "prompt": "one wall-mounted carbon monoxide alarm, broad complete coloured ABS housing and flat back, a small dark display, few vents, a built-in audible sounder. Shape: co oval shell. Horizontal oval capsule casing. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101352,
+      "target_dimensions_m": [
+        0.045,
+        0.11,
+        0.15
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_carbon_monoxide_alarm_co_oval_shell_white_20261012",
+      "object_type": "carbon_monoxide_alarm",
+      "counting_kind": "carbon_monoxide_alarm",
+      "form_factor": "co_oval_shell",
+      "intended_color": "white",
+      "prompt": "one wall-mounted carbon monoxide alarm, broad complete coloured ABS housing and flat back, a small dark display, few vents, a built-in audible sounder. Shape: co oval shell. Horizontal oval capsule casing. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101353,
+      "target_dimensions_m": [
+        0.045,
+        0.11,
+        0.15
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_carbon_monoxide_alarm_co_oval_shell_gray_20261012",
+      "object_type": "carbon_monoxide_alarm",
+      "counting_kind": "carbon_monoxide_alarm",
+      "form_factor": "co_oval_shell",
+      "intended_color": "gray",
+      "prompt": "one wall-mounted carbon monoxide alarm, broad complete coloured ABS housing and flat back, a small dark display, few vents, a built-in audible sounder. Shape: co oval shell. Horizontal oval capsule casing. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101354,
+      "target_dimensions_m": [
+        0.045,
+        0.11,
+        0.15
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_carbon_monoxide_alarm_co_minimal_square_black_20261012",
+      "object_type": "carbon_monoxide_alarm",
+      "counting_kind": "carbon_monoxide_alarm",
+      "form_factor": "co_minimal_square",
+      "intended_color": "black",
+      "prompt": "one wall-mounted carbon monoxide alarm, broad complete coloured ABS housing and flat back, a small dark display, few vents, a built-in audible sounder. Shape: co minimal square. Square casing with rounded corners. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101355,
+      "target_dimensions_m": [
+        0.045,
+        0.11,
+        0.15
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_carbon_monoxide_alarm_co_minimal_square_white_20261012",
+      "object_type": "carbon_monoxide_alarm",
+      "counting_kind": "carbon_monoxide_alarm",
+      "form_factor": "co_minimal_square",
+      "intended_color": "white",
+      "prompt": "one wall-mounted carbon monoxide alarm, broad complete coloured ABS housing and flat back, a small dark display, few vents, a built-in audible sounder. Shape: co minimal square. Square casing with rounded corners. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101356,
+      "target_dimensions_m": [
+        0.045,
+        0.11,
+        0.15
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_carbon_monoxide_alarm_co_minimal_square_gray_20261012",
+      "object_type": "carbon_monoxide_alarm",
+      "counting_kind": "carbon_monoxide_alarm",
+      "form_factor": "co_minimal_square",
+      "intended_color": "gray",
+      "prompt": "one wall-mounted carbon monoxide alarm, broad complete coloured ABS housing and flat back, a small dark display, few vents, a built-in audible sounder. Shape: co minimal square. Square casing with rounded corners. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101357,
+      "target_dimensions_m": [
+        0.045,
+        0.11,
+        0.15
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_security_keypad_keypad_small_lcd_black_20261012",
+      "object_type": "security_keypad",
+      "counting_kind": "security_keypad",
+      "form_factor": "keypad_small_lcd",
+      "intended_color": "black",
+      "prompt": "one wall-mounted security alarm keypad, broad complete coloured enclosure and flat back, very small display and compact buttons, integral case. Shape: keypad small lcd. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101358,
+      "target_dimensions_m": [
+        0.04,
+        0.16,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_security_keypad_keypad_small_lcd_white_20261012",
+      "object_type": "security_keypad",
+      "counting_kind": "security_keypad",
+      "form_factor": "keypad_small_lcd",
+      "intended_color": "white",
+      "prompt": "one wall-mounted security alarm keypad, broad complete coloured enclosure and flat back, very small display and compact buttons, integral case. Shape: keypad small lcd. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101359,
+      "target_dimensions_m": [
+        0.04,
+        0.16,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_security_keypad_keypad_small_lcd_gray_20261012",
+      "object_type": "security_keypad",
+      "counting_kind": "security_keypad",
+      "form_factor": "keypad_small_lcd",
+      "intended_color": "gray",
+      "prompt": "one wall-mounted security alarm keypad, broad complete coloured enclosure and flat back, very small display and compact buttons, integral case. Shape: keypad small lcd. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101360,
+      "target_dimensions_m": [
+        0.04,
+        0.16,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_security_keypad_keypad_flip_closed_black_20261012",
+      "object_type": "security_keypad",
+      "counting_kind": "security_keypad",
+      "form_factor": "keypad_flip_closed",
+      "intended_color": "black",
+      "prompt": "one wall-mounted security alarm keypad, broad complete coloured enclosure and flat back, very small display and compact buttons, integral case. Shape: keypad flip closed. Hinged protective cover closed, tiny status window above it. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101361,
+      "target_dimensions_m": [
+        0.04,
+        0.16,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_security_keypad_keypad_flip_closed_white_20261012",
+      "object_type": "security_keypad",
+      "counting_kind": "security_keypad",
+      "form_factor": "keypad_flip_closed",
+      "intended_color": "white",
+      "prompt": "one wall-mounted security alarm keypad, broad complete coloured enclosure and flat back, very small display and compact buttons, integral case. Shape: keypad flip closed. Hinged protective cover closed, tiny status window above it. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101362,
+      "target_dimensions_m": [
+        0.04,
+        0.16,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_security_keypad_keypad_flip_closed_gray_20261012",
+      "object_type": "security_keypad",
+      "counting_kind": "security_keypad",
+      "form_factor": "keypad_flip_closed",
+      "intended_color": "gray",
+      "prompt": "one wall-mounted security alarm keypad, broad complete coloured enclosure and flat back, very small display and compact buttons, integral case. Shape: keypad flip closed. Hinged protective cover closed, tiny status window above it. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101363,
+      "target_dimensions_m": [
+        0.04,
+        0.16,
+        0.14
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_kitchen_timer_timer_wide_countertop_black_20261012",
+      "object_type": "kitchen_timer",
+      "counting_kind": "kitchen_timer",
+      "form_factor": "timer_wide_countertop",
+      "intended_color": "black",
+      "prompt": "one digital kitchen countdown timer, broad complete coloured housing and back, small narrow dark display, three small buttons and integral flat stable foot. Shape: timer wide countertop. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101364,
+      "target_dimensions_m": [
+        0.04,
+        0.09,
+        0.12
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_kitchen_timer_timer_wide_countertop_white_20261012",
+      "object_type": "kitchen_timer",
+      "counting_kind": "kitchen_timer",
+      "form_factor": "timer_wide_countertop",
+      "intended_color": "white",
+      "prompt": "one digital kitchen countdown timer, broad complete coloured housing and back, small narrow dark display, three small buttons and integral flat stable foot. Shape: timer wide countertop. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101365,
+      "target_dimensions_m": [
+        0.04,
+        0.09,
+        0.12
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_kitchen_timer_timer_wide_countertop_gray_20261012",
+      "object_type": "kitchen_timer",
+      "counting_kind": "kitchen_timer",
+      "form_factor": "timer_wide_countertop",
+      "intended_color": "gray",
+      "prompt": "one digital kitchen countdown timer, broad complete coloured housing and back, small narrow dark display, three small buttons and integral flat stable foot. Shape: timer wide countertop. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101366,
+      "target_dimensions_m": [
+        0.04,
+        0.09,
+        0.12
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_kitchen_timer_timer_circular_flat_foot_black_20261012",
+      "object_type": "kitchen_timer",
+      "counting_kind": "kitchen_timer",
+      "form_factor": "timer_circular_flat_foot",
+      "intended_color": "black",
+      "prompt": "one digital kitchen countdown timer, broad complete coloured housing and back, small narrow dark display, three small buttons and integral flat stable foot. Shape: timer circular flat foot. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101367,
+      "target_dimensions_m": [
+        0.04,
+        0.09,
+        0.12
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_kitchen_timer_timer_circular_flat_foot_white_20261012",
+      "object_type": "kitchen_timer",
+      "counting_kind": "kitchen_timer",
+      "form_factor": "timer_circular_flat_foot",
+      "intended_color": "white",
+      "prompt": "one digital kitchen countdown timer, broad complete coloured housing and back, small narrow dark display, three small buttons and integral flat stable foot. Shape: timer circular flat foot. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101368,
+      "target_dimensions_m": [
+        0.04,
+        0.09,
+        0.12
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_kitchen_timer_timer_circular_flat_foot_gray_20261012",
+      "object_type": "kitchen_timer",
+      "counting_kind": "kitchen_timer",
+      "form_factor": "timer_circular_flat_foot",
+      "intended_color": "gray",
+      "prompt": "one digital kitchen countdown timer, broad complete coloured housing and back, small narrow dark display, three small buttons and integral flat stable foot. Shape: timer circular flat foot. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101369,
+      "target_dimensions_m": [
+        0.04,
+        0.09,
+        0.12
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_radio_arched_portable_radio_black_20261012",
+      "object_type": "radio",
+      "counting_kind": "radio",
+      "form_factor": "arched_portable_radio",
+      "intended_color": "black",
+      "prompt": "one tabletop radio with broad complete coloured cabinet and back, a small dark tuning display, two small knobs, narrow front speaker grilles and wide flat stable base. Shape: arched portable radio. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101370,
+      "target_dimensions_m": [
+        0.12,
+        0.18,
+        0.28
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_radio_arched_portable_radio_white_20261012",
+      "object_type": "radio",
+      "counting_kind": "radio",
+      "form_factor": "arched_portable_radio",
+      "intended_color": "white",
+      "prompt": "one tabletop radio with broad complete coloured cabinet and back, a small dark tuning display, two small knobs, narrow front speaker grilles and wide flat stable base. Shape: arched portable radio. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101371,
+      "target_dimensions_m": [
+        0.12,
+        0.18,
+        0.28
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_radio_arched_portable_radio_wood_brown_20261012",
+      "object_type": "radio",
+      "counting_kind": "radio",
+      "form_factor": "arched_portable_radio",
+      "intended_color": "wood_brown",
+      "prompt": "one tabletop radio with broad complete coloured cabinet and back, a small dark tuning display, two small knobs, narrow front speaker grilles and wide flat stable base. Shape: arched portable radio. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101372,
+      "target_dimensions_m": [
+        0.12,
+        0.18,
+        0.28
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_radio_low_dual_driver_radio_black_20261012",
+      "object_type": "radio",
+      "counting_kind": "radio",
+      "form_factor": "low_dual_driver_radio",
+      "intended_color": "black",
+      "prompt": "one tabletop radio with broad complete coloured cabinet and back, a small dark tuning display, two small knobs, narrow front speaker grilles and wide flat stable base. Shape: low dual driver radio. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101373,
+      "target_dimensions_m": [
+        0.12,
+        0.18,
+        0.28
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_radio_low_dual_driver_radio_white_20261012",
+      "object_type": "radio",
+      "counting_kind": "radio",
+      "form_factor": "low_dual_driver_radio",
+      "intended_color": "white",
+      "prompt": "one tabletop radio with broad complete coloured cabinet and back, a small dark tuning display, two small knobs, narrow front speaker grilles and wide flat stable base. Shape: low dual driver radio. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101374,
+      "target_dimensions_m": [
+        0.12,
+        0.18,
+        0.28
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_radio_low_dual_driver_radio_wood_brown_20261012",
+      "object_type": "radio",
+      "counting_kind": "radio",
+      "form_factor": "low_dual_driver_radio",
+      "intended_color": "wood_brown",
+      "prompt": "one tabletop radio with broad complete coloured cabinet and back, a small dark tuning display, two small knobs, narrow front speaker grilles and wide flat stable base. Shape: low dual driver radio. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101375,
+      "target_dimensions_m": [
+        0.12,
+        0.18,
+        0.28
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_tablet_tablet_wide_rear_plate_stand_black_20261012",
+      "object_type": "tablet",
+      "counting_kind": "tablet",
+      "form_factor": "tablet_wide_rear_plate_stand",
+      "intended_color": "black",
+      "prompt": "one tablet computer with fully coloured rear housing and broad coloured bezel, a blank dark screen, a small integrated stable rear kickstand, an upright screen and flat supporting feet. Shape: tablet wide rear plate stand. Broad triangular rear kickstand plate, coplanar flat feet. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101376,
+      "target_dimensions_m": [
+        0.06,
+        0.24,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_tablet_tablet_wide_rear_plate_stand_white_20261012",
+      "object_type": "tablet",
+      "counting_kind": "tablet",
+      "form_factor": "tablet_wide_rear_plate_stand",
+      "intended_color": "white",
+      "prompt": "one tablet computer with fully coloured rear housing and broad coloured bezel, a blank dark screen, a small integrated stable rear kickstand, an upright screen and flat supporting feet. Shape: tablet wide rear plate stand. Broad triangular rear kickstand plate, coplanar flat feet. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101377,
+      "target_dimensions_m": [
+        0.06,
+        0.24,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_tablet_tablet_wide_rear_plate_stand_silver_20261012",
+      "object_type": "tablet",
+      "counting_kind": "tablet",
+      "form_factor": "tablet_wide_rear_plate_stand",
+      "intended_color": "silver",
+      "prompt": "one tablet computer with fully coloured rear housing and broad coloured bezel, a blank dark screen, a small integrated stable rear kickstand, an upright screen and flat supporting feet. Shape: tablet wide rear plate stand. Broad triangular rear kickstand plate, coplanar flat feet. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral brushed silver-grey, without warm or blue colour casts, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101378,
+      "target_dimensions_m": [
+        0.06,
+        0.24,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_tablet_tablet_u_frame_stand_black_20261012",
+      "object_type": "tablet",
+      "counting_kind": "tablet",
+      "form_factor": "tablet_u_frame_stand",
+      "intended_color": "black",
+      "prompt": "one tablet computer with fully coloured rear housing and broad coloured bezel, a blank dark screen, a small integrated stable rear kickstand, an upright screen and flat supporting feet. Shape: tablet u frame stand. Integrated U-shaped rear frame stand, coplanar flat feet. The ENTIRE structural casing, sides, rear housing and all large panels are neutral matte black, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101379,
+      "target_dimensions_m": [
+        0.06,
+        0.24,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_tablet_tablet_u_frame_stand_white_20261012",
+      "object_type": "tablet",
+      "counting_kind": "tablet",
+      "form_factor": "tablet_u_frame_stand",
+      "intended_color": "white",
+      "prompt": "one tablet computer with fully coloured rear housing and broad coloured bezel, a blank dark screen, a small integrated stable rear kickstand, an upright screen and flat supporting feet. Shape: tablet u frame stand. Integrated U-shaped rear frame stand, coplanar flat feet. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101380,
+      "target_dimensions_m": [
+        0.06,
+        0.24,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_tablet_tablet_u_frame_stand_silver_20261012",
+      "object_type": "tablet",
+      "counting_kind": "tablet",
+      "form_factor": "tablet_u_frame_stand",
+      "intended_color": "silver",
+      "prompt": "one tablet computer with fully coloured rear housing and broad coloured bezel, a blank dark screen, a small integrated stable rear kickstand, an upright screen and flat supporting feet. Shape: tablet u frame stand. Integrated U-shaped rear frame stand, coplanar flat feet. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral brushed silver-grey, without warm or blue colour casts, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101381,
+      "target_dimensions_m": [
+        0.06,
+        0.24,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_floorstanding_speaker_wide_threeway_column_wood_brown_20261012",
+      "object_type": "floorstanding_speaker",
+      "counting_kind": "floorstanding_speaker",
+      "form_factor": "wide_threeway_column",
+      "intended_color": "wood_brown",
+      "prompt": "one tall floor-standing speaker with broad complete coloured cabinet, narrow dark front drivers and wide integral flat stable plinth. Shape: wide threeway column. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101382,
+      "target_dimensions_m": [
+        0.29,
+        0.96,
+        0.27
+      ],
+      "attachment_surface": "floor",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_floorstanding_speaker_tapered_tall_trapezoid_wood_brown_20261012",
+      "object_type": "floorstanding_speaker",
+      "counting_kind": "floorstanding_speaker",
+      "form_factor": "tapered_tall_trapezoid",
+      "intended_color": "wood_brown",
+      "prompt": "one tall floor-standing speaker with broad complete coloured cabinet, narrow dark front drivers and wide integral flat stable plinth. Shape: tapered tall trapezoid. The ENTIRE structural casing, sides, rear housing and all large panels are medium warm walnut wood brown with subtle visible grain, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101383,
+      "target_dimensions_m": [
+        0.29,
+        0.96,
+        0.27
+      ],
+      "attachment_surface": "floor",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_bookshelf_speaker_rounded_bass_reflex_box_white_20261012",
+      "object_type": "bookshelf_speaker",
+      "counting_kind": "bookshelf_speaker",
+      "form_factor": "rounded_bass_reflex_box",
+      "intended_color": "white",
+      "prompt": "one upright bookshelf speaker with broad complete coloured sides, cabinet and back, narrow dark front drivers and a wide flat base. Shape: rounded bass reflex box. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101384,
+      "target_dimensions_m": [
+        0.23,
+        0.33,
+        0.22
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_bookshelf_speaker_compact_sloped_monitor_white_20261012",
+      "object_type": "bookshelf_speaker",
+      "counting_kind": "bookshelf_speaker",
+      "form_factor": "compact_sloped_monitor",
+      "intended_color": "white",
+      "prompt": "one upright bookshelf speaker with broad complete coloured sides, cabinet and back, narrow dark front drivers and a wide flat base. Shape: compact sloped monitor. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101385,
+      "target_dimensions_m": [
+        0.23,
+        0.33,
+        0.22
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_alarm_clock_flip_digit_rectangle_white_20261012",
+      "object_type": "alarm_clock",
+      "counting_kind": "alarm_clock",
+      "form_factor": "flip_digit_rectangle",
+      "intended_color": "white",
+      "prompt": "one alarm clock with broad complete coloured casing and back, a small inset dark time display, small top snooze button and wide flat stable base. Shape: flip digit rectangle. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101386,
+      "target_dimensions_m": [
+        0.09,
+        0.12,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_alarm_clock_rounded_led_oval_white_20261012",
+      "object_type": "alarm_clock",
+      "counting_kind": "alarm_clock",
+      "form_factor": "rounded_led_oval",
+      "intended_color": "white",
+      "prompt": "one alarm clock with broad complete coloured casing and back, a small inset dark time display, small top snooze button and wide flat stable base. Shape: rounded led oval. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101387,
+      "target_dimensions_m": [
+        0.09,
+        0.12,
+        0.16
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_printer_compact_laser_cube_white_20261012",
+      "object_type": "printer",
+      "counting_kind": "printer",
+      "form_factor": "compact_laser_cube",
+      "intended_color": "white",
+      "prompt": "one compact desktop printer with broad complete coloured casing and back, small paper outlet and controls, closed top lid, flat broad base. Shape: compact laser cube. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101388,
+      "target_dimensions_m": [
+        0.32,
+        0.26,
+        0.38
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_printer_low_scanner_printer_white_20261012",
+      "object_type": "printer",
+      "counting_kind": "printer",
+      "form_factor": "low_scanner_printer",
+      "intended_color": "white",
+      "prompt": "one compact desktop printer with broad complete coloured casing and back, small paper outlet and controls, closed top lid, flat broad base. Shape: low scanner printer. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101389,
+      "target_dimensions_m": [
+        0.32,
+        0.26,
+        0.38
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_smoke_detector_ceiling_octagonal_disc_white_20261012",
+      "object_type": "smoke_detector",
+      "counting_kind": "smoke_detector",
+      "form_factor": "ceiling_octagonal_disc",
+      "intended_color": "white",
+      "prompt": "one smoke alarm with broad complete coloured casing, small vents and test button, a wide flat mounting back, built-in audible sounder. Shape: ceiling octagonal disc. Shallow octagonal ceiling disc, flat top mounting plate and downward vents. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101390,
+      "target_dimensions_m": [
+        0.05,
+        0.12,
+        0.12
+      ],
+      "attachment_surface": "ceiling",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_smoke_detector_ceiling_octagonal_disc_gray_20261012",
+      "object_type": "smoke_detector",
+      "counting_kind": "smoke_detector",
+      "form_factor": "ceiling_octagonal_disc",
+      "intended_color": "gray",
+      "prompt": "one smoke alarm with broad complete coloured casing, small vents and test button, a wide flat mounting back, built-in audible sounder. Shape: ceiling octagonal disc. Shallow octagonal ceiling disc, flat top mounting plate and downward vents. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101391,
+      "target_dimensions_m": [
+        0.05,
+        0.12,
+        0.12
+      ],
+      "attachment_surface": "ceiling",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_smoke_detector_wall_vertical_rounded_white_20261012",
+      "object_type": "smoke_detector",
+      "counting_kind": "smoke_detector",
+      "form_factor": "wall_vertical_rounded",
+      "intended_color": "white",
+      "prompt": "one smoke alarm with broad complete coloured casing, small vents and test button, a wide flat mounting back, built-in audible sounder. Shape: wall vertical rounded. Vertical rounded rectangular case, flat rear wall mounting plate. The ENTIRE structural casing, sides, rear housing and all large panels are bright neutral matte white, not cream or off-white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101392,
+      "target_dimensions_m": [
+        0.05,
+        0.12,
+        0.12
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_smoke_detector_wall_vertical_rounded_gray_20261012",
+      "object_type": "smoke_detector",
+      "counting_kind": "smoke_detector",
+      "form_factor": "wall_vertical_rounded",
+      "intended_color": "gray",
+      "prompt": "one smoke alarm with broad complete coloured casing, small vents and test button, a wide flat mounting back, built-in audible sounder. Shape: wall vertical rounded. Vertical rounded rectangular case, flat rear wall mounting plate. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral matte grey, neither charcoal nor white, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101393,
+      "target_dimensions_m": [
+        0.05,
+        0.12,
+        0.12
+      ],
+      "attachment_surface": "wall",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_blender_wide_round_jug_base_silver_20261012",
+      "object_type": "blender",
+      "counting_kind": "blender",
+      "form_factor": "wide_round_jug_base",
+      "intended_color": "silver",
+      "prompt": "one kitchen blender with broad complete coloured motor base, a small front knob, transparent glass jug and lid above, wide flat stable base. Shape: wide round jug base. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral brushed silver-grey, without warm or blue colour casts, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101394,
+      "target_dimensions_m": [
+        0.22,
+        0.41,
+        0.2
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_blender_square_base_glass_jug_silver_20261012",
+      "object_type": "blender",
+      "counting_kind": "blender",
+      "form_factor": "square_base_glass_jug",
+      "intended_color": "silver",
+      "prompt": "one kitchen blender with broad complete coloured motor base, a small front knob, transparent glass jug and lid above, wide flat stable base. Shape: square base glass jug. The ENTIRE structural casing, sides, rear housing and all large panels are medium neutral brushed silver-grey, without warm or blue colour casts, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101395,
+      "target_dimensions_m": [
+        0.22,
+        0.41,
+        0.2
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_desk_telephone_rotary_oval_base_red_20261012",
+      "object_type": "desk_telephone",
+      "counting_kind": "desk_telephone",
+      "form_factor": "rotary_oval_base",
+      "intended_color": "red",
+      "prompt": "one vintage mechanical bell-ringing rotary-dial desk telephone, broad complete coloured body and handset, small finger dial, handset resting in cradle, a wide flat stable base. Shape: rotary oval base. The ENTIRE structural casing, sides, rear housing and all large panels are deep saturated red, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101396,
+      "target_dimensions_m": [
+        0.2,
+        0.16,
+        0.22
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_desk_telephone_rotary_oval_base_green_20261012",
+      "object_type": "desk_telephone",
+      "counting_kind": "desk_telephone",
+      "form_factor": "rotary_oval_base",
+      "intended_color": "green",
+      "prompt": "one vintage mechanical bell-ringing rotary-dial desk telephone, broad complete coloured body and handset, small finger dial, handset resting in cradle, a wide flat stable base. Shape: rotary oval base. The ENTIRE structural casing, sides, rear housing and all large panels are deep saturated green, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101397,
+      "target_dimensions_m": [
+        0.2,
+        0.16,
+        0.22
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_desk_telephone_mechanical_bell_high_cradle_red_20261012",
+      "object_type": "desk_telephone",
+      "counting_kind": "desk_telephone",
+      "form_factor": "mechanical_bell_high_cradle",
+      "intended_color": "red",
+      "prompt": "one vintage mechanical bell-ringing rotary-dial desk telephone, broad complete coloured body and handset, small finger dial, handset resting in cradle, a wide flat stable base. Shape: mechanical bell high cradle. The ENTIRE structural casing, sides, rear housing and all large panels are deep saturated red, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101398,
+      "target_dimensions_m": [
+        0.2,
+        0.16,
+        0.22
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    },
+    {
+      "asset_id": "v7_object_desk_telephone_mechanical_bell_high_cradle_green_20261012",
+      "object_type": "desk_telephone",
+      "counting_kind": "desk_telephone",
+      "form_factor": "mechanical_bell_high_cradle",
+      "intended_color": "green",
+      "prompt": "one vintage mechanical bell-ringing rotary-dial desk telephone, broad complete coloured body and handset, small finger dial, handset resting in cradle, a wide flat stable base. Shape: mechanical bell high cradle. The ENTIRE structural casing, sides, rear housing and all large panels are deep saturated green, consistently the same colour; only functional screen, dial, small controls and grille differ. Exactly one complete physically realistic object, correct upright geometry and mounting orientation, three-quarter front-right product view, slightly elevated camera. Bright even soft neutral studio illumination, diffuse matte material, minimal shadows. Plain light-grey seamless background. No text, logos, people, hands, furniture, cables, duplicate objects, cropping, glossy reflections or floating pieces.",
+      "seed": 2026101399,
+      "target_dimensions_m": [
+        0.2,
+        0.16,
+        0.22
+      ],
+      "attachment_surface": "table",
+      "model_route": "flux2_pixal3d_static_v1",
+      "profile_origin": "AVEngine static profiles and measured native deficits; new forms and body colours independently crossed",
+      "max_shape_seeds": 3
+    }
+  ]
+}

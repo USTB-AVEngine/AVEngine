@@ -1,0 +1,59 @@
+{
+  "schema": "avengine_native_strict_two_human_sparse_rejection_v1",
+  "status": "rejected",
+  "decision": "fail",
+  "row_id": "strict_07_female_construction_right",
+  "attempt_id": "v1",
+  "episode_id": "rocketbox_female_construction__strict_two_human_right_v1",
+  "frame_index": 15,
+  "claim_boundary": "The native capture artifacts are retained as failed evidence. The capture pipeline passed, but the speaking target did not meet the strict role-specific visibility contract, so this attempt contributes neither a formal scene nor a qualification claim.",
+  "capture_pipeline_status": "pass",
+  "strict_contract_status": "fail",
+  "evidence": {
+    "capture_root": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_07_female_construction_right",
+    "capture_manifest": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_07_female_construction_right/manifest.json",
+    "pixel_visibility_truth": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_07_female_construction_right/pixel_visibility_truth.json",
+    "normal_rgb": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_07_female_construction_right/rgb_frames/frame_000000.png"
+  },
+  "target_gate": {
+    "role": "target",
+    "source_slot_id": "source1",
+    "identity_key": "F",
+    "expected_screen_side": "right",
+    "required_visible_fraction_minimum": 0.8,
+    "observed_target_pixels": 23249,
+    "observed_visible_pixels": 15835,
+    "observed_visible_fraction": 0.6811045636371457,
+    "observed_occlusion_fraction": 0.31889543636285433,
+    "observed_bbox_xyxy_px": [718, 226, 825, 607],
+    "status": "fail"
+  },
+  "distractor_gate": {
+    "role": "distractor",
+    "source_slot_id": "source2",
+    "identity_key": "C",
+    "expected_screen_side": "left",
+    "required_visible_fraction_minimum": 0.5,
+    "observed_target_pixels": 35697,
+    "observed_visible_pixels": 35697,
+    "observed_visible_fraction": 1.0,
+    "observed_occlusion_fraction": 0.0,
+    "observed_bbox_xyxy_px": [421, 196, 560, 628],
+    "status": "pass"
+  },
+  "visual_diagnosis": {
+    "status": "fail_target_visibility",
+    "occluder": "foreground_kitchen_island",
+    "observation": "The foreground kitchen island visibly occludes the speaking female target's lower body.",
+    "target_only_rgb_persisted": false,
+    "ground_contact_claim": false
+  },
+  "retry_policy": {
+    "automatic_retry_allowed": false,
+    "required_next_step": "deterministic_cpu_geometry_revision_then_new_exact_rir_audio_and_single_sparse_gate"
+  },
+  "original_output_mutated": false,
+  "row8_executed": false,
+  "formal_scene_count": 0,
+  "qualification_claim": false
+}

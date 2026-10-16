@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schemas/m6_controlled_canary_request_v1.schema.json",
+  "title": "AVEngine M6 controlled one-active-of-N canary request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "research_only",
+    "qualification_claim",
+    "room",
+    "entity_instances",
+    "source_endpoint_ids",
+    "endpoint_to_upstream_source_id",
+    "listener",
+    "audio_program",
+    "legacy_flag_registry",
+    "upstream_evidence",
+    "spatial_audio",
+    "release_manifest_ref",
+    "request_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6_controlled_canary_request_v1"},
+    "run_id": {"$ref": "#/$defs/id"},
+    "research_only": {"const": true},
+    "qualification_claim": {"const": false},
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["room_id", "revision", "qualification_report_id"],
+      "properties": {
+        "room_id": {"const": "blender_custom_two_zone_v1"},
+        "revision": {"$ref": "#/$defs/id"},
+        "qualification_report_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "entity_instances": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity_instance_id", "timeline_actor_id", "entity_asset_id", "entity_asset_revision"],
+        "properties": {
+          "entity_instance_id": {"$ref": "#/$defs/id"},
+          "timeline_actor_id": {"$ref": "#/$defs/id"},
+          "entity_asset_id": {"$ref": "#/$defs/id"},
+          "entity_asset_revision": {"$ref": "#/$defs/id"}
+        }
+      }
+    },
+    "source_endpoint_ids": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "endpoint_to_upstream_source_id": {
+      "type": "object",
+      "minProperties": 2,
+      "maxProperties": 2,
+      "additionalProperties": {"$ref": "#/$defs/id"}
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listener_id", "camera_rig_id", "view_id", "observer_yaw_deg"],
+      "properties": {
+        "listener_id": {"$ref": "#/$defs/id"},
+        "camera_rig_id": {"$ref": "#/$defs/id"},
+        "view_id": {"const": "view0"},
+        "observer_yaw_deg": {"type": "number"}
+      }
+    },
+    "audio_program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["program_id", "revision"],
+      "properties": {
+        "program_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/id"}
+      }
+    },
+    "legacy_flag_registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "revision"],
+      "properties": {
+        "registry_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/id"}
+      }
+    },
+    "upstream_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "episode_variant",
+        "evidence_content_sha256",
+        "rir_projection_sha256_by_layout"
+      ],
+      "properties": {
+        "kind": {"const": "verified_m5_controlled_bundle"},
+        "episode_variant": {"const": "A"},
+        "evidence_content_sha256": {"$ref": "#/$defs/sha256"},
+        "rir_projection_sha256_by_layout": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["binaural", "foa"],
+          "properties": {
+            "binaural": {"$ref": "#/$defs/sha256"},
+            "foa": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      }
+    },
+    "spatial_audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_rate_hz", "sample_count", "binaural", "foa"],
+      "properties": {
+        "sample_rate_hz": {"const": 16000},
+        "sample_count": {"const": 80000},
+        "binaural": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layout_id", "channel_labels", "azimuth_domain_deg"],
+          "properties": {
+            "layout_id": {"const": "rlr_binaural_lr_v1"},
+            "channel_labels": {"const": ["left", "right"]},
+            "azimuth_domain_deg": {"const": [0, 360]}
+          }
+        },
+        "foa": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layout_id", "channel_order", "normalization", "coordinate_frame"],
+          "properties": {
+            "layout_id": {"const": "rlr_foa_acn_n3d_world_v1"},
+            "channel_order": {"const": ["W", "Y", "Z", "X"]},
+            "normalization": {"const": "N3D"},
+            "coordinate_frame": {"const": "avengine_world"}
+          }
+        }
+      }
+    },
+    "release_manifest_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_id", "repository_path", "expected_tag"],
+      "properties": {
+        "release_id": {"$ref": "#/$defs/id"},
+        "repository_path": {"const": "release/avengine_release_manifest_v1.json"},
+        "expected_tag": {"$ref": "#/$defs/id"}
+      }
+    },
+    "request_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

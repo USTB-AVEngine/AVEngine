@@ -1,0 +1,28 @@
+{
+  "schema": "avengine_m3_acoustic_material_profile_v1",
+  "profile_id": "blender_custom_user_control_example_v1",
+  "room_id": "blender_custom_two_zone_v1",
+  "global_override": {
+    "absorption": 0.2,
+    "scattering": 0.05
+  },
+  "material_overrides": [
+    {
+      "selector": {
+        "source_material_name": "FloorWarmGray"
+      },
+      "absorption": [
+        0.08,
+        0.24,
+        0.57,
+        0.69
+      ]
+    },
+    {
+      "selector": {
+        "material_key": "doorframe_extreme_f84c"
+      },
+      "absorption": 0.1
+    }
+  ]
+}

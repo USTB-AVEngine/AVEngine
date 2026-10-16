@@ -1,0 +1,117 @@
+{
+ "schema": "avengine_attribute_profile_v1",
+ "profile_schema_id": "kitchen_appliance_microwave_oven_over_range_product_view_v1",
+ "profile_revision": "2026_08_26_v1_static_sound_forms",
+ "asset_class": "static_object",
+ "lineage_group_id": "static_product_view_t2i_flux2_v1",
+ "state_classification": "research_candidate",
+ "taxonomy": {
+  "category": "kitchen_appliance",
+  "object_type": "microwave_oven"
+ },
+ "base_template": {
+  "template_id": "static_object_text_prompt_only_v1",
+  "kind": "text_prompt_only",
+  "artifact": null,
+  "provenance_status": "verified",
+  "usage_scope": "research_candidate"
+ },
+ "fixed_attributes": {
+  "form_factor": "over_range",
+  "material": "steel"
+ },
+ "sampled_attribute_domains": {
+  "body_color": [
+   "silver"
+  ]
+ },
+ "forbidden_combinations": [],
+ "generation_contract": {
+  "route": "flux2_pixal3d_static_v1",
+  "prompt_template_id": "static_product_view_t2i_v1_microwave_oven_over_range",
+  "base_acquisition_policy": {
+   "policy_id": "static_object_per_request_one_shot_v1",
+   "acquisition_unit": "one_frozen_asset_per_request",
+   "sampled_domains_must_be_singleton": false,
+   "downstream_instance_route": "flux2_pixal3d_static_v1",
+   "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
+  },
+  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: a wide built-in microwave with a large dark front door, a narrow control panel on the right, and one clearly visible perforated ventilation grille running along the lower front edge.",
+  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
+  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, short cabinet, tabletop speaker, single driver, two drivers, horizontal orientation, lying down, countertop microwave, cabinets, cooktop, kitchen scene, open door, food",
+  "value_labels": {
+   "category": {
+    "kitchen_appliance": "kitchen appliance"
+   },
+   "object_type": {
+    "microwave_oven": "microwave oven"
+   },
+   "form_factor": {
+    "over_range": "over-range microwave"
+   },
+   "material": {
+    "steel": "stainless sheet-steel body"
+   },
+   "body_color": {
+    "silver": "brushed stainless silver"
+   }
+  },
+  "model_revisions": {
+   "flux2": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+   "pixal3d": "0b31f9160aa400719af409098bff7936a932f726",
+   "dino": "3c276edd87d6f6e569ff0c4400e086807d0f3881"
+  }
+ },
+ "target_physical_profiles": {
+  "profile_id": "kitchen_appliance_microwave_oven_over_range_product_view_v1_physical_candidate_v1",
+  "control_attribute": null,
+  "measurement": "height_cm",
+  "mode": "absolute_measurement",
+  "reference_value_cm": 43,
+  "reference_provenance": {
+   "status": "provisional",
+   "source_id": "microwave_oven_over_range_typical_retail_dimension_v1",
+   "artifact": null,
+   "notes": "Provisional typical retail dimension; measure the approved mesh before formal registration. Uniform height scaling amplifies any aspect error from reconstruction, so check the width and depth of the finalized mesh as well."
+  },
+  "values": {
+   "fixed": {
+    "target_value_cm": 43,
+    "tolerance_cm": 7
+   }
+  }
+ },
+ "rig_profile": null,
+ "acoustic_profile": {
+  "profile_id": "microwave_oven_v1",
+  "default_event_class": "microwave_hum",
+  "allowed_event_classes": [
+   "microwave_hum",
+   "microwave_beep",
+   "silent"
+  ],
+  "selection_attributes": [
+   "category",
+   "object_type"
+  ]
+ },
+ "locked_attributes": [
+  "category",
+  "object_type",
+  "form_factor",
+  "material"
+ ],
+ "qa_contract": {
+  "subject_label": "microwave oven",
+  "attributes": {
+   "body_color": {
+    "kind": "categorical",
+    "label": "body color or finish",
+    "value_labels": {
+     "silver": "brushed stainless silver"
+    },
+    "identification_question": "What is the body color or finish of {instance_label}?"
+   }
+  }
+ }
+}

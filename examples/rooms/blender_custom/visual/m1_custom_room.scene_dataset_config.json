@@ -1,0 +1,25 @@
+{
+  "stages": {
+    "paths": {
+      ".json": ["stages"]
+    }
+  },
+  "objects": {
+    "paths": {
+      ".json": ["objects"]
+    }
+  },
+  "light_setups": {
+    "paths": {
+      ".json": ["lighting"]
+    }
+  },
+  "scene_instances": {
+    "paths": {
+      ".json": ["scenes"]
+    }
+  },
+  "navmesh_instances": {
+    "m1_custom_room": "navmeshes/m1_custom_room.navmesh"
+  }
+}

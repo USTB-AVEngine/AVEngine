@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schemas/m6_six_case_review_request_v1.schema.json",
+  "title": "AVEngine M6 six-case human review request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review_id", "output_profile", "cases"],
+  "properties": {
+    "schema": {"const": "avengine_m6_six_case_review_request_v1"},
+    "review_id": {"$ref": "#/$defs/id"},
+    "output_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "frame_rate_hz",
+        "segment_duration_seconds",
+        "audio_sample_rate_hz"
+      ],
+      "properties": {
+        "width": {"type": "integer", "minimum": 320, "maximum": 3840, "multipleOf": 2},
+        "height": {"type": "integer", "minimum": 240, "maximum": 2160, "multipleOf": 2},
+        "frame_rate_hz": {"type": "integer", "minimum": 1, "maximum": 60},
+        "segment_duration_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
+        "audio_sample_rate_hz": {"enum": [16000, 44100, 48000]}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "visual": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "path", "start_seconds"],
+          "properties": {
+            "availability": {"const": "available"},
+            "path": {"$ref": "#/$defs/repositoryPath"},
+            "start_seconds": {"type": "number", "minimum": 0}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "reuse_from_case_id"],
+          "properties": {
+            "availability": {"const": "shared"},
+            "reuse_from_case_id": {"$ref": "#/$defs/id"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "reason"],
+          "properties": {
+            "availability": {"enum": ["pending", "unavailable"]},
+            "reason": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "audio": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "availability",
+            "path",
+            "start_seconds",
+            "channel_count",
+            "presentation_format",
+            "evidence_tier"
+          ],
+          "properties": {
+            "availability": {"const": "available"},
+            "path": {"$ref": "#/$defs/repositoryPath"},
+            "start_seconds": {"type": "number", "minimum": 0},
+            "channel_count": {"enum": [1, 2]},
+            "presentation_format": {"enum": ["binaural", "stereo", "mono"]},
+            "evidence_tier": {"enum": ["qualified", "research_only", "unqualified"]}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "reason", "evidence_tier"],
+          "properties": {
+            "availability": {"enum": ["pending", "unavailable", "not_applicable"]},
+            "reason": {"type": "string", "minLength": 1},
+            "evidence_tier": {"enum": ["unqualified", "not_applicable"]}
+          }
+        }
+      ]
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "value", "qualification", "summary"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/id"},
+        "value": {"enum": ["pass", "fail", "blocked", "not_run", "research_only"]},
+        "qualification": {"enum": ["qualified", "unqualified", "blocked", "not_run", "not_applicable"]},
+        "summary": {"type": "string", "minLength": 1}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "role",
+        "case_kind",
+        "title",
+        "is_room",
+        "visual",
+        "audio",
+        "status"
+      ],
+      "properties": {
+        "case_id": {"$ref": "#/$defs/id"},
+        "role": {
+          "enum": [
+            "controlled_blender_room",
+            "replicacad_room",
+            "legacy_ue_apartment_room",
+            "mp3d_raw_representation",
+            "mp3d_derived_representation",
+            "corrupted_fixture_negative"
+          ]
+        },
+        "case_kind": {
+          "enum": ["room_review", "acoustic_representation_review", "diagnostic_negative"]
+        },
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "is_room": {"type": "boolean"},
+        "room_id": {"$ref": "#/$defs/id"},
+        "room_lineage_id": {"$ref": "#/$defs/id"},
+        "visual": {"$ref": "#/$defs/visual"},
+        "audio": {"$ref": "#/$defs/audio"},
+        "status": {"$ref": "#/$defs/status"}
+      }
+    }
+  }
+}

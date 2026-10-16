@@ -1,0 +1,1154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m4_multi_source_canary_evidence_v1.schema.json",
+  "title": "AVEngine M4 Multi-Source Canary Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "qualification_claim",
+    "overall_status",
+    "failure_reasons",
+    "artifacts",
+    "inputs",
+    "identity",
+    "execution",
+    "audio_contracts",
+    "pairs",
+    "mixtures",
+    "probes",
+    "lifecycle",
+    "performance",
+    "runtime",
+    "checks",
+    "evidence_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m4_multi_source_canary_evidence_v1"},
+    "request_id": {"$ref": "#/$defs/stable_id"},
+    "qualification_claim": {"type": "boolean"},
+    "overall_status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+    "failure_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/stable_id"},
+      "additionalProperties": {"$ref": "#/$defs/file_record"}
+    },
+    "inputs": {"$ref": "#/$defs/inputs"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "execution": {"$ref": "#/$defs/execution"},
+    "audio_contracts": {"$ref": "#/$defs/audio_contracts"},
+    "pairs": {
+      "type": "object",
+      "minProperties": 2,
+      "propertyNames": {"$ref": "#/$defs/stable_id"},
+      "additionalProperties": {"$ref": "#/$defs/pair"}
+    },
+    "mixtures": {"$ref": "#/$defs/mixtures"},
+    "probes": {"$ref": "#/$defs/probes"},
+    "lifecycle": {"$ref": "#/$defs/lifecycle"},
+    "performance": {"$ref": "#/$defs/performance"},
+    "runtime": {"$ref": "#/$defs/runtime"},
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "evidence_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"overall_status": {"const": "pass"}},
+        "required": ["overall_status"]
+      },
+      "then": {
+        "properties": {
+          "qualification_claim": {"const": true},
+          "failure_reasons": {"maxItems": 0},
+          "checks": {
+            "items": {
+              "properties": {"status": {"const": "pass"}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"overall_status": {"enum": ["blocked", "not_run"]}},
+        "required": ["overall_status"]
+      },
+      "then": {
+        "properties": {"qualification_claim": {"const": false}}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sha1": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "artifact_role": {"$ref": "#/$defs/stable_id"},
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*\\$)(?!.*~)[^\\\\]+$"
+        },
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "quat_wxyz": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "source_ids": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/stable_id"}
+    },
+    "role_map": {
+      "type": "object",
+      "minProperties": 2,
+      "propertyNames": {"$ref": "#/$defs/stable_id"},
+      "additionalProperties": {"$ref": "#/$defs/artifact_role"}
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_role",
+        "m1_capture_request_role",
+        "m3_acoustic_canary_request_role",
+        "source_identity_manifest_role",
+        "runtime_lock_role",
+        "hrtf_role",
+        "hrtf_license_role",
+        "acoustic_scene_package_manifest_role",
+        "acoustic_scene_package_file_roles",
+        "request_content_sha256",
+        "package_id",
+        "package_content_sha256"
+      ],
+      "properties": {
+        "request_role": {"$ref": "#/$defs/artifact_role"},
+        "m1_capture_request_role": {"$ref": "#/$defs/artifact_role"},
+        "m3_acoustic_canary_request_role": {"$ref": "#/$defs/artifact_role"},
+        "source_identity_manifest_role": {"$ref": "#/$defs/artifact_role"},
+        "runtime_lock_role": {"$ref": "#/$defs/artifact_role"},
+        "hrtf_role": {"$ref": "#/$defs/artifact_role"},
+        "hrtf_license_role": {"$ref": "#/$defs/artifact_role"},
+        "acoustic_scene_package_manifest_role": {"$ref": "#/$defs/artifact_role"},
+        "acoustic_scene_package_file_roles": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"type": "string", "minLength": 1},
+          "additionalProperties": {"$ref": "#/$defs/artifact_role"}
+        },
+        "request_content_sha256": {"$ref": "#/$defs/sha256"},
+        "package_id": {"$ref": "#/$defs/stable_id"},
+        "package_content_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "m2_not_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "qualification_claim", "reason"],
+      "properties": {
+        "status": {"const": "not_run"},
+        "qualification_claim": {"const": false},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "m2_available": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "qualification_claim",
+        "asset_id",
+        "asset_anchor_id",
+        "frame_index",
+        "pose_hash",
+        "asset_manifest",
+        "capture_request",
+        "resolved_anchor_evidence"
+      ],
+      "properties": {
+        "status": {"const": "available"},
+        "qualification_claim": {"const": true},
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "asset_anchor_id": {"$ref": "#/$defs/stable_id"},
+        "frame_index": {"type": "integer", "minimum": 0},
+        "pose_hash": {"$ref": "#/$defs/sha256"},
+        "asset_manifest": {"$ref": "#/$defs/file_record"},
+        "capture_request": {"$ref": "#/$defs/file_record"},
+        "resolved_anchor_evidence": {"$ref": "#/$defs/file_record"}
+      }
+    },
+    "source_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "event_id",
+        "anchor_id",
+        "semantic_anchor_id",
+        "m1_source_id",
+        "position_m",
+        "position_authority",
+        "dry_audio_id",
+        "m2_anchor_evidence"
+      ],
+      "properties": {
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "event_id": {"$ref": "#/$defs/stable_id"},
+        "anchor_id": {"$ref": "#/$defs/stable_id"},
+        "semantic_anchor_id": {"const": "muzzle"},
+        "m1_source_id": {"$ref": "#/$defs/stable_id"},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "position_authority": {"const": "m1_capture_request_source_pose"},
+        "dry_audio_id": {"$ref": "#/$defs/stable_id"},
+        "m2_anchor_evidence": {
+          "oneOf": [
+            {"$ref": "#/$defs/m2_not_run"},
+            {"$ref": "#/$defs/m2_available"}
+          ]
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "listener_id",
+        "listener_count",
+        "canonical_source_ids",
+        "source_count",
+        "source_identities"
+      ],
+      "properties": {
+        "listener_id": {"$ref": "#/$defs/stable_id"},
+        "listener_count": {"const": 1},
+        "canonical_source_ids": {"$ref": "#/$defs/source_ids"},
+        "source_count": {"type": "integer", "minimum": 2},
+        "source_identities": {
+          "type": "object",
+          "minProperties": 2,
+          "propertyNames": {"$ref": "#/$defs/stable_id"},
+          "additionalProperties": {"$ref": "#/$defs/source_identity"}
+        }
+      }
+    },
+    "registration_order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order_id", "source_ids"],
+      "properties": {
+        "order_id": {"$ref": "#/$defs/stable_id"},
+        "source_ids": {"$ref": "#/$defs/source_ids"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "one_context_per_output_layout",
+        "foa_context_listener_count",
+        "binaural_context_listener_count",
+        "requested_registration_orders",
+        "canonical_native_source_order",
+        "static_authority_policy",
+        "independent_episode_policy"
+      ],
+      "properties": {
+        "one_context_per_output_layout": {"const": true},
+        "foa_context_listener_count": {"const": 1},
+        "binaural_context_listener_count": {"const": 1},
+        "requested_registration_orders": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/registration_order"}
+        },
+        "canonical_native_source_order": {"$ref": "#/$defs/source_ids"},
+        "static_authority_policy": {"const": "fresh_context_temporal_false"},
+        "independent_episode_policy": {"const": "reset_reload_before_first_frame"}
+      }
+    },
+    "foa_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_id",
+        "ambisonic_order",
+        "channel_count",
+        "raw_channel_order",
+        "acn_indices",
+        "normalization",
+        "coordinate_frame",
+        "handedness",
+        "axes",
+        "raw_array_layout",
+        "dtype"
+      ],
+      "properties": {
+        "format_id": {"const": "rlr_foa_acn_n3d_world_v1"},
+        "ambisonic_order": {"const": 1},
+        "channel_count": {"const": 4},
+        "raw_channel_order": {"const": ["W", "Y", "Z", "X"]},
+        "acn_indices": {"const": [0, 1, 2, 3]},
+        "normalization": {"const": "N3D"},
+        "coordinate_frame": {"const": "avengine_world"},
+        "handedness": {"const": "right"},
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["right", "up", "back", "forward"],
+          "properties": {
+            "right": {"const": "+X"},
+            "up": {"const": "+Y"},
+            "back": {"const": "+Z"},
+            "forward": {"const": "-Z"}
+          }
+        },
+        "raw_array_layout": {"const": "channel_major_[channels,samples]"},
+        "dtype": {"const": "float32_le"}
+      }
+    },
+    "binaural_channel_layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "channel_count", "channel_order"],
+      "properties": {
+        "type": {"const": "binaural"},
+        "channel_count": {"const": 2},
+        "channel_order": {"const": ["left", "right"]}
+      }
+    },
+    "sample_rate_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "render_sample_rate_hz",
+        "avengine_resampling_performed",
+        "hrtf_input_sample_rate_hz",
+        "native_rate_adaptation"
+      ],
+      "properties": {
+        "policy": {
+          "enum": ["strict_match", "rlr_native_internal_bound_to_binary"]
+        },
+        "render_sample_rate_hz": {"type": "integer", "minimum": 16000},
+        "avengine_resampling_performed": {"const": false},
+        "hrtf_input_sample_rate_hz": {"type": "integer", "minimum": 16000},
+        "native_rate_adaptation": {
+          "enum": ["not_required", "performed_inside_pinned_rlr_binary"]
+        },
+        "rlr_binary_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "policy": {"const": "rlr_native_internal_bound_to_binary"}
+            },
+            "required": ["policy"]
+          },
+          "then": {"required": ["rlr_binary_sha256"]},
+          "else": {"not": {"required": ["rlr_binary_sha256"]}}
+        }
+      ]
+    },
+    "binaural_measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_energy", "right_energy", "left_minus_right_ild_db"],
+      "properties": {
+        "left_energy": {"type": "number", "exclusiveMinimum": 0},
+        "right_energy": {"type": "number", "exclusiveMinimum": 0},
+        "left_minus_right_ild_db": {"type": "number"}
+      }
+    },
+    "binaural_cardinal_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "rendering_method",
+        "channel_order",
+        "sample_count",
+        "minimum_ild_db",
+        "measurements"
+      ],
+      "properties": {
+        "status": {"const": "pass"},
+        "rendering_method": {"const": "rlr_native_binaural_v1"},
+        "channel_order": {"const": ["left", "right"]},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "minimum_ild_db": {"type": "number", "minimum": 3.0},
+        "measurements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["+X", "-X"],
+          "properties": {
+            "+X": {"$ref": "#/$defs/binaural_measurement"},
+            "-X": {"$ref": "#/$defs/binaural_measurement"}
+          }
+        }
+      }
+    },
+    "portable_hrtf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "byte_size",
+        "sha256",
+        "expected_sha256",
+        "sample_rate_hz",
+        "artifact_role"
+      ],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "expected_sha256": {"$ref": "#/$defs/sha256"},
+        "sample_rate_hz": {"type": "integer", "minimum": 16000},
+        "artifact_role": {"$ref": "#/$defs/artifact_role"}
+      }
+    },
+    "portable_rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "license_id",
+        "citation",
+        "license_text_byte_size",
+        "license_text_sha256",
+        "expected_license_sha256",
+        "license_artifact_role"
+      ],
+      "properties": {
+        "license_id": {"type": "string", "minLength": 1},
+        "citation": {"type": "string", "minLength": 1},
+        "license_text_byte_size": {"type": "integer", "minimum": 1},
+        "license_text_sha256": {"$ref": "#/$defs/sha256"},
+        "expected_license_sha256": {"$ref": "#/$defs/sha256"},
+        "license_artifact_role": {"$ref": "#/$defs/artifact_role"}
+      }
+    },
+    "binaural_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "rendering_method",
+        "renderer",
+        "channel_layout",
+        "hrtf_policy",
+        "avengine_resampling_policy",
+        "native_rate_adaptation_policy",
+        "normalization_policy",
+        "limiter_policy",
+        "render_sample_rate_hz",
+        "verification_scope",
+        "native_cardinal_validation",
+        "sample_rate_binding",
+        "hrtf",
+        "rights",
+        "status",
+        "native_cardinal_report"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_rlr_native_binaural_preflight_v1"},
+        "rendering_method": {"const": "rlr_native_binaural_v1"},
+        "renderer": {"const": "RLR native binaural listener"},
+        "channel_layout": {"$ref": "#/$defs/binaural_channel_layout"},
+        "hrtf_policy": {"const": "explicit_hash_and_license_required"},
+        "avengine_resampling_policy": {"const": "forbidden"},
+        "native_rate_adaptation_policy": {
+          "const": "allowed only when explicitly bound to an RLR binary SHA-256"
+        },
+        "normalization_policy": {"const": "forbidden"},
+        "limiter_policy": {"const": "forbidden"},
+        "render_sample_rate_hz": {"type": "integer", "minimum": 16000},
+        "verification_scope": {"const": "hrtf_dependency_preflight_only"},
+        "native_cardinal_validation": {"const": "pass"},
+        "sample_rate_binding": {"$ref": "#/$defs/sample_rate_binding"},
+        "hrtf": {"$ref": "#/$defs/portable_hrtf"},
+        "rights": {"$ref": "#/$defs/portable_rights"},
+        "status": {"const": "pass"},
+        "native_cardinal_report": {"$ref": "#/$defs/binaural_cardinal_report"}
+      }
+    },
+    "audio_contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "foa",
+        "binaural",
+        "stem_equation",
+        "mixture_equation",
+        "implicit_normalization",
+        "avengine_resampling_performed",
+        "native_rate_adaptation",
+        "limiter",
+        "m4_tail_policy",
+        "m5_video_mux"
+      ],
+      "properties": {
+        "foa": {"$ref": "#/$defs/foa_contract"},
+        "binaural": {"$ref": "#/$defs/binaural_contract"},
+        "stem_equation": {
+          "const": "wet[source,channel]=dry[source]*rir[listener,source,channel]"
+        },
+        "mixture_equation": {"const": "canonical_float64_sum(per_source_stems)"},
+        "implicit_normalization": {"const": false},
+        "avengine_resampling_performed": {"const": false},
+        "native_rate_adaptation": {"$ref": "#/$defs/sample_rate_binding"},
+        "limiter": {"const": false},
+        "m4_tail_policy": {"const": "full_linear_convolution"},
+        "m5_video_mux": {"const": "not_owned_by_m4"}
+      }
+    },
+    "direct_arrival": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distance_m",
+        "speed_of_sound_m_s",
+        "expected_sample",
+        "detected_sample",
+        "absolute_error_samples",
+        "maximum_absolute_error_samples"
+      ],
+      "properties": {
+        "distance_m": {"type": "number", "exclusiveMinimum": 0},
+        "speed_of_sound_m_s": {"type": "number", "exclusiveMinimum": 0},
+        "expected_sample": {"type": "number", "minimum": 0},
+        "detected_sample": {"type": "integer", "minimum": 0},
+        "absolute_error_samples": {"type": "number", "minimum": 0},
+        "maximum_absolute_error_samples": {"type": "number", "minimum": 0}
+      }
+    },
+    "pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "listener_id",
+        "source_id",
+        "actor_id",
+        "event_id",
+        "anchor_id",
+        "semantic_anchor_id",
+        "dry_audio_id",
+        "dry_wav_role",
+        "dry_sidecar_role",
+        "foa_ir_order_a_role",
+        "foa_ir_order_b_role",
+        "binaural_ir_role",
+        "direct_arrival",
+        "foa_stem_wav_role",
+        "foa_stem_sidecar_role",
+        "binaural_stem_wav_role",
+        "binaural_stem_sidecar_role"
+      ],
+      "properties": {
+        "listener_id": {"$ref": "#/$defs/stable_id"},
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "event_id": {"$ref": "#/$defs/stable_id"},
+        "anchor_id": {"$ref": "#/$defs/stable_id"},
+        "semantic_anchor_id": {"const": "muzzle"},
+        "dry_audio_id": {"$ref": "#/$defs/stable_id"},
+        "dry_wav_role": {"$ref": "#/$defs/artifact_role"},
+        "dry_sidecar_role": {"$ref": "#/$defs/artifact_role"},
+        "foa_ir_order_a_role": {"$ref": "#/$defs/artifact_role"},
+        "foa_ir_order_b_role": {"$ref": "#/$defs/artifact_role"},
+        "binaural_ir_role": {"$ref": "#/$defs/artifact_role"},
+        "direct_arrival": {"$ref": "#/$defs/direct_arrival"},
+        "foa_stem_wav_role": {"$ref": "#/$defs/artifact_role"},
+        "foa_stem_sidecar_role": {"$ref": "#/$defs/artifact_role"},
+        "binaural_stem_wav_role": {"$ref": "#/$defs/artifact_role"},
+        "binaural_stem_sidecar_role": {"$ref": "#/$defs/artifact_role"}
+      }
+    },
+    "mixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "foa_wav_role",
+        "foa_sidecar_role",
+        "binaural_wav_role",
+        "binaural_sidecar_role",
+        "source_ids",
+        "summation_order"
+      ],
+      "properties": {
+        "foa_wav_role": {"$ref": "#/$defs/artifact_role"},
+        "foa_sidecar_role": {"$ref": "#/$defs/artifact_role"},
+        "binaural_wav_role": {"$ref": "#/$defs/artifact_role"},
+        "binaural_sidecar_role": {"$ref": "#/$defs/artifact_role"},
+        "source_ids": {"$ref": "#/$defs/source_ids"},
+        "summation_order": {"$ref": "#/$defs/source_ids"}
+      }
+    },
+    "foa_measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direction",
+        "semantic_direction",
+        "direct_arrival_sample",
+        "w_amplitude",
+        "directional_channel_index",
+        "directional_to_w_ratio",
+        "maximum_off_axis_to_w_ratio"
+      ],
+      "properties": {
+        "direction": {"enum": ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]},
+        "semantic_direction": {
+          "enum": ["right", "left", "up", "down", "back", "front"]
+        },
+        "direct_arrival_sample": {"type": "integer", "minimum": 0},
+        "w_amplitude": {"type": "number"},
+        "directional_channel_index": {"type": "integer", "minimum": 1, "maximum": 3},
+        "directional_to_w_ratio": {"type": "number"},
+        "maximum_off_axis_to_w_ratio": {"type": "number", "minimum": 0}
+      }
+    },
+    "foa_cardinal_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "spatial_format",
+        "expected_directional_to_w_magnitude",
+        "direct_arrival_sample",
+        "measurements"
+      ],
+      "properties": {
+        "status": {"const": "pass"},
+        "spatial_format": {"$ref": "#/$defs/foa_contract"},
+        "expected_directional_to_w_magnitude": {"type": "number", "exclusiveMinimum": 0},
+        "direct_arrival_sample": {"type": "integer", "minimum": 0},
+        "measurements": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {"$ref": "#/$defs/foa_measurement"}
+        }
+      }
+    },
+    "world_alignment_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "format_id",
+        "sample_count",
+        "maximum_absolute_difference",
+        "rtol",
+        "atol"
+      ],
+      "properties": {
+        "status": {"const": "pass"},
+        "format_id": {"const": "rlr_foa_acn_n3d_world_v1"},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "maximum_absolute_difference": {"type": "number", "minimum": 0},
+        "rtol": {"type": "number", "minimum": 0},
+        "atol": {"type": "number", "minimum": 0}
+      }
+    },
+    "foa_cardinal_roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["+X", "-X", "+Y", "-Y", "+Z", "-Z"],
+      "properties": {
+        "+X": {"$ref": "#/$defs/artifact_role"},
+        "-X": {"$ref": "#/$defs/artifact_role"},
+        "+Y": {"$ref": "#/$defs/artifact_role"},
+        "-Y": {"$ref": "#/$defs/artifact_role"},
+        "+Z": {"$ref": "#/$defs/artifact_role"},
+        "-Z": {"$ref": "#/$defs/artifact_role"}
+      }
+    },
+    "binaural_cardinal_roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["+X", "-X"],
+      "properties": {
+        "+X": {"$ref": "#/$defs/artifact_role"},
+        "-X": {"$ref": "#/$defs/artifact_role"}
+      }
+    },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["foa", "binaural"],
+      "properties": {
+        "foa": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cardinal_roles",
+            "cardinal_report",
+            "world_identity_role",
+            "world_rotated_role",
+            "world_alignment_report"
+          ],
+          "properties": {
+            "cardinal_roles": {"$ref": "#/$defs/foa_cardinal_roles"},
+            "cardinal_report": {"$ref": "#/$defs/foa_cardinal_report"},
+            "world_identity_role": {"$ref": "#/$defs/artifact_role"},
+            "world_rotated_role": {"$ref": "#/$defs/artifact_role"},
+            "world_alignment_report": {"$ref": "#/$defs/world_alignment_report"}
+          }
+        },
+        "binaural": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cardinal_roles", "minimum_ild_db", "cardinal_report"],
+          "properties": {
+            "cardinal_roles": {"$ref": "#/$defs/binaural_cardinal_roles"},
+            "minimum_ild_db": {"type": "number", "minimum": 3.0},
+            "cardinal_report": {"$ref": "#/$defs/binaural_cardinal_report"}
+          }
+        }
+      }
+    },
+    "material_upload_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_id",
+        "material_category",
+        "triangle_count",
+        "index_count",
+        "canonical_payload_byte_count",
+        "canonical_payload_sha1"
+      ],
+      "properties": {
+        "object_id": {"type": "string", "minLength": 1},
+        "material_category": {"type": "string", "minLength": 1},
+        "triangle_count": {"type": "integer", "minimum": 1},
+        "index_count": {"type": "integer", "minimum": 3},
+        "canonical_payload_byte_count": {"type": "integer", "minimum": 1},
+        "canonical_payload_sha1": {"$ref": "#/$defs/sha1"}
+      }
+    },
+    "count_map": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "string_map": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "upload_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_count",
+        "vertex_count",
+        "triangle_count",
+        "material_category_count",
+        "object_ids",
+        "triangle_count_by_material",
+        "material_upload_call_count",
+        "resolved_material_name_by_category",
+        "resolved_material_index_by_category",
+        "material_upload_receipts",
+        "expected_material_block_count",
+        "material_database_sha1",
+        "expected_world_geometry_sha1",
+        "expected_canonical_byte_count",
+        "expected_material_coefficient_sha1",
+        "expected_material_coefficient_byte_count"
+      ],
+      "properties": {
+        "object_count": {"type": "integer", "minimum": 1},
+        "vertex_count": {"type": "integer", "minimum": 3},
+        "triangle_count": {"type": "integer", "minimum": 1},
+        "material_category_count": {"type": "integer", "minimum": 1},
+        "object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "triangle_count_by_material": {"$ref": "#/$defs/count_map"},
+        "material_upload_call_count": {"$ref": "#/$defs/count_map"},
+        "resolved_material_name_by_category": {"$ref": "#/$defs/string_map"},
+        "resolved_material_index_by_category": {"$ref": "#/$defs/count_map"},
+        "material_upload_receipts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/material_upload_receipt"}
+        },
+        "expected_material_block_count": {"type": "integer", "minimum": 1},
+        "material_database_sha1": {"$ref": "#/$defs/sha1"},
+        "expected_world_geometry_sha1": {"$ref": "#/$defs/sha1"},
+        "expected_canonical_byte_count": {"type": "integer", "minimum": 1},
+        "expected_material_coefficient_sha1": {"$ref": "#/$defs/sha1"},
+        "expected_material_coefficient_byte_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "source_registration_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "canonical_native_index",
+        "position_m",
+        "radius_m",
+        "native_realized"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "canonical_native_index": {"type": "integer", "minimum": 0},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "radius_m": {"type": "number", "minimum": 0},
+        "native_realized": {"type": "boolean"}
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moved_source_id",
+        "moved_distance_m",
+        "original_position_m",
+        "updated_position_m",
+        "source_registration_receipts_after_update",
+        "reset_matches_fresh_first",
+        "source_update_preserves_identity",
+        "temporal_sequence_executed",
+        "reset_boundary_policy",
+        "counts_after_reset",
+        "upload_report",
+        "fresh_first_roles",
+        "updated_roles",
+        "reset_first_roles"
+      ],
+      "properties": {
+        "moved_source_id": {"$ref": "#/$defs/stable_id"},
+        "moved_distance_m": {"type": "number", "exclusiveMinimum": 0},
+        "original_position_m": {"$ref": "#/$defs/vec3"},
+        "updated_position_m": {"$ref": "#/$defs/vec3"},
+        "source_registration_receipts_after_update": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/source_registration_receipt"}
+        },
+        "reset_matches_fresh_first": {"type": "boolean"},
+        "source_update_preserves_identity": {"type": "boolean"},
+        "temporal_sequence_executed": {"type": "boolean"},
+        "reset_boundary_policy": {"const": "reset_reload_before_independent_episode"},
+        "counts_after_reset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["object_count", "source_count", "listener_count"],
+          "properties": {
+            "object_count": {"const": 0},
+            "source_count": {"const": 0},
+            "listener_count": {"const": 0}
+          }
+        },
+        "upload_report": {"$ref": "#/$defs/upload_report"},
+        "fresh_first_roles": {"$ref": "#/$defs/role_map"},
+        "updated_roles": {"$ref": "#/$defs/role_map"},
+        "reset_first_roles": {"$ref": "#/$defs/role_map"}
+      }
+    },
+    "performance_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repeat_index",
+        "wall_seconds",
+        "process_cpu_seconds",
+        "peak_rss_before_bytes",
+        "peak_rss_after_bytes",
+        "ir_payload_bytes",
+        "pair_count"
+      ],
+      "properties": {
+        "repeat_index": {"type": "integer", "minimum": 0},
+        "wall_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "process_cpu_seconds": {"type": "number", "minimum": 0},
+        "peak_rss_before_bytes": {"type": "integer", "minimum": 0},
+        "peak_rss_after_bytes": {"type": "integer", "minimum": 0},
+        "ir_payload_bytes": {"type": "integer", "minimum": 1},
+        "pair_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "performance_condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_count",
+        "pair_count",
+        "repeat_count",
+        "median_wall_seconds",
+        "p95_wall_seconds",
+        "median_process_cpu_seconds",
+        "maximum_peak_rss_bytes",
+        "median_ir_payload_bytes",
+        "runs"
+      ],
+      "properties": {
+        "source_count": {"type": "integer", "minimum": 1},
+        "pair_count": {"type": "integer", "minimum": 1},
+        "repeat_count": {"type": "integer", "minimum": 2},
+        "median_wall_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "p95_wall_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "median_process_cpu_seconds": {"type": "number", "minimum": 0},
+        "maximum_peak_rss_bytes": {"type": "integer", "minimum": 0},
+        "median_ir_payload_bytes": {"type": "integer", "minimum": 1},
+        "runs": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/performance_run"}
+        }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["one_source", "multi_source", "comparison"],
+      "properties": {
+        "one_source": {"$ref": "#/$defs/performance_condition"},
+        "multi_source": {"$ref": "#/$defs/performance_condition"},
+        "comparison": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "multi_to_one_median_wall_ratio",
+            "multi_pair_throughput_pairs_per_second",
+            "hard_speed_gate",
+            "interpretation"
+          ],
+          "properties": {
+            "multi_to_one_median_wall_ratio": {"type": "number", "exclusiveMinimum": 0},
+            "multi_pair_throughput_pairs_per_second": {"type": "number", "exclusiveMinimum": 0},
+            "hard_speed_gate": {"type": "null"},
+            "interpretation": {"const": "measurement_only_platform_dependent"}
+          }
+        }
+      }
+    },
+    "native_binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "configuration_readback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frequency_bands",
+        "direct_sh_order",
+        "indirect_sh_order",
+        "direct_ray_count",
+        "indirect_ray_count",
+        "indirect_ray_depth",
+        "source_ray_count",
+        "source_ray_depth",
+        "max_diffraction_order",
+        "thread_count",
+        "sample_rate_hz",
+        "max_ir_seconds",
+        "unit_scale",
+        "global_volume",
+        "direct",
+        "indirect",
+        "diffraction",
+        "transmission",
+        "mesh_simplification",
+        "temporal_coherence"
+      ],
+      "properties": {
+        "frequency_bands": {"type": "integer", "minimum": 1},
+        "direct_sh_order": {"type": "integer", "minimum": 0},
+        "indirect_sh_order": {"type": "integer", "minimum": 0},
+        "direct_ray_count": {"type": "integer", "minimum": 1},
+        "indirect_ray_count": {"type": "integer", "minimum": 1},
+        "indirect_ray_depth": {"type": "integer", "minimum": 1},
+        "source_ray_count": {"type": "integer", "minimum": 1},
+        "source_ray_depth": {"type": "integer", "minimum": 1},
+        "max_diffraction_order": {"type": "integer", "minimum": 0},
+        "thread_count": {"type": "integer", "minimum": 1},
+        "sample_rate_hz": {"type": "number", "minimum": 16000},
+        "max_ir_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "unit_scale": {"type": "number", "exclusiveMinimum": 0},
+        "global_volume": {"type": "number", "exclusiveMinimum": 0},
+        "direct": {"type": "boolean"},
+        "indirect": {"type": "boolean"},
+        "diffraction": {"type": "boolean"},
+        "transmission": {"type": "boolean"},
+        "mesh_simplification": {"type": "boolean"},
+        "temporal_coherence": {"type": "boolean"}
+      }
+    },
+    "endpoint_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "canonical_native_index",
+        "position_m",
+        "radius_m",
+        "native_realized"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "canonical_native_index": {"type": "integer", "minimum": 0},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "radius_m": {"type": "number", "minimum": 0},
+        "native_realized": {"const": true}
+      }
+    },
+    "endpoint_listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "listener_id",
+        "canonical_native_index",
+        "position_m",
+        "orientation_wxyz",
+        "radius_m",
+        "layout_type",
+        "channel_count",
+        "hrtf_mode",
+        "hrtf_file_path",
+        "native_realized"
+      ],
+      "properties": {
+        "listener_id": {"$ref": "#/$defs/stable_id"},
+        "canonical_native_index": {"const": 0},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "orientation_wxyz": {"$ref": "#/$defs/quat_wxyz"},
+        "radius_m": {"type": "number", "minimum": 0},
+        "layout_type": {"enum": ["ambisonics", "binaural"]},
+        "channel_count": {"enum": [2, 4]},
+        "hrtf_mode": {"enum": ["rlr_builtin_default", "external_file"]},
+        "hrtf_file_path": {"type": "string"},
+        "native_realized": {"const": true}
+      }
+    },
+    "endpoint_receipts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "sources", "listener"],
+      "properties": {
+        "authority": {"const": "native_registration_readback"},
+        "sources": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/endpoint_source"}
+        },
+        "listener": {"$ref": "#/$defs/endpoint_listener"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_api",
+        "native_binaries",
+        "foa_configuration_readback",
+        "binaural_configuration_readback",
+        "foa_upload_report",
+        "foa_endpoint_receipts",
+        "binaural_endpoint_receipts"
+      ],
+      "properties": {
+        "binding_api": {"const": "habitat_sim.RLRAcousticContext_v1"},
+        "native_binaries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["habitat_sim_bindings", "rlr_audio_propagation"],
+          "properties": {
+            "habitat_sim_bindings": {"$ref": "#/$defs/native_binary"},
+            "rlr_audio_propagation": {"$ref": "#/$defs/native_binary"}
+          }
+        },
+        "foa_configuration_readback": {"$ref": "#/$defs/configuration_readback"},
+        "binaural_configuration_readback": {"$ref": "#/$defs/configuration_readback"},
+        "foa_upload_report": {"$ref": "#/$defs/upload_report"},
+        "foa_endpoint_receipts": {"$ref": "#/$defs/endpoint_receipts"},
+        "binaural_endpoint_receipts": {"$ref": "#/$defs/endpoint_receipts"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "required", "status", "measured", "threshold"],
+      "properties": {
+        "check_id": {"$ref": "#/$defs/stable_id"},
+        "required": {"const": true},
+        "status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "measured": {},
+        "threshold": {},
+        "failure_reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "pass"}},
+            "required": ["status"]
+          },
+          "then": {"not": {"required": ["failure_reason"]}},
+          "else": {"required": ["failure_reason"]}
+        }
+      ]
+    }
+  }
+}

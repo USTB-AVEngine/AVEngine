@@ -1,0 +1,18 @@
+{
+ "owner_scope": "static_sound_sources_first_pass_20260826",
+ "supersedes_adjustment_record": "examples/assets/source_profiles_mirror/static_sound_form_adjustments_20260826.json",
+ "adjustments": [
+  {
+   "replaced_profiles": [
+    "plumbing_fixture_toilet_floor_close_coupled_product_view_v1",
+    "plumbing_fixture_toilet_floor_one_piece_product_view_v1"
+   ],
+   "replacement_profiles": [
+    "plumbing_fixture_toilet_floor_flushometer_product_view_v1",
+    "plumbing_fixture_toilet_high_tank_pull_chain_product_view_v1"
+   ],
+   "reason": "Four close-coupled attempts and one one-piece attempt lacked a reviewable flush outlet. Exposed flushometer and high-tank forms keep two visibly distinct toilet assets while making the valve/pipe-to-bowl water path physically visible.",
+   "old_profiles_retained_as_rejected_method_evidence": true
+  }
+ ]
+}

@@ -1,0 +1,115 @@
+{
+  "schema": "avengine_m6_room_qualification_report_v1",
+  "report_id": "mp3d_17DRP5sb8fy_derived_m6_audit_v1",
+  "subject": {
+    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+    "revision": "raw_v1_plus_declared_proxy_v2_research",
+    "qualification_scope": "acoustic_representation",
+    "acoustic_representation_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+    "acoustic_representation_kind": "derived_proxy"
+  },
+  "evidence_basis": "audited_historical",
+  "evidence_artifacts": [],
+  "dimensions": {
+    "visual_runtime_status": {
+      "status": "pass",
+      "summary": "The derived acoustic revision inherits the unchanged, passing raw visual scene.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    },
+    "navigation_status": {
+      "status": "pass",
+      "summary": "The derived acoustic revision does not alter the passing raw navmesh or existing research route.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    },
+    "acoustic_geometry_status": {
+      "status": "fail",
+      "summary": "The local cleanup removed the zero-area primitive and loads in RLR, but still fails current topology qualification.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "mp3d_proxy_topology_not_qualified"
+    },
+    "material_binding_status": {
+      "status": "blocked",
+      "summary": "Coverage exists only for placeholder slots; semantic .house mapping, activation, and current RLR readback are incomplete.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "mp3d_proxy_semantic_materials_incomplete"
+    },
+    "ray_leakage_status": {
+      "status": "not_run",
+      "summary": "Floor, ceiling, wall, door/opening, LOS/NLOS, and leakage rays have not run on the proxy.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "mp3d_proxy_rays_not_run"
+    },
+    "physical_material_truth_status": {
+      "status": "unqualified",
+      "summary": "semantic_mapping_approximation is the target state, not the current verified state.",
+      "evidence_refs": [],
+      "blocker_code": "mp3d_proxy_material_truth_unqualified"
+    },
+    "episode_feasibility_status": {
+      "status": "pass",
+      "summary": "The research-only cleanup package generated 90-keyframe dynamic binaural audio for the human-plus-Beagle route.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    }
+  },
+  "placement_feasibility": {
+    "status": "not_run",
+    "summary": "Existing center-point checks do not include the complete M6 placement probe.",
+    "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+    "blocker_code": "mp3d_proxy_placement_not_run",
+    "checks": [],
+    "failure_reasons": ["mp3d_center_point_only"]
+  },
+  "acoustic_diagnostics": {
+    "raw_source_identity": {
+      "status": "pass",
+      "summary": "The proxy provenance binds the immutable raw GLB hash.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    },
+    "declared_derivation_integrity": {
+      "status": "pass",
+      "summary": "The historical cleanup recorded all 458 removed zero-area faces, the emptied object, policy, and derived hashes.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    },
+    "visual_to_acoustic_spatial_parity": {
+      "status": "not_run",
+      "summary": "The old raw-byte parity gate fails by design after cleanup; the replacement spatial-parity gate has not run.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "mp3d_proxy_spatial_parity_not_run"
+    },
+    "solver_loadability": {
+      "status": "pass",
+      "summary": "The cleanup proxy loaded in RLR and produced dynamic RIRs.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    },
+    "topology_diagnostics": {
+      "status": "fail",
+      "summary": "Cleanup topology still reports 45 duplicates, 8339 boundary edges, and 269 non-manifold edges.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "mp3d_proxy_topology_diagnostics_failed"
+    },
+    "opening_and_enclosure_checks": {
+      "status": "not_run",
+      "summary": "No proxy-specific opening or enclosure check suite has run.",
+      "evidence_refs": [],
+      "blocker_code": "mp3d_proxy_openings_not_run"
+    }
+  },
+  "dataset_admission": false,
+  "admission_blockers": [
+    "acoustic_geometry_status=fail",
+    "material_binding_status=blocked",
+    "ray_leakage_status=not_run",
+    "physical_material_truth_status=unqualified",
+    "placement_feasibility=not_run",
+    "acoustic_diagnostics.visual_to_acoustic_spatial_parity=not_run",
+    "acoustic_diagnostics.topology_diagnostics=fail",
+    "acoustic_diagnostics.opening_and_enclosure_checks=not_run"
+  ],
+  "provenance": {
+    "source_records": [
+      "examples/rooms/habitat_mp3d_example/room_manifest.json",
+      "docs/roadmap/M5_1_STATUS.md"
+    ],
+    "notes": "The ignored tmp cleanup is historical evidence, not a portable released proxy. A fresh derivation must bind current hashes and rerun spatial/material/ray gates."
+  }
+}

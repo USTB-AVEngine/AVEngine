@@ -1,0 +1,18 @@
+{
+ "owner_scope": "static_sound_sources_first_pass_20260826",
+ "supersedes_adjustment_record": "examples/assets/source_profiles_mirror/static_sound_form_adjustments_20260826_v2.json",
+ "adjustments": [
+  {
+   "replaced_profiles": [
+    "plumbing_fixture_toilet_floor_flushometer_product_view_v1",
+    "plumbing_fixture_toilet_high_tank_pull_chain_product_view_v1"
+   ],
+   "replacement_profiles": [
+    "plumbing_fixture_toilet_exposed_flush_pipe_tank_product_view_v1",
+    "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_v1"
+   ],
+   "reason": "The prior adjusted candidates exposed the water path but contradicted only the tankless/pull-chain labels. These final forms retain the stable visible flush-pipe geometry and remove claims the generator did not satisfy.",
+   "old_profiles_retained_as_rejected_method_evidence": true
+  }
+ ]
+}

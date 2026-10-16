@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>新版 Pixal 马 r8 · UE Apartment Walk / Idle</title>
+  <style>
+    :root { color-scheme: dark; --bg:#09101a; --card:#111b2a; --line:#2b3d55; --text:#edf5ff; --muted:#a9b9cc; --ok:#64d99b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,sans-serif; }
+    main { max-width:1320px; margin:auto; padding:24px; }
+    h1 { margin:0 0 8px; font-size:24px; }
+    .status { padding:12px 14px; border:1px solid #246947; background:#0d2d20; border-radius:10px; color:var(--ok); }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:18px; }
+    article { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+    h2 { margin:0 0 10px; }
+    video { width:100%; background:#000; border-radius:8px; }
+    code { display:block; margin-top:10px; padding:9px; white-space:nowrap; overflow:auto; background:#070c13; color:var(--muted); border-radius:7px; }
+    ul { color:var(--muted); }
+    @media (max-width:900px) { .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>新版 Pixal 马 r8 · UE Apartment Walk / Idle</h1>
+  <p class="status">隔离 Walk 已由用户确认可接受；UE Walk/Idle 2/2 自动通过并完成 agent 宽松视觉抽查。当前仍为 research_candidate，不是正式注册资产。</p>
+  <ul>
+    <li>用户方向决策：180°；UE 路径补偿：+90°（坐标基变换，不是把用户决策改成 90°）。</li>
+    <li>身高范围约 1.56–1.69 m；四个移动方向窗口最大身体朝向误差 0.99°。</li>
+    <li>地面穿透约为数值零；18 秒内安排 9 个带静音间隔的马叫事件。</li>
+    <li>审核成片左侧为 UE 主视图，右侧为同步 Top-down；普通家具遮挡属于预期场景条件。</li>
+  </ul>
+  <section class="grid">
+    <article>
+      <h2>Walking · 绕桌轨迹</h2>
+      <video controls loop playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715/clips/pixal_horse_compact_tail_v4_r8_yaw180/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4"></video>
+      <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715/clips/pixal_horse_compact_tail_v4_r8_yaw180/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4</code>
+    </article>
+    <article>
+      <h2>Idle · 左前方定点</h2>
+      <video controls loop playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715/clips/pixal_horse_compact_tail_v4_r8_yaw180/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4"></video>
+      <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715/clips/pixal_horse_compact_tail_v4_r8_yaw180/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4</code>
+    </article>
+  </section>
+</main>
+</body>
+</html>

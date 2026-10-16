@@ -1,0 +1,993 @@
+"""Production surfaces: the sound-asset deck, the stage board, human verdicts.
+
+Three rules shape everything here.
+
+The asset catalog is read from the published tree on every request, not from a
+cache and not from the index alone. Each asset's ``asset.json`` is the
+authority for its own acceptance record - the index is rebuilt less often than
+assets are re-measured, and a deck that shows last week's verdict next to this
+week's mesh is worse than a slower page.
+
+The board reads each stage's own verifier artifact and never a task's exit
+code. Every product in this repository carries its own acceptance evidence -
+a room manifest that validates, a package that hashes, a route report that
+counts, an episode receipt whose per-frame errors are enumerated - and exit
+code zero only says a process ended. A board painted from exit codes shows the
+first silent failure as green.
+
+Human verdicts are files inside the task directory they judge, one file per
+task, written whole. No database: the queue directory already survives server
+restarts, and a verdict that lives next to the artifacts it judges cannot
+dangle.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+
+class ProductionError(ValueError):
+    pass
+
+
+_ASSET_FILE_SUFFIXES = frozenset({".glb", ".json", ".png"})
+_VERDICT_VALUES = frozenset({"pass", "fail", "unsure"})
+_VERDICT_FILE = "human_verdict.json"
+
+# One join key across every stage's artifacts. Stage outputs name the scene
+# three different ways - room_id hm3d_val_00800_TEEsavR23oF, bank directory
+# 00800-TEEsavR23oF, receipt scene_id TEEsavR23oF - and the 11-character
+# Matterport hash is the part they all carry.
+_SCENE_HASH = re.compile(r"([A-Za-z0-9]{11})(?:\.|$|_)")
+
+
+def _digest(path: Path) -> str:
+    """A fingerprint that spots the same file copied under another name.
+
+    Size plus both ends of the file rather than the whole of it: the page
+    recomputes this for every clip on every request, and the question it
+    answers is "is this the same downloaded recording filed twice", not
+    "prove these bytes are identical" - the QC tool does that properly.
+    """
+
+    size = path.stat().st_size
+    window = 65536
+    with path.open("rb") as handle:
+        head = handle.read(window)
+        if size > window * 2:
+            handle.seek(-window, 2)
+            tail = handle.read(window)
+        else:
+            tail = b""
+    return hashlib.sha256(
+        str(size).encode() + head + tail
+    ).hexdigest()[:16]
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+# --------------------------------------------------------------------------
+# sound-asset deck
+
+
+def load_sound_asset_catalog(index_path: Path) -> dict[str, Any]:
+    root = index_path.parent
+    index = _read_json(index_path) or {}
+    entries: list[dict[str, Any]] = []
+    for asset_json in sorted(root.glob("*/*/*/asset.json")):
+        record = _read_json(asset_json)
+        if record is None:
+            continue
+        relative = asset_json.parent.relative_to(root).as_posix()
+        geometry = record.get("geometry") or {}
+        acceptance = record.get("acceptance") or {}
+        placement = record.get("placement") or {}
+        resting = (geometry.get("resting_pose") or {}) if isinstance(
+            geometry.get("resting_pose"), Mapping
+        ) else {}
+        files = {}
+        for name in ("finalized.glb", "emitter_marker.glb"):
+            candidate = asset_json.parent / name
+            if candidate.is_file():
+                files[name] = {
+                    "path": f"{relative}/{name}",
+                    "byte_size": candidate.stat().st_size,
+                }
+        entries.append(
+            {
+                "asset_id": record.get("asset_id"),
+                "path": relative,
+                "category": record.get("category"),
+                "object_type": (record.get("identity") or {}).get("object_type"),
+                "entity_class": record.get("entity_class"),
+                "admission_state": record.get("admission_state"),
+                "registration_authorized": record.get(
+                    "formal_dataset_registration_authorized"
+                ),
+                "size_m": {
+                    "width": geometry.get("width_right_m"),
+                    "depth": geometry.get("depth_forward_m"),
+                    "height": geometry.get("height_up_m"),
+                },
+                "resting_pose_verdict": acceptance.get("resting_pose_verdict"),
+                "base_normal_tilt_deg": acceptance.get("base_normal_tilt_deg"),
+                "mounting_plane_normal_tilt_deg": acceptance.get(
+                    "mounting_plane_normal_tilt_deg"
+                ),
+                "attachment_surface": placement.get("attachment_surface")
+                or resting.get("attachment_surface"),
+                "attachment_surface_assumed": resting.get(
+                    "attachment_surface_assumed"
+                ),
+                "has_emitter": isinstance(record.get("emitter"), Mapping),
+                "files": files,
+            }
+        )
+    return {
+        "root": str(root),
+        "index_created_at": index.get("created_at"),
+        "asset_count": len(entries),
+        "assets": entries,
+    }
+
+
+def sound_asset_file(index_path: Path, relative: str) -> Path:
+    root = index_path.parent.resolve()
+    target = (root / relative).resolve()
+    if not str(target).startswith(str(root) + "/"):
+        raise ProductionError("asset path escapes the asset root")
+    if target.suffix not in _ASSET_FILE_SUFFIXES:
+        raise ProductionError(f"not a servable asset file: {relative}")
+    if not target.is_file():
+        raise ProductionError(f"no such asset file: {relative}")
+    return target
+
+
+# --------------------------------------------------------------------------
+# the dry-sound library
+
+_SOUND_FILE_SUFFIXES = frozenset({".wav", ".json"})
+
+# Event classes an asset may declare that name a state rather than a sound
+# to record. "silent" says this object is present and quiet right now - a
+# first-class negative sample - so it has no clip to collect, and listing
+# it as a gap sent the collector hunting for a recording of nothing. It
+# stayed red at the top of the table with forty assets behind it while the
+# real gaps sat below.
+_UNCOLLECTABLE_EVENT_CLASSES = frozenset({"silent"})
+
+
+def _wav_facts(path: Path) -> dict[str, Any]:
+    """Header facts a curator needs before auditioning anything.
+
+    wave covers the PCM files this pipeline consumes; a file it cannot parse
+    is reported as such rather than hidden, because a clip that cannot even
+    state its sample rate is itself a finding.
+    """
+
+    import contextlib
+    import wave
+
+    try:
+        with contextlib.closing(wave.open(str(path), "rb")) as handle:
+            frames = handle.getnframes()
+            rate = handle.getframerate()
+            return {
+                "sample_rate_hz": rate,
+                "channel_count": handle.getnchannels(),
+                "sample_count": frames,
+                "duration_s": round(frames / rate, 3) if rate else None,
+                "readable": True,
+            }
+    except (wave.Error, EOFError, OSError) as error:
+        return {"readable": False, "error": f"{type(error).__name__}: {error}"}
+
+
+def load_sound_library(
+    library_root: Path, asset_index_path: Path | None
+) -> dict[str, Any]:
+    """Dry-clip supply against the asset tree's own demand, read live.
+
+    Demand is not invented here: it is the union of every published asset's
+    allowed_event_classes and default_event_class - the vocabulary the audio
+    programs actually select by. Supply is whatever wav files sit under the
+    library root, each with an optional sidecar json declaring which event
+    classes it claims to serve, its source and its licence. The page exists
+    to make the gap between the two columns impossible to miss.
+    """
+
+    demand: dict[str, int] = {}
+    if asset_index_path is not None:
+        for asset_json in sorted(asset_index_path.parent.glob("*/*/*/asset.json")):
+            record = _read_json(asset_json) or {}
+            profile = record.get("acoustic_profile") or {}
+            names = set(profile.get("allowed_event_classes") or [])
+            default = profile.get("default_event_class")
+            if default:
+                names.add(str(default))
+            for name in names:
+                if str(name) in _UNCOLLECTABLE_EVENT_CLASSES:
+                    continue
+                demand[str(name)] = demand.get(str(name), 0) + 1
+
+    clips: list[dict[str, Any]] = []
+    supply: dict[str, int] = {}
+    digests: dict[str, list[str]] = {}
+    if library_root.is_dir():
+        for wav_path in sorted(library_root.rglob("*.wav")):
+            relative = wav_path.relative_to(library_root).as_posix()
+            sidecar = _read_json(wav_path.with_suffix(".json")) or _read_json(
+                wav_path.parent / "clip.json"
+            ) or {}
+            event_classes = [
+                str(name) for name in sidecar.get("event_classes") or []
+            ]
+            for name in event_classes:
+                supply[name] = supply.get(name, 0) + 1
+            # The QC report is written by tools/assets/qc_sound_library.py,
+            # never here: measuring a hundred-odd wavs in full on every page
+            # load would make the page slow for no gain, and a stale report
+            # that says which file it judged is more honest than a fast lie.
+            qc = _read_json(wav_path.with_suffix(".qc.json"))
+            digest = _digest(wav_path)
+            digests.setdefault(digest, []).append(relative)
+            clips.append(
+                {
+                    "path": relative,
+                    "byte_size": wav_path.stat().st_size,
+                    "event_classes": event_classes,
+                    "source": sidecar.get("source"),
+                    "license": sidecar.get("license"),
+                    "dry": sidecar.get("dry"),
+                    "notes": sidecar.get("notes"),
+                    "audio_digest": digest,
+                    "qc": (
+                        {
+                            "verdict": qc.get("verdict"),
+                            "findings": [
+                                {
+                                    "severity": f.get("severity"),
+                                    "reason_zh": f.get("reason_zh"),
+                                }
+                                for f in qc.get("findings") or []
+                                if isinstance(f, Mapping)
+                            ],
+                        }
+                        if qc
+                        else None
+                    ),
+                    **_wav_facts(wav_path),
+                }
+            )
+        for clip in clips:
+            same = digests.get(clip["audio_digest"], [])
+            clip["duplicate_of"] = [p for p in same if p != clip["path"]]
+
+    coverage = [
+        {
+            "event_class": name,
+            "demanding_assets": count,
+            "library_clips": supply.get(name, 0),
+        }
+        for name, count in sorted(demand.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    unclaimed = sorted(set(supply) - set(demand))
+    verdicts = {"pass": 0, "warn": 0, "fail": 0, "unchecked": 0}
+    for clip in clips:
+        qc = clip.get("qc")
+        verdicts[str((qc or {}).get("verdict") or "unchecked")] = verdicts.get(
+            str((qc or {}).get("verdict") or "unchecked"), 0
+        ) + 1
+    return {
+        "schema": "avengine_studio_sound_library_v1",
+        "root": str(library_root),
+        "requirements": (
+            "干声（无混响、无背景底噪）；混响由房间声学添加，素材自带混响会叠加。"
+            "管线消费 16 kHz 单声道 PCM wav；其他采样率可以先入库，登记进正式"
+            "registry 时再重采样。旁车 json 声明 event_classes（用资产档案里的"
+            "词表）、source、dry: true；网上下的顺手把网址写进 source"
+        ),
+        "coverage": coverage,
+        "clips": clips,
+        "clip_count": len(clips),
+        "distinct_audio_count": len(digests),
+        "qc_summary": verdicts,
+        "supply_without_demand": unclaimed,
+    }
+
+
+def sound_library_file(library_root: Path, relative: str) -> Path:
+    root = library_root.resolve()
+    target = (root / relative).resolve()
+    if not str(target).startswith(str(root) + "/"):
+        raise ProductionError("sound library path escapes the library root")
+    if target.suffix not in _SOUND_FILE_SUFFIXES:
+        raise ProductionError(f"not a servable sound-library file: {relative}")
+    if not target.is_file():
+        raise ProductionError(f"no such sound-library file: {relative}")
+    return target
+
+
+# --------------------------------------------------------------------------
+# room curation: machine pre-filter by size, then one human pass over
+# every remaining room of every inventoried house
+
+_ROOM_TYPE_RULES: tuple[tuple[str, frozenset[str]], ...] = (
+    ("卧室", frozenset({"bed", "nightstand", "wardrobe", "dresser"})),
+    ("卫生间", frozenset({"toilet", "shower", "bathtub", "washbasin"})),
+    ("厨房", frozenset({"refrigerator", "oven", "stove", "microwave", "kitchen"})),
+    ("客厅", frozenset({"couch", "sofa", "tv", "armchair", "fireplace"})),
+    ("餐厅", frozenset({"dining table"})),
+    ("书房/办公", frozenset({"desk", "office chair", "computer"})),
+    ("洗衣房", frozenset({"washing machine", "washer-dryer", "dryer"})),
+    ("车库", frozenset({"car", "garage door"})),
+    ("楼梯间", frozenset({"stairs", "staircase", "banister"})),
+)
+
+# Defaults anchored on proved-out reference rooms: the kujiale living room
+# that hosted 200 routes measures 49.5 m2, so 50 keeps it in; 6 excludes
+# closets the 1.5 m route band cannot use anyway.
+ROOM_RANGE_DEFAULTS = {
+    "minimum_area_m2": 6.0,
+    "maximum_area_m2": 50.0,
+    "minimum_shorter_m": 2.2,
+}
+
+_ROOM_VERDICT_VALUES = frozenset({"use", "skip", "unsure"})
+_SAFE_HOUSE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SAFE_ROOM = re.compile(r"^R\d+$")
+
+
+def _infer_room_type(categories: Any) -> str:
+    lowered = [str(c).lower() for c in categories or []]
+    for name, keys in _ROOM_TYPE_RULES:
+        for key in keys:
+            if any(key == c or key in c for c in lowered):
+                return name
+    return "未识别" if lowered else "空/未标注"
+
+
+def write_room_verdict(
+    curation_dir: Path,
+    *,
+    house: str,
+    room_label: str,
+    verdict: str,
+    note: str = "",
+    author: str = "studio",
+) -> dict[str, Any]:
+    if verdict not in _ROOM_VERDICT_VALUES:
+        raise ProductionError(
+            f"room verdict must be one of {sorted(_ROOM_VERDICT_VALUES)}, "
+            f"got {verdict!r}"
+        )
+    if not _SAFE_HOUSE.match(house or "") or not _SAFE_ROOM.match(room_label or ""):
+        raise ProductionError(
+            f"unsafe curation key: house={house!r} room={room_label!r}"
+        )
+    curation_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema": "avengine_room_curation_verdict_v1",
+        "house": house,
+        "room_label": room_label,
+        "verdict": verdict,
+        "note": str(note or "")[:2000],
+        "author": str(author or "studio")[:200],
+        "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    (curation_dir / f"{house}__{room_label}.json").write_text(
+        json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return record
+
+
+def read_room_verdicts(curation_dir: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    verdicts: dict[tuple[str, str], dict[str, Any]] = {}
+    if curation_dir.is_dir():
+        for path in sorted(curation_dir.glob("*__R*.json")):
+            record = _read_json(path)
+            if record:
+                verdicts[(str(record.get("house")), str(record.get("room_label")))] = record
+    return verdicts
+
+
+def load_room_curation(
+    task_records: list[Mapping[str, Any]],
+    curation_dir: Path,
+    *,
+    minimum_area_m2: float = ROOM_RANGE_DEFAULTS["minimum_area_m2"],
+    maximum_area_m2: float = ROOM_RANGE_DEFAULTS["maximum_area_m2"],
+    minimum_shorter_m: float = ROOM_RANGE_DEFAULTS["minimum_shorter_m"],
+) -> dict[str, Any]:
+    """Every inventoried house's rooms inside the size range, with verdicts.
+
+    The size range is the machine's pre-filter; the human pass records
+    use/skip/unsure per room, and those verdicts are what the fleet's
+    room picker will trust over its own furniture heuristic once they
+    exist. Inventories come from the room-prepare and one-click tasks'
+    own rooms.json; the newest task wins a house, like on the board.
+    """
+
+    inventories: dict[str, dict[str, Any]] = {}
+    for record in task_records:
+        template = str(record.get("template") or "")
+        if template not in ("hm3d_room_prepare", "hm3d_end_to_end"):
+            continue
+        output_dir = Path(str(record.get("output_dir") or ""))
+        if not output_dir.is_dir():
+            continue
+        root = output_dir if template == "hm3d_room_prepare" else output_dir / "rooms"
+        for inventory_path in sorted(root.glob("*/rooms.json")):
+            inventory = _read_json(inventory_path)
+            if inventory is None:
+                continue
+            house = str(
+                inventory.get("room_id") or inventory_path.parent.name
+            )
+            created = str(record.get("created_at") or "")
+            current = inventories.get(house)
+            if current is not None and current["created_at"] >= created:
+                continue
+            topdowns = [
+                path.relative_to(output_dir).as_posix()
+                for path in sorted(inventory_path.parent.glob("*.png"))
+            ]
+            inventories[house] = {
+                "created_at": created,
+                "task_id": record.get("task_id"),
+                "rooms": inventory.get("rooms") or [],
+                "topdowns": topdowns,
+            }
+
+    verdicts = read_room_verdicts(curation_dir)
+    houses: list[dict[str, Any]] = []
+    total_rooms = 0
+    total_reviewed = 0
+    for house, entry in sorted(inventories.items()):
+        rows = []
+        for room in sorted(
+            entry["rooms"], key=lambda r: -(r.get("floor_area_m2") or 0.0)
+        ):
+            extent = room.get("extent_m") or [0.0, 0.0]
+            shorter = min(float(extent[0]), float(extent[1]))
+            area = float(room.get("floor_area_m2") or 0.0)
+            if not (minimum_area_m2 <= area <= maximum_area_m2):
+                continue
+            if shorter < minimum_shorter_m:
+                continue
+            label = f"R{room.get('region_id')}"
+            verdict = verdicts.get((house, label))
+            rows.append(
+                {
+                    "label": label,
+                    "room_type": _infer_room_type(room.get("top_categories")),
+                    "floor_area_m2": area,
+                    "extent_m": extent,
+                    "floor_y_m": room.get("floor_y_m"),
+                    "top_categories": [
+                        str(c) for c in room.get("top_categories") or []
+                    ][:5],
+                    "verdict": verdict,
+                }
+            )
+        if not rows:
+            continue
+        total_rooms += len(rows)
+        total_reviewed += sum(1 for row in rows if row["verdict"])
+        houses.append(
+            {
+                "house": house,
+                "task_id": entry["task_id"],
+                "topdowns": entry["topdowns"],
+                "rooms": rows,
+            }
+        )
+    return {
+        "schema": "avengine_studio_room_curation_v1",
+        "range": {
+            "minimum_area_m2": minimum_area_m2,
+            "maximum_area_m2": maximum_area_m2,
+            "minimum_shorter_m": minimum_shorter_m,
+        },
+        "houses": houses,
+        "room_count": total_rooms,
+        "reviewed_count": total_reviewed,
+    }
+
+
+# --------------------------------------------------------------------------
+# human verdicts
+
+
+def write_human_verdict(
+    task_dir: Path, *, verdict: str, note: str = "", author: str = "studio"
+) -> dict[str, Any]:
+    if verdict not in _VERDICT_VALUES:
+        raise ProductionError(
+            f"verdict must be one of {sorted(_VERDICT_VALUES)}, got {verdict!r}"
+        )
+    if not task_dir.is_dir():
+        raise ProductionError(f"task directory does not exist: {task_dir}")
+    record = {
+        "schema": "avengine_studio_human_verdict_v1",
+        "verdict": verdict,
+        "note": str(note or "")[:2000],
+        "author": str(author or "studio")[:200],
+        "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    (task_dir / _VERDICT_FILE).write_text(
+        json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return record
+
+
+def read_human_verdict(task_dir: Path) -> dict[str, Any] | None:
+    return _read_json(task_dir / _VERDICT_FILE)
+
+
+# --------------------------------------------------------------------------
+# the stage board
+
+
+def _scene_key(text: str | None) -> str | None:
+    if not text:
+        return None
+    kujiale = re.search(r"(kujiale_\d+)", str(text))
+    if kujiale:
+        return kujiale.group(1)
+    match = _SCENE_HASH.search(str(text))
+    return match.group(1) if match else None
+
+
+def _verify_room_prepare(output_dir: Path) -> dict[str, Any] | None:
+    for manifest_path in sorted(output_dir.glob("*/room_manifest.json")):
+        manifest = _read_json(manifest_path)
+        if manifest is None:
+            continue
+        pairs = manifest.get("connectivity_pairs") or []
+        sidecar = _read_json(manifest_path.parent / "connectivity_measurement.json")
+        return {
+            "scene": _scene_key(manifest.get("room_id")),
+            "ok": bool(pairs),
+            "summary": (
+                f"连通对 {len(pairs)}"
+                + (
+                    f" · 测地 {sidecar['measured_geodesic_distance_m']:.1f} m"
+                    if sidecar and "measured_geodesic_distance_m" in sidecar
+                    else ""
+                )
+            ),
+        }
+    return None
+
+
+def _worst_escape_fraction(leakage: Any) -> float | None:
+    fractions: list[float] = []
+
+    def collect(node: Any) -> None:
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                if key == "escape_fraction" and isinstance(value, (int, float)):
+                    fractions.append(float(value))
+                else:
+                    collect(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect(item)
+
+    collect(leakage)
+    return max(fractions) if fractions else None
+
+
+def _verify_package(output_dir: Path) -> dict[str, Any] | None:
+    manifest = _read_json(output_dir / "manifest.json")
+    coverage = _read_json(output_dir / "semantic_material_coverage.json")
+    if manifest is None and coverage is None:
+        return None
+    counts = (coverage or {}).get("category_triangle_counts") or {}
+    total = sum(counts.values()) or 1
+    sealed = bool((manifest or {}).get("package_content_sha256"))
+    # The leakage probes are the one QA a frame bug cannot survive: probes
+    # planted in room coordinates escape a mis-framed mesh wholesale. The
+    # sideways incident sat at 0.87-0.94 while the board painted this cell
+    # green from the coverage report alone. Never again: a package whose
+    # probes mostly miss its own geometry is red no matter what else passed.
+    worst_escape = _worst_escape_fraction(
+        _read_json(output_dir / "qa" / "ray_leakage.json") or {}
+    )
+    frame_suspect = worst_escape is not None and worst_escape > 0.5
+    escape_text = (
+        "" if worst_escape is None else f" · 探针逃逸最坏 {100 * worst_escape:.0f}%"
+    )
+    return {
+        "scene": _scene_key((coverage or {}).get("room_id")),
+        "ok": sealed and coverage is not None and not frame_suspect,
+        "summary": (
+            (
+                f"{(coverage or {}).get('surface_count', '?')} 类 · 默认材质 "
+                f"{(coverage or {}).get('unknown_semantic_category_count', '?')} 类 · "
+                f"未标注 {100.0 * counts.get('unannotated', 0) / total:.1f}%"
+                + escape_text
+                + ("（疑似坐标系错误：探针大量在几何体外）" if frame_suspect else "")
+            )
+            if coverage
+            else "封印在但覆盖率报告缺失"
+        ),
+    }
+
+
+def _verify_route_bank(output_dir: Path) -> dict[str, Any] | None:
+    report = _read_json(output_dir / "route_report.json")
+    if report is None:
+        return None
+    scenes = report.get("scenes") or []
+    first = scenes[0] if scenes and isinstance(scenes[0], Mapping) else {}
+    return {
+        "scene": _scene_key(str(first.get("scene", ""))),
+        "ok": int(report.get("floors_with_routes", 0)) > 0,
+        "summary": (
+            f"楼层 {report.get('floors_with_routes', 0)}/"
+            f"{report.get('floors_examined', 0)} 有路线"
+        ),
+    }
+
+
+def _verify_episode(output_dir: Path) -> dict[str, Any] | None:
+    receipt = _read_json(output_dir / "receipt.json")
+    if receipt is None:
+        return None
+    # The machine audition is the acceptance document when it exists: it
+    # already judged direction, channels, levels, frames, mux and the pose
+    # identity chain, and wrote its reasons. Episodes rendered before the
+    # audition existed fall back to the raw direction numbers, labelled so.
+    audition = _read_json(output_dir / "machine_audition.json")
+    if audition is not None:
+        passed = audition.get("verdict") == "pass"
+        return {
+            "scene": _scene_key(receipt.get("scene_id")),
+            "ok": passed and (output_dir / "episode_binaural.mp4").is_file(),
+            "summary": f"机器听审{'过' if passed else '不过'} · "
+            + str(audition.get("summary_zh") or "")[:160],
+        }
+    report = _read_json(output_dir / "audio_foa" / "render_report.json") or {}
+    rendered = report.get("frames_rendered")
+    within = report.get("frames_within_tolerance")
+    error = report.get("direction_error_deg") or {}
+    return {
+        "scene": _scene_key(receipt.get("scene_id")),
+        "ok": (output_dir / "episode_binaural.mp4").is_file(),
+        "summary": (
+            f"帧 {within}/{rendered} 达容差 · 误差中位 "
+            f"{error.get('median', '?')}°（旧任务：无机器听审档）"
+            if rendered is not None
+            else "回执在但逐帧报告缺失"
+        ),
+    }
+
+
+def _verify_kujiale_routes(output_dir: Path) -> dict[str, Any] | None:
+    """The kujiale bank speaks its own artifact dialect, not route_report.json.
+
+    Its acceptance evidence is the pair of gate documents the tool itself
+    refuses to pass without: trajectory_coverage.json and
+    trajectory_diversity.json, plus the bank whose episode_count they judged.
+    """
+
+    bank = _read_json(output_dir / "trajectory_bank.json")
+    if bank is None:
+        return None
+    coverage = _read_json(output_dir / "trajectory_coverage.json") or {}
+    diversity = _read_json(output_dir / "trajectory_diversity.json") or {}
+    delivery = _read_json(output_dir / "delivery.json") or {}
+    # The coverage record carries the gate thresholds beside the observed
+    # numbers rather than a verdict string, so the verdict is recomputed here
+    # from the same pair the tool gated on.
+    gate = coverage.get("gate") or {}
+    try:
+        coverage_ok = float(
+            coverage.get("coverage_fraction_by_threshold", {}).get("0.50")
+            or gate.get("observed_fraction_within_0.50m", 0.0)
+        ) >= float(gate.get("minimum_fraction_within_0.50m", 1.0)) and float(
+            gate.get("observed_maximum_gap_m", float("inf"))
+        ) <= float(gate.get("maximum_gap_m", 0.0))
+    except (TypeError, ValueError):
+        coverage_ok = False
+    diversity_ok = str(diversity.get("status") or "") == "pass"
+    return {
+        "scene": _scene_key(delivery.get("room_id") or bank.get("schema")),
+        "ok": bool(bank.get("episode_count")) and coverage_ok and diversity_ok,
+        "summary": (
+            f"{bank.get('episode_count', 0)} 条轨迹 · 覆盖 "
+            f"{'过' if coverage_ok else '未过'} · 槽位多样性 "
+            f"{'过' if diversity_ok else '未过'}"
+        ),
+    }
+
+
+def _verify_kujiale_package(output_dir: Path) -> dict[str, Any] | None:
+    receipt = _read_json(output_dir / "receipt.json")
+    if receipt is None:
+        return None
+    rlr_manifest = receipt.get("rlr_manifest")
+    loadable = bool(rlr_manifest) and Path(str(rlr_manifest)).is_file()
+    return {
+        "scene": _scene_key(receipt.get("room_id")),
+        "ok": loadable,
+        "summary": (
+            f"RLR 可加载 · 去退化面 {receipt.get('removed_degenerate_triangles')}"
+            f" · {receipt.get('derived_triangle_count')} 三角面"
+            if loadable
+            else "回执在但 RLR 包缺失"
+        ),
+    }
+
+
+_STAGE_VERIFIERS = {
+    "hm3d_room_prepare": ("room", _verify_room_prepare),
+    "semantic_acoustic_package": ("package", _verify_package),
+    "hm3d_route_bank": ("routes", _verify_route_bank),
+    "hm3d_episode": ("episode", _verify_episode),
+    "kujiale_route_bank": ("routes", _verify_kujiale_routes),
+    "kujiale_acoustic_package": ("package", _verify_kujiale_package),
+}
+
+
+def _verify_end_to_end(output_dir: Path) -> list[tuple[str, dict[str, Any] | None]]:
+    """The one-click chain reports into every stage column it reached.
+
+    Each stage subdirectory is judged by the same verifier the standalone
+    template uses, so a house done in one click and a house done in four
+    are held to identical evidence. Stages the chain has not reached yet
+    are simply absent - a running chain paints the board progressively -
+    except that a chain with nothing on disk yet still claims one cell so
+    the board can say "running" rather than showing nothing at all.
+    """
+
+    results: list[tuple[str, dict[str, Any] | None]] = []
+    if (output_dir / "rooms").is_dir():
+        results.append(("room", _verify_room_prepare(output_dir / "rooms")))
+    if (output_dir / "package").is_dir():
+        results.append(("package", _verify_package(output_dir / "package")))
+    routes: dict[str, Any] | None = None
+    for directory in sorted(output_dir.glob("routes_*")):
+        candidate = _verify_route_bank(directory)
+        if candidate is not None and (routes is None or candidate.get("ok")):
+            routes = candidate
+    if routes is not None:
+        results.append(("routes", routes))
+    if (output_dir / "episode").is_dir():
+        results.append(("episode", _verify_episode(output_dir / "episode")))
+    results = [(stage, verified) for stage, verified in results if verified]
+    if not results:
+        return [("episode", None)]
+    receipt = _read_json(output_dir / "end_to_end_receipt.json") or {}
+    fallback = _scene_key(str(receipt.get("scene_id") or "")) or next(
+        (v["scene"] for _, v in results if v and v.get("scene")), None
+    )
+    for _, verified in results:
+        if verified is not None and not verified.get("scene"):
+            verified["scene"] = fallback
+    return results
+
+BOARD_STAGES = ("room", "package", "routes", "episode", "verdict")
+
+
+def board_rows(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """One row per scene, one cell per stage, painted from verifier artifacts.
+
+    Newest task wins a cell: a re-run that fixed a scene should replace the
+    failure it fixed, and the loser is still reachable through the task list.
+    """
+
+    cells: dict[str, dict[str, dict[str, Any]]] = {}
+    for record in task_records:
+        template = str(record.get("template") or "")
+        output_dir = Path(str(record.get("output_dir") or ""))
+        if template == "hm3d_end_to_end":
+            stage_results = (
+                _verify_end_to_end(output_dir)
+                if output_dir.is_dir()
+                else [("episode", None)]
+            )
+        elif template in _STAGE_VERIFIERS:
+            stage, verifier = _STAGE_VERIFIERS[template]
+            stage_results = [
+                (stage, verifier(output_dir) if output_dir.is_dir() else None)
+            ]
+        else:
+            continue
+        row: dict[str, dict[str, Any]] = {}
+        for stage, verified in stage_results:
+            if verified is None:
+                # A task still running has not failed its verification - it
+                # has not reached it. Say which, or a slow stage reads as a
+                # broken one.
+                still_working = str(record.get("status")) in ("queued", "running")
+                verified = {
+                    "scene": None,
+                    "ok": False,
+                    "summary": "任务尚在运行" if still_working else "无验收产物",
+                }
+            scene = verified.pop("scene", None) or (
+                "kujiale_0020" if template.startswith("kujiale") else "unknown"
+            )
+            cell = {
+                "task_id": record.get("task_id"),
+                "created_at": record.get("created_at"),
+                "task_status": record.get("status"),
+                **verified,
+            }
+            row = cells.setdefault(scene, {})
+            current = row.get(stage)
+            if current is None or str(cell.get("created_at") or "") > str(
+                current.get("created_at") or ""
+            ):
+                row[stage] = cell
+
+        if template in ("hm3d_episode", "hm3d_end_to_end"):
+            output_dir = (
+                output_dir if template == "hm3d_episode" else output_dir / "episode"
+            )
+            # The verdict column is machine-first: the audition the episode
+            # chain writes is the acceptance, and a human verdict - when one
+            # was recorded at all - overrides it for the same task. Ordering
+            # across tasks follows the task's own created_at, like every
+            # other cell, so a re-run replaces the episode it replaced.
+            verdict_cell = None
+            audition = _read_json(output_dir / "machine_audition.json")
+            if audition is not None:
+                verdict_cell = {
+                    "task_id": record.get("task_id"),
+                    "created_at": record.get("created_at"),
+                    "task_status": record.get("status"),
+                    "ok": audition.get("verdict") == "pass",
+                    "summary": "机器 "
+                    + str(audition.get("verdict"))
+                    + " · "
+                    + str(audition.get("summary_zh") or "")[:120],
+                }
+            verdict = read_human_verdict(Path(str(record.get("task_dir") or "")))
+            if verdict is not None:
+                verdict_cell = {
+                    "task_id": record.get("task_id"),
+                    "created_at": record.get("created_at"),
+                    "task_status": record.get("status"),
+                    "ok": verdict.get("verdict") == "pass",
+                    "summary": (
+                        f"人工覆核 {verdict.get('verdict')}"
+                        + (f" · {verdict.get('note')}" if verdict.get("note") else "")
+                    ),
+                }
+            if verdict_cell is not None:
+                current_verdict = row.get("verdict")
+                if current_verdict is None or str(
+                    verdict_cell.get("created_at") or ""
+                ) > str(current_verdict.get("created_at") or ""):
+                    row["verdict"] = verdict_cell
+
+    rows = [
+        {"scene": scene, "cells": stage_cells}
+        for scene, stage_cells in sorted(cells.items())
+    ]
+    return {
+        "schema": "avengine_studio_board_v1",
+        "stages": list(BOARD_STAGES),
+        "note": (
+            "格子的颜色来自各工序自己的验收产物，不来自任务退出码；"
+            "同一格多次运行以最新为准，旧任务仍在任务列表里"
+        ),
+        "rows": rows,
+    }
+
+
+# --------------------------------------------------------------------------
+# the review queue
+
+
+def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
+    episodes: list[dict[str, Any]] = []
+    records_by_id = {
+        str(record.get("task_id")): record for record in task_records
+    }
+    for record in task_records:
+        template = str(record.get("template") or "")
+        if template not in ("hm3d_episode", "hm3d_end_to_end"):
+            continue
+        output_dir = Path(str(record.get("output_dir") or ""))
+        # A one-click chain carries its episode one directory down; artifact
+        # paths stay relative to the task's own output root because that is
+        # what the artifact endpoint serves.
+        prefix = "" if template == "hm3d_episode" else "episode/"
+        episode_dir = output_dir / prefix if prefix else output_dir
+        receipt = _read_json(episode_dir / "receipt.json")
+        if receipt is None:
+            continue
+        # The owner reviews pictures. The trajectory map for the exact floor
+        # this episode rendered lives in the bank task's own output (same
+        # file stem, topdown/ instead of bank/), so the queue points at it
+        # rather than asking anyone to cross-reference two task pages.
+        route_map = None
+        bank = str(receipt.get("bank") or "")
+        bank_task = re.search(r"/tasks/([^/]+)/output/", bank)
+        if bank_task is not None and bank.endswith(".bank.json"):
+            bank_record = records_by_id.get(bank_task.group(1))
+            bank_output = Path(str((bank_record or {}).get("output_dir") or ""))
+            stem = Path(bank).name[: -len(".bank.json")]
+            if bank_output.is_dir():
+                candidates = sorted(bank_output.glob(f"**/{stem}.topdown.png"))
+                if candidates:
+                    route_map = {
+                        "task_id": (bank_record or {}).get("task_id"),
+                        "path": candidates[0].relative_to(bank_output).as_posix(),
+                    }
+        report = _read_json(episode_dir / "audio_foa" / "render_report.json") or {}
+        per_frame = report.get("per_frame") or []
+        artifacts = {
+            "mp4": "episode_binaural.mp4",
+            "foa_stereo_fold": "audio_foa/moving_source.stereo_fold.wav",
+            "first_frame": "video/frame_0000.png",
+            "foa_report": "audio_foa/render_report.json",
+            "machine_audition": "machine_audition.json",
+            "receipt": "receipt.json",
+        }
+        available = {
+            name: prefix + relative
+            for name, relative in artifacts.items()
+            if (episode_dir / relative).is_file()
+        }
+        audition = _read_json(episode_dir / "machine_audition.json")
+        episodes.append(
+            {
+                "task_id": record.get("task_id"),
+                "created_at": record.get("created_at"),
+                "route_map": route_map,
+                "machine_audition": (
+                    {
+                        "verdict": audition.get("verdict"),
+                        "summary_zh": audition.get("summary_zh"),
+                        "scope_note_zh": audition.get("scope_note_zh"),
+                        "checks": [
+                            {
+                                "name": check.get("name"),
+                                "status": check.get("status"),
+                                "reason_zh": check.get("reason_zh"),
+                            }
+                            for check in audition.get("checks") or []
+                            if isinstance(check, Mapping)
+                        ],
+                    }
+                    if audition is not None
+                    else None
+                ),
+                "scene_id": receipt.get("scene_id"),
+                "motion_case": receipt.get("motion_case"),
+                "episode_index": receipt.get("episode_index"),
+                "episode_id": receipt.get("episode_id"),
+                "frames_rendered": report.get("frames_rendered"),
+                "frames_within_tolerance": report.get("frames_within_tolerance"),
+                "direction_error_deg": report.get("direction_error_deg"),
+                "reverberation": report.get("reverberation"),
+                "error_deg_per_frame": [
+                    frame.get("error_deg")
+                    for frame in per_frame
+                    if isinstance(frame, Mapping)
+                ],
+                "artifacts": available,
+                "verdict": read_human_verdict(
+                    Path(str(record.get("task_dir") or ""))
+                ),
+            }
+        )
+    episodes.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return {"schema": "avengine_studio_review_queue_v1", "episodes": episodes}
