@@ -1,0 +1,46 @@
+{
+  "schema": "avengine_mp3d_strict_two_human_navmesh_probe_v1",
+  "status": "pass",
+  "executed_at_date": "2026-08-12",
+  "runtime": "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python",
+  "navmesh_path": "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/mp3d_example_scene_1.1/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+  "agent_radius_m": 0.25,
+  "maximum_clearance_query_m": 10.0,
+  "positions": {
+    "source1": {
+      "requested_m": [-4.6, 0.072447, -2.35],
+      "snap_point_m": [-4.599999904632568, 0.07244700193405151, -2.3499999046325684],
+      "snap_error_m": 0.0,
+      "is_navigable": true,
+      "island_id": 1,
+      "clearance_m": 0.72744
+    },
+    "source2": {
+      "requested_m": [-3.75, 0.072447, -3.35],
+      "snap_point_m": [-3.75, 0.07244700193405151, -3.3499999046325684],
+      "snap_error_m": 0.0,
+      "is_navigable": true,
+      "island_id": 1,
+      "clearance_m": 0.70649
+    },
+    "listener_floor": {
+      "requested_m": [-4.1499128342, 0.072447, -1.2454376221],
+      "snap_point_m": [-4.1499128341674805, 0.07244700193405151, -1.2454376220703125],
+      "snap_error_m": 0.0,
+      "is_navigable": true,
+      "island_id": 1,
+      "clearance_m": 0.4534163475036621
+    }
+  },
+  "search_summary": {
+    "candidate_count": 579,
+    "passing_pair_count": 7014,
+    "horizontal_separation_m": 1.31244,
+    "source1_mouth_pixel_uv": [378.713, 295.764],
+    "source2_mouth_pixel_uv": [761.114, 338.513],
+    "mouth_horizontal_separation_px": 382.401
+  },
+  "semantics": "fresh PathFinder root clearance plus planned mouth projection; not articulated-body clearance",
+  "qualification_claim": false,
+  "formal_dataset_count": 0
+}

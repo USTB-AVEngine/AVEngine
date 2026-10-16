@@ -1,0 +1,87 @@
+{
+  "schema": "avengine_room_package_v1",
+  "room_id": "replicacad_apt_0",
+  "room_kind": "habitat_native",
+  "geometry_representation": "real_surface_mesh",
+  "coordinate_system": {
+    "handedness": "right",
+    "up_axis": "+Y",
+    "forward_axis": "-Z",
+    "linear_unit": "meter",
+    "quaternion_order": "xyzw"
+  },
+  "scene": {
+    "scene_id_kind": "handle",
+    "scene_id": "apt_0",
+    "dataset_config_path": "${AVENGINE_REPLICACAD_ROOT}/replicaCAD.scene_dataset_config.json",
+    "navmesh_path": "${AVENGINE_REPLICACAD_ROOT}/navmeshes/apt_0.navmesh",
+    "navmesh_policy": "load_declared",
+    "load_semantic_mesh": false,
+    "enable_physics": true
+  },
+  "assets": [
+    {
+      "role": "scene_dataset_config",
+      "path": "${AVENGINE_REPLICACAD_ROOT}/replicaCAD.scene_dataset_config.json",
+      "license": "ReplicaCAD dataset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "scene_instance",
+      "path": "${AVENGINE_REPLICACAD_ROOT}/configs/scenes/apt_0.scene_instance.json",
+      "license": "ReplicaCAD dataset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "stage_config",
+      "path": "${AVENGINE_REPLICACAD_ROOT}/configs/stages/frl_apartment_stage.stage_config.json",
+      "license": "ReplicaCAD dataset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "render_surface_mesh",
+      "path": "${AVENGINE_REPLICACAD_ROOT}/stages/frl_apartment_stage.glb",
+      "license": "ReplicaCAD dataset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "navmesh",
+      "path": "${AVENGINE_REPLICACAD_ROOT}/navmeshes/apt_0.navmesh",
+      "license": "ReplicaCAD dataset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "lighting_config",
+      "path": "${AVENGINE_REPLICACAD_ROOT}/configs/lighting/frl_apartment_stage.lighting_config.json",
+      "license": "ReplicaCAD dataset terms",
+      "redistribution": "external_required"
+    }
+  ],
+  "semantics": {
+    "interpretation": "ReplicaCAD scene-instance objects are room content; M5.1 actor semantic IDs are injected separately at runtime"
+  },
+  "navigation": {
+    "agent_height_m": 1.5,
+    "agent_radius_m": 0.1,
+    "include_static_objects": false
+  },
+  "openings": [],
+  "connectivity_pairs": [
+    {
+      "pair_id": "review_route_corridor",
+      "start_m": [2.6, 0.1193729192, 5.2],
+      "end_m": [2.6, 0.1193729192, 6.4]
+    }
+  ],
+  "ray_checks": [],
+  "acoustics": {
+    "status": "deferred_to_m3",
+    "reason": "The visual stage is not automatically an admitted acoustic package; the research review must compile and test a separate non-AABB package"
+  },
+  "provenance": {
+    "source": "ReplicaCAD official dataset",
+    "source_revision": "replica_cad_dataset_1.5 apt_0",
+    "path_binding": "AVENGINE_REPLICACAD_ROOT",
+    "review_scope": "selected apt_0 scene closure; external dataset payload is not committed"
+  }
+}

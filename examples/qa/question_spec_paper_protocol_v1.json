@@ -1,0 +1,233 @@
+{
+  "schema": "avengine_question_spec_paper_protocol_v1",
+  "protocol_id": "lead_a_question_spec_paper_protocol_20260809_v1",
+  "language": "zh-CN",
+  "source_authority": {
+    "task_date": "2026-08-07",
+    "source_path_on_mac": "/Users/valkiscute/Downloads/0807引擎任务分配.md",
+    "authority_scope": "原始十类问题、五类像素可见性 canary 与每类至少一个可靠样本的最低要求",
+    "extraction_policy": "保留当前 QuestionSpec 兼容编号；另存 0807 语义顺序，不把兼容编号当作历史顺序"
+  },
+  "catalog_compatibility": {
+    "catalog_order_is_api_stable": true,
+    "historical_order_is_separate": true,
+    "note": "QS-012 在当前 API 中仍为第 12 类，但其语义来自 0807 原始第 2 类；QS-009 与 QS-011 才是 0807 后扩展。"
+  },
+  "minimum_gate": {
+    "native_pass_cases_per_question_type": 1,
+    "require_all_visual_canaries": true,
+    "require_registry_bound_answers": true,
+    "require_unique_and_observable_answers": true,
+    "allow_retained_evaluation_as_gt": false
+  },
+  "question_types": [
+    {
+      "catalog_index": 1,
+      "question_type": "appearance_to_speaking",
+      "name_zh": "外貌→是否发声",
+      "historical_origin": "0807_core",
+      "original_0807_order": 1,
+      "definition_zh": "给定唯一外貌属性值，判断对应实例在 Episode 内是否发生受控发声事件。",
+      "answer_space": ["yes", "no"],
+      "answerability_zh": "外貌值必须只匹配一个 registry-bound 实例，Episode 的事件表必须完整。",
+      "gt_authority": ["controlled asset registry", "Facts.instances", "Facts.sound_events"],
+      "positive_example_zh": "唯一匹配的狗实例至少绑定一个发声事件，答案 yes。",
+      "negative_example_zh": "唯一匹配的可见干扰实例没有发声事件，答案 no；若外貌值匹配多个实例则拒绝而非作答。",
+      "paper_balance": {"required_answers": ["yes", "no"]}
+    },
+    {
+      "catalog_index": 2,
+      "question_type": "sound_to_appearance",
+      "name_zh": "声音/内容→外貌",
+      "historical_origin": "0807_core",
+      "original_0807_order": 3,
+      "definition_zh": "给定受控声音或内容绑定，查询唯一发声实例的已观测外貌字段。",
+      "answer_space": "controlled appearance value",
+      "answerability_zh": "声音必须只由一个实例发出，所问外貌字段同时存在于 registry 与 Facts 且一致。",
+      "gt_authority": ["controlled sound registry", "event sound bindings", "controlled asset registry", "Facts.instances"],
+      "positive_example_zh": "dog_bark 只绑定 source1，查询 breed_id 得到其受控品种。",
+      "negative_example_zh": "同一声音由多个实例发出或字段未观测时拒绝。",
+      "paper_balance": {"minimum_distinct_answers": 2}
+    },
+    {
+      "catalog_index": 3,
+      "question_type": "who_spoke_first",
+      "name_zh": "谁先发声",
+      "historical_origin": "0807_core",
+      "original_0807_order": 5,
+      "definition_zh": "比较全部受控发声事件的 start_tick，返回唯一最早发声实例。",
+      "answer_space": "registry-bound instance_id",
+      "answerability_zh": "最小 start_tick 只能对应一个 source；并列最早必须拒绝。",
+      "gt_authority": ["Facts.sound_events.start_tick", "Facts.instances"],
+      "positive_example_zh": "source1 的首个 start_tick 严格早于 source2。",
+      "negative_example_zh": "两个 source 同 tick 开始时以 answer_not_unique 拒绝。",
+      "paper_balance": {"minimum_distinct_answers": 2}
+    },
+    {
+      "catalog_index": 4,
+      "question_type": "speaker_side",
+      "name_zh": "发声者左右",
+      "historical_origin": "0807_core",
+      "original_0807_order": 4,
+      "definition_zh": "在指定发声帧依据 Listener-relative DOA 方位角判断发声者位于左侧或右侧。",
+      "answer_space": ["left", "right"],
+      "answerability_zh": "指定声音在该帧必须活动且唯一；DOA 必须可读并位于正前方死区外。",
+      "gt_authority": ["event sound bindings", "Facts.sound_events", "Facts.tracks.instances.doa.azimuth_deg", "Listener pose readback"],
+      "positive_example_zh": "活动帧方位角小于 -5°，答案 left。",
+      "negative_example_zh": "声音不活动、多个匹配发声者或方位角落入 ±5° 死区时拒绝。",
+      "paper_balance": {"required_answers": ["left", "right"]}
+    },
+    {
+      "catalog_index": 5,
+      "question_type": "overlapping_speech",
+      "name_zh": "重叠发声",
+      "historical_origin": "0807_core",
+      "original_0807_order": 6,
+      "definition_zh": "判断两个不同受控声音的半开时间窗是否存在严格交集。",
+      "answer_space": ["yes", "no"],
+      "answerability_zh": "两个声音都必须在 Episode 中出现且事件起止 tick 完整。",
+      "gt_authority": ["event sound bindings", "Facts.sound_events.start_tick", "Facts.sound_events.end_tick"],
+      "positive_example_zh": "两事件满足 max(start)<min(end)，答案 yes。",
+      "negative_example_zh": "两事件相离或端点刚好相接，答案 no。",
+      "paper_balance": {"required_answers": ["yes", "no"]}
+    },
+    {
+      "catalog_index": 6,
+      "question_type": "speaking_while_moving",
+      "name_zh": "发声时是否运动",
+      "historical_origin": "0807_core",
+      "original_0807_order": 7,
+      "definition_zh": "查询唯一发声实例在受控声音覆盖的全部视频帧中是否持续运动。",
+      "answer_space": ["yes", "no"],
+      "answerability_zh": "声音必须对应唯一实例，覆盖帧的 moving truth 必须完整且状态一致；期间改变状态则拒绝。",
+      "gt_authority": ["event sound bindings", "Facts.sound_events", "Facts.tracks.instances.moving", "native runtime readbacks"],
+      "positive_example_zh": "发声覆盖帧 moving 全为 true，答案 yes。",
+      "negative_example_zh": "发声覆盖帧 moving 全为 false，答案 no；真假混合时拒绝。",
+      "paper_balance": {"required_answers": ["yes", "no"]}
+    },
+    {
+      "catalog_index": 7,
+      "question_type": "offscreen_to_onscreen",
+      "name_zh": "画外→入画",
+      "historical_origin": "0807_core",
+      "original_0807_order": 8,
+      "definition_zh": "从 target-only 像素轨迹识别 out_of_view→可见转变，并按入画足迹质心判断从左侧或右侧进入。",
+      "answer_space": ["left", "right"],
+      "answerability_zh": "必须存在真实像素转变；所有入画转变方向一致且质心在图像中心死区外。",
+      "gt_authority": ["same-renderer normal mask", "same-camera target-only mask", "Facts.visibility.pixel_truth", "target footprint centroid"],
+      "positive_example_zh": "目标先画外，首个可见足迹质心位于画面左半区，答案 left。",
+      "negative_example_zh": "从未入画、从两侧多次进入或质心落在中心死区时拒绝。",
+      "paper_balance": {"required_answers": ["left", "right"]}
+    },
+    {
+      "catalog_index": 8,
+      "question_type": "occlusion_while_speaking",
+      "name_zh": "发声时遮挡状态",
+      "historical_origin": "0807_core",
+      "original_0807_order": 9,
+      "definition_zh": "在指定发声帧查询发声实例的四态像素可见性。",
+      "answer_space": ["visible_clear", "visible_occluded", "fully_occluded", "out_of_view"],
+      "answerability_zh": "指定声音在该帧必须活动且唯一，目标必须有同渲染器、同相机的 normal/target-only 像素真值。",
+      "gt_authority": ["event sound bindings", "Facts.sound_events", "Facts.visibility.pixel_truth", "native normal/target-only masks"],
+      "positive_example_zh": "发声帧 target-only 有像素但 normal 中为零，答案 fully_occluded。",
+      "negative_example_zh": "声音不活动、发声者不唯一或像素真值缺失时拒绝。",
+      "paper_balance": {"required_answers": ["visible_clear", "visible_occluded", "fully_occluded", "out_of_view"]}
+    },
+    {
+      "catalog_index": 9,
+      "question_type": "reappeared_after_occlusion",
+      "name_zh": "遮挡后重新出现",
+      "historical_origin": "post_0807_extension",
+      "original_0807_order": null,
+      "definition_zh": "判断实例是否在 fully_occluded 后出现后续 visible_clear 或 visible_occluded 帧。",
+      "answer_space": ["yes", "no"],
+      "answerability_zh": "实例整段像素真值必须完整；仅 partial→clear 不等同于本类的 full→visible。",
+      "gt_authority": ["Facts.visibility.pixel_truth", "native normal/target-only masks"],
+      "positive_example_zh": "先出现 fully_occluded，之后出现 visible_occluded，答案 yes。",
+      "negative_example_zh": "从未 fully_occluded 或遮挡后未再可见，答案 no。",
+      "paper_balance": {"required_answers": ["yes", "no"]}
+    },
+    {
+      "catalog_index": 10,
+      "question_type": "occluder_identity",
+      "name_zh": "遮挡者身份",
+      "historical_origin": "0807_core",
+      "original_0807_order": 10,
+      "definition_zh": "在指定遮挡帧返回唯一遮挡目标像素的原生实例或静态对象身份。",
+      "answer_space": "native registered occluder id",
+      "answerability_zh": "遮挡者 ID 必须来自原生 object-id/readback evidence，且只解析到一个带可读标签的 registry 项。",
+      "gt_authority": ["native normal object IDs", "occluder evidence frame records", "native static object registry"],
+      "positive_example_zh": "遮挡像素只绑定 Round_Table_Chair_01，返回其原生静态对象 ID。",
+      "negative_example_zh": "仅知道遮挡比例、无实例 ID 或多个对象共同遮挡时 unsupported/rejected。",
+      "paper_balance": {"minimum_distinct_answers": 2}
+    },
+    {
+      "catalog_index": 11,
+      "question_type": "became_clear_after_partial_occlusion",
+      "name_zh": "部分遮挡→完全可见",
+      "historical_origin": "post_0807_extension",
+      "original_0807_order": null,
+      "definition_zh": "判断实例像素状态是否存在相邻 visible_occluded→visible_clear 转变。",
+      "answer_space": ["yes", "no"],
+      "answerability_zh": "实例逐帧像素真值必须完整，转变必须发生在相邻帧。",
+      "gt_authority": ["Facts.visibility.pixel_truth", "native normal/target-only masks"],
+      "positive_example_zh": "第 56 帧 partial、第 57 帧 clear，答案 yes。",
+      "negative_example_zh": "始终 clear、始终 partial 或只发生 full→partial，答案 no。",
+      "paper_balance": {"required_answers": ["yes", "no"]}
+    },
+    {
+      "catalog_index": 12,
+      "question_type": "appearance_to_spoken_content",
+      "name_zh": "外貌→说了什么",
+      "historical_origin": "0807_core",
+      "original_0807_order": 2,
+      "definition_zh": "给定唯一外貌属性值，返回该实例唯一受控 statement 的 transcript。",
+      "answer_space": "controlled transcript",
+      "answerability_zh": "外貌值必须唯一匹配实例；statement_id、transcript、language 必须在 sound registry、event binding 与 Facts 中完全一致。",
+      "gt_authority": ["controlled asset registry", "controlled sound registry statement", "event sound bindings", "Facts.sound_events"],
+      "positive_example_zh": "唯一匹配的人类实例绑定一个受控句子，返回其 transcript。",
+      "negative_example_zh": "无受控 statement、多句不唯一或 Facts 与 registry 内容不一致时拒绝。",
+      "paper_balance": {"minimum_distinct_answers": 2}
+    }
+  ],
+  "paper_gap_scene_templates": {
+    "appearance_to_speaking": "同一 native Episode 放置一个唯一外貌的可见非发声干扰实例，并保留另一个受控发声者；事件表不得为干扰实例绑定事件。",
+    "sound_to_appearance": "增加一个使用不同唯一外貌值和不同受控声音的原生发声实例。",
+    "who_spoke_first": "增加一个由另一 registry-bound 实例严格先发声、无同 tick 并列的原生 Episode。",
+    "speaker_side": "保持 Listener 与声音绑定不变，将唯一活动发声者布置到缺失侧并避开 ±5° 正前死区。",
+    "overlapping_speech": "使用两个受控声音，按缺失答案安排严格重叠或严格不重叠的半开事件窗。",
+    "speaking_while_moving": "让唯一发声者在完整发声窗内保持缺失的恒定 moving 状态；不得在窗内切换。",
+    "offscreen_to_onscreen": "让一个唯一 target-only 目标从缺失侧进入，首个可见足迹质心避开中心死区，保留 normal/target-only 双 pass。",
+    "occlusion_while_speaking": "在受控发声窗内安排缺失的像素四态之一，并保留同相机 normal/target-only pass。",
+    "reappeared_after_occlusion": "按缺失答案安排 full→visible 转变，或 full 后不再可见；不得用 partial→clear 替代。",
+    "occluder_identity": "让另一唯一原生静态对象在受控帧独占遮挡像素，并保存 object-id descriptor/readback。",
+    "became_clear_after_partial_occlusion": "按缺失答案安排相邻 partial→clear，或保证整段不存在该相邻转变。",
+    "appearance_to_spoken_content": "增加一个唯一外貌实例与第二个受控 statement_id/transcript/language 的原生语音 Episode，三处内容必须一致。"
+  },
+  "visual_canary_contract": {
+    "required_canary_ids": [
+      "fully_visible",
+      "furniture_partial_occlusion",
+      "in_view_fully_occluded",
+      "fully_out_of_view",
+      "moving_listener_occlusion_reappearance"
+    ],
+    "required_native_roles": [
+      "native_rgb_binaural",
+      "normal_object_ids",
+      "pixel_masks",
+      "pixel_visibility_truth",
+      "runtime_readbacks",
+      "metric_depth"
+    ],
+    "per_canary_requirements": [
+      "native Episode",
+      "normal semantic/object-id mask",
+      "target-only mask",
+      "pixel visibility truth",
+      "derived human-readable overlay",
+      "at least one current-code passing QA",
+      "unique and observable answer"
+    ]
+  }
+}

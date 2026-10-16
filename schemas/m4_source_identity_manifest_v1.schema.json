@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m4_source_identity_manifest_v1.schema.json",
+  "title": "AVEngine M4 Source Identity Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "manifest_id",
+    "qualification_claim",
+    "m1_capture_request",
+    "canonical_source_order",
+    "sources",
+    "manifest_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m4_source_identity_manifest_v1"},
+    "manifest_id": {"$ref": "#/$defs/stable_id"},
+    "qualification_claim": {"const": false},
+    "m1_capture_request": {"$ref": "#/$defs/file_record"},
+    "canonical_source_order": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/stable_id"}
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/source_identity"}
+    },
+    "manifest_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*\\$)(?!.*~)[^\\\\]+$"
+        },
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "deterministic_signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "frequency_hz",
+        "duration_samples",
+        "amplitude",
+        "phase"
+      ],
+      "properties": {
+        "kind": {"const": "sine"},
+        "frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "duration_samples": {"type": "integer", "minimum": 2},
+        "amplitude": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1.0
+        },
+        "phase": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 6.283185307179586
+        }
+      }
+    },
+    "m2_not_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "qualification_claim", "reason"],
+      "properties": {
+        "status": {"const": "not_run"},
+        "qualification_claim": {"const": false},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "m2_available": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "qualification_claim",
+        "asset_id",
+        "asset_anchor_id",
+        "frame_index",
+        "pose_hash",
+        "asset_manifest",
+        "capture_request",
+        "resolved_anchor_evidence"
+      ],
+      "properties": {
+        "status": {"const": "available"},
+        "qualification_claim": {"const": true},
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "asset_anchor_id": {"$ref": "#/$defs/stable_id"},
+        "frame_index": {"type": "integer", "minimum": 0},
+        "pose_hash": {"$ref": "#/$defs/sha256"},
+        "asset_manifest": {"$ref": "#/$defs/file_record"},
+        "capture_request": {"$ref": "#/$defs/file_record"},
+        "resolved_anchor_evidence": {"$ref": "#/$defs/file_record"}
+      }
+    },
+    "source_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "actor_id",
+        "event_id",
+        "anchor_id",
+        "semantic_anchor_id",
+        "m1_source_id",
+        "position_m",
+        "position_authority",
+        "dry_audio_id",
+        "deterministic_signal",
+        "m2_anchor_evidence"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "event_id": {"$ref": "#/$defs/stable_id"},
+        "anchor_id": {"$ref": "#/$defs/stable_id"},
+        "semantic_anchor_id": {"const": "muzzle"},
+        "m1_source_id": {"$ref": "#/$defs/stable_id"},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "position_authority": {"const": "m1_capture_request_source_pose"},
+        "dry_audio_id": {"$ref": "#/$defs/stable_id"},
+        "deterministic_signal": {"$ref": "#/$defs/deterministic_signal"},
+        "m2_anchor_evidence": {
+          "oneOf": [
+            {"$ref": "#/$defs/m2_not_run"},
+            {"$ref": "#/$defs/m2_available"}
+          ]
+        }
+      }
+    }
+  }
+}

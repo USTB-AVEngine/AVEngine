@@ -1,0 +1,53 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/plumbing_fixture_toilet_floor_close_coupled_product_view_v1.json",
+  "sha256": "2606130a0c7f04e80725b318e415ff9ae76a5ea8232b5e0a672ed850f19d7d6e",
+  "size_bytes": 5385,
+  "profile_schema_id": "plumbing_fixture_toilet_floor_close_coupled_product_view_v1",
+  "profile_revision": "2026_08_26_v2_visible_flush_jet_ring_method_revision",
+  "canonical_sha256": "d30d6065e5925439bc71975f9b40d7f63249a0c88f1377d6df6d009d4fec4d62"
+ },
+ "method_revision": {
+  "kind": "visible_flush_outlet_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_static_sound_forms",
+  "superseded_profile_canonical_sha256": "1ebe519dbf19b259836193847a6358225ef8ed91c733fcde23da9f2cd1a7dcef",
+  "reason": "Both v1 seeds produced acceptable close-coupled toilet forms, but neither showed a flush slot or jet holes under the rim. Since the static 2D route forbids emitter_feature_visible=not_applicable, the method itself must use a higher view and explicitly expose a reviewable water outlet.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "c5a49e583b82c651831671133febed2bb731f2b5bd7c4a4964b8068546a8f85e",
+   "002c2d2486cdb1cf6f542ec923c2002134a21143e77bfcbd37355cad491e7927"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "a34c92b20031505151856b022aba1b6d57b94d31d7ae0405c572cc018230c6fd",
+   "c2f21f4fe47d7bc5328ac815526fd3d1e0e72dbab1aa99e6fbffc8f8c79e45b7"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_sources_retry_20260826_r2/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_visual_review_under_owner_instruction_20260826",
+  "instances": [
+   {
+    "instance_id": "plumbing_fixture_toilet_floor_close_coupled_product_view_c5a49e583b82",
+    "request_sha256": "c5a49e583b82c651831671133febed2bb731f2b5bd7c4a4964b8068546a8f85e",
+    "candidate_sha256": "a34c92b20031505151856b022aba1b6d57b94d31d7ae0405c572cc018230c6fd",
+    "sampled_attributes": {
+     "body_color": "white"
+    }
+   },
+   {
+    "instance_id": "plumbing_fixture_toilet_floor_close_coupled_product_view_002c2d2486cd",
+    "request_sha256": "002c2d2486cdb1cf6f542ec923c2002134a21143e77bfcbd37355cad491e7927",
+    "candidate_sha256": "c2f21f4fe47d7bc5328ac815526fd3d1e0e72dbab1aa99e6fbffc8f8c79e45b7",
+    "sampled_attributes": {
+     "body_color": "white"
+    }
+   }
+  ]
+ }
+}

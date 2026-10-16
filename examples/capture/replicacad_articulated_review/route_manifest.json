@@ -1,0 +1,55 @@
+{
+  "schema": "avengine_m5_1_replicacad_center_route_v1",
+  "route_id": "m5_1_replicacad_apt_0_human_beagle_parallel_18s_v2",
+  "room_id": "replicacad_apt_0",
+  "request_id": "m5_1_replicacad_apt_0_human_beagle_single_view_v1",
+  "frame_count": 270,
+  "frame_rate_hz": 15,
+  "path_generation": "linear_endpoint_interpolation_v1",
+  "center_navigation_semantics": "actor_root_center_only",
+  "claim_boundary": "ReplicaCAD apt_0 research review; actor roots are checked against navmesh and furnished rigid-object collision OBBs, while full articulated collision volumes remain out of scope",
+  "minimum_center_separation_m": 0.3,
+  "movement_gate": {
+    "minimum_path_length_m": 1.0,
+    "minimum_endpoint_displacement_m": 1.0
+  },
+  "pathfinder_gate": {
+    "require_declared_navmesh": true,
+    "require_every_frame_navigable": true,
+    "require_one_shared_island": true,
+    "require_segment_no_sliding": true,
+    "maximum_snap_error_m": 0.00001,
+    "maximum_y_delta_m": 0.0001,
+    "maximum_step_endpoint_error_m": 0.00001
+  },
+  "placement_gate": {
+    "require_camera_floor_navigable": true,
+    "require_camera_actor_line_of_sight": true,
+    "require_rigid_object_center_clearance": true,
+    "maximum_camera_floor_snap_error_m": 0.05,
+    "minimum_navmesh_clearance_m": 0.25,
+    "minimum_rigid_object_center_clearance_m": 0.02,
+    "visibility_anchor_height_offsets_m": {
+      "human0": [0.9, 1.55],
+      "dog0": [0.25, 0.5]
+    }
+  },
+  "routes": {
+    "human0": {
+      "start_m": [1.0, 0.1193729192, 5.4],
+      "end_m": [1.0, 0.1193729192, 6.6]
+    },
+    "dog0": {
+      "start_m": [3.0, 0.1193729192, 5.4],
+      "end_m": [3.0, 0.1193729192, 6.6]
+    }
+  },
+  "semantic_ids": {
+    "human0": 62000,
+    "dog0": 62001
+  },
+  "visibility_gate": {
+    "minimum_visible_frames_per_actor": 270,
+    "minimum_visible_pixels_per_frame": 128
+  }
+}

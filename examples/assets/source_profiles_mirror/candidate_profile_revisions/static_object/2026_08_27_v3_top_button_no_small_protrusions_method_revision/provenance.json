@@ -1,0 +1,57 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_v1.json",
+  "sha256": "449994e973a255ce93b196f6c9bf7af48742956b99d210287edd78c5f8b02374",
+  "size_bytes": 5503,
+  "profile_schema_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_v1",
+  "profile_revision": "2026_08_27_v3_top_button_no_small_protrusions_method_revision",
+  "canonical_sha256": "c8519bfbfe8f877492d42500bb5ca7d55f88738b60dab2f8c20c18c932441488"
+ },
+ "method_revision": {
+  "kind": "top_button_no_small_protrusions_method_revision",
+  "supersedes_profile_revision": "2026_08_27_v2_single_chrome_downpipe_clear_gap_method_revision",
+  "superseded_profile_canonical_sha256": "80de1e9c53a24f966012a549bf0deb4908d5f6a126659adfa6ff689b8094d594",
+  "reason": "The v2 method fixed the single-pipe clear-gap identity in three independent 2D candidates, but all three Pixal reconstructions produced detached small controls or blocks around the cistern despite clean single-component ISNet alpha masks. The v3 method removes the visual source of those parts: one top-centred flush button is allowed, while tank sides must be featureless with no lever, handle, fitting, knob or small protrusion. Another blind v2 seed is not enough.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "6f6e9ba7f1e994b0d33c8ee8a57b7e1c4de5c93ecbbc94c24dd472c907f4a0c8",
+   "ba62c64c6a3fae916484de0ef90df758e1e654fb928cdfcad3596f2209b57dce",
+   "a90fcb0ff2d773fb17fac0a1bcbd1671ccaf56ad4bc09a09951400c059743722"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "a2d61ca9e7570f2e6786ffe24ca3f79fc2b6b026badc163918af928bc51440c3",
+   "7d5c6aae667044764a8f987fc56a999157e3cea05f583e99e342f0dcf410317e",
+   "b0c3d8fef1b153a9ad094fe38b49283a87e04a23b33796493e069330209bd517"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_resting_pose_redo_20260827_r9_toilet/static_review/static_object_review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_resting_pose_redo_20260827_r9_toilet",
+  "instances": [
+   {
+    "instance_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_6f6e9ba7f1e9",
+    "request_sha256": "6f6e9ba7f1e994b0d33c8ee8a57b7e1c4de5c93ecbbc94c24dd472c907f4a0c8",
+    "candidate_sha256": "a2d61ca9e7570f2e6786ffe24ca3f79fc2b6b026badc163918af928bc51440c3",
+    "sampled_attributes": {"body_color": "white"}
+   },
+   {
+    "instance_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_ba62c64c6a3f",
+    "request_sha256": "ba62c64c6a3fae916484de0ef90df758e1e654fb928cdfcad3596f2209b57dce",
+    "candidate_sha256": "7d5c6aae667044764a8f987fc56a999157e3cea05f583e99e342f0dcf410317e",
+    "sampled_attributes": {"body_color": "white"}
+   },
+   {
+    "instance_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_a90fcb0ff2d7",
+    "request_sha256": "a90fcb0ff2d773fb17fac0a1bcbd1671ccaf56ad4bc09a09951400c059743722",
+    "candidate_sha256": "b0c3d8fef1b153a9ad094fe38b49283a87e04a23b33796493e069330209bd517",
+    "sampled_attributes": {"body_color": "white"}
+   }
+  ]
+ }
+}

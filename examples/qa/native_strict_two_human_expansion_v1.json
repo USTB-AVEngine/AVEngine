@@ -1,0 +1,216 @@
+{
+  "schema": "avengine_native_strict_two_human_expansion_plan_v1",
+  "plan_id": "lead_d_strict_two_human_expansion_20260811_v1",
+  "status": "cpu_preflight_pending",
+  "claim_boundary": "One retained sparse canary plus seven CPU-only candidate compositions. Candidate floor points are bound to prior native actor-root readbacks, but their new camera/two-adult combinations require fresh sparse RGB, metric depth, two target-only passes, runtime readback, and exact RIR before any execution claim.",
+  "paper_catalog_mutation_allowed": false,
+  "formal_scene_count": 0,
+  "qualification_claim": false,
+  "source_floor_point_suite": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/suite_execution_plan.json",
+  "source_runtime_readback_template": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/{scenario_id}/runtime_readbacks.json",
+  "evidence": {
+    "feasibility_report": "reports/lead_a/two_human_feasibility_v1.json",
+    "runtime_registry": "examples/runtime/source_asset_runtime_profiles.json",
+    "passed_canary_ledger": "tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/final_gate_ledger.json",
+    "current_package_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/lead_b_siamese_post_approval_v1/packaged_runtime_v1/Standalone-Development/Linux/Manifest_UFSFiles_Linux.txt",
+    "rejected_row7_v1": "reports/lead_a/strict_two_human_row7_v1_rejected.json"
+  },
+  "approved_identity_catalog": {
+    "M": {
+      "original_identity_id": "rocketbox_adults_male_adult_01",
+      "runtime_asset_alias": "legacy_human",
+      "runtime_asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+      "runtime_revision": "native_runtime_ue_v3",
+      "mouth_offset_from_root_m": [0.0, 1.61, 0.0],
+      "sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+      "transcript": "It's eleven o'clock.",
+      "expected_speech_frame_window_inclusive": [7, 31],
+      "ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_original_ue_v3/ue_import_manifest.json",
+      "listening_review": "pending_research_only"
+    },
+    "F": {
+      "original_identity_id": "rocketbox_adults_female_adult_01",
+      "runtime_asset_alias": "strict_two_human_female_adult",
+      "runtime_asset_id": "lead_b_rocketbox_adults_female_adult_01_original_v1",
+      "runtime_revision": "native_runtime_ue_v1",
+      "mouth_offset_from_root_m": [0.0, 1.569012451171875, 0.0],
+      "sound_asset_id": "speech_cremad_1002_mti_neu_v1",
+      "transcript": "Maybe tomorrow it will be cold.",
+      "expected_speech_frame_window_inclusive": [7, 50],
+      "ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_adults_female_adult_01_original_ue_v1/ue_import_manifest.json",
+      "listening_review": "pending_research_only"
+    },
+    "C": {
+      "original_identity_id": "rocketbox_professions_construction_male_01",
+      "runtime_asset_alias": "strict_two_human_construction_male",
+      "runtime_asset_id": "lead_b_rocketbox_professions_construction_male_01_original_v1",
+      "runtime_revision": "native_runtime_ue_v1",
+      "mouth_offset_from_root_m": [0.0, 1.664033031463623, 0.0],
+      "sound_asset_id": "speech_cremad_1005_tie_neu_v1",
+      "transcript": "That is exactly what happened.",
+      "expected_speech_frame_window_inclusive": [7, 50],
+      "ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_professions_construction_male_01_original_ue_v1/ue_import_manifest.json",
+      "listening_review": "pending_research_only"
+    }
+  },
+  "excluded_identities": {
+    "medical_female": {
+      "original_identity_id": "rocketbox_professions_medical_female_01",
+      "reason": "evidence_contradiction"
+    },
+    "children": [
+      "rocketbox_children_male_child_01",
+      "rocketbox_children_female_child_01"
+    ],
+    "children_policy": "silent_only_and_excluded_from_strict_adult_rows"
+  },
+  "identity_pair_sequence": ["M/F", "M/F", "F/M", "F/M", "M/C", "C/M", "F/C", "C/F"],
+  "target_side_sequence": ["right", "left", "right", "left", "right", "left", "right", "left"],
+  "timeline": {
+    "frame_count": 75,
+    "frame_rate_hz": 15,
+    "sparse_gate_frame_index": 15,
+    "target_speech_start_sample": 7467,
+    "target_speech_start_frame": 7,
+    "target_speech_duration_policy": "full_dry_asset"
+  },
+  "projection_and_native_thresholds": {
+    "resolution_hw": [720, 1280],
+    "horizontal_fov_deg": 105.0,
+    "mouth_safe_fraction_open_interval": [0.05, 0.95],
+    "bbox_edge_margin_px_minimum": 1,
+    "screen_side_dead_zone_fraction": 0.02,
+    "visible_pixels_minimum_per_actor": 5000,
+    "target_visible_fraction_minimum": 0.8,
+    "distractor_visible_fraction_minimum": 0.5,
+    "minimum_actor_horizontal_separation_m": 1.0,
+    "minimum_projected_x_separation_fraction": 0.15,
+    "conservative_actor_vertical_envelope_from_root_m": [0.0, 2.0],
+    "minimum_camera_translation_cluster_count": 4,
+    "minimum_camera_translation_cluster_separation_m": 0.75,
+    "world_reconstruction_tolerance_m": 0.000001,
+    "actor_facing_yaw_tolerance_deg": 0.0001
+  },
+  "target_only_actor_map": {
+    "source1": "source1_actor",
+    "source2": "source2_actor"
+  },
+  "gpu_policy": {
+    "physical_gpu_index": 1,
+    "graphics_adapter_argument": 1,
+    "required_idle_compute_process_count": 0,
+    "forbidden_physical_gpu_indices": [0, 3]
+  },
+  "execution_policy": {
+    "gpu_or_rir_allowed_in_this_atom": false,
+    "per_row_exact_rir_required_before_sparse": true,
+    "native_combined_room_clearance_required": true,
+    "no_automatic_retry": true
+  },
+  "rows": [
+    {
+      "row_id": "strict_01_existing_canary",
+      "episode_id": "rocketbox_male_female__strict_two_human_canary_v1",
+      "status": "pass_existing_sparse_canary",
+      "identity_pair": "M/F",
+      "target_expected_screen_side": "right",
+      "camera_pose": {"translation_m": [-0.7, 1.471, 0.65], "rotation_xyzw": [0.0, 0.4617486132350339, 0.0, 0.8870108331782217], "habitat_yaw_deg": 55.0},
+      "camera_floor_point_provenance": {"authority": "passed_canary_ledger"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "M", "expected_screen_side": "right", "root_translation_m": [-1.9941582267673559, 0.4, -0.9886440992754871], "actor_yaw_ue_deg": -38.300755766, "voice_policy": "speaking"},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "F", "expected_screen_side": "left", "root_translation_m": [-4.208858489990234, 0.4000000059604645, 0.254158079624176], "actor_yaw_ue_deg": -83.563551724, "voice_policy": "silent"}
+      ]
+    },
+    {
+      "row_id": "strict_02_male_female_left",
+      "episode_id": "rocketbox_male_female__strict_two_human_left_v1",
+      "status": "cpu_pose_candidate_only_pending_combined_native_sparse",
+      "identity_pair": "M/F",
+      "target_expected_screen_side": "left",
+      "camera_pose": {"translation_m": [-4.929731369018555, 1.471, -2.6275172233581543], "rotation_xyzw": [0.0, 0.9659258262890683, 0.0, -0.25881904510252085], "habitat_yaw_deg": 210.0},
+      "camera_floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0180", "frame_index": 0, "actor_id": "source1_actor"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "M", "expected_screen_side": "left", "root_translation_m": [-3.244447204510908, 0.4, -1.0406486464513314], "actor_yaw_ue_deg": 133.27725082715313, "voice_policy": "speaking", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0202", "frame_index": 5, "actor_id": "source1_actor"}},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "F", "expected_screen_side": "right", "root_translation_m": [-4.367970176645227, 0.4, -0.36566168875307636], "actor_yaw_ue_deg": 166.05206722727678, "voice_policy": "silent", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0498", "frame_index": 25, "actor_id": "source2_actor"}}
+      ]
+    },
+    {
+      "row_id": "strict_03_female_male_right",
+      "episode_id": "rocketbox_female_male__strict_two_human_right_v1",
+      "status": "cpu_pose_candidate_only_pending_combined_native_sparse",
+      "identity_pair": "F/M",
+      "target_expected_screen_side": "right",
+      "camera_pose": {"translation_m": [-4.663462857942323, 1.471, -3.5686047431584953], "rotation_xyzw": [0.0, 0.984807753012208, 0.0, -0.1736481776669303], "habitat_yaw_deg": 200.0},
+      "camera_floor_point_provenance": {"scenario_id": "border_collie_human__recombined_both_moving_0375", "frame_index": 70, "actor_id": "source2_actor"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "F", "expected_screen_side": "right", "root_translation_m": [-4.4491496086120605, 0.4, -1.1996600341957968], "actor_yaw_ue_deg": 174.8306481521336, "voice_policy": "speaking", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_source1_static_source2_moving_0969", "frame_index": 20, "actor_id": "source2_actor"}},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "M", "expected_screen_side": "left", "root_translation_m": [-3.221717079346244, 0.4, -1.6474879263220608], "actor_yaw_ue_deg": 143.1127716779272, "voice_policy": "silent", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0551", "frame_index": 55, "actor_id": "source2_actor"}}
+      ]
+    },
+    {
+      "row_id": "strict_04_female_male_left",
+      "episode_id": "rocketbox_female_male__strict_two_human_left_v1",
+      "status": "cpu_pose_candidate_only_pending_combined_native_sparse",
+      "identity_pair": "F/M",
+      "target_expected_screen_side": "left",
+      "camera_pose": {"translation_m": [-4.604767290416667, 1.471, -1.8722822764351388], "rotation_xyzw": [0.0, 0.9762960071199334, 0.0, -0.2164396139381028], "habitat_yaw_deg": 205.0},
+      "camera_floor_point_provenance": {"scenario_id": "border_collie_human__recombined_source1_moving_source2_static_0090", "frame_index": 10, "actor_id": "source1_actor"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "F", "expected_screen_side": "left", "root_translation_m": [-2.9684374606287154, 0.4, -0.15472825234000742], "actor_yaw_ue_deg": 136.3873151898307, "voice_policy": "speaking", "floor_point_provenance": {"scenario_id": "border_collie_human__recombined_source1_static_source2_moving_0373", "frame_index": 50, "actor_id": "source2_actor"}},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "M", "expected_screen_side": "right", "root_translation_m": [-4.270554858285028, 0.4, 0.468336704615], "actor_yaw_ue_deg": 171.87377694918683, "voice_policy": "silent", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_source1_moving_source2_static_0246", "frame_index": 55, "actor_id": "source1_actor"}}
+      ]
+    },
+    {
+      "row_id": "strict_05_male_construction_right",
+      "episode_id": "rocketbox_male_construction__strict_two_human_right_v1",
+      "status": "cpu_pose_candidate_only_pending_combined_native_sparse",
+      "identity_pair": "M/C",
+      "target_expected_screen_side": "right",
+      "camera_pose": {"translation_m": [-4.481045790283407, 1.471, -0.8325515158920151], "rotation_xyzw": [0.0, 0.7372773368101241, 0.0, -0.6755902076156602], "habitat_yaw_deg": 265.0},
+      "camera_floor_point_provenance": {"scenario_id": "border_collie_human__recombined_source1_moving_source2_static_0090", "frame_index": 30, "actor_id": "source1_actor"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "M", "expected_screen_side": "right", "root_translation_m": [-2.3514740656356556, 0.4, -0.024923065224209395], "actor_yaw_ue_deg": 110.76895853966425, "voice_policy": "speaking", "floor_point_provenance": {"scenario_id": "border_collie_human__recombined_source1_static_source2_moving_0373", "frame_index": 40, "actor_id": "source2_actor"}},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "C", "expected_screen_side": "left", "root_translation_m": [-2.1111830086321444, 0.4, -1.3197298557371706], "actor_yaw_ue_deg": 78.38340481332858, "voice_policy": "silent", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0144", "frame_index": 65, "actor_id": "source1_actor"}}
+      ]
+    },
+    {
+      "row_id": "strict_06_construction_male_left",
+      "episode_id": "rocketbox_construction_male__strict_two_human_left_v1",
+      "status": "cpu_pose_candidate_only_pending_combined_native_sparse",
+      "identity_pair": "C/M",
+      "target_expected_screen_side": "left",
+      "camera_pose": {"translation_m": [-4.4491496086120605, 1.471, -0.011942546915363561], "rotation_xyzw": [0.0, 0.6427876096865395, 0.0, -0.7660444431189779], "habitat_yaw_deg": 280.0},
+      "camera_floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_source1_static_source2_moving_0581", "frame_index": 55, "actor_id": "source2_actor"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "C", "expected_screen_side": "left", "root_translation_m": [-2.2508115317370443, 0.4, -1.0211779165106851], "actor_yaw_ue_deg": 65.34061058833146, "voice_policy": "speaking", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0180", "frame_index": 55, "actor_id": "source1_actor"}},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "M", "expected_screen_side": "right", "root_translation_m": [-2.065722549283827, 0.4, 0.23468731222925987], "actor_yaw_ue_deg": 95.90776891575746, "voice_policy": "silent", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0229", "frame_index": 60, "actor_id": "source2_actor"}}
+      ]
+    },
+    {
+      "row_id": "strict_07_female_construction_right",
+      "episode_id": "rocketbox_female_construction__strict_two_human_right_v1",
+      "status": "cpu_pose_candidate_only_pending_combined_native_sparse",
+      "identity_pair": "F/C",
+      "target_expected_screen_side": "right",
+      "camera_pose": {"translation_m": [-4.4491496086120605, 1.471, 1.075175917631871], "rotation_xyzw": [0.0, 0.4226182617406995, 0.0, -0.9063077870366499], "habitat_yaw_deg": 310.0},
+      "camera_floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0212", "frame_index": 5, "actor_id": "source2_actor"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "F", "expected_screen_side": "right", "root_translation_m": [-2.2443172110093608, 0.4, 0.05620517843478434], "actor_yaw_ue_deg": 65.19582124070803, "voice_policy": "speaking", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0229", "frame_index": 55, "actor_id": "source2_actor"}},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "C", "expected_screen_side": "left", "root_translation_m": [-3.1437848709725045, 0.4, -0.8913726726093808], "actor_yaw_ue_deg": 33.57559584215503, "voice_policy": "silent", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0721", "frame_index": 15, "actor_id": "source2_actor"}}
+      ]
+    },
+    {
+      "row_id": "strict_08_construction_female_left",
+      "episode_id": "rocketbox_construction_female__strict_two_human_left_v1",
+      "status": "cpu_pose_candidate_only_pending_combined_native_sparse",
+      "identity_pair": "C/F",
+      "target_expected_screen_side": "left",
+      "camera_pose": {"translation_m": [-4.4491496086120605, 1.471, 4.141823594634597], "rotation_xyzw": [0.0, 0.9396926207859084, 0.0, -0.3420201433256687], "habitat_yaw_deg": 220.0},
+      "camera_floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_both_moving_0212", "frame_index": 50, "actor_id": "source2_actor"},
+      "actors": [
+        {"role": "target", "source_slot_id": "source1", "identity_key": "C", "expected_screen_side": "left", "root_translation_m": [-2.5268213748931885, 0.4, 5.537229537963867], "actor_yaw_ue_deg": 125.97566085706994, "voice_policy": "speaking", "floor_point_provenance": {"scenario_id": "border_collie_cat__recombined_source1_static_source2_moving_0167", "frame_index": 0, "actor_id": "source1_actor"}},
+        {"role": "distractor", "source_slot_id": "source2", "identity_key": "F", "expected_screen_side": "right", "root_translation_m": [-3.487985372543335, 0.4, 6.25764799118042], "actor_yaw_ue_deg": 155.5689314866612, "voice_policy": "silent", "floor_point_provenance": {"scenario_id": "border_collie_human__recombined_static_static_0661", "frame_index": 0, "actor_id": "source2_actor"}}
+      ]
+    }
+  ]
+}

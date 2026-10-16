@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务提交台 · AVEngine Studio</title>
+<style>
+:root{--bg:#fbfaf7;--card:#fff;--ink:#2c2c2a;--mut:#8a877d;--line:#e2dfd6;
+--acc:#534ab7;--ok:#1f6b4a;--okbg:#e1f5ee;--bad:#a33;--badbg:#fae7e7;--runbg:#fdf3d8}
+*{box-sizing:border-box}
+body{font-family:system-ui,'PingFang SC',sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
+padding:.7rem 1.2rem;display:flex;gap:.9rem;align-items:center;flex-wrap:wrap}
+header h1{font-size:1.05rem;margin:0 1rem 0 0}
+header a{color:var(--acc);text-decoration:none;font-size:.85rem}
+main{display:grid;grid-template-columns:minmax(24rem,34rem) 1fr;gap:16px;padding:16px;align-items:start}
+@media (max-width:60rem){main{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem}
+.panel h2{font-size:.95rem;margin:0 0 .7rem}
+label{display:block;font-size:.76rem;color:var(--mut);margin:.6rem 0 .2rem;font-family:ui-monospace,monospace}
+select,input[type=text],input[type=number],textarea{width:100%;font:inherit;font-size:.82rem;
+padding:.35rem .5rem;border:1px solid var(--line);border-radius:5px;background:#fff}
+textarea{font-family:ui-monospace,monospace;min-height:3.2rem}
+.hint{font-size:.74rem;color:var(--mut);margin-top:.2rem}
+.checkrow{display:flex;align-items:center;gap:.4rem;margin-top:.55rem;font-size:.82rem}
+button.go{margin-top:1rem;width:100%;font:inherit;font-size:.9rem;padding:.5rem;border:0;
+border-radius:6px;background:var(--acc);color:#fff;cursor:pointer}
+button.go:disabled{opacity:.5}
+#result{margin-top:.8rem;font-size:.8rem;word-break:break-all}
+#result .ok{color:var(--ok)} #result .err{color:var(--bad)}
+table{border-collapse:collapse;width:100%;font-size:.78rem}
+td,th{border-bottom:1px solid var(--line);padding:.35rem .45rem;text-align:left;vertical-align:top}
+th{font-size:.7rem;color:var(--mut);text-transform:none}
+.badge{padding:.05rem .4rem;border-radius:3px;font-size:.72rem}
+.badge.pass{background:var(--okbg);color:var(--ok)}
+.badge.fail{background:var(--badbg);color:var(--bad)}
+.badge.running,.badge.queued{background:var(--runbg)}
+tr.task{cursor:pointer} tr.task:hover td{background:#f6f4ee}
+#detail{margin-top: .9rem;border-top:1px dashed var(--line);padding-top:.7rem;font-size:.78rem}
+#detail td, #detail th{border-bottom:1px solid var(--line);padding:.25rem .4rem}
+#detail td.n{text-align:right;font-variant-numeric:tabular-nums}
+.artcard{margin:.6rem 0}
+.artcard .cap{font-family:ui-monospace,monospace;font-size:.68rem;color:var(--mut);margin-bottom:.25rem}
+.artcard img{max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}
+.artcard video{width:100%;border-radius:6px;background:#000}
+.matbar{display:flex;height:26px;border-radius:5px;overflow:hidden;border:1px solid var(--line)}
+.matbar div{height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:.3rem .8rem;margin-top:.35rem;font-size:.7rem}
+.legend i{display:inline-block;width:.7em;height:.7em;border-radius:2px;margin-right:.25em}
+details.paths{margin-top:.6rem} details.paths summary{cursor:pointer;font-size:.74rem;color:var(--mut)}
+.art{display:flex;gap:.4rem;align-items:center;margin:.2rem 0;font-family:ui-monospace,monospace;font-size:.72rem}
+.art button{font-size:.68rem;padding:.1rem .45rem;border:1px solid var(--line);border-radius:4px;
+background:#fff;cursor:pointer;white-space:nowrap}
+.art span{word-break:break-all}
+.note{font-size:.76rem;color:var(--mut);margin-top:.6rem;line-height:1.5}
+</style></head><body>
+<header>
+  <h1>任务提交台</h1>
+  <a href="/">← 首页</a>
+  <a href="/studio/board">进度看板</a>
+  <a href="/studio/review">验收台</a>
+  <a href="/studio/assets">资产台</a>
+</header>
+<main>
+  <div class="panel">
+    <h2>提交一个任务</h2>
+    <label for="tpl">模板（= 流水线的一个工位）</label>
+    <select id="tpl"></select>
+    <div id="fields"></div>
+    <button class="go" id="go">提交</button>
+    <div id="result"></div>
+    <div class="note">留空 = 用默认值。路径类参数在提交那一刻就会被检查存在与否，
+    错的路径直接被拒绝，不会排进队列。产出永远写进任务自己的新目录，不会覆盖任何东西。</div>
+  </div>
+  <div class="panel">
+    <h2>最近任务（点一行看产物路径，可复制去填下一步）</h2>
+    <table><thead><tr><th>任务</th><th>模板</th><th>状态</th></tr></thead>
+    <tbody id="tasks"></tbody></table>
+    <div id="detail">尚未选择任务。</div>
+  </div>
+</main>
+<script>
+let templates = {};
+let hm3dScenes = null;
+
+// 整条链零手填：①场景用下拉选，②③④的按钮长在上一步的任务面板里，
+// 参数（清单路径、房间框、距离带、银行文件、scene_id）全部由系统推导。
+async function loadScenes(){
+  if (hm3dScenes !== null) return hm3dScenes;
+  try {
+    const payload = await (await fetch('/api/hm3d-scenes')).json();
+    hm3dScenes = payload.scenes || [];
+  } catch { hm3dScenes = []; }
+  return hm3dScenes;
+}
+
+async function submitChained(template, overrides, button){
+  button.disabled = true;
+  button.textContent = '排队中…';
+  const response = await fetch('/api/tasks', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({template, overrides}),
+  });
+  const payload = await response.json();
+  if (payload.error) { button.textContent = '被拒: ' + payload.error.slice(0, 60); return; }
+  button.textContent = '已排队 ✓ ' + payload.task.task_id;
+  refreshTasks();
+}
+
+function fieldHTML(key, fallback){
+  const id = 'f_' + key;
+  if (typeof fallback === 'boolean')
+    return `<div class="checkrow"><input type="checkbox" id="${id}" ${fallback ? 'checked' : ''}>
+      <label for="${id}" style="margin:0">${key}</label></div>`;
+  if (typeof fallback === 'number')
+    return `<label for="${id}">${key}</label><input type="number" step="any" id="${id}" value="${fallback}">`;
+  if (Array.isArray(fallback) || (fallback && typeof fallback === 'object'))
+    return `<label for="${id}">${key}（JSON）</label><textarea id="${id}">${JSON.stringify(fallback)}</textarea>`;
+  const value = fallback == null ? '' : String(fallback).replace(/"/g,'&quot;');
+  return `<label for="${id}">${key}</label><input type="text" id="${id}" value="${value}">`;
+}
+
+async function renderFields(){
+  const name = tpl.value;
+  const template = templates[name] || {};
+  const defaults = template.defaults || {};
+  const keys = (template.overridable_keys || []).slice().sort();
+  fields.innerHTML = keys.map(key => fieldHTML(key, defaults[key])).join('') ||
+    '<div class="hint">这个模板没有可改的参数，直接提交即用默认配置。</div>';
+  if (name === 'hm3d_room_prepare') {
+    const scenes = await loadScenes();
+    if (scenes.length) {
+      const options = scenes.map(scene =>
+        `<option value="${scene.scene_dir}" data-split="${scene.split}">${scene.split} · ${scene.name}</option>`
+      ).join('');
+      const holder = document.getElementById('f_scene_dir');
+      if (holder) {
+        holder.outerHTML = `<select id="f_scene_dir">${options}</select>`;
+        const current = defaults['scene_dir'];
+        const select = document.getElementById('f_scene_dir');
+        if (current) select.value = current;
+        select.addEventListener('change', () => {
+          const split = select.selectedOptions[0]?.dataset.split;
+          const splitField = document.getElementById('f_split');
+          if (split && splitField) splitField.value = split;
+        });
+      }
+    }
+  }
+}
+
+function collectOverrides(){
+  const name = tpl.value;
+  const template = templates[name] || {};
+  const defaults = template.defaults || {};
+  const overrides = {};
+  for (const key of template.overridable_keys || []) {
+    const el = document.getElementById('f_' + key);
+    if (!el) continue;
+    const fallback = defaults[key];
+    let value;
+    if (el.type === 'checkbox') value = el.checked;
+    else if (el.tagName === 'TEXTAREA') {
+      if (!el.value.trim()) continue;
+      try { value = JSON.parse(el.value); }
+      catch { throw new Error(key + ' 不是合法 JSON'); }
+    }
+    else if (el.type === 'number') {
+      if (el.value === '') continue;
+      value = Number(el.value);
+    }
+    else {
+      if (!el.value.trim()) continue;
+      value = el.value.trim();
+    }
+    if (JSON.stringify(value) !== JSON.stringify(fallback)) overrides[key] = value;
+  }
+  return overrides;
+}
+
+async function submit(){
+  go.disabled = true;
+  result.innerHTML = '提交中…';
+  try {
+    const overrides = collectOverrides();
+    const response = await fetch('/api/tasks', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({template: tpl.value, overrides}),
+    });
+    const payload = await response.json();
+    if (payload.error) result.innerHTML = `<span class="err">被拒绝：${payload.error}</span>`;
+    else result.innerHTML = `<span class="ok">已排队：${payload.task.task_id}</span>` +
+      `（右边表格里会自己变色，pass 了点进去拿产物路径）`;
+  } catch (error) { result.innerHTML = `<span class="err">${error.message}</span>`; }
+  go.disabled = false;
+  refreshTasks();
+}
+
+let selectedTask = null;
+let selectedStatus = null;
+
+function materialColour(name){
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return `hsl(${hash % 360} 45% 62%)`;
+}
+
+async function materialBar(url){
+  // 声学装修的可看形态：这栋房子被指派成了哪些材质、各占多大面积。
+  const coverage = await (await fetch(url)).json();
+  const counts = coverage.category_triangle_counts || {};
+  const byMaterial = {};
+  for (const decision of coverage.decisions || []) {
+    const triangles = counts[decision.semantic_category] || 0;
+    const material = decision.selected_material || '?';
+    byMaterial[material] = (byMaterial[material] || 0) + triangles;
+  }
+  const total = Object.values(byMaterial).reduce((a, b) => a + b, 0) || 1;
+  const rows = Object.entries(byMaterial).sort((a, b) => b[1] - a[1]);
+  const bar = rows.map(([material, n]) =>
+    `<div title="${material} ${(100*n/total).toFixed(1)}%" style="width:${100*n/total}%;background:${materialColour(material)}"></div>`).join('');
+  const legend = rows.slice(0, 9).map(([material, n]) =>
+    `<span><i style="background:${materialColour(material)}"></i>${material} ${(100*n/total).toFixed(1)}%</span>`).join('');
+  return `<div class="artcard"><div class="cap">这间房的声学材质构成（按三角面面数）</div>
+    <div class="matbar">${bar}</div><div class="legend">${legend}</div>
+    <div class="hint" style="margin-top:.3rem">${coverage.surface_count} 个语义类别 ·
+    落默认材质 ${coverage.unknown_semantic_category_count} 类</div></div>`;
+}
+
+function errorStrip(perFrame){
+  const bars = perFrame.map(frame => {
+    const err = Math.abs(frame.error_deg ?? 99);
+    const colour = err <= 5 ? '#59b389' : err <= 15 ? '#e3c15e' : '#d97b70';
+    return `<div style="flex:1;background:${colour}"></div>`;
+  }).join('');
+  return `<div class="artcard"><div class="cap">逐帧声音方向误差（绿 ≤5° 黄 ≤15° 红更大；被遮挡的帧误差大是正常样本，不是缺陷）</div>
+    <div style="display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--line)">${bars}</div></div>`;
+}
+
+async function showDetail(taskId){
+  selectedTask = taskId;
+  const payload = await (await fetch('/api/tasks/' + taskId)).json();
+  const task = payload.task;
+  selectedStatus = task.status;
+  const relatives = task.artifacts || [];
+  const previews = [];
+  const frames = relatives.filter(rel => /video\/frame_\d+\.png$/.test(rel));
+  // 每张图配一句"这图的权威是什么、该怎么判" —— 图必须自带论据，
+  // 否则它只会诱导错误判决（连通图整条投影、轨迹图的栅格底色都发生过）。
+  const stageNote = {
+    'hm3d_room_prepare':
+      '看图要点：实线路段应贴在灰色区内；细线是其他楼层的投影，不算数。',
+    'hm3d_route_bank':
+      '看图要点：轨迹穿过暗区是允许的穿模（合法性机器已按 navmesh 验过），不是缺陷。',
+    'hm3d_episode':
+      '成片点开看即可；对错由机器判，章在下方。',
+  }[task.template];
+  if (stageNote) previews.push(`<div class="hint" style="margin:.4rem 0">${stageNote}</div>`);
+  for (const rel of relatives) {
+    const url = `/api/tasks/${taskId}/artifact?path=${encodeURIComponent(rel)}`;
+    if (rel.endsWith('.mp4'))
+      previews.push(`<div class="artcard"><div class="cap">${rel}</div><video controls preload="metadata" src="${url}"></video></div>`);
+    else if (rel.endsWith('.png') && (!frames.includes(rel) || rel.endsWith('frame_0000.png')))
+      previews.push(`<div class="artcard"><div class="cap">${rel}</div><img loading="lazy" src="${url}"></div>`);
+  }
+  // 房间登记任务：把 rooms.json 直接渲成表，每行一个"▶ 第③步"按钮，
+  // 让"选哪间房"从翻 JSON 变成点一下 —— 参数全部由行内数据推导。
+  const roomsRel = relatives.find(rel => rel.endsWith('rooms.json'));
+  if (roomsRel) {
+    try {
+      await loadScenes();
+      const hm3dRootForRooms = (await (await fetch('/api/hm3d-scenes')).json()).hm3d_root;
+      const inventory = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(roomsRel)}`)).json();
+      const rows = (inventory.rooms || []).slice().sort((a, b) => b.floor_area_m2 - a.floor_area_m2)
+        .map(room => {
+          const [[x0, z0], [x1, z1]] = room.bbox_xz_m;
+          const shorter = Math.min(room.extent_m[0], room.extent_m[1]);
+          const bandMax = shorter >= 6 ? 5.5 : Math.max(2.0, Number((shorter - 0.5).toFixed(1)));
+          const bandMin = shorter >= 6 ? 3.5 : 1.5;
+          // scene 与 navmesh 由清单路径反推：hm3d_<split>_<index>_<id>
+          const marker = roomsRel.split('/')[0];
+          const parts = marker.split('_');
+          const sceneDirName = parts[2] + '-' + parts.slice(3).join('_');
+          const sceneRoot = `${hm3dRootForRooms}/${parts[1]}/${sceneDirName}`;
+          const overrides = {
+            scene: `${sceneRoot}/${parts.slice(3).join('_')}.glb`,
+            navmesh: `${sceneRoot}/${parts.slice(3).join('_')}.basis.navmesh`,
+            room_bounds: [x0, z0, x1, z1],
+            room_label: `R${room.region_id}`,
+            minimum_route_distance_m: bandMin,
+            maximum_route_distance_m: bandMax,
+          };
+          return `<tr>
+            <td style="font-family:ui-monospace,monospace">R${room.region_id}</td>
+            <td class="n">${room.extent_m[0]} × ${room.extent_m[1]} m</td>
+            <td>${(room.top_categories || []).slice(0, 3).join('、')}</td>
+            <td><button onclick='submitChained("hm3d_route_bank", ${JSON.stringify(overrides)}, this)'
+              style="font-size:.68rem;padding:.1rem .45rem;border:0;border-radius:4px;background:var(--acc);color:#fff;cursor:pointer">▶ 第③步：给这间房规划路线</button></td>
+          </tr>`;
+        }).join('');
+      previews.push(`<div class="artcard"><div class="cap">这栋房子的房间（${inventory.room_count} 间，按地板面积排序）——
+        选一间，点它那行的"▶ 第③步"，参数全部自动</div>
+        <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:.74rem">
+        <thead><tr><th style="text-align:left;color:var(--mut)">房间</th><th style="text-align:right;color:var(--mut)">尺寸</th>
+        <th style="text-align:left;color:var(--mut)">里面有什么</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div></div>`);
+    } catch {}
+  }
+  // 数字与统计类的卡片一律折叠：owner 只看图和章，这些留给同学排查。
+  const fold = (label, inner) =>
+    `<details style="margin:.4rem 0"><summary style="font-size:.72rem;color:var(--mut);cursor:pointer">${label}</summary>${inner}</details>`;
+  const coverageRel = relatives.find(rel => rel.endsWith('semantic_material_coverage.json'));
+  if (coverageRel) {
+    try { previews.push(fold('技术细节：声学材质构成（同学用）',
+      await materialBar(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(coverageRel)}`))); }
+    catch {}
+  }
+  const reportRel = relatives.find(rel => rel.endsWith('audio_foa/render_report.json'));
+  if (reportRel) {
+    try {
+      const report = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(reportRel)}`)).json();
+      if (report.per_frame) previews.push(fold('技术细节：逐帧方向误差色带（同学用）', errorStrip(report.per_frame)));
+    } catch {}
+  }
+  // 链式按钮：下一工位一键提交，所有参数自动推导
+  if (task.status === 'pass' && task.template === 'hm3d_room_prepare') {
+    const manifestRel = relatives.find(rel => rel.endsWith('room_manifest.json'));
+    if (manifestRel) {
+      const manifestPath = task.output_dir + '/' + manifestRel;
+      previews.push(`<div class="artcard">
+        <button class="copy" style="font-size:.8rem;padding:.35rem .8rem;background:var(--acc);color:#fff;border:0"
+          onclick='submitChained("semantic_acoustic_package", {room_manifest: ${JSON.stringify(manifestPath)}}, this)'>
+          ▶ 第②步：编这栋房子的声学包（一键，无需填写）</button></div>`);
+    }
+  }
+  if (task.status === 'pass' && task.template === 'hm3d_route_bank') {
+    const banks = relatives.filter(rel => /bank\/.+\.bank\.json$/.test(rel));
+    if (banks.length) {
+      const buttons = banks.map(rel => {
+        const full = task.output_dir + '/' + rel;
+        const file = rel.split('/').pop();
+        const sceneId = file.includes('-') ? file.split('-')[1].split('_y')[0] : '';
+        const floor = (file.match(/_y([+-][0-9.]+)/) || [])[1] || '?';
+        return `<button class="copy" style="font-size:.78rem;padding:.3rem .7rem;background:var(--acc);color:#fff;border:0;margin:.15rem .3rem .15rem 0"
+          onclick='submitChained("hm3d_episode", {bank: ${JSON.stringify(full)}, scene_id: ${JSON.stringify(sceneId)}}, this)'>
+          ▶ 第④步：出成品（楼层 y=${floor}）</button>`;
+      }).join('');
+      previews.push(`<div class="artcard"><div class="cap">一键出成品：挑你规划的那个楼层</div>${buttons}</div>`);
+    }
+  }
+  // episode 任务：机器听审的结论与理由就地渲染，成功失败都渲染——
+  // 失败时理由才是最要紧的内容。人不需要看视频或听声音。
+  const auditionRel = relatives.find(rel => rel.endsWith('machine_audition.json'));
+  if (auditionRel) {
+    try {
+      const audition = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(auditionRel)}`)).json();
+      const marks = {pass: '✓', fail: '✗', info: '·'};
+      const colors = {pass: 'var(--ok, #1f6b4a)', fail: '#a33', info: 'var(--mut)'};
+      const passed = audition.verdict === 'pass';
+      // 绿的只盖一颗章；红的把败因平铺（这是必须读的一句）；
+      // 全部检查项折叠，供同学排查——owner 不需要看。
+      const failsFlat = passed ? '' : (audition.checks || [])
+        .filter(check => check.status === 'fail')
+        .map(check => `<div style="background:#fae7e7;border-radius:4px;padding:.2rem .45rem;font-size:.76rem;line-height:1.5;margin-top:.25rem">✗ ${check.reason_zh || check.name}</div>`)
+        .join('');
+      const items = (audition.checks || []).map(check =>
+        `<div style="display:flex;gap:.4rem;font-size:.74rem;line-height:1.5">
+          <b style="flex:none;width:1rem;text-align:center;color:${colors[check.status] || 'inherit'}">${marks[check.status] || '?'}</b>
+          <span>${check.reason_zh || check.name}</span></div>`
+      ).join('');
+      previews.unshift(`<div class="artcard"><div class="cap">
+        <b style="color:${passed ? '#1f6b4a' : '#a33'}">机器听审 ${passed ? '✓ 通过' : '✗ 不过'}</b></div>${failsFlat}
+        <details style="margin-top:.3rem"><summary style="font-size:.72rem;color:var(--mut);cursor:pointer">全部检查项（同学/排查用）</summary>${items}</details></div>`);
+    } catch {}
+  }
+  if (task.status === 'pass' && task.template === 'hm3d_episode') {
+    previews.push(`<div class="artcard"><a href="/studio/review" style="font-size:.85rem">
+      ▶ 第⑤步：验收台上看所有 episode 的机器结论（想覆核或抽查再去）→</a></div>`);
+  }
+  const pathRows = relatives.filter(rel => !frames.includes(rel) || rel.endsWith('frame_0000.png'))
+    .map(rel => {
+      const full = task.output_dir + '/' + rel;
+      return `<div class="art"><button onclick="navigator.clipboard.writeText('${full}')">复制</button><span>${full}</span></div>`;
+    }).join('');
+  detail.innerHTML = `<b>${task.task_id}</b> · <span class="badge ${task.status}">${task.status}</span>
+    · <a href="/api/tasks/${taskId}/log?tail=120" target="_blank">看日志</a>
+    ${previews.join('') || '<div class="hint" style="margin-top:.5rem">这个任务没有可预览的图（还在跑，或它只产 JSON）。</div>'}
+    <details class="paths"><summary>产物路径（复制去填下一个工位）</summary>${pathRows || '无'}</details>`;
+}
+
+async function refreshTasks(){
+  const payload = await (await fetch('/api/tasks')).json();
+  document.getElementById('tasks').innerHTML = payload.tasks.slice(0, 14).map(task =>
+    `<tr class="task" onclick="showDetail('${task.task_id}')">
+     <td style="font-family:ui-monospace,monospace;font-size:.7rem">${task.task_id}</td>
+     <td>${task.template}</td>
+     <td><span class="badge ${task.status}">${task.status}</span></td></tr>`).join('');
+  if (selectedTask) {
+    const row = payload.tasks.find(task => task.task_id === selectedTask);
+    // re-render on any status change (including the final flip to pass, once);
+    // a steady terminal state is left alone so a playing video is not restarted
+    if (row && row.status !== selectedStatus) showDetail(selectedTask);
+  }
+}
+
+async function boot(){
+  const payload = await (await fetch('/api/templates')).json();
+  templates = payload.templates || {};
+  tpl.innerHTML = Object.keys(templates).sort().map(name => `<option>${name}</option>`).join('');
+  if (templates['hm3d_room_prepare']) tpl.value = 'hm3d_room_prepare';
+  tpl.addEventListener('change', renderFields);
+  go.addEventListener('click', submit);
+  renderFields();
+  refreshTasks();
+  setInterval(refreshTasks, 8000);
+}
+boot();
+</script></body></html>

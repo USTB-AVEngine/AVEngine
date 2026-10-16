@@ -1,0 +1,198 @@
+{
+  "schema": "avengine_m6_source_endpoint_registry_v1",
+  "registry_id": "qa_v2_source_endpoints_v1",
+  "revision": "v1",
+  "source_endpoints": [
+    {
+      "source_endpoint_id": "qa_v2_dog_1_collie_muzzle",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "dog_1",
+        "entity_asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "entity_asset_revision": "pixel3d_tokenrig_ue_v1",
+        "emitter_anchor_id": "muzzle"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "2ce1beb5ecd4427c0e3af6dd2ae5519891bea0001447a03f1108744e31e7a1b2"
+    },
+    {
+      "source_endpoint_id": "qa_v2_dog_1_labrador_muzzle",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "dog_1",
+        "entity_asset_id": "generated_labrador_yellow_medium_standard_adult_research_v1",
+        "entity_asset_revision": "pixel3d_tokenrig_ue_v1",
+        "emitter_anchor_id": "muzzle"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "325b22282e9a27006659bd1664d53552097b3471688bce2a6b76b022bb912e68"
+    },
+    {
+      "source_endpoint_id": "qa_v2_dog_2_collie_muzzle",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "dog_2",
+        "entity_asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "entity_asset_revision": "pixel3d_tokenrig_ue_v1",
+        "emitter_anchor_id": "muzzle"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "6576a386d0620a0ee0bb665218770ef2f900c39221d680989560770076bb5633"
+    },
+    {
+      "source_endpoint_id": "qa_v2_dog_2_labrador_muzzle",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "dog_2",
+        "entity_asset_id": "generated_labrador_yellow_medium_standard_adult_research_v1",
+        "entity_asset_revision": "pixel3d_tokenrig_ue_v1",
+        "emitter_anchor_id": "muzzle"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "fb53ca32b9f597e84b946532ed61ffc813be6b046d0a55c5c024f5d8b56fb79e"
+    },
+    {
+      "source_endpoint_id": "qa_v2_human_1_blue_mouth",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "human_1",
+        "entity_asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+        "entity_asset_revision": "controlled_material_ue_v3",
+        "emitter_anchor_id": "mouth"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "human_speech"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "8d6fa27015a0b1e08d3959753d80e96a92b88f850fcf611855991960009198f8"
+    },
+    {
+      "source_endpoint_id": "qa_v2_human_1_burgundy_mouth",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "human_1",
+        "entity_asset_id": "rocketbox_human_male_adult_01_top_burgundy_research_v1",
+        "entity_asset_revision": "controlled_material_ue_v3",
+        "emitter_anchor_id": "mouth"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "human_speech"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "68add870eaf38f8209bad12575def366d97091d403f951ef1fba8f2e93ed387e"
+    },
+    {
+      "source_endpoint_id": "qa_v2_human_1_green_mouth",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "human_1",
+        "entity_asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+        "entity_asset_revision": "controlled_material_ue_v3",
+        "emitter_anchor_id": "mouth"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "human_speech"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "74a951ee1ec8781e26b067f728368596bb499a0f8e4894a294533e27b3353b79"
+    },
+    {
+      "source_endpoint_id": "qa_v2_human_2_blue_mouth",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "human_2",
+        "entity_asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+        "entity_asset_revision": "controlled_material_ue_v3",
+        "emitter_anchor_id": "mouth"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "human_speech"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "df0d1eab5fa4c389e24c7302c88ae2f924993bc3f06b6ef236e187afd9f60a66"
+    },
+    {
+      "source_endpoint_id": "qa_v2_human_2_burgundy_mouth",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "human_2",
+        "entity_asset_id": "rocketbox_human_male_adult_01_top_burgundy_research_v1",
+        "entity_asset_revision": "controlled_material_ue_v3",
+        "emitter_anchor_id": "mouth"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "human_speech"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "9ef5b98da8f929fe769ba34dc5f6c3cad6c6c36d460c388e28d6bcc3aaf88c61"
+    },
+    {
+      "source_endpoint_id": "qa_v2_human_2_green_mouth",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "human_2",
+        "entity_asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+        "entity_asset_revision": "controlled_material_ue_v3",
+        "emitter_anchor_id": "mouth"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": [
+        "human_speech"
+      ],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "66ec240ad63fc0789962c6645279f13e9d263af9a1a56f4118b11d2264ad129b"
+    }
+  ],
+  "registry_content_sha256": "93807b63648534cbe12ccfcac434eb7456cce490d049976779955b22ae62ffd8"
+}

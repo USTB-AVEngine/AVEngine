@@ -1,0 +1,197 @@
+{
+  "schema": "avengine_motion_retarget_profile_v1",
+  "profile_id": "quaternius_dog_to_rocketbox_beagle_world_left_v1",
+  "adapter_id": "quadruped_mammal_locomotion_v1",
+  "body_plan_id": "quadruped_mammal_canid_v1",
+  "motion_family_id": "dog_walk_idle_quaternius_v1",
+  "source_skeleton_id": "quaternius_dog_armature_v1",
+  "target_template_id": "rocketbox_dog_beagle_01_v1",
+  "solver": {
+    "solver_id": "world_left_delta_v2",
+    "motion_basis_xyzw": [0.0, 0.0, 0.0, 1.0],
+    "motion_amplitude": 1.0,
+    "output_sample_rate_hz": 30,
+    "time_mapping": "preserve_source_seconds",
+    "root_joint_semantic_id": "root",
+    "root_rotation_policy": "target_rest",
+    "root_translation_policy": "target_rest",
+    "unmapped_target_joint_policy": "target_rest_local"
+  },
+  "semantic_chains": [
+    {
+      "chain_id": "axial_body",
+      "chain_kind": "axial",
+      "side": "center",
+      "semantic_joint_ids": ["root", "spine", "neck", "head"],
+      "end_effector_role": "head",
+      "target_end_effector_joint_id": "beagle Head"
+    },
+    {
+      "chain_id": "tail",
+      "chain_kind": "tail",
+      "side": "center",
+      "semantic_joint_ids": ["tail_base", "tail_1", "tail_2", "tail_3"],
+      "end_effector_role": "tail_tip",
+      "target_end_effector_joint_id": "beagle Tail3"
+    },
+    {
+      "chain_id": "hind_left",
+      "chain_kind": "locomotion_limb",
+      "side": "left",
+      "semantic_joint_ids": ["hind_left_hip", "hind_left_stifle", "hind_left_hock"],
+      "end_effector_role": "paw_hind_left",
+      "target_end_effector_joint_id": "beagle L Toe0"
+    },
+    {
+      "chain_id": "hind_right",
+      "chain_kind": "locomotion_limb",
+      "side": "right",
+      "semantic_joint_ids": ["hind_right_hip", "hind_right_stifle", "hind_right_hock"],
+      "end_effector_role": "paw_hind_right",
+      "target_end_effector_joint_id": "beagle R Toe0"
+    },
+    {
+      "chain_id": "fore_left",
+      "chain_kind": "locomotion_limb",
+      "side": "left",
+      "semantic_joint_ids": ["fore_left_shoulder", "fore_left_elbow", "fore_left_carpus"],
+      "end_effector_role": "paw_front_left",
+      "target_end_effector_joint_id": "beagle L Finger0"
+    },
+    {
+      "chain_id": "fore_right",
+      "chain_kind": "locomotion_limb",
+      "side": "right",
+      "semantic_joint_ids": ["fore_right_shoulder", "fore_right_elbow", "fore_right_carpus"],
+      "end_effector_role": "paw_front_right",
+      "target_end_effector_joint_id": "beagle R Finger0"
+    }
+  ],
+  "joint_mappings": [
+    {"semantic_joint_id": "root", "source_joint_id": "Bone", "target_joint_id": "beagle Pelvis"},
+    {"semantic_joint_id": "spine", "source_joint_id": "Bone.001", "target_joint_id": "beagle Spine"},
+    {"semantic_joint_id": "neck", "source_joint_id": "Bone.002", "target_joint_id": "beagle Neck"},
+    {"semantic_joint_id": "head", "source_joint_id": "Bone.003", "target_joint_id": "beagle Head"},
+    {"semantic_joint_id": "tail_base", "source_joint_id": "Bone.004", "target_joint_id": "beagle Tail"},
+    {"semantic_joint_id": "tail_1", "source_joint_id": "Bone.005", "target_joint_id": "beagle Tail1"},
+    {"semantic_joint_id": "tail_2", "source_joint_id": "Bone.006", "target_joint_id": "beagle Tail2"},
+    {"semantic_joint_id": "tail_3", "source_joint_id": "Bone.007", "target_joint_id": "beagle Tail3"},
+    {"semantic_joint_id": "hind_left_hip", "source_joint_id": "Bone.008", "target_joint_id": "beagle L Thigh"},
+    {"semantic_joint_id": "hind_left_stifle", "source_joint_id": "Bone.009", "target_joint_id": "beagle L Calf"},
+    {"semantic_joint_id": "hind_left_hock", "source_joint_id": "Bone.010", "target_joint_id": "beagle L Foot"},
+    {"semantic_joint_id": "hind_right_hip", "source_joint_id": "Bone.011", "target_joint_id": "beagle R Thigh"},
+    {"semantic_joint_id": "hind_right_stifle", "source_joint_id": "Bone.012", "target_joint_id": "beagle R Calf"},
+    {"semantic_joint_id": "hind_right_hock", "source_joint_id": "Bone.013", "target_joint_id": "beagle R Foot"},
+    {"semantic_joint_id": "fore_right_shoulder", "source_joint_id": "Bone.014", "target_joint_id": "beagle R UpperArm"},
+    {"semantic_joint_id": "fore_right_elbow", "source_joint_id": "Bone.015", "target_joint_id": "beagle R Forearm"},
+    {"semantic_joint_id": "fore_right_carpus", "source_joint_id": "Bone.016", "target_joint_id": "beagle R Hand"},
+    {"semantic_joint_id": "fore_left_shoulder", "source_joint_id": "Bone.017", "target_joint_id": "beagle L UpperArm"},
+    {"semantic_joint_id": "fore_left_elbow", "source_joint_id": "Bone.018", "target_joint_id": "beagle L Forearm"},
+    {"semantic_joint_id": "fore_left_carpus", "source_joint_id": "Bone.019", "target_joint_id": "beagle L Hand"}
+  ],
+  "actions": [
+    {"semantic_action_id": "idle", "source_action_hint": "idle", "output_action_name": "Idle"},
+    {"semantic_action_id": "walk", "source_action_hint": "walking", "output_action_name": "Walking"}
+  ],
+  "qa_contract": {
+    "semantic_action_id": "walk",
+    "coordinate_frame": {
+      "forward_axis": "+X",
+      "lateral_axis": "+Z",
+      "vertical_axis": "+Y"
+    },
+    "sample_rate_hz": 15,
+    "minimum_sample_count": 3,
+    "cyclic": true,
+    "required_chain_ids": ["hind_left", "hind_right", "fore_left", "fore_right"],
+    "chain_thresholds": {
+      "hind_left": {
+        "minimum_forward_excursion_normalized": 0.5,
+        "minimum_vertical_excursion_normalized": 0.15,
+        "maximum_lateral_excursion_normalized": 0.15,
+        "maximum_lateral_to_forward_ratio": 0.2
+      },
+      "hind_right": {
+        "minimum_forward_excursion_normalized": 0.5,
+        "minimum_vertical_excursion_normalized": 0.15,
+        "maximum_lateral_excursion_normalized": 0.15,
+        "maximum_lateral_to_forward_ratio": 0.2
+      },
+      "fore_left": {
+        "minimum_forward_excursion_normalized": 0.5,
+        "minimum_vertical_excursion_normalized": 0.15,
+        "maximum_lateral_excursion_normalized": 0.15,
+        "maximum_lateral_to_forward_ratio": 0.2
+      },
+      "fore_right": {
+        "minimum_forward_excursion_normalized": 0.5,
+        "minimum_vertical_excursion_normalized": 0.15,
+        "maximum_lateral_excursion_normalized": 0.15,
+        "maximum_lateral_to_forward_ratio": 0.2
+      }
+    },
+    "joint_thresholds_by_chain": {
+      "hind_left": {
+        "hind_left_hip": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "hind_left_stifle": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "hind_left_hock": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0}
+      },
+      "hind_right": {
+        "hind_right_hip": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "hind_right_stifle": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "hind_right_hock": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0}
+      },
+      "fore_left": {
+        "fore_left_shoulder": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "fore_left_elbow": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "fore_left_carpus": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0}
+      },
+      "fore_right": {
+        "fore_right_shoulder": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "fore_right_elbow": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0},
+        "fore_right_carpus": {"minimum_angular_excursion_degrees": 2.0, "maximum_angular_speed_degrees_per_second": 1440.0}
+      }
+    },
+    "chain_groups": [
+      {"group_id": "hind", "chain_ids": ["hind_left", "hind_right"]},
+      {"group_id": "fore", "chain_ids": ["fore_left", "fore_right"]}
+    ],
+    "group_ratio_thresholds": [
+      {
+        "ratio_id": "hind_to_fore_forward",
+        "numerator_group_id": "hind",
+        "numerator_axis": "forward",
+        "denominator_group_id": "fore",
+        "denominator_axis": "forward",
+        "metric_space": "rest_length_normalized",
+        "minimum_ratio": 0.65,
+        "maximum_ratio": 1.35
+      }
+    ],
+    "symmetry_thresholds": [
+      {
+        "symmetry_id": "hind_left_right",
+        "first_chain_id": "hind_left",
+        "second_chain_id": "hind_right",
+        "maximum_relative_difference": 0.2,
+        "axes": ["forward", "vertical"],
+        "metric_space": "rest_length_normalized"
+      },
+      {
+        "symmetry_id": "fore_left_right",
+        "first_chain_id": "fore_left",
+        "second_chain_id": "fore_right",
+        "maximum_relative_difference": 0.2,
+        "axes": ["forward", "vertical"],
+        "metric_space": "rest_length_normalized"
+      }
+    ]
+  },
+  "attribute_domain": {
+    "size": ["small", "medium", "large"],
+    "body_build": ["slim", "standard", "stocky"],
+    "coat_profile_id": "dog_beagle_tricolor_v1",
+    "coat_values": ["light_tricolor", "standard_tricolor", "dark_tricolor"],
+    "life_stage": ["young", "adult", "senior"]
+  }
+}

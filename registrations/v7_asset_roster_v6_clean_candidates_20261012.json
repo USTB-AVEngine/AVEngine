@@ -1,0 +1,297 @@
+{
+  "schema": "avengine_v7_v6_clean_animal_candidates_20261012_v1",
+  "artifact_root": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012",
+  "candidates": [
+    {
+      "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+      "status": "rejected",
+      "downstream_ai_training_admission": "not_granted",
+      "source_checks": "A all output-compatible licenses",
+      "native_cases": [
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_abyssinian_ruddy_medium_standard_adult_research_v1_Idle.json",
+          "sha256": "611250207875426050b0c32d5e8f8d2c405750a3472478f4f6a165bdece6878b",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.012923084462682977,
+          "minimum_foot_delta_m": -0.00015670142086937622,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_abyssinian_ruddy_medium_standard_adult_research_v1_Walking.json",
+          "sha256": "69aa0904d0cde17d9bfd49b35b6d0e3b99dc59cd3d8ae5c1dd12d8b57e8e1cc7",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.027648183024695072,
+          "minimum_foot_delta_m": -0.0002260881935733372,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_abyssinian_ruddy_medium_standard_adult_research_v1_Idle.json",
+          "sha256": "23f61307ce270d014aa666ee7688158f9f8683bc8e9ccfff7121b77154a1f1ed",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.014591776097814813,
+          "minimum_foot_delta_m": 0.0011747173318009119,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_abyssinian_ruddy_medium_standard_adult_research_v1_Walking.json",
+          "sha256": "8b4296647c639b245d98ee2315b17aea7a0fb753ce8e6539a594779132330f5c",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.02999171844797388,
+          "minimum_foot_delta_m": -0.0013826970089644286,
+          "error": null
+        }
+      ],
+      "source_original_unchanged": true
+    },
+    {
+      "asset_id": "generated_labrador_yellow_medium_standard_adult_research_v1",
+      "status": "rejected",
+      "downstream_ai_training_admission": "not_granted",
+      "source_checks": "A all output-compatible licenses",
+      "native_cases": [
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_labrador_yellow_medium_standard_adult_research_v1_Idle.json",
+          "sha256": "b813a6322d589e8bb91bbdadeb84b58ded35da58da01fa52047339bb5e595c95",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.017839946431828693,
+          "minimum_foot_delta_m": 0.00037413003342265383,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_labrador_yellow_medium_standard_adult_research_v1_Walking.json",
+          "sha256": "e91f783373b0f35f3fed8d8c676636ec644cf40dcd5c9dd913a2d312f6e99162",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.03498476590176863,
+          "minimum_foot_delta_m": -0.0007619987370786341,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_labrador_yellow_medium_standard_adult_research_v1_Idle.json",
+          "sha256": "5397d6e5e7373422552e4082e7edca79532bdea7d84fd58a2dac7df9813717c9",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.01674648432226296,
+          "minimum_foot_delta_m": 0.0014620042075406958,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_labrador_yellow_medium_standard_adult_research_v1_Walking.json",
+          "sha256": "69a33da0b1fc1c19d78d874cdacb8e2aca9b71da6502992c3a9c2fe25a1b48e7",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.032744555130207964,
+          "minimum_foot_delta_m": -0.0014640382456716644,
+          "error": null
+        }
+      ],
+      "source_original_unchanged": true
+    },
+    {
+      "asset_id": "generated_shiba_inu_red_medium_standard_adult_research_v1",
+      "status": "rejected",
+      "downstream_ai_training_admission": "not_granted",
+      "source_checks": "A all output-compatible licenses",
+      "native_cases": [
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_shiba_inu_red_medium_standard_adult_research_v1_Idle.json",
+          "sha256": "72cf4b73f4af5cfae9c6e1cf0c34e9cfdab06d843e1a2dd752c1187850a46bfd",
+          "status": "pass",
+          "maximum_contact_delta_m": 0.005306069152067747,
+          "minimum_foot_delta_m": -0.0015754980412185085,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_shiba_inu_red_medium_standard_adult_research_v1_Walking.json",
+          "sha256": "d4f71fcaa3d3f7e20f4afd1fb4fd57396e750265927e2d5457db41fc4fc62748",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.03901974890131635,
+          "minimum_foot_delta_m": -0.0021627578929377224,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_shiba_inu_red_medium_standard_adult_research_v1_Idle.json",
+          "sha256": "4aecc37f0e1471060dce2cb8c4c332ad710a3bba4cc12fa7da71e8fe22297d49",
+          "status": "pass",
+          "maximum_contact_delta_m": 0.002995062963675109,
+          "minimum_foot_delta_m": -0.00268430960683904,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_shiba_inu_red_medium_standard_adult_research_v1_Walking.json",
+          "sha256": "4357d48ff12a2854e2e021a938923fc13c1abe3ceb4667e2fda0bac9a7ea2616",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.03951311144728345,
+          "minimum_foot_delta_m": -0.002782473344851889,
+          "error": null
+        }
+      ],
+      "source_original_unchanged": true
+    },
+    {
+      "asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
+      "status": "rejected",
+      "downstream_ai_training_admission": "not_granted",
+      "source_checks": "A all output-compatible licenses",
+      "native_cases": [
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_british_shorthair_blue_medium_stocky_adult_research_v1_Idle.json",
+          "sha256": "6644ae5c976e2ca245774ff0df9f6a077a7e9e0859bd36ebd490d4db47c7d44a",
+          "status": "pass",
+          "maximum_contact_delta_m": 0.010015074690960947,
+          "minimum_foot_delta_m": -0.00045452620003995445,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_british_shorthair_blue_medium_stocky_adult_research_v1_Walking.json",
+          "sha256": "3746d1bc0b97493f99008a34fec204058d87391898993af05fbea60647237a7c",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.017529217305716306,
+          "minimum_foot_delta_m": -0.0011338722601246997,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_british_shorthair_blue_medium_stocky_adult_research_v1_Idle.json",
+          "sha256": "b8a2eaced2bfa0352412dbca72f9e40867c9e0ab0fcecdd359bb09390839d33e",
+          "status": "pass",
+          "maximum_contact_delta_m": 0.011269260725163521,
+          "minimum_foot_delta_m": -0.0018259100226289439,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_british_shorthair_blue_medium_stocky_adult_research_v1_Walking.json",
+          "sha256": "b0b760fe1f4183e88179a9535ceeca7c2f4be53470f548e448c4e4312ab5b6b0",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.01634132653766516,
+          "minimum_foot_delta_m": -0.002434472118685374,
+          "error": null
+        }
+      ],
+      "source_original_unchanged": true
+    },
+    {
+      "asset_id": "generated_burmese_dark_sable_research_v1",
+      "status": "rejected",
+      "downstream_ai_training_admission": "not_granted",
+      "source_checks": "A all output-compatible licenses",
+      "native_cases": [
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_burmese_dark_sable_research_v1_Idle.json",
+          "sha256": "87ef567d615925ad336391828f9576204ef7bf1787825d1727fdaa510f30c591",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.018752470043015182,
+          "minimum_foot_delta_m": -7.29511850637559e-05,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_burmese_dark_sable_research_v1_Walking.json",
+          "sha256": "dbbcf3f9aa798fef64d2a24968ba818f93348ba503f7c13652759cdecf46b80a",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.040296652500198316,
+          "minimum_foot_delta_m": -0.00035175445401543475,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_burmese_dark_sable_research_v1_Idle.json",
+          "sha256": "c690c375fb0963af12ab3385f7a0fecd52bf4fec12bbebb5468d8fd03fdb1ba4",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.015451377547071342,
+          "minimum_foot_delta_m": -1.926545676296e-05,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_burmese_dark_sable_research_v1_Walking.json",
+          "sha256": "9cf99d047676b3aedb82696d889c22eb0b135128bc80c2407df56cbc27fe5b46",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.036750801984832715,
+          "minimum_foot_delta_m": -0.0018827727245905035,
+          "error": null
+        }
+      ],
+      "source_original_unchanged": true
+    },
+    {
+      "asset_id": "generated_jack_russell_terrier_standard_white_tan_research_v1",
+      "status": "rejected",
+      "downstream_ai_training_admission": "not_granted",
+      "source_checks": "A all output-compatible licenses",
+      "native_cases": [
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_jack_russell_terrier_standard_white_tan_research_v1_Idle.json",
+          "sha256": "b6180f7b370457fb3963fbdaa1fbd738652ef78fa3d422f6533b75547003a356",
+          "status": "pass",
+          "maximum_contact_delta_m": 0.006202206389022694,
+          "minimum_foot_delta_m": 4.827976226806641e-06,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_jack_russell_terrier_standard_white_tan_research_v1_Walking.json",
+          "sha256": "ef05159e5e2fcc72ec1d98cfa64eeeb2962cc78658f7412bd1863b3444385170",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.03775846149481124,
+          "minimum_foot_delta_m": -0.0009944779962151066,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_jack_russell_terrier_standard_white_tan_research_v1_Idle.json",
+          "sha256": "6301346389e85cce165fd2f69d07259a5a1721fc2cca0b7fd25cb551af0ef493",
+          "status": "pass",
+          "maximum_contact_delta_m": 0.007048026100707876,
+          "minimum_foot_delta_m": -0.0005268752574920654,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_jack_russell_terrier_standard_white_tan_research_v1_Walking.json",
+          "sha256": "440355088f34704fae59e3fd091b20775cb2e8fd3c2a91b375b106ed3648b858",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.03806161071813888,
+          "minimum_foot_delta_m": -0.0021522641957149487,
+          "error": null
+        }
+      ],
+      "source_original_unchanged": true
+    },
+    {
+      "asset_id": "generated_siamese_standard_seal_point_research_v1",
+      "status": "rejected",
+      "downstream_ai_training_admission": "not_granted",
+      "source_checks": "A all output-compatible licenses",
+      "native_cases": [
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_siamese_standard_seal_point_research_v1_Idle.json",
+          "sha256": "3aeb6b77d82ba6dd7177623bca8567560ab13cadbefeebc9ef081d6230619ec1",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.0261045707137293,
+          "minimum_foot_delta_m": -0.00023792974695388287,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/mp3d/generated_siamese_standard_seal_point_research_v1_Walking.json",
+          "sha256": "ae82d95a26dcad2302bac6c6468121bb0599063b067eb77ac825f68b9f6955ac",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.03742129465530882,
+          "minimum_foot_delta_m": -0.0005212835458916366,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_siamese_standard_seal_point_research_v1_Idle.json",
+          "sha256": "bbb386cbf90a7292e91f7beb87b4b7f84bafbc59869aad1b761b2f15f578bbfc",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.028289587584227956,
+          "minimum_foot_delta_m": -0.0012863165067555221,
+          "error": null
+        },
+        {
+          "path": "/data/jzy/tmp/claude_hardbank_20260923/v7_animal_variants_20261012/evidence/C_native/hm3d/generated_siamese_standard_seal_point_research_v1_Walking.json",
+          "sha256": "f76d810f141c3babbaaa3e11cb51ff4b0604de7b3fe90a5dc789520d1e171aac",
+          "status": "fail",
+          "maximum_contact_delta_m": 0.039909654464230636,
+          "minimum_foot_delta_m": -0.0018687272704424798,
+          "error": null
+        }
+      ],
+      "source_original_unchanged": true
+    }
+  ],
+  "animals": [],
+  "existing_packages_modified": false,
+  "production_sampler_integration": false,
+  "audio_bound": false
+}

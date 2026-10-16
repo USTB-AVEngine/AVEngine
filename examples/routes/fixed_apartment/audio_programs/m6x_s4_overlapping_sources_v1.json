@@ -1,0 +1,84 @@
+{
+  "schema": "avengine_m6_audio_program_v1",
+  "program_id": "m6x_s4_overlapping_sources_v1",
+  "revision": "v1",
+  "mode": "simultaneous_subset",
+  "timeline": {
+    "time_base_hz": 48000,
+    "ticks_per_frame": 3200,
+    "video_fps": 15,
+    "frame_count": 75,
+    "sample_rate_hz": 16000,
+    "ticks_per_sample": 3,
+    "sample_count": 80000
+  },
+  "candidate_source_endpoint_ids": [
+    "m6x_dog0_muzzle",
+    "m6x_human0_mouth"
+  ],
+  "events": [
+    {
+      "event_id": "s4_human_speech",
+      "source_endpoint_id": "m6x_human0_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 24000,
+      "end_tick_exclusive": 168000,
+      "start_sample": 8000,
+      "end_sample_exclusive": 56000,
+      "source_start_sample": 0,
+      "source_end_sample_exclusive": 48000,
+      "linear_gain": 0.2,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "s4_dog_bark_0",
+      "source_endpoint_id": "m6x_dog0_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 48000,
+      "end_tick_exclusive": 62400,
+      "start_sample": 16000,
+      "end_sample_exclusive": 20800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.16,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "s4_dog_bark_1",
+      "source_endpoint_id": "m6x_dog0_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 96000,
+      "end_tick_exclusive": 110400,
+      "start_sample": 32000,
+      "end_sample_exclusive": 36800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.16,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "s4_dog_bark_2",
+      "source_endpoint_id": "m6x_dog0_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 144000,
+      "end_tick_exclusive": 158400,
+      "start_sample": 48000,
+      "end_sample_exclusive": 52800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.16,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    }
+  ],
+  "source_specific_stems": true,
+  "admission_state": "research",
+  "program_content_sha256": "b3ceacd95ef8207c8ea993fba1a47731e6019a0b33a67363be155d3ff8fd27ea"
+}

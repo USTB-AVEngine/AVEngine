@@ -1,0 +1,59 @@
+{
+  "schema": "avengine_skokloster_imported_room_runtime_profile_v1",
+  "room_id": "habitat_test_skokloster_castle",
+  "scene_id": "skokloster-castle",
+  "status": "packaged_room_object_readback_pass_visual_sparse_pending",
+  "visual": {
+    "managed_content_root": "/Game/MyAssets/Audioset/Scenes/skokloster_castle",
+    "editor_review_map": "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict",
+    "legacy_spawn_entry_map": "/Engine/Maps/Entry",
+    "packaged_runtime_map": "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict",
+    "packaged_static_mesh_object_path": "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Imported/skokloster_castle_habitat_y_up.skokloster_castle_habitat_y_up",
+    "packaged_material_object_path": "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Imported/model_Material_u1_v1.model_Material_u1_v1",
+    "packaged_saved_actor_tag": "avengine_skokloster_castle_surface",
+    "packaged_readback": {
+      "result": "artifacts/packaged_object_readback_v2/RESULT.json",
+      "nullrhi": true,
+      "actor_count": 1,
+      "mesh_handle_match": true,
+      "material_handle_match": true,
+      "material_slot_count": 1,
+      "bounds_match_editor_cm": true,
+      "identity_transform": true
+    },
+    "expected_static_mesh_count": 1,
+    "runtime_actor_transform": "identity",
+    "collision": "NoCollision"
+  },
+  "navigation": {
+    "authority": "Habitat PathFinder",
+    "navmesh": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/versioned_data/habitat_test_scenes_v1.0/skokloster-castle.navmesh",
+    "nav_island_count": 1,
+    "island_area_m2": 226.65673828125,
+    "island_radius_m": 12.550561904907227
+  },
+  "coordinate_contract": {
+    "raw_to_habitat": "H=(S.x,S.z,-S.y)",
+    "habitat_to_ue_cm": "U_cm=(100*H.x,100*H.z,100*H.y)"
+  },
+  "camera": {
+    "blueprint_class_path": "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C",
+    "shared_actor_for_all_passes": true,
+    "normal_rgb_component": "DefaultSceneRoot.final_tone_curve_hdr_",
+    "normal_metric_depth_component": "DefaultSceneRoot.sp_depth_meters_",
+    "source1_target_only_metric_depth_component": "DefaultSceneRoot.sp_depth_meters_",
+    "source2_target_only_metric_depth_component": "DefaultSceneRoot.sp_depth_meters_",
+    "target_only_policy": "PRM_UseShowOnlyList"
+  },
+  "readiness": {
+    "cpu_geometry_and_nav": "pass",
+    "acoustic_research_v2": "pass",
+    "ue_editor_import": "pass",
+    "fresh_editor_reload": "pass",
+    "cook": "pass",
+    "packaged_mesh_readback": "pass",
+    "strict_gpu_capture": "not_run"
+  },
+  "qualification_claim": false,
+  "formal_dataset_count": 0
+}

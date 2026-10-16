@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>稳定原生动物 Walk / Idle 审核</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #0b1018; color: #e7edf7; }
+    header { position: sticky; top: 0; z-index: 2; padding: 18px 24px; background: #111927ee; border-bottom: 1px solid #2b3a52; }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    p { margin: 6px 0; color: #b8c5d8; }
+    .pending { color: #ffd166; }
+    .controls { display: flex; gap: 8px; margin-top: 12px; }
+    button { border: 1px solid #3a4f70; border-radius: 8px; padding: 8px 14px; background: #19263a; color: #e7edf7; cursor: pointer; }
+    button.active { background: #245a91; }
+    main { display: grid; gap: 16px; padding: 20px; }
+    article { border: 1px solid #2a3a52; border-radius: 12px; background: #111927; padding: 14px; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    .meta { color: #93a8c4; font-size: 13px; margin-bottom: 10px; }
+    .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .clip { min-width: 0; }
+    .clip h3 { margin: 0 0 6px; font-size: 15px; }
+    video { width: 100%; min-height: 220px; background: #05070b; border-radius: 8px; }
+    code { display: block; margin-top: 6px; overflow-wrap: anywhere; color: #8bd3ff; font-size: 11px; }
+    .links a { color: #9dd6ff; margin-right: 12px; }
+    @media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>稳定原生动物 Walk / Idle 自动 QA 成片</h1>
+    <p>12 个模板、24 段，每段 18 秒 / 270 帧。方向、落地、动作名、UE 回读和媒体回读已通过。</p>
+    <p class="pending">当前全部为 research_candidate / human_review=pending；本页不执行批准操作。</p>
+    <p class="links"><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_qa_summary.json">批量 QA JSON</a><a href="/docs/stable_animal_template_route_20260714.md">技术记录</a></p>
+    <div class="controls"><button data-filter="all" class="active">Walk + Idle</button><button data-filter="Walking">只看 Walk</button><button data-filter="Idle">只看 Idle</button></div>
+  </header>
+  <main id="cards"></main>
+  <script>
+    const huskyBase = "/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips";
+    const batchBase = "/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips";
+    const records = [
+      ["Husky", "dog", "husky", "stable_dog_husky_quaternius_ultimate_husky_v1", huskyBase],
+      ["Alpaca", "alpaca", "alpaca", "stable_alpaca_alpaca_quaternius_ultimate_alpaca_v1", batchBase],
+      ["Bull", "cattle_bovinae", "bull", "stable_cattle_bovinae_bull_quaternius_ultimate_bull_v1", batchBase],
+      ["Cow", "cattle_bovinae", "cow", "stable_cattle_bovinae_cow_quaternius_ultimate_cow_v1", batchBase],
+      ["Deer", "deer", "deer", "stable_deer_deer_quaternius_ultimate_deer_v1", batchBase],
+      ["Donkey", "donkey_ass", "donkey", "stable_donkey_ass_donkey_quaternius_ultimate_donkey_v1", batchBase],
+      ["Fox", "fox", "red_fox", "stable_fox_red_fox_quaternius_ultimate_fox_v1", batchBase],
+      ["Horse", "horse", "bay_horse", "stable_horse_bay_horse_quaternius_ultimate_horse_v1", batchBase],
+      ["Horse White", "horse", "white_horse", "stable_horse_white_horse_quaternius_ultimate_horse_white_v1", batchBase],
+      ["Shiba Inu", "dog", "shiba_inu", "stable_dog_shiba_inu_quaternius_ultimate_shibainu_v1", batchBase],
+      ["Stag", "deer", "stag", "stable_deer_stag_quaternius_ultimate_stag_v1", batchBase],
+      ["Wolf", "wolf", "gray_wolf", "stable_wolf_gray_wolf_quaternius_ultimate_wolf_v1", batchBase]
+    ];
+    const actionFolder = { Walking: "camera_pass_table_loop_walking", Idle: "camera_pass_table_loop_idle" };
+    const cards = document.getElementById("cards");
+    const filePath = url => "/data/jzy/code/AVEngine" + url;
+    for (const [label, species, breed, tag, base] of records) {
+      const article = document.createElement("article");
+      article.innerHTML = `<h2>${label}</h2><div class="meta">${species} · ${breed} · ${tag} · 自动通过 / 人工待审</div><div class="pair"></div>`;
+      const pair = article.querySelector(".pair");
+      for (const action of ["Walking", "Idle"]) {
+        const root = `${base}/${tag}/${actionFolder[action]}`;
+        const review = `${root}/videos/side_by_side_review_annotated.mp4`;
+        const clip = document.createElement("section");
+        clip.className = "clip";
+        clip.dataset.action = action;
+        clip.innerHTML = `<h3>${action}</h3><video controls playsinline preload="none" data-src="${review}"></video><div class="links"><a href="${review}">审核成片</a><a href="${root}/videos/apartment_v1_view0.mp4">主视图</a><a href="${root}/videos/topdown_review.mp4">Top-down</a></div><code>${filePath(review)}</code>`;
+        pair.appendChild(clip);
+      }
+      cards.appendChild(article);
+    }
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const video = entry.target;
+        if (!video.src) video.src = video.dataset.src;
+        observer.unobserve(video);
+      }
+    }, { rootMargin: "600px" });
+    document.querySelectorAll("video").forEach(video => observer.observe(video));
+    document.querySelectorAll("button[data-filter]").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll("button[data-filter]").forEach(item => item.classList.remove("active"));
+      button.classList.add("active");
+      const filter = button.dataset.filter;
+      document.querySelectorAll(".clip").forEach(clip => clip.hidden = filter !== "all" && clip.dataset.action !== filter);
+    }));
+  </script>
+</body>
+</html>

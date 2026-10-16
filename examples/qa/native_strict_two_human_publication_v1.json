@@ -1,0 +1,156 @@
+{
+  "schema": "avengine_native_strict_two_human_publication_plan_v1",
+  "plan_id": "lead_d_strict_two_human_sparse_publication_20260811_v1",
+  "status": "ready_for_cpu_publication",
+  "claim_boundary": "Eight distinct single-frame native sparse gates passed. This publication does not promote them to full 75-frame Facts, formal benchmark scenes, or qualification evidence.",
+  "current_contract": "examples/qa/native_strict_two_human_expansion_v1.json",
+  "counted_sparse_scene_count": 8,
+  "formal_scene_count": 0,
+  "qualification_claim": false,
+  "target_side_counts": {"left": 4, "right": 4},
+  "identity_catalog": {
+    "M": "rocketbox_adults_male_adult_01",
+    "F": "rocketbox_adults_female_adult_01",
+    "C": "rocketbox_professions_construction_male_01"
+  },
+  "visibility_contract": {
+    "target_visible_fraction_minimum": 0.8,
+    "distractor_visible_fraction_minimum": 0.5,
+    "visible_pixels_minimum_per_actor": 5000,
+    "screen_side_dead_zone_fraction": 0.02,
+    "bbox_edge_margin_px_minimum": 1
+  },
+  "review_boundaries": {
+    "single_frame_sparse_only": true,
+    "target_only_rgb_persisted": false,
+    "ground_contact_claim": false,
+    "persistent_capture_exit_receipt_rows": [1],
+    "manifest_pass_without_persistent_exit_receipt_rows": [2, 3, 4, 5, 6, 7, 8]
+  },
+  "publication_outputs": ["ledger.json", "contact_sheet.png", "index.html"],
+  "rows": [
+    {
+      "row_index": 1,
+      "row_id": "strict_01_existing_canary",
+      "episode_id": "rocketbox_male_female__strict_two_human_canary_v1",
+      "target_identity_key": "M",
+      "distractor_identity_key": "F",
+      "target_side": "right",
+      "target_sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+      "speech_frame_window_inclusive": [7, 31],
+      "capture_root": "tmp/lead_d_strict_two_human_canary_v1/native_sparse_f15_v3_instrumented",
+      "cpu_gate": "tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/final_gate_ledger.json",
+      "cpu_gate_kind": "final_gate_ledger",
+      "counted": true
+    },
+    {
+      "row_index": 2,
+      "row_id": "strict_02_male_female_left",
+      "episode_id": "rocketbox_male_female__strict_two_human_left_v1",
+      "target_identity_key": "M",
+      "distractor_identity_key": "F",
+      "target_side": "left",
+      "target_sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+      "speech_frame_window_inclusive": [7, 31],
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_02_male_female_left",
+      "cpu_gate": "tmp/lead_d_strict_two_human_expansion_v1/cpu_delivery_v3/strict_02_male_female_left/sparse_native_gate_request.ready.json",
+      "cpu_gate_kind": "ready_request",
+      "counted": true
+    },
+    {
+      "row_index": 3,
+      "row_id": "strict_03_female_male_right",
+      "episode_id": "rocketbox_female_male__strict_two_human_right_v1",
+      "target_identity_key": "F",
+      "distractor_identity_key": "M",
+      "target_side": "right",
+      "target_sound_asset_id": "speech_cremad_1002_mti_neu_v1",
+      "speech_frame_window_inclusive": [7, 50],
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_03_female_male_right",
+      "cpu_gate": "tmp/lead_d_strict_two_human_expansion_v1/cpu_delivery_v3/strict_03_female_male_right/sparse_native_gate_request.ready.json",
+      "cpu_gate_kind": "ready_request",
+      "counted": true
+    },
+    {
+      "row_index": 4,
+      "row_id": "strict_04_female_male_left",
+      "episode_id": "rocketbox_female_male__strict_two_human_left_v1",
+      "target_identity_key": "F",
+      "distractor_identity_key": "M",
+      "target_side": "left",
+      "target_sound_asset_id": "speech_cremad_1002_mti_neu_v1",
+      "speech_frame_window_inclusive": [7, 50],
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_04_female_male_left",
+      "cpu_gate": "tmp/lead_d_strict_two_human_expansion_v1/cpu_delivery_v3/strict_04_female_male_left/sparse_native_gate_request.ready.json",
+      "cpu_gate_kind": "ready_request",
+      "counted": true
+    },
+    {
+      "row_index": 5,
+      "row_id": "strict_05_male_construction_right",
+      "episode_id": "rocketbox_male_construction__strict_two_human_right_v1",
+      "target_identity_key": "M",
+      "distractor_identity_key": "C",
+      "target_side": "right",
+      "target_sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+      "speech_frame_window_inclusive": [7, 31],
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_05_male_construction_right",
+      "cpu_gate": "tmp/lead_d_strict_two_human_expansion_v1/cpu_delivery_v3/strict_05_male_construction_right/sparse_native_gate_request.ready.json",
+      "cpu_gate_kind": "ready_request",
+      "counted": true
+    },
+    {
+      "row_index": 6,
+      "row_id": "strict_06_construction_male_left",
+      "episode_id": "rocketbox_construction_male__strict_two_human_left_v1",
+      "target_identity_key": "C",
+      "distractor_identity_key": "M",
+      "target_side": "left",
+      "target_sound_asset_id": "speech_cremad_1005_tie_neu_v1",
+      "speech_frame_window_inclusive": [7, 50],
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_06_construction_male_left",
+      "cpu_gate": "tmp/lead_d_strict_two_human_expansion_v1/cpu_delivery_v3/strict_06_construction_male_left/sparse_native_gate_request.ready.json",
+      "cpu_gate_kind": "ready_request",
+      "counted": true
+    },
+    {
+      "row_index": 7,
+      "row_id": "strict_07_female_construction_right",
+      "episode_id": "rocketbox_female_construction__strict_two_human_right_v2",
+      "target_identity_key": "F",
+      "distractor_identity_key": "C",
+      "target_side": "right",
+      "target_sound_asset_id": "speech_cremad_1002_mti_neu_v1",
+      "speech_frame_window_inclusive": [7, 50],
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v2/strict_07_female_construction_right_v2",
+      "cpu_gate": "tmp/lead_d_strict_two_human_expansion_v1/row7_v2_cpu_delivery_v1/strict_07_female_construction_right/sparse_native_gate_request.ready.json",
+      "cpu_gate_kind": "ready_request",
+      "counted": true
+    },
+    {
+      "row_index": 8,
+      "row_id": "strict_08_construction_female_left",
+      "episode_id": "rocketbox_construction_female__strict_two_human_left_v1",
+      "target_identity_key": "C",
+      "distractor_identity_key": "F",
+      "target_side": "left",
+      "target_sound_asset_id": "speech_cremad_1005_tie_neu_v1",
+      "speech_frame_window_inclusive": [7, 50],
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_08_construction_female_left",
+      "cpu_gate": "tmp/lead_d_strict_two_human_expansion_v1/row8_ready_current_contract_v1/sparse_native_gate_request.ready.json",
+      "cpu_gate_kind": "ready_request",
+      "counted": true
+    }
+  ],
+  "excluded_attempts": [
+    {
+      "row_id": "strict_07_female_construction_right",
+      "attempt_id": "v1",
+      "episode_id": "rocketbox_female_construction__strict_two_human_right_v1",
+      "rejection_record": "reports/lead_a/strict_two_human_row7_v1_rejected.json",
+      "capture_root": "tmp/lead_d_strict_two_human_expansion_v1/native_sparse_v1/strict_07_female_construction_right",
+      "counted": false,
+      "reason": "target visible fraction 0.681105 was below the current 0.8 contract"
+    }
+  ]
+}

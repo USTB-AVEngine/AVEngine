@@ -1,0 +1,40 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "1.0",
+    "FriendlyName": "SpServices",
+    "Description": "",
+    "Category": "Other",
+    "CreatedBy": "",
+    "CreatedByURL": "",
+    "DocsURL": "",
+    "MarketplaceURL": "",
+    "SupportURL": "",
+    "CanContainContent": false,
+    "IsBetaVersion": true,
+    "IsExperimentalVersion": true,
+    "Installed": false,
+    "Modules":
+    [
+        {
+            "Name": "SpServices",
+            "Type": "Runtime",
+            "LoadingPhase": "Default",
+            "AdditionalDependencies":
+            [
+                "SpCore"
+            ]
+        }
+    ],
+    "Plugins":
+    [
+        {
+            "Name": "EnhancedInput",
+            "Enabled":  true
+        },
+        {
+            "Name": "SpCore",
+            "Enabled": true
+        }
+    ]
+}

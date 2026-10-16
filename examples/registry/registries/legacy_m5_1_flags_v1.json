@@ -1,0 +1,139 @@
+{
+  "schema": "avengine_m6_flag_definition_registry_v1",
+  "registry_id": "legacy_m5_1_source_event_flags",
+  "revision": "v1",
+  "thresholds": {
+    "passes_close_to_mic_m": 1.0,
+    "far_from_mic_whole_clip_m": 4.0,
+    "stationary_mean_speed_mps": 0.1,
+    "steady_walk_min_mean_speed_mps": 0.15,
+    "steady_walk_max_speed_cv": 0.4,
+    "stop_and_go_stop_speed_mps": 0.05,
+    "stop_and_go_min_stopped_frames": 3,
+    "stop_and_go_min_moving_frames": 3,
+    "sources_pass_each_other_m": 0.5
+  },
+  "flags": [
+    {
+      "flag_id": "occluded_by_furniture",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "or",
+      "evaluator_kind": "provider_assessment",
+      "required_fact_ids": ["occluder_class_by_frame", "visibility_by_frame"],
+      "threshold_ids": [],
+      "definition": "At least one evaluated frame is occluded by furniture geometry."
+    },
+    {
+      "flag_id": "occluded_by_wall",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "or",
+      "evaluator_kind": "provider_assessment",
+      "required_fact_ids": ["occluder_class_by_frame", "visibility_by_frame"],
+      "threshold_ids": [],
+      "definition": "At least one evaluated frame is occluded by wall geometry."
+    },
+    {
+      "flag_id": "never_occluded",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "and",
+      "evaluator_kind": "provider_assessment",
+      "required_fact_ids": ["occluder_class_by_frame", "visibility_by_frame"],
+      "threshold_ids": [],
+      "definition": "Every evaluated frame has an unobstructed visibility verdict."
+    },
+    {
+      "flag_id": "leaves_camera_fov",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "or",
+      "evaluator_kind": "provider_assessment",
+      "required_fact_ids": ["camera_calibration", "fov_membership_by_frame"],
+      "threshold_ids": [],
+      "definition": "At least one evaluated frame lies outside the calibrated camera FOV."
+    },
+    {
+      "flag_id": "stays_in_camera_fov",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "and",
+      "evaluator_kind": "provider_assessment",
+      "required_fact_ids": ["camera_calibration", "fov_membership_by_frame"],
+      "threshold_ids": [],
+      "definition": "Every evaluated frame lies inside the calibrated camera FOV."
+    },
+    {
+      "flag_id": "crosses_azimuth_zero",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "or",
+      "evaluator_kind": "m5_1_trajectory",
+      "required_fact_ids": ["observer_pose", "source_trajectory"],
+      "threshold_ids": [],
+      "definition": "Camera-local lateral coordinates span strictly negative and positive values."
+    },
+    {
+      "flag_id": "passes_close_to_mic",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "or",
+      "evaluator_kind": "m5_1_trajectory",
+      "required_fact_ids": ["observer_position", "source_trajectory"],
+      "threshold_ids": ["passes_close_to_mic_m"],
+      "definition": "Minimum 3D emitter-to-listener distance is strictly below 1 metre."
+    },
+    {
+      "flag_id": "far_from_mic_whole_clip",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "and",
+      "evaluator_kind": "m5_1_trajectory",
+      "required_fact_ids": ["observer_position", "source_trajectory"],
+      "threshold_ids": ["far_from_mic_whole_clip_m"],
+      "definition": "Minimum 3D emitter-to-listener distance is strictly above 4 metres."
+    },
+    {
+      "flag_id": "stationary",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "or",
+      "evaluator_kind": "m5_1_trajectory",
+      "required_fact_ids": ["frame_rate", "source_trajectory"],
+      "threshold_ids": ["stationary_mean_speed_mps"],
+      "definition": "Mean adjacent-frame 3D speed is strictly below 0.1 m/s."
+    },
+    {
+      "flag_id": "steady_walk",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "and",
+      "evaluator_kind": "m5_1_trajectory",
+      "required_fact_ids": ["frame_rate", "source_trajectory"],
+      "threshold_ids": ["steady_walk_max_speed_cv", "steady_walk_min_mean_speed_mps"],
+      "definition": "At least three speed samples have mean at least 0.15 m/s and CV below 0.4."
+    },
+    {
+      "flag_id": "stop_and_go",
+      "definition_revision": "m5_1_v1",
+      "scope": "per_source",
+      "clip_aggregation": "or",
+      "evaluator_kind": "m5_1_trajectory",
+      "required_fact_ids": ["frame_rate", "source_trajectory"],
+      "threshold_ids": ["stop_and_go_min_moving_frames", "stop_and_go_min_stopped_frames", "stop_and_go_stop_speed_mps"],
+      "definition": "At least three stopped and three moving adjacent-frame speed samples occur."
+    },
+    {
+      "flag_id": "sources_pass_each_other",
+      "definition_revision": "m5_1_v1",
+      "scope": "pairwise",
+      "clip_aggregation": "or",
+      "evaluator_kind": "m5_1_pair_trajectory",
+      "required_fact_ids": ["paired_source_trajectories"],
+      "threshold_ids": ["sources_pass_each_other_m"],
+      "definition": "Minimum synchronized horizontal XZ source separation is below 0.5 metres."
+    }
+  ],
+  "registry_content_sha256": "3446964163b7bf9ebccded5b986443da17f39bd13b7db98c07f043d0f7d2fd26"
+}

@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6x_room_capsule_v1.schema.json",
+  "title": "AVEngine M6.x Fixed Room Capsule v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "room_capsule_id",
+    "revision",
+    "source_scene_provenance",
+    "room_registry_ref",
+    "resource_refs",
+    "acoustic_package_ref",
+    "qualification_report_id",
+    "runtime_backend",
+    "formal_canary_output",
+    "operating_area",
+    "fixed_visual_object_set",
+    "visual_profile",
+    "acoustic_material_status",
+    "forbidden_zones",
+    "camera_listener_rig",
+    "anchor_library_ref",
+    "trajectory_template_set_ref",
+    "fixed_layout_policy",
+    "admission_state",
+    "execution_status"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6x_room_capsule_v1"},
+    "room_capsule_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "source_scene_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "scene_id", "upstream_role"],
+      "properties": {
+        "provider": {"const": "SPEAR_Unreal"},
+        "scene_id": {"const": "apartment_0000"},
+        "upstream_role": {"const": "visual_and_scene_authoring_provenance"}
+      }
+    },
+    "room_registry_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "room_id", "room_revision"],
+      "properties": {
+        "registry_id": {"$ref": "#/$defs/stable_id"},
+        "room_id": {"$ref": "#/$defs/stable_id"},
+        "room_revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "resource_refs": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "resource_id"],
+        "properties": {
+          "role": {
+            "enum": [
+              "scene_dataset",
+              "scene_instance",
+              "visual_scene",
+              "navmesh",
+              "semantic_resource"
+            ]
+          },
+          "resource_id": {"$ref": "#/$defs/stable_id"}
+        }
+      }
+    },
+    "acoustic_package_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acoustic_representation_id", "resource_id"],
+      "properties": {
+        "acoustic_representation_id": {"$ref": "#/$defs/stable_id"},
+        "resource_id": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "qualification_report_id": {"$ref": "#/$defs/stable_id"},
+    "runtime_backend": {"const": "habitat_sim_avengine"},
+    "formal_canary_output": {"const": "habitat_native"},
+    "operating_area": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "floor_height_m", "bounds_m", "placement_claim"],
+      "properties": {
+        "authority": {"const": "declared_habitat_navmesh"},
+        "floor_height_m": {"type": "number"},
+        "bounds_m": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/vec3"}
+        },
+        "placement_claim": {"const": "source_center_only"}
+      }
+    },
+    "fixed_visual_object_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority_resource_id", "mutation"],
+      "properties": {
+        "authority_resource_id": {"$ref": "#/$defs/stable_id"},
+        "mutation": {"const": "forbidden"}
+      }
+    },
+    "visual_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "lighting_setup_id", "fixed", "hbao"],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/stable_id"},
+        "lighting_setup_id": {"$ref": "#/$defs/stable_id"},
+        "fixed": {"const": true},
+        "hbao": {"type": "boolean"},
+        "notes": {"type": "string"}
+      }
+    },
+    "acoustic_material_status": {
+      "enum": ["controlled_approximation", "research_placeholder", "unqualified"]
+    },
+    "forbidden_zones": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/stable_id"}
+    },
+    "camera_listener_rig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rig_id",
+        "formal_view_id",
+        "listener_id",
+        "logical_camera_count",
+        "listener_count",
+        "camera_listener_colocated",
+        "camera_listener_cooriented",
+        "sensor_modalities",
+        "pose_anchor_ids"
+      ],
+      "properties": {
+        "rig_id": {"$ref": "#/$defs/stable_id"},
+        "formal_view_id": {"const": "view0"},
+        "listener_id": {"$ref": "#/$defs/stable_id"},
+        "logical_camera_count": {"const": 1},
+        "listener_count": {"const": 1},
+        "camera_listener_colocated": {"const": true},
+        "camera_listener_cooriented": {"const": true},
+        "sensor_modalities": {"const": ["rgb", "depth", "semantic"]},
+        "pose_anchor_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/stable_id"}
+        }
+      }
+    },
+    "anchor_library_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_library_id", "revision"],
+      "properties": {
+        "anchor_library_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "trajectory_template_set_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trajectory_template_set_id", "revision"],
+      "properties": {
+        "trajectory_template_set_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "fixed_layout_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_object_mutation",
+        "furniture_mutation",
+        "automatic_furnishing",
+        "layout_authority"
+      ],
+      "properties": {
+        "room_object_mutation": {"const": "forbidden"},
+        "furniture_mutation": {"const": "forbidden"},
+        "automatic_furnishing": {"const": false},
+        "layout_authority": {"const": "room_registry_scene_instance_resource"}
+      }
+    },
+    "admission_state": {"const": "research"},
+    "execution_status": {"$ref": "#/$defs/execution_status"}
+  },
+  "$defs": {
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "execution_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {"enum": ["run", "pass", "blocked", "not_run"]},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"state": {"const": "blocked"}},
+            "required": ["state"]
+          },
+          "then": {"required": ["reason", "evidence_refs"]}
+        }
+      ]
+    }
+  }
+}

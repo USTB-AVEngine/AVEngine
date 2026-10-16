@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mesh-first Beagle 实例级 Walk / Idle 审核</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, "Noto Sans SC", sans-serif; }
+    body { margin: 0; background: #0b0f15; color: #eaf0f7; }
+    main { max-width: 1680px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    .lead { color: #b6c3d3; line-height: 1.65; max-width: 1100px; }
+    .status { display: inline-block; padding: 6px 10px; border: 1px solid #2a6a45;
+      border-radius: 999px; color: #8ce3ad; background: #10251a; }
+    .sheet { width: 100%; margin: 18px 0 28px; border-radius: 12px;
+      border: 1px solid #293445; background: #151b25; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(470px, 1fr)); gap: 18px; }
+    article { border: 1px solid #293445; border-radius: 12px; padding: 14px;
+      background: #111722; min-width: 0; }
+    h2 { margin: 0 0 6px; font-size: 20px; }
+    .attrs { color: #94b9ff; margin-bottom: 12px; font-family: ui-monospace, monospace; }
+    .videos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    video { width: 100%; border-radius: 8px; background: #000; }
+    .label { margin: 0 0 5px; color: #cbd5e2; font-size: 13px; }
+    code.path { display: block; margin-top: 10px; color: #8c9aae; overflow-wrap: anywhere;
+      font-size: 11px; line-height: 1.45; }
+    .warning { margin: 14px 0 22px; padding: 12px 14px; background: #28220f;
+      border: 1px solid #66551b; border-radius: 10px; color: #ead58b; }
+    @media (max-width: 700px) { main { padding: 14px; } .grid { grid-template-columns: 1fr; }
+      .videos { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>生成 Beagle：实例属性 + PBR + Walk / Idle</h1>
+  <p class="lead"><span class="status">9 / 9 GLB 与 18 / 18 视频已生成</span></p>
+  <p class="lead">顺序固定为：生成静态 mesh/PBR → 水密运行时网格 → 固定骨架与权重 → Walk/Idle → 在同一网格上做确定性实例属性。没有换回 Rocketbox/通用狗几何，也没有为每个实例重新抽 3D seed。</p>
+  <div class="warning">严格形变数值审计仍标记 Walking 为 rejected，并完整保存在每个实例的 deformation.json；本页采用用户指定的宽松视觉门，因此不会用“数值通过”覆盖真实记录，也不会因此阻塞当前 research_candidate。</div>
+  <h2>固定相机 9 格对比</h2>
+  <img class="sheet" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_static_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/contact_sheet.png" alt="9 个 Beagle OFAT 实例对比">
+  <section class="grid" id="grid"></section>
+</main>
+<script>
+const root = "/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances";
+const absoluteRoot = "/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances";
+const instances = [
+  ["baseline", "medium / standard / standard_tricolor / adult"],
+  ["size_small", "small / standard / standard_tricolor / adult"],
+  ["size_large", "large / standard / standard_tricolor / adult"],
+  ["build_slim", "medium / slim / standard_tricolor / adult"],
+  ["build_stocky", "medium / stocky / standard_tricolor / adult"],
+  ["coat_light_tricolor", "medium / standard / light_tricolor / adult"],
+  ["coat_dark_tricolor", "medium / standard / dark_tricolor / adult"],
+  ["age_young", "medium / standard / standard_tricolor / young"],
+  ["age_senior", "medium / standard / standard_tricolor / senior"]
+];
+const grid = document.querySelector("#grid");
+for (const [label, attrs] of instances) {
+  const walk = `${root}/${label}/walking/walking_side.mp4`;
+  const idle = `${root}/${label}/idle/idle_side.mp4`;
+  const article = document.createElement("article");
+  article.innerHTML = `<h2>${label}</h2><div class="attrs">${attrs}</div>
+    <div class="videos"><div><p class="label">Walking</p><video controls loop preload="metadata" src="${walk}"></video></div>
+    <div><p class="label">Idle</p><video controls loop preload="metadata" src="${idle}"></video></div></div>
+    <code class="path">${absoluteRoot}/${label}/walking/walking_side.mp4<br>${absoluteRoot}/${label}/idle/idle_side.mp4</code>`;
+  grid.appendChild(article);
+}
+</script>
+</body>
+</html>

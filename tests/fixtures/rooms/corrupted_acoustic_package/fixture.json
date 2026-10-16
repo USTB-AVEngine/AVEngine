@@ -1,0 +1,30 @@
+{
+  "schema": "avengine_m6_corrupted_acoustic_fixture_v1",
+  "fixture_id": "m6_corrupted_acoustic_package_v1",
+  "geometry": {
+    "vertices_m": [
+      [0.0, 0.0, 0.0],
+      [1.0, 0.0, 0.0],
+      [0.0, 1.0, 0.0]
+    ],
+    "triangles": [
+      [0, 0, 1],
+      [0, 1, 2]
+    ]
+  },
+  "materials": {
+    "triangle_material_ids": [999],
+    "fallback_material_ids": [999]
+  },
+  "integrity": {
+    "declared_source_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "observed_source_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "ray_checks": [
+    {
+      "check_id": "closed_wall_must_hit",
+      "expected": "hit",
+      "observed": "miss"
+    }
+  ]
+}

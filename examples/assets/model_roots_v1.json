@@ -1,0 +1,19 @@
+{
+ "schema": "avengine_model_roots_v1",
+ "revision": "v1",
+ "claim_boundary": "Where shared weights live on this host. Weights are shared across repositories and too large to vendor, so they are referenced rather than committed. Override one entry with AVENGINE_MODEL_<NAME>, or the whole file with AVENGINE_MODEL_ROOTS.",
+ "models": {
+  "flux2_klein_base": {
+   "path": "/data/models/hub/models--black-forest-labs--FLUX.2-klein-base-4B",
+   "purpose": "canonical 2d candidate generation, image-to-image from the clay pose guide"
+  },
+  "flux2_klein_tokenizer": {
+   "path": "/data/models/hub/models--black-forest-labs--FLUX.2-klein-4B/snapshots/e7b7dc27f91deacad38e78976d1f2b499d76a294/tokenizer",
+   "purpose": "prompt token accounting against the 512 window; Qwen2TokenizerFast"
+  },
+  "isnet_general_use": {
+   "path": "/data/models/rembg/isnet-general-use/isnet-general-use.onnx",
+   "purpose": "matting the generated candidate before mesh reconstruction"
+  }
+ }
+}

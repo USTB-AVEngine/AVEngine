@@ -1,0 +1,39 @@
+{
+  "schema": "avengine_rir_cache_simulation_request_v1",
+  "request_id": "rir_cache_simulation_v2_ss2_parity_20260726",
+  "qualification_claim": false,
+  "notes": [
+    "Room-agnostic native RLR simulation profile for m6x RIR cache rendering.",
+    "Supersedes reuse of the historical M4 canary request for production caches.",
+    "Changes against the M4 canary simulation block: indirect_ray_depth 100 -> 200 (RLR engine default), direct_sh_order 1 -> 3 (RLR adapter default; sharper direct-path spatialization), transmission false -> true (matches SoundSpaces 2.0 training configuration; interior partitions become acoustically transmissive instead of perfectly opaque).",
+    "Rendering stays at 16 kHz deliberately: the dataset audio contract is 16 kHz and azimuth cues below 8 kHz are preserved; this is a declared bandwidth bound, not an accident.",
+    "This profile is a propagation-quality setting only; it makes no physical room-material or calibration claim."
+  ],
+  "simulation": {
+    "sample_rate_hz": 16000,
+    "max_ir_seconds": 4.0,
+    "frequency_bands": 4,
+    "direct_sh_order": 3,
+    "indirect_sh_order": 1,
+    "direct_ray_count": 500,
+    "indirect_ray_count": 5000,
+    "indirect_ray_depth": 200,
+    "source_ray_count": 500,
+    "source_ray_depth": 20,
+    "max_diffraction_order": 10,
+    "thread_count": 1,
+    "unit_scale": 1.0,
+    "global_volume": 1.0,
+    "speed_of_sound_m_s": 343.0,
+    "direct": true,
+    "indirect": true,
+    "diffraction": true,
+    "transmission": true,
+    "mesh_simplification": false,
+    "temporal_coherence": false,
+    "channel_layout": {
+      "type": "ambisonics",
+      "channel_count": 4
+    }
+  }
+}

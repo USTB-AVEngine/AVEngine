@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_static_object_marker_visual_approval_v1.schema.json",
+  "title": "AVEngine M6 Static Object Marker Visual Approval v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "scope",
+    "asset_class",
+    "instance_id",
+    "request_sha256",
+    "profile_sha256",
+    "finalized_glb",
+    "emitter_measurement",
+    "marker_glb",
+    "reviewer_kind",
+    "review_mode",
+    "verdict",
+    "reviewer_id",
+    "reviewed_at",
+    "notes",
+    "formal_dataset_registration_authorized",
+    "approval_content_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avengine_m6_static_object_marker_visual_approval_v1"
+    },
+    "status": {"const": "completed"},
+    "scope": {"const": "emitter_marker_placement_only"},
+    "asset_class": {"const": "static_object"},
+    "instance_id": {"$ref": "#/$defs/stable_id"},
+    "request_sha256": {"$ref": "#/$defs/sha256"},
+    "profile_sha256": {"$ref": "#/$defs/sha256"},
+    "finalized_glb": {"$ref": "#/$defs/file_record"},
+    "emitter_measurement": {"$ref": "#/$defs/file_record"},
+    "marker_glb": {"$ref": "#/$defs/file_record"},
+    "reviewer_kind": {"const": "human"},
+    "review_mode": {"const": "visual"},
+    "verdict": {"const": "approved"},
+    "reviewer_id": {"$ref": "#/$defs/stable_id"},
+    "reviewed_at": {"type": "string", "minLength": 1},
+    "notes": {"type": "string", "minLength": 1},
+    "formal_dataset_registration_authorized": {"const": false},
+    "approval_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

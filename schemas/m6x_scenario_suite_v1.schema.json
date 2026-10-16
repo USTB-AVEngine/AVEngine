@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6x_scenario_suite_v1.schema.json",
+  "title": "AVEngine M6.x Fixed Room S0-S5 Scenario Suite v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "scenario_suite_id",
+    "revision",
+    "room_capsule_ref",
+    "anchor_library_ref",
+    "trajectory_template_set_ref",
+    "authority_refs",
+    "fixed_room_policy",
+    "scenarios",
+    "execution_status"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6x_scenario_suite_v1"},
+    "scenario_suite_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "room_capsule_ref": {"$ref": "#/$defs/room_ref"},
+    "anchor_library_ref": {"$ref": "#/$defs/anchor_ref"},
+    "trajectory_template_set_ref": {"$ref": "#/$defs/trajectory_ref"},
+    "authority_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audio_program_schema",
+        "timeline_schema",
+        "legacy_flag_registry_id",
+        "legacy_flag_definition_revision"
+      ],
+      "properties": {
+        "audio_program_schema": {"const": "avengine_m6_audio_program_v1"},
+        "timeline_schema": {"const": "avengine_authoritative_timeline_v2"},
+        "legacy_flag_registry_id": {"const": "legacy_m5_1_source_event_flags"},
+        "legacy_flag_definition_revision": {"const": "m5_1_v1"}
+      }
+    },
+    "fixed_room_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_room_revision",
+        "same_scene_instance",
+        "same_acoustic_package",
+        "furniture_mutation",
+        "automatic_furnishing"
+      ],
+      "properties": {
+        "same_room_revision": {"const": true},
+        "same_scene_instance": {"const": true},
+        "same_acoustic_package": {"const": true},
+        "furniture_mutation": {"const": "forbidden"},
+        "automatic_furnishing": {"const": false}
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/scenario"}
+    },
+    "execution_status": {"$ref": "#/$defs/execution_status"}
+  },
+  "$defs": {
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "room_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["room_capsule_id", "revision"],
+      "properties": {
+        "room_capsule_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "anchor_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_library_id", "revision"],
+      "properties": {
+        "anchor_library_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "trajectory_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trajectory_template_set_id", "revision"],
+      "properties": {
+        "trajectory_template_set_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "execution_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {"enum": ["run", "pass", "blocked", "not_run"]},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"state": {"const": "blocked"}},
+            "required": ["state"]
+          },
+          "then": {"required": ["reason", "evidence_refs"]}
+        }
+      ]
+    },
+    "audio_program_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["program_id", "revision", "expected_mode"],
+      "properties": {
+        "program_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "expected_mode": {
+          "enum": [
+            "one_active_of_n",
+            "counterfactual_route_swap",
+            "intermittent_events",
+            "simultaneous_subset",
+            "sequential_sources",
+            "silent_negative"
+          ]
+        }
+      }
+    },
+    "source_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_endpoint_id",
+        "entity_instance_id",
+        "spawn_anchor_id",
+        "trajectory_template_id",
+        "trajectory_route_id"
+      ],
+      "properties": {
+        "source_endpoint_id": {"$ref": "#/$defs/stable_id"},
+        "entity_instance_id": {"$ref": "#/$defs/stable_id"},
+        "spawn_anchor_id": {"$ref": "#/$defs/stable_id"},
+        "trajectory_template_id": {"$ref": "#/$defs/stable_id"},
+        "trajectory_route_id": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_id",
+        "purpose",
+        "listener_anchor_id",
+        "capture_frame_window",
+        "audio_program_ref",
+        "audio_variants",
+        "source_bindings",
+        "execution_status"
+      ],
+      "properties": {
+        "scenario_id": {"enum": ["S0", "S1", "S2", "S3", "S4", "S5"]},
+        "purpose": {
+          "enum": [
+            "routing_sanity",
+            "rear_source",
+            "visible_silent_distractor",
+            "moving_source",
+            "overlapping_sources",
+            "los_nlos_contrast"
+          ]
+        },
+        "listener_anchor_id": {"$ref": "#/$defs/stable_id"},
+        "capture_frame_window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start_frame", "end_frame_exclusive"],
+          "properties": {
+            "start_frame": {"type": "integer", "minimum": 0},
+            "end_frame_exclusive": {"type": "integer", "minimum": 1}
+          }
+        },
+        "audio_program_ref": {"$ref": "#/$defs/audio_program_ref"},
+        "silent_negative_program_ref": {"$ref": "#/$defs/audio_program_ref"},
+        "audio_variants": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"enum": ["A", "B"]}
+        },
+        "source_bindings": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/source_binding"}
+        },
+        "execution_status": {"$ref": "#/$defs/execution_status"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"scenario_id": {"const": "S1"}}, "required": ["scenario_id"]},
+          "then": {"properties": {"audio_variants": {"const": ["A", "B"]}}},
+          "else": {"properties": {"audio_variants": {"const": ["A"]}}}
+        },
+        {
+          "if": {"properties": {"scenario_id": {"const": "S2"}}, "required": ["scenario_id"]},
+          "then": {"required": ["silent_negative_program_ref"]}
+        }
+      ]
+    }
+  }
+}

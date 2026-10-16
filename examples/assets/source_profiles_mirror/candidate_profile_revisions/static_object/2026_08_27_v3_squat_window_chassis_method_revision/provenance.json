@@ -1,0 +1,49 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/climate_control_air_conditioner_window_unit_product_view_v1.json",
+  "sha256": "8782c9ca9ab9b94538dc1de5bc088855b984e35aabce199454a466aedd10ee23",
+  "size_bytes": 4893,
+  "profile_schema_id": "climate_control_air_conditioner_window_unit_product_view_v1",
+  "profile_revision": "2026_08_27_v3_squat_window_chassis_method_revision",
+  "canonical_sha256": "e159de61e5276747405a98e507af3f12927d11281fc7c3fd7fbf3e127ef0df84"
+ },
+ "method_revision": {
+  "kind": "squat_window_chassis_method_revision",
+  "supersedes_profile_revision": "2026_08_27_v2_flat_rear_mounting_plane_method_revision",
+  "superseded_profile_canonical_sha256": "8c92947cde9bd17cf25c93418ede1f57ccc2e7b4d23454b95e7dfdd8590b69c8",
+  "reason": "The v2 flat-back method produced two tall narrow industrial cabinets instead of a compact household window unit. The first had feet/casters and an exposed industrial fan cage; the second removed the feet but remained a vertical tower. The v3 method makes the window chassis visibly squat and horizontal, with width 1.4 to 1.8 times height, and excludes tower, floor-standing and narrow upright forms. Another blind v2 seed is not enough.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "0605c9f19c93c47627cb006e68b1f768d806a8c6b64b55b88293356e667ac815",
+   "46a2ff60aff6c68386285909c9381bc374fd47412cde9d47514690754c06aec5"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "3e9f99ad377c8016f861705c2b14c2cda71bafb4cb5c83126b8c87311f63b342",
+   "8212bcfe37897c6569bb48f7fdae968b90e5cda4caf177e5d89cd9e20431bdbd"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_resting_pose_redo_20260827_r8_window/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_resting_pose_redo_20260827_r8_window",
+  "instances": [
+   {
+    "instance_id": "climate_control_air_conditioner_window_unit_product_view_0605c9f19c93",
+    "request_sha256": "0605c9f19c93c47627cb006e68b1f768d806a8c6b64b55b88293356e667ac815",
+    "candidate_sha256": "3e9f99ad377c8016f861705c2b14c2cda71bafb4cb5c83126b8c87311f63b342",
+    "sampled_attributes": {"body_color": "white"}
+   },
+   {
+    "instance_id": "climate_control_air_conditioner_window_unit_product_view_46a2ff60aff6",
+    "request_sha256": "46a2ff60aff6c68386285909c9381bc374fd47412cde9d47514690754c06aec5",
+    "candidate_sha256": "8212bcfe37897c6569bb48f7fdae968b90e5cda4caf177e5d89cd9e20431bdbd",
+    "sampled_attributes": {"body_color": "white"}
+   }
+  ]
+ }
+}

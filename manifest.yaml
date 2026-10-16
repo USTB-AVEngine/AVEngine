@@ -1,0 +1,76 @@
+# AVEngine single-source bootstrap manifest.
+# The bootstrap operates only in this AVEngine checkout. It never clones a
+# Habitat, SPEAR, or RLR source repository. Native execution receives its
+# installed runtime, Magnum site, MP3D data, and RLR SDK as explicit external
+# inputs; this does not claim that all source-cutover work is already complete.
+
+schema: avengine_bootstrap_manifest_v2
+version: 2
+default_profile: fast_unit
+
+repositories:
+  avengine:
+    role: primary_source_checkout
+    path: .
+
+external_inputs:
+  installed_habitat_runtime:
+    environment: AVENGINE_HABITAT_RUNTIME_PREFIX
+    role: explicit_non_git_installed_runtime
+    required_for: [native_external]
+  magnum_python_site:
+    environment: AVENGINE_HABITAT_MAGNUM_PYTHON_SITE
+    role: explicit_non_git_python_site
+    required_for: [native_external]
+  mp3d_data:
+    environment: AVENGINE_MP3D_ROOT
+    role: licensed_non_git_external_dataset
+    required_for: [native_external]
+  rlr_sdk:
+    environment: AVENGINE_RLR_SDK_ROOT
+    role: explicit_non_git_external_sdk
+    required_for: [native_external]
+
+python:
+  requires: ">=3.10"
+  native_reference: "3.12"
+  environment_kind: conda
+  current_selector: --python | AVENGINE_CONDA_PYTHON | CONDA_PREFIX/bin/python
+  require_conda_meta: true
+  editable_install: ".[test]"
+
+profiles:
+  fast_unit:
+    default: true
+    repositories: [avengine]
+    automatic_backends: []
+  native_external:
+    default: false
+    explicit_opt_in_required: true
+    repositories: [avengine]
+    required_external_inputs:
+      - AVENGINE_HABITAT_RUNTIME_PREFIX
+      - AVENGINE_HABITAT_MAGNUM_PYTHON_SITE
+      - AVENGINE_MP3D_ROOT
+      - AVENGINE_RLR_SDK_ROOT
+    automatic_backends: []
+    note: Validates explicit external inputs only; it neither builds nor clones a native runtime.
+  habitat_native:
+    default: false
+    deprecated: true
+    replacement_profile: native_external
+    note: Retained setup-profile spelling; it now requires the same explicit installed inputs as native_external.
+  legacy_optional:
+    default: false
+    explicit_opt_in_required: true
+    documentation: docs/legacy/OPTIONAL_BACKENDS.md
+    automatic_backends: []
+    note: The current setup does not install UE, datasets, gpuRIR or generative models; Apartment and Kujiale remain UE/SPEAR production visual routes.
+
+fast_checkout_contract:
+  single_source_checkout: true
+  editable_install: true
+  schema_validation: true
+  fast_unit_tests: true
+  native_runtime_build: false
+  external_dataset_download: false

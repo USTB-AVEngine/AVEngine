@@ -1,0 +1,93 @@
+{
+  "schema_version": "avengine_optional_interioragent_kujiale_profile_v1",
+  "dataset_id": "spatialverse/InteriorAgent",
+  "scene_id": "kujiale_0020",
+  "room_type": "living room",
+  "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+  "selected_scopes": [
+    "livingroom_491",
+    "bedroom_579",
+    "balcony_628",
+    "kitchen_736",
+    "bathroom_781525",
+    "wall",
+    "ceiling",
+    "floor",
+    "other"
+  ],
+  "include_rendering_scope": true,
+  "camera_views": [
+    {
+      "view_id": "living_overview",
+      "position_m": [-1.0, -2.2, 1.5],
+      "yaw_deg": 150.0
+    },
+    {
+      "view_id": "dining_cross",
+      "position_m": [-1.2, 2.0, 1.5],
+      "yaw_deg": -120.0
+    },
+    {
+      "view_id": "kitchen_south",
+      "position_m": [-3.0, 5.0, 1.55],
+      "yaw_deg": -90.0
+    },
+    {
+      "view_id": "bathroom_corner",
+      "position_m": [0.55, -0.55, 1.55],
+      "yaw_deg": 25.0
+    }
+  ],
+  "review_lights": [
+    {
+      "light_id": "living_table_lamp_fill",
+      "source_prim": "/Root/Meshes/livingroom_491/table_lamp_0000",
+      "position_m": [-4.043, -0.633, 1.07],
+      "intensity_lumens": 750.0,
+      "attenuation_radius_m": 4.5,
+      "temperature_kelvin": 4000.0,
+      "source_radius_m": 0.15,
+      "soft_source_radius_m": 0.3
+    },
+    {
+      "light_id": "living_north_chandelier_fill",
+      "source_prim": "/Root/Meshes/livingroom_491/chandelier_0000",
+      "position_m": [-2.986, 2.128, 2.2],
+      "intensity_lumens": 2000.0,
+      "attenuation_radius_m": 6.5,
+      "temperature_kelvin": 4000.0,
+      "source_radius_m": 0.15,
+      "soft_source_radius_m": 0.3
+    },
+    {
+      "light_id": "living_south_chandelier_fill",
+      "source_prim": "/Root/Meshes/livingroom_491/chandelier_0002",
+      "position_m": [-2.114, -3.05, 2.2],
+      "intensity_lumens": 2500.0,
+      "attenuation_radius_m": 6.5,
+      "temperature_kelvin": 4000.0,
+      "source_radius_m": 0.15,
+      "soft_source_radius_m": 0.3
+    },
+    {
+      "light_id": "kitchen_ceiling_fill",
+      "source_prim": "/Root/Meshes/kitchen_736/ceiling_light_0000",
+      "position_m": [-3.19, 4.6, 2.25],
+      "intensity_lumens": 1800.0,
+      "attenuation_radius_m": 4.0,
+      "temperature_kelvin": 4000.0,
+      "source_radius_m": 0.22,
+      "soft_source_radius_m": 0.6
+    },
+    {
+      "light_id": "bathroom_ceiling_fill",
+      "source_prim": "/Root/Meshes/bathroom_781525/ceiling_light_0001",
+      "position_m": [1.63, 0.15, 2.65],
+      "intensity_lumens": 1600.0,
+      "attenuation_radius_m": 3.5,
+      "temperature_kelvin": 4300.0,
+      "source_radius_m": 0.22,
+      "soft_source_radius_m": 0.6
+    }
+  ]
+}

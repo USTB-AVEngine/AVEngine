@@ -1,0 +1,26 @@
+{
+ "owner_scope": "static_sound_sources_first_pass_20260826",
+ "adjustments": [
+  {
+   "replaced_profile": "plumbing_fixture_floor_drain_exposed_p_trap_product_view_v1",
+   "replacement_profile": "plumbing_fixture_floor_drain_exposed_bottle_trap_product_view_v1",
+   "reason": "Three frozen candidates all became straight tee fittings; exposed bottle trap keeps an exposed water-seal form while remaining visually and generatively distinct.",
+   "failed_instances": [
+    "plumbing_fixture_floor_drain_exposed_p_trap_product_view_e4f7dfc371c3",
+    "plumbing_fixture_floor_drain_exposed_p_trap_product_view_ba6c9a2c9253",
+    "plumbing_fixture_floor_drain_exposed_p_trap_product_view_ec021022d584"
+   ]
+  },
+  {
+   "replaced_profile": "plumbing_fixture_toilet_wall_hung_product_view_v1",
+   "replacement_profile": "plumbing_fixture_toilet_floor_one_piece_product_view_v1",
+   "reason": "Three frozen wall-hung requests all became floor toilets with cisterns. A seamless one-piece floor form remains visibly distinct from the accepted close-coupled form without claiming a wall-hung mesh the method cannot produce.",
+   "failed_instances": [
+    "plumbing_fixture_toilet_wall_hung_product_view_dc3d760ab8b8",
+    "plumbing_fixture_toilet_wall_hung_product_view_7b43d6aabbc5",
+    "plumbing_fixture_toilet_wall_hung_product_view_7f28fa8a534b"
+   ]
+  }
+ ],
+ "old_profiles_retained_as_rejected_method_evidence": true
+}

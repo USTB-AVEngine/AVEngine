@@ -1,0 +1,24 @@
+{
+  "materials": [
+    {
+      "name": "AVEngine M3 hard surface",
+      "labels": ["avengine_m3_hard_surface_7f12"],
+      "absorption": [20.0, 0.05, 20000.0, 0.05],
+      "scattering": [20.0, 0.10, 20000.0, 0.10],
+      "transmission": [20.0, 0.0, 20000.0, 0.0],
+      "damping": [20.0, 0.0, 20000.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0
+    },
+    {
+      "name": "AVEngine M3 absorptive surface",
+      "labels": ["avengine_m3_absorptive_surface_b946"],
+      "absorption": [20.0, 0.85, 20000.0, 0.85],
+      "scattering": [20.0, 0.35, 20000.0, 0.35],
+      "transmission": [20.0, 0.0, 20000.0, 0.0],
+      "damping": [20.0, 0.0, 20000.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0
+    }
+  ]
+}

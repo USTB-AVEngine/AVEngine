@@ -1,0 +1,469 @@
+{
+  "camera": {
+    "habitat_position_m": [
+      -0.7,
+      1.471,
+      0.65
+    ],
+    "habitat_yaw_deg": 55.0,
+    "horizontal_fov_deg": 105.0,
+    "ue_yaw_deg": -145.0,
+    "yaw_conversion": "UE_yaw_deg=-90-Habitat_yaw_deg"
+  },
+  "candidate_decision": "GO",
+  "candidate_id": "both_move_right__human_border_collie__recombined_both_moving_0304_f39-49__border_collie_human__recombined_both_moving_0990_f62-73",
+  "counterfactual_pairing": {
+    "claim_boundary": "Both roots/phases are native-human-derived, but the people did not co-occur natively. Pairing and depth safety are CPU-derived and replacement-human pixels remain pending.",
+    "is_native_same_scene_pair": false,
+    "method": "two_independent_native_human_paths_shared_camera_counterfactual_v1",
+    "time_registration": "each minimum-threshold native polyline is independently equal-arc sampled to the shared f0-f74/15Hz timeline; each native gait phase is independently unwrapped and interpolated by accumulated arc"
+  },
+  "formal_episode_count": 0,
+  "global100_caveat": {
+    "depth_safe_windows_from_frozen_global100_both_move_sources": 0,
+    "passing_pair_global100_source_coverage_counts": {
+      "0": 92,
+      "1": 0,
+      "2": 0
+    },
+    "selected_global100_source_coverage_count": 0,
+    "statement": "This is a unique1000-native mechanism canary, not a validated frozen-global100 row. Every frozen global100 both_move row still requires its assigned camera-specific depth gate."
+  },
+  "gpu_launch_authorized": false,
+  "pair_geometry": {
+    "minimum_anytime_path_to_path_separation_m": 2.887534586242614,
+    "minimum_center_2d_screen_separation_px": 488.33755718151133,
+    "minimum_center_2d_separation_frame_index": 74,
+    "minimum_center_x_separation_fraction": 0.3709915173947385,
+    "minimum_center_x_separation_frame_index": 74,
+    "minimum_center_x_separation_px": 474.8691422652653,
+    "minimum_synchronous_actor_separation_m": 2.887534586242614,
+    "target_speech_dead_zone_margin_fraction": 0.319545222104316,
+    "target_speech_mouth_x_fraction_range": [
+      0.819545222104316,
+      0.8317488755032834
+    ],
+    "target_speech_window_inclusive": [
+      7,
+      31
+    ]
+  },
+  "qualification_claim": false,
+  "raw_depth_per_frame_minima_m": {
+    "distractor": [
+      0.38209535760291935,
+      0.3845870350524163,
+      0.38315953659769697,
+      0.38562537637743866,
+      0.38807831863730957,
+      0.3866121277293062,
+      0.38903931811107606,
+      0.39145365434525914,
+      0.3899489010987969,
+      0.39233757314226647,
+      0.390807185349189,
+      0.39317025269535444,
+      0.39161429025812966,
+      0.393951813215768,
+      0.39237033684671774,
+      0.3946823765289258,
+      0.3930754477391445,
+      0.3953620660522237,
+      0.39763599714041176,
+      0.39599100677265353,
+      0.3982396108138766,
+      0.4004755752242861,
+      0.39879266605865205,
+      0.40100339946559194,
+      0.3992952916868622,
+      0.4014808590566319,
+      0.4036538680007675,
+      0.40190808503611164,
+      0.40405602676975905,
+      0.4061914598983267,
+      0.4044081512072366,
+      0.40651861756997887,
+      0.4086166259473871,
+      0.4107021933869044,
+      0.40886908702185343,
+      0.4109298240706969,
+      0.4090719218363126,
+      0.41667116559603556,
+      0.4148800017666434,
+      0.4169825870532393,
+      0.4190726885716751,
+      0.42115032352471227,
+      0.4193092592012775,
+      0.4213620129757176,
+      0.4414589068802788,
+      0.4435640012508677,
+      0.44565652500632513,
+      0.44773649556309536,
+      0.44589768042567,
+      0.44795259718583047,
+      0.4794912289905646,
+      0.4813657586923137,
+      0.4832282353452326,
+      0.48117242732018894,
+      0.48301085305857594,
+      0.4848372810715924,
+      0.48665172993950545,
+      0.4884542183109195,
+      0.4902447649020507,
+      0.4881171384959915,
+      0.4898838579419804,
+      0.4877324421546767,
+      0.48947541011342555,
+      0.491206530861529,
+      0.4929258235055203,
+      0.49463330721443466,
+      0.49632900121907664,
+      0.4941066748112979,
+      0.49577884734326805,
+      0.49743928822675,
+      0.49518176693237237,
+      0.496818802988904,
+      0.49844416598253805,
+      0.5000578755561556,
+      0.501659951408616
+    ],
+    "target": [
+      0.5368894771955173,
+      0.5390822865969525,
+      0.5377891629868352,
+      0.5375502808899402,
+      0.5337460454449352,
+      0.5334164115346316,
+      0.5334353347651248,
+      0.5344928152402786,
+      0.5320722954097796,
+      0.5304167883734912,
+      0.5298564476832337,
+      0.5243741639580164,
+      0.5237199798306968,
+      0.5304119220426329,
+      0.5250501946493671,
+      0.5242535368474224,
+      0.5228793404976146,
+      0.5200334189029108,
+      0.5175491756879191,
+      0.5177513673740375,
+      0.5145888320142644,
+      0.5178844930966457,
+      0.5162527325163602,
+      0.5151688928472069,
+      0.5139321333736699,
+      0.5091601032914892,
+      0.5115957454805207,
+      0.5106820337412561,
+      0.5053371021515582,
+      0.5064627577099077,
+      0.5069497378498058,
+      0.504181179093595,
+      0.5025200064869626,
+      0.4999308333818644,
+      0.506588789185964,
+      0.5008807162754105,
+      0.5023145699292084,
+      0.4982046442466097,
+      0.4978119534880361,
+      0.49405592442310775,
+      0.49567044383823466,
+      0.4896408253903721,
+      0.4952532021525218,
+      0.4891142221523541,
+      0.49091281971227874,
+      0.4919255267164573,
+      0.49046155632828725,
+      0.487659400018956,
+      0.48608666755538943,
+      0.4872831055120259,
+      0.48332075711861,
+      0.48298390769533217,
+      0.48065808196168636,
+      0.48257406684636317,
+      0.47905318306269873,
+      0.48019396393325264,
+      0.4752722232524671,
+      0.4797496005256723,
+      0.47254846367780434,
+      0.4773344737037686,
+      0.47175688321389364,
+      0.46795094248717417,
+      0.4670378061108291,
+      0.46929686846650975,
+      0.4642503013438275,
+      0.46254360187971244,
+      0.46704880300070917,
+      0.4617830725379224,
+      0.4625156327265043,
+      0.4610011610433471,
+      0.45966157951835784,
+      0.4582444272615618,
+      0.456784694715342,
+      0.45741880038118277,
+      0.45485617609278517
+    ]
+  },
+  "rir_authorized": false,
+  "roles": {
+    "distractor": {
+      "center_x_fraction_range": [
+        0.3673452987296122,
+        0.4239223045847795
+      ],
+      "center_y_fraction_range": [
+        0.694034698270806,
+        0.7094966914299571
+      ],
+      "constant_equal_arc_root_speed_m_s": 0.10877766183014506,
+      "dead_zone_2m_envelope_margin_fraction_all75": 0.0534707037470083,
+      "dead_zone_mouth_margin_fraction_all75": 0.07607769541522053,
+      "depth": {
+        "below_required_clearance_sample_count": 0,
+        "cylinder_azimuth_sample_count": 24,
+        "cylinder_height_sample_count": 14,
+        "expected_sample_count": 25200,
+        "fifth_percentile_depth_clearance_m": 0.47125135998494216,
+        "first_percentile_depth_clearance_m": 0.43117069704490885,
+        "minimum_depth_clearance_m": 0.38209535760291935,
+        "minimum_environment_observation_count_per_sample": 75,
+        "negative_clearance_sample_count": 0,
+        "out_of_view_sample_count": 0,
+        "status": "pass",
+        "total_in_view_cylinder_sample_count": 25200,
+        "worst_frame_depth_clearance_m": 0.38209535760291935,
+        "worst_output_frame_index": 0
+      },
+      "exact_2m_cylinder_x_fraction_range_all75": [
+        0.3411711928159926,
+        0.4465292962529917
+      ],
+      "exact_2m_cylinder_y_fraction_range_all75": [
+        0.30609199378722163,
+        0.7131109493188641
+      ],
+      "interframe_root_step_m_mean": 0.0072518441220096735,
+      "interframe_root_step_m_range": [
+        0.007251844122009559,
+        0.00725184412200978
+      ],
+      "maximum_forward_tangent_error_deg": 1.4787793334710982e-06,
+      "mouth_height_from_root_m": 1.569012451171875,
+      "mouth_x_fraction_range_all75": [
+        0.3673452987296122,
+        0.4239223045847795
+      ],
+      "mouth_y_fraction_range_all75": [
+        0.40258453534942124,
+        0.40977432549713994
+      ],
+      "native_anchor_count": 12,
+      "native_frame_indices_inclusive": [
+        62,
+        73
+      ],
+      "native_source_actor_id": "source2_actor",
+      "native_source_scenario_id": "border_collie_human__recombined_both_moving_0990",
+      "path_length_m": 0.5366364650287156,
+      "phase_advance_cycles": 0.6875,
+      "phase_unwrapped_end": 1.5625,
+      "phase_unwrapped_start": 0.875,
+      "phase_wrap_count": 1,
+      "root_distance_per_animation_cycle_m": 0.7805621309508591,
+      "side_band_envelope_margin_fraction": 0.03347070374700828,
+      "side_band_x_fraction": [
+        0.07,
+        0.48
+      ],
+      "tangent_yaw_habitat_deg_circular_mean": 176.18352573895407,
+      "tangent_yaw_habitat_deg_range": [
+        176.18352573895066,
+        176.18352573895768
+      ],
+      "viewport_frame_edge_margin_fraction": 0.2868890506811359,
+      "viewport_frame_edge_margin_px_minimum": 206.56011649041784
+    },
+    "target": {
+      "center_x_fraction_range": [
+        0.794913821979518,
+        0.8351254467752565
+      ],
+      "center_y_fraction_range": [
+        0.8090395689712249,
+        0.8522270543579944
+      ],
+      "constant_equal_arc_root_speed_m_s": 0.11201896660051792,
+      "dead_zone_2m_envelope_margin_fraction_all75": 0.24690170901722064,
+      "dead_zone_mouth_margin_fraction_all75": 0.294913821979518,
+      "depth": {
+        "below_required_clearance_sample_count": 0,
+        "cylinder_azimuth_sample_count": 24,
+        "cylinder_height_sample_count": 14,
+        "expected_sample_count": 25200,
+        "fifth_percentile_depth_clearance_m": 0.5580080384974293,
+        "first_percentile_depth_clearance_m": 0.4952604917862716,
+        "minimum_depth_clearance_m": 0.45485617609278517,
+        "minimum_environment_observation_count_per_sample": 48,
+        "negative_clearance_sample_count": 0,
+        "out_of_view_sample_count": 0,
+        "status": "pass",
+        "total_in_view_cylinder_sample_count": 25200,
+        "worst_frame_depth_clearance_m": 0.45485617609278517,
+        "worst_output_frame_index": 74
+      },
+      "exact_2m_cylinder_x_fraction_range_all75": [
+        0.7469017090172206,
+        0.885545087505377
+      ],
+      "exact_2m_cylinder_y_fraction_range_all75": [
+        0.15837190351575003,
+        0.8754599378215732
+      ],
+      "interframe_root_step_m_mean": 0.007467931106701191,
+      "interframe_root_step_m_range": [
+        0.007467931106700797,
+        0.0074679311067014625
+      ],
+      "maximum_forward_tangent_error_deg": 0.0,
+      "mouth_height_from_root_m": 1.61,
+      "mouth_x_fraction_range_all75": [
+        0.794913821979518,
+        0.8351254467752565
+      ],
+      "mouth_y_fraction_range_all75": [
+        0.32273540106911736,
+        0.3444702796969757
+      ],
+      "native_anchor_count": 11,
+      "native_frame_indices_inclusive": [
+        39,
+        49
+      ],
+      "native_source_actor_id": "source1_actor",
+      "native_source_scenario_id": "human_border_collie__recombined_both_moving_0304",
+      "path_length_m": 0.5526269018958885,
+      "phase_advance_cycles": 0.625,
+      "phase_unwrapped_end": 1.0625,
+      "phase_unwrapped_start": 0.4375,
+      "phase_wrap_count": 1,
+      "root_distance_per_animation_cycle_m": 0.8842030430334216,
+      "side_band_envelope_margin_fraction": 0.04445491249462308,
+      "side_band_x_fraction": [
+        0.52,
+        0.93
+      ],
+      "tangent_yaw_habitat_deg_circular_mean": 356.6314219139592,
+      "tangent_yaw_habitat_deg_range": [
+        356.63142191395855,
+        356.6314219139595
+      ],
+      "viewport_frame_edge_margin_fraction": 0.11445491249462303,
+      "viewport_frame_edge_margin_px_minimum": 89.66884476846732
+    }
+  },
+  "schema": "avengine_native_strict_two_human_both_move_all75_hard_gate_report_v1",
+  "search_accounting": {
+    "cross_scenario_pairs_considered": 98,
+    "depth_safe_windows_from_frozen_global100_source_count": 0,
+    "duplicate_left_path_alias_count_removed": 6,
+    "duplicate_right_path_alias_count_removed": 9,
+    "exact_camera_both_moving_scenario_count": 248,
+    "minimum_threshold_windows_found": 8102,
+    "native_human_trajectory_count": 124,
+    "pairs_passing_synchronous_and_anytime_separation": 92,
+    "retained_best_depth_safe_left_segment_count": 15,
+    "retained_best_depth_safe_right_segment_count": 20,
+    "start_indices_considered": 8184,
+    "suite_scenario_count": 1000,
+    "unique_depth_safe_left_path_count": 9,
+    "unique_depth_safe_right_path_count": 11,
+    "windows_passing_exact_depth_corridor": 365,
+    "windows_passing_projection_phase_tangent": 1066
+  },
+  "status": "GO_CPU_GEOMETRY_ONLY_FRESH_VISIBILITY_PENDING",
+  "strict_fresh_visibility_gate": {
+    "distractor_all75_minimum_visible_fraction": 0.5,
+    "distractor_all75_minimum_visible_pixels": 5000,
+    "status": "pending_fresh_target_only_capture",
+    "target_speech_minimum_visible_fraction": 0.8,
+    "target_speech_minimum_visible_pixels": 10000
+  },
+  "top_three_diverse_high_rank_depth_rejections": [
+    {
+      "candidate_id": "both_move_right__border_collie_human__recombined_both_moving_0198_f65-74__human_border_collie__recombined_both_moving_0933_f15-24",
+      "decision": "REJECT_DEPTH_CORRIDOR",
+      "diverse_rejection_order": 1,
+      "geometry_status": "pass",
+      "role_reasons": {
+        "distractor": {
+          "below_required_clearance_sample_count": 7797,
+          "minimum_depth_clearance_m": -2.0586434220393435,
+          "negative_clearance_sample_count": 7797,
+          "reason": "wall_or_environment_intersection",
+          "status": "fail",
+          "worst_output_frame_index": 0
+        },
+        "target": {
+          "below_required_clearance_sample_count": 6529,
+          "minimum_depth_clearance_m": -2.8793953665877394,
+          "negative_clearance_sample_count": 6529,
+          "reason": "wall_or_environment_intersection",
+          "status": "fail",
+          "worst_output_frame_index": 74
+        }
+      },
+      "source_rank_in_recovered_stream": 1
+    },
+    {
+      "candidate_id": "both_move_right__border_collie_human__recombined_both_moving_0198_f65-74__border_collie_human__recombined_both_moving_0877_f06-15",
+      "decision": "REJECT_DEPTH_CORRIDOR",
+      "diverse_rejection_order": 2,
+      "geometry_status": "pass",
+      "role_reasons": {
+        "distractor": {
+          "below_required_clearance_sample_count": 7700,
+          "minimum_depth_clearance_m": -2.1539369663970076,
+          "negative_clearance_sample_count": 7700,
+          "reason": "wall_or_environment_intersection",
+          "status": "fail",
+          "worst_output_frame_index": 74
+        },
+        "target": {
+          "below_required_clearance_sample_count": 6529,
+          "minimum_depth_clearance_m": -2.8793953665877394,
+          "negative_clearance_sample_count": 6529,
+          "reason": "wall_or_environment_intersection",
+          "status": "fail",
+          "worst_output_frame_index": 74
+        }
+      },
+      "source_rank_in_recovered_stream": 4
+    },
+    {
+      "candidate_id": "both_move_right__border_collie_human__recombined_both_moving_0198_f65-74__border_collie_human__recombined_both_moving_0323_f00-09",
+      "decision": "REJECT_DEPTH_CORRIDOR",
+      "diverse_rejection_order": 3,
+      "geometry_status": "pass",
+      "role_reasons": {
+        "distractor": {
+          "below_required_clearance_sample_count": 8901,
+          "minimum_depth_clearance_m": -2.0431061283970853,
+          "negative_clearance_sample_count": 8901,
+          "reason": "wall_or_environment_intersection",
+          "status": "fail",
+          "worst_output_frame_index": 0
+        },
+        "target": {
+          "below_required_clearance_sample_count": 6529,
+          "minimum_depth_clearance_m": -2.8793953665877394,
+          "negative_clearance_sample_count": 6529,
+          "reason": "wall_or_environment_intersection",
+          "status": "fail",
+          "worst_output_frame_index": 74
+        }
+      },
+      "source_rank_in_recovered_stream": 6
+    }
+  ]
+}

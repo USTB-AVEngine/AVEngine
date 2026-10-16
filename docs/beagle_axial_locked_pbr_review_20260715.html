@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>比格锁定四肢 PBR 审核</title>
+  <style>
+    :root { color-scheme:dark; --bg:#090e16; --panel:#111a28; --line:#2a3a51; --text:#edf3fb; --muted:#9dafc3; --ok:#59d48a; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:24px; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,sans-serif; }
+    main { max-width:1600px; margin:auto; }
+    h1 { margin:0 0 6px; }
+    h2 { margin:0 0 10px; }
+    .muted { color:var(--muted); }
+    .ok { color:var(--ok); }
+    .card { margin:18px 0; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .views { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+    video,img { width:100%; background:#000; border-radius:8px; }
+    video { max-height:66vh; }
+    img { object-fit:contain; max-height:62vh; }
+    code { display:block; margin-top:9px; padding:8px; overflow:auto; white-space:nowrap; border-radius:7px; background:#080d14; color:#b9cce2; }
+    @media (max-width:900px) { .grid,.views { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>比格锁定四肢 PBR 审核</h1>
+  <div class="muted">同一稳定模板、同一 Walk/Idle、同一轴向拟合；v8 只把生成比格的 Base Color 与 Roughness 烘焙到模板 UV，不改变四肢拓扑、骨架或权重。</div>
+
+  <section class="card">
+    <h2>FLUX.2 外观参考</h2>
+    <img src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_flux2_v10_20260714_r1/candidates/animal_65717788100d12ba/candidate.png" alt="FLUX.2 Beagle reference">
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_flux2_v10_20260714_r1/candidates/animal_65717788100d12ba/candidate.png</code>
+  </section>
+
+  <section class="card">
+    <h2>Walk：贴图前后同动作对照</h2>
+    <p><span class="muted">左：</span>v7 顶点色诊断；<span class="muted">右：</span>v8 2048² PBR。两者均锁定 2,449 个四肢顶点。</p>
+    <div class="grid">
+      <video controls loop muted playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_vertex_color_v7_axial_limb_locked/review_v1/walking_side.mp4"></video>
+      <video controls loop muted playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_pbr_v8_axial_limb_locked/review_v1/walking_side.mp4"></video>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>v8 动画审核</h2>
+    <div class="grid">
+      <div>
+        <h3>Walk 斜侧面</h3>
+        <video controls loop muted playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_pbr_v8_axial_limb_locked/review_v1/walking_quarter.mp4"></video>
+      </div>
+      <div>
+        <h3>Idle 侧面</h3>
+        <video controls loop muted playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_pbr_v8_axial_limb_locked/review_v1/idle_side.mp4"></video>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>v8 静态多视图</h2>
+    <div class="views">
+      <img src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_pbr_v8_axial_limb_locked/static_review_positive_x/side.png" alt="side">
+      <img src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_pbr_v8_axial_limb_locked/static_review_positive_x/quarter.png" alt="quarter">
+      <img src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_pbr_v8_axial_limb_locked/static_review_positive_x/top.png" alt="top">
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>机器检查</h2>
+    <p class="ok">GLB 回读、UV、两张 2048² 内嵌贴图、Walking、Idle 与 24 点变形审计均通过。</p>
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_pbr_v8_axial_limb_locked/beagle_stable_template_pbr.glb</code>
+  </section>
+</main>
+</body>
+</html>

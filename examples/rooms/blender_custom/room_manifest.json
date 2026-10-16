@@ -1,0 +1,110 @@
+{
+  "schema": "avengine_room_package_v1",
+  "room_id": "blender_custom_two_zone_v1",
+  "room_kind": "blender_custom",
+  "geometry_representation": "real_surface_mesh",
+  "coordinate_system": {
+    "handedness": "right",
+    "up_axis": "+Y",
+    "forward_axis": "-Z",
+    "linear_unit": "meter",
+    "quaternion_order": "xyzw"
+  },
+  "scene": {
+    "scene_id_kind": "handle",
+    "scene_id": "m1_custom_room",
+    "dataset_config_path": "visual/m1_custom_room.scene_dataset_config.json",
+    "navmesh_path": "visual/navmeshes/m1_custom_room.navmesh",
+    "navmesh_policy": "load_declared",
+    "load_semantic_mesh": false,
+    "enable_physics": true
+  },
+  "assets": [
+    {"role": "render_surface_mesh", "path": "visual/stages/m1_custom_room.glb"},
+    {"role": "semantic_object_source0", "path": "visual/objects/source_marker_0.glb"},
+    {"role": "semantic_object_source1", "path": "visual/objects/source_marker_1.glb"},
+    {"role": "stage_config", "path": "visual/stages/m1_custom_room.stage_config.json"},
+    {"role": "object_config_source0", "path": "visual/objects/source_marker_0.object_config.json"},
+    {"role": "object_config_source1", "path": "visual/objects/source_marker_1.object_config.json"},
+    {"role": "scene_instance", "path": "visual/scenes/m1_custom_room.scene_instance.json"},
+    {"role": "lighting_config", "path": "visual/lighting/m1_custom_room.lighting_config.json"},
+    {"role": "scene_dataset_config", "path": "visual/m1_custom_room.scene_dataset_config.json"},
+    {"role": "navmesh", "path": "visual/navmeshes/m1_custom_room.navmesh"},
+    {"role": "blender_build_report", "path": "visual/build_report.json"}
+  ],
+  "semantics": {
+    "interpretation": "Habitat object-template semantic IDs with explicit room labels",
+    "id_to_label": {
+      "0": "stage/background",
+      "101": "source_marker_0",
+      "102": "source_marker_1"
+    }
+  },
+  "navigation": {
+    "agent_height_m": 1.5,
+    "agent_radius_m": 0.2,
+    "include_static_objects": false
+  },
+  "openings": [
+    {
+      "opening_id": "door_main",
+      "kind": "door",
+      "description": "1.2 m wide opening through the central partition"
+    },
+    {
+      "opening_id": "window_north",
+      "kind": "window",
+      "description": "1.5 m by 1.3 m opening in the north exterior wall"
+    }
+  ],
+  "connectivity_pairs": [
+    {
+      "pair_id": "door_main_connects_two_zones",
+      "start_m": [-2.0, 0.05, 0.0],
+      "end_m": [2.0, 0.05, 0.0]
+    }
+  ],
+  "ray_checks": [
+    {
+      "check_id": "door_main_is_open",
+      "origin_m": [-1.0, 1.0, 0.0],
+      "direction": [1.0, 0.0, 0.0],
+      "expectation": "clear_until_m",
+      "distance_m": 2.0
+    },
+    {
+      "check_id": "partition_control_is_solid",
+      "origin_m": [-1.0, 1.0, 2.0],
+      "direction": [1.0, 0.0, 0.0],
+      "expectation": "hit_within_m",
+      "distance_m": 1.2
+    },
+    {
+      "check_id": "window_north_is_open",
+      "origin_m": [2.0, 1.5, -2.0],
+      "direction": [0.0, 0.0, -1.0],
+      "expectation": "clear_until_m",
+      "distance_m": 2.0
+    },
+    {
+      "check_id": "north_wall_control_is_solid",
+      "origin_m": [-2.0, 1.5, -2.0],
+      "direction": [0.0, 0.0, -1.0],
+      "expectation": "hit_within_m",
+      "distance_m": 1.2
+    }
+  ],
+  "acoustics": {
+    "status": "deferred_to_m3",
+    "reason": "No acoustic material or RLR activation claim is made in M1"
+  },
+  "provenance": {
+    "source": "AVEngine procedural Blender room builder",
+    "source_revision": "tools/blender/build_m1_custom_room.py",
+    "license": "AVEngine project license"
+  },
+  "surface_audit": {
+    "method": "Blender-authored explicit floor/wall segments with modeled openings",
+    "aabb_proxy": false
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "stage_instance": {
+    "template_name": "m1_custom_room"
+  },
+  "default_lighting": "m1_custom_room",
+  "object_instances": [
+    {
+      "template_name": "source_marker_0",
+      "motion_type": "STATIC",
+      "translation": [-1.2, 0.3, -1.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0]
+    },
+    {
+      "template_name": "source_marker_1",
+      "motion_type": "STATIC",
+      "translation": [2.0, 0.3, 0.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0]
+    }
+  ]
+}

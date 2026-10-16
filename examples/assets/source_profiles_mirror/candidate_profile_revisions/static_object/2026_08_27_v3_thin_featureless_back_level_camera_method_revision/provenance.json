@@ -1,0 +1,49 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/audio_playback_television_product_view_v1.json",
+  "sha256": "e20591ae6beca72a9a64185e413b9d794e2f1baca3081f06e84091f95e6154a9",
+  "size_bytes": 5124,
+  "profile_schema_id": "audio_playback_television_product_view_v1",
+  "profile_revision": "2026_08_27_v3_thin_featureless_back_level_camera_method_revision",
+  "canonical_sha256": "6fb27efac5147a0924652c2d62e01580d92eb658407d251fb48a101811147f60"
+ },
+ "method_revision": {
+  "kind": "thin_featureless_back_level_camera_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v2_visible_bottom_grille_method_revision",
+  "superseded_profile_canonical_sha256": "573a7a0f6e344448e11fc2a3501d15cdbf6c3f9614804cf9b3f4c862998d5a90",
+  "reason": "Two new two-splayed-feet requests produced correct 2D televisions but Pixal3D reconstructed implausibly deep rear bodies. The first was nearly as deep as wide and covered in arbitrary relief; the second added a large cable-like mass, a separated disc and 8.859 percent debris. The v3 method makes the thin plain rear and a near-frontal level camera explicit so one narrow side edge supplies depth without inviting a hidden bulky back. Another blind seed retry under v2 is not enough.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "cf2067d0dc27742b78e99cd303f69e399d985ef728baeb5528be4a848d774ea1",
+   "b6f6f0a5fad0751f0818377fac3f31eba480ac3038b07a73455d8d32ab2fbe57"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "3b0cb6cb50c950b6462917c752677307b86d7406eb46c1f5aec311d59a79f232",
+   "efb7b23c2a7aad36689f9a53667e577f79768da22fcc2d6e6085ca05b8f84946"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_resting_pose_redo_20260827_r2/static_review/static_object_review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_resting_pose_redo_20260827_r2",
+  "instances": [
+   {
+    "instance_id": "audio_playback_television_product_view_cf2067d0dc27",
+    "request_sha256": "cf2067d0dc27742b78e99cd303f69e399d985ef728baeb5528be4a848d774ea1",
+    "candidate_sha256": "3b0cb6cb50c950b6462917c752677307b86d7406eb46c1f5aec311d59a79f232",
+    "sampled_attributes": {"stand_type": "two_splayed_feet"}
+   },
+   {
+    "instance_id": "audio_playback_television_product_view_b6f6f0a5fad0",
+    "request_sha256": "b6f6f0a5fad0751f0818377fac3f31eba480ac3038b07a73455d8d32ab2fbe57",
+    "candidate_sha256": "efb7b23c2a7aad36689f9a53667e577f79768da22fcc2d6e6085ca05b8f84946",
+    "sampled_attributes": {"stand_type": "two_splayed_feet"}
+   }
+  ]
+ }
+}

@@ -1,0 +1,69 @@
+{
+  "camera_views": [
+    {
+      "position_m": [-1.0, 0.0, 1.5],
+      "view_id": "living_north",
+      "yaw_deg": 180.0
+    },
+    {
+      "position_m": [-1.0, -2.2, 1.5],
+      "view_id": "living_south",
+      "yaw_deg": 150.0
+    },
+    {
+      "position_m": [-1.2, 2.0, 1.5],
+      "view_id": "dining_entry",
+      "yaw_deg": 180.0
+    },
+    {
+      "position_m": [-1.2, 2.0, 1.5],
+      "view_id": "dining_cross",
+      "yaw_deg": -120.0
+    }
+  ],
+  "dataset_id": "spatialverse/InteriorAgent",
+  "include_rendering_scope": true,
+  "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_live",
+  "review_lights": [
+    {
+      "attenuation_radius_m": 4.5,
+      "intensity_lumens": 750.0,
+      "light_id": "table_lamp_0000",
+      "position_m": [-4.043, -0.633, 1.07],
+      "soft_source_radius_m": 0.3,
+      "source_prim": "/Root/Meshes/livingroom_491/table_lamp_0000/Meshes/table_lamp_0000/light_0000",
+      "source_radius_m": 0.15,
+      "temperature_kelvin": 4000.0
+    },
+    {
+      "attenuation_radius_m": 6.5,
+      "intensity_lumens": 2000.0,
+      "light_id": "chandelier_0000",
+      "position_m": [-2.986, 2.128, 2.2],
+      "soft_source_radius_m": 0.3,
+      "source_prim": "/Root/Meshes/livingroom_491/chandelier_0000/Meshes/chandelier_0000/light_0000",
+      "source_radius_m": 0.15,
+      "temperature_kelvin": 4000.0
+    },
+    {
+      "attenuation_radius_m": 6.5,
+      "intensity_lumens": 2500.0,
+      "light_id": "chandelier_0002",
+      "position_m": [-2.114, -3.05, 2.2],
+      "soft_source_radius_m": 0.3,
+      "source_prim": "/Root/Meshes/livingroom_491/chandelier_0002/Meshes/chandelier_0002/light_0000",
+      "source_radius_m": 0.15,
+      "temperature_kelvin": 4000.0
+    }
+  ],
+  "room_type": "living room",
+  "scene_id": "kujiale_0020",
+  "schema_version": "avengine_optional_interioragent_kujiale_profile_v1",
+  "selected_scopes": [
+    "livingroom_491",
+    "wall",
+    "ceiling",
+    "floor",
+    "other"
+  ]
+}

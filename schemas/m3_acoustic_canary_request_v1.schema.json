@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m3_acoustic_canary_request_v1.schema.json",
+  "title": "AVEngine M3 Acoustic Canary Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "room_manifest",
+    "material_mapping",
+    "material_databases",
+    "listener",
+    "source",
+    "repeat_count",
+    "simulation",
+    "thresholds"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m3_acoustic_canary_request_v1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "room_manifest": {"type": "string", "minLength": 1},
+    "material_mapping": {"type": "string", "minLength": 1},
+    "material_databases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low_absorption", "high_absorption"],
+      "properties": {
+        "low_absorption": {"type": "string", "minLength": 1},
+        "high_absorption": {"type": "string", "minLength": 1}
+      }
+    },
+    "listener": {"$ref": "#/$defs/anchor"},
+    "source": {"$ref": "#/$defs/anchor"},
+    "repeat_count": {"const": 3},
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_rate_hz",
+        "max_ir_seconds",
+        "frequency_bands",
+        "direct_sh_order",
+        "indirect_sh_order",
+        "direct_ray_count",
+        "indirect_ray_count",
+        "indirect_ray_depth",
+        "source_ray_count",
+        "source_ray_depth",
+        "max_diffraction_order",
+        "thread_count",
+        "unit_scale",
+        "global_volume",
+        "speed_of_sound_m_s",
+        "direct",
+        "indirect",
+        "diffraction",
+        "transmission",
+        "mesh_simplification",
+        "temporal_coherence",
+        "channel_layout"
+      ],
+      "properties": {
+        "sample_rate_hz": {"type": "integer", "minimum": 16000},
+        "max_ir_seconds": {"type": "number", "minimum": 4.0},
+        "frequency_bands": {"const": 4},
+        "direct_sh_order": {"type": "integer", "minimum": 3},
+        "indirect_sh_order": {"type": "integer", "minimum": 1},
+        "direct_ray_count": {"type": "integer", "minimum": 500},
+        "indirect_ray_count": {"type": "integer", "minimum": 5000},
+        "indirect_ray_depth": {"type": "integer", "minimum": 100},
+        "source_ray_count": {"type": "integer", "minimum": 500},
+        "source_ray_depth": {"type": "integer", "minimum": 20},
+        "max_diffraction_order": {"type": "integer", "minimum": 10},
+        "thread_count": {"const": 1},
+        "unit_scale": {"const": 1.0},
+        "global_volume": {"type": "number", "exclusiveMinimum": 0},
+        "speed_of_sound_m_s": {"const": 343.0},
+        "direct": {"const": true},
+        "indirect": {"const": true},
+        "diffraction": {"const": true},
+        "transmission": {"const": false},
+        "mesh_simplification": {"const": false},
+        "temporal_coherence": {"const": false},
+        "channel_layout": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "channel_count"],
+          "properties": {
+            "type": {"const": "mono"},
+            "channel_count": {"const": 1}
+          }
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "geometry_bytes_identical",
+        "material_ids_identical",
+        "material_coverage_fraction",
+        "fallback_triangle_count",
+        "ray_checks",
+        "direct_arrival",
+        "metrics"
+      ],
+      "properties": {
+        "geometry_bytes_identical": {"const": true},
+        "material_ids_identical": {"const": true},
+        "material_coverage_fraction": {"const": 1.0},
+        "fallback_triangle_count": {"const": 0},
+        "ray_checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["require_nonempty", "maximum_first_hit_distance_error_m"],
+          "properties": {
+            "require_nonempty": {"const": true},
+            "maximum_first_hit_distance_error_m": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.0001
+            }
+          }
+        },
+        "direct_arrival": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum_absolute_error_samples"],
+          "properties": {
+            "maximum_absolute_error_samples": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 2.0
+            }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["edt_seconds", "drr_db", "late_energy_ratio"],
+          "properties": {
+            "edt_seconds": {
+              "unevaluatedProperties": false,
+              "allOf": [
+                {"$ref": "#/$defs/metric_threshold"},
+                {
+                  "type": "object",
+                  "required": ["minimum_fit_r2", "minimum_decay_span_db"],
+                  "properties": {
+                    "direction": {"const": "high_lt_low"},
+                    "minimum_absolute_effect": {
+                      "type": "number",
+                      "minimum": 0.05
+                    },
+                    "minimum_fit_r2": {
+                      "type": "number",
+                      "minimum": 0.9,
+                      "maximum": 1
+                    },
+                    "minimum_decay_span_db": {
+                      "type": "number",
+                      "minimum": 10.0
+                    }
+                  }
+                }
+              ]
+            },
+            "drr_db": {
+              "unevaluatedProperties": false,
+              "allOf": [
+                {"$ref": "#/$defs/metric_threshold"},
+                {
+                  "type": "object",
+                  "properties": {
+                    "direction": {"const": "high_gt_low"},
+                    "minimum_absolute_effect": {
+                      "type": "number",
+                      "minimum": 1.0
+                    }
+                  }
+                }
+              ]
+            },
+            "late_energy_ratio": {
+              "unevaluatedProperties": false,
+              "allOf": [
+                {"$ref": "#/$defs/metric_threshold"},
+                {
+                  "type": "object",
+                  "required": ["minimum_effect_ratio"],
+                  "properties": {
+                    "direction": {"const": "high_lt_low"},
+                    "minimum_absolute_effect": {
+                      "type": "number",
+                      "minimum": 0.05
+                    },
+                    "minimum_effect_ratio": {
+                      "type": "number",
+                      "minimum": 1.2
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "position_m", "radius_m"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "radius_m": {"const": 0.0},
+        "position_m": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"type": "number"}
+        }
+      }
+    },
+    "metric_threshold": {
+      "type": "object",
+      "required": [
+        "direction",
+        "minimum_absolute_effect",
+        "maximum_relative_repeat_spread",
+        "minimum_effect_to_within_spread_ratio"
+      ],
+      "properties": {
+        "direction": {"enum": ["high_lt_low", "high_gt_low"]},
+        "minimum_absolute_effect": {"type": "number", "minimum": 0},
+        "maximum_relative_repeat_spread": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.1
+        },
+        "minimum_effect_to_within_spread_ratio": {
+          "type": "number",
+          "minimum": 2.0
+        }
+      }
+    }
+  }
+}

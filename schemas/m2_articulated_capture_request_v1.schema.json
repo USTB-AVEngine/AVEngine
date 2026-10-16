@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m2_articulated_capture_request_v1.schema.json",
+  "title": "AVEngine M2 Articulated Dog Capture Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "room_id",
+    "asset_id",
+    "asset_manifest_sha256",
+    "seed",
+    "camera_rig_id",
+    "listener_id",
+    "view_ids",
+    "modalities",
+    "runtime_joint_order",
+    "contact_order",
+    "pose_hash_algorithm",
+    "applied_state_hash_algorithm",
+    "capture_policy",
+    "states"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m2_articulated_capture_request_v1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "room_id": {"type": "string", "minLength": 1},
+    "asset_id": {"type": "string", "minLength": 1},
+    "asset_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "seed": {"type": "integer"},
+    "camera_rig_id": {"const": "camera_rig_0"},
+    "listener_id": {"const": "listener0"},
+    "view_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "prefixItems": [{"const": "view0"}],
+      "items": false
+    },
+    "modalities": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"const": "rgb"},
+        {"const": "depth"},
+        {"const": "semantic"}
+      ],
+      "items": false
+    },
+    "runtime_joint_order": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "contact_order": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "pose_hash_algorithm": {"const": "avengine_m2_pose_hash_v1"},
+    "applied_state_hash_algorithm": {
+      "const": "avengine_m2_applied_state_hash_v1"
+    },
+    "capture_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state_evaluation",
+        "advance_clock_between_modalities",
+        "free_running_animation"
+      ],
+      "properties": {
+        "state_evaluation": {"const": "explicit_fixed_state"},
+        "advance_clock_between_modalities": {"const": false},
+        "free_running_animation": {"const": false}
+      }
+    },
+    "states": {
+      "type": "array",
+      "minItems": 75,
+      "maxItems": 75,
+      "items": {"$ref": "#/$defs/state"}
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "quat": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["translation_m", "rotation_xyzw"],
+      "properties": {
+        "translation_m": {"$ref": "#/$defs/vec3"},
+        "rotation_xyzw": {"$ref": "#/$defs/quat"}
+      }
+    },
+    "joint_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["joint_id", "rotation_xyzw"],
+      "properties": {
+        "joint_id": {"type": "string", "minLength": 1},
+        "rotation_xyzw": {"$ref": "#/$defs/quat"}
+      }
+    },
+    "contact_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contact_id", "in_contact"],
+      "properties": {
+        "contact_id": {"type": "string", "minLength": 1},
+        "in_contact": {"type": "boolean"}
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_index",
+        "pts_ticks",
+        "action_id",
+        "action_time_ticks",
+        "root_transform",
+        "joint_states",
+        "contact_states",
+        "mouth_state",
+        "pose_hash",
+        "applied_state_hash"
+      ],
+      "properties": {
+        "frame_index": {"type": "integer", "minimum": 0, "maximum": 74},
+        "pts_ticks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 236800,
+          "multipleOf": 3200
+        },
+        "action_id": {"enum": ["idle", "walk"]},
+        "action_time_ticks": {"type": "integer", "minimum": 0},
+        "root_transform": {"$ref": "#/$defs/transform"},
+        "joint_states": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/joint_state"}
+        },
+        "contact_states": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"$ref": "#/$defs/contact_state"}
+        },
+        "mouth_state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["open_ratio", "vocalizing"],
+          "properties": {
+            "open_ratio": {"const": 0.0},
+            "vocalizing": {"type": "boolean"}
+          }
+        },
+        "pose_hash": {"$ref": "#/$defs/sha256"},
+        "applied_state_hash": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

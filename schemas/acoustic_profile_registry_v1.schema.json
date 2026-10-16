@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/acoustic_profile_registry_v1.schema.json",
+  "title": "AVEngine Acoustic Profile Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "registry_id",
+    "revision",
+    "solver_backend_id",
+    "profiles",
+    "bindings"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_acoustic_profile_registry_v1"},
+    "registry_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "solver_backend_id": {"const": "rlr_audio_propagation"},
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/profile"}
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/binding"}
+    }
+  },
+  "$defs": {
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "nonempty_string": {"type": "string", "minLength": 1},
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "room_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "room_id", "revision"],
+      "properties": {
+        "registry_id": {"$ref": "#/$defs/stable_id"},
+        "room_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "profile_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "revision"],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "repository_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {"const": "repository_relative"},
+        "path": {"$ref": "#/$defs/nonempty_string"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "environment_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "environment_variable", "path_template"],
+      "properties": {
+        "kind": {"const": "environment_template"},
+        "environment_variable": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "path_template": {"$ref": "#/$defs/nonempty_string"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "path_reference": {
+      "oneOf": [
+        {"$ref": "#/$defs/repository_path"},
+        {"$ref": "#/$defs/environment_path"}
+      ]
+    },
+    "material_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path"],
+      "properties": {
+        "role": {"$ref": "#/$defs/stable_id"},
+        "path": {"$ref": "#/$defs/path_reference"}
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "project",
+        "source_revision",
+        "qualification_claim"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "soundspaces2_public",
+            "habitat_scene",
+            "spear_ue_authored"
+          ]
+        },
+        "project": {"$ref": "#/$defs/nonempty_string"},
+        "source_revision": {"$ref": "#/$defs/nonempty_string"},
+        "citation": {"type": "string", "format": "uri"},
+        "qualification_claim": {"type": "boolean"}
+      }
+    },
+    "source_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_ids"],
+      "properties": {
+        "provider_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/stable_id"}
+        }
+      }
+    },
+    "material_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter_id", "resources"],
+      "properties": {
+        "adapter_id": {"$ref": "#/$defs/stable_id"},
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/material_resource"}
+        }
+      }
+    },
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["production"],
+      "properties": {
+        "production": {"$ref": "#/$defs/path_reference"},
+        "reference": {"$ref": "#/$defs/path_reference"}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "revision",
+        "solver_backend_id",
+        "origin",
+        "source_selection",
+        "material_binding",
+        "simulation"
+      ],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "solver_backend_id": {"const": "rlr_audio_propagation"},
+        "origin": {"$ref": "#/$defs/origin"},
+        "source_selection": {"$ref": "#/$defs/source_selection"},
+        "material_binding": {"$ref": "#/$defs/material_binding"},
+        "simulation": {"$ref": "#/$defs/simulation"},
+        "notes": {"type": "string"}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "room_ref",
+        "lineage_acoustic_profile_id",
+        "profile_ref",
+        "acoustic_representation_id",
+        "acoustic_resource_id",
+        "geometry_resource_id",
+        "acoustic_package_manifest"
+      ],
+      "properties": {
+        "binding_id": {"$ref": "#/$defs/stable_id"},
+        "room_ref": {"$ref": "#/$defs/room_ref"},
+        "lineage_acoustic_profile_id": {"$ref": "#/$defs/stable_id"},
+        "profile_ref": {"$ref": "#/$defs/profile_ref"},
+        "acoustic_representation_id": {"$ref": "#/$defs/stable_id"},
+        "acoustic_resource_id": {"$ref": "#/$defs/stable_id"},
+        "geometry_resource_id": {"$ref": "#/$defs/stable_id"},
+        "acoustic_package_manifest": {"$ref": "#/$defs/path_reference"}
+      }
+    }
+  }
+}

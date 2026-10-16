@@ -1,0 +1,43 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/plumbing_fixture_toilet_floor_close_coupled_product_view_v1.json",
+  "sha256": "5cb64e30ee29b0161a96e002345a70ef1aae76757d5d698619b52572f7631119",
+  "size_bytes": 5518,
+  "profile_schema_id": "plumbing_fixture_toilet_floor_close_coupled_product_view_v1",
+  "profile_revision": "2026_08_26_v3_large_rear_flush_outlet_method_revision",
+  "canonical_sha256": "fdb38e32585e9deed764bb777976e2c966557c3766a642a2060d88d449e9140a"
+ },
+ "method_revision": {
+  "kind": "large_visible_rear_flush_outlet_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v2_visible_flush_jet_ring_method_revision",
+  "superseded_profile_canonical_sha256": "d30d6065e5925439bc71975f9b40d7f63249a0c88f1377d6df6d009d4fec4d62",
+  "reason": "Three requests across three batch seeds produced the correct close-coupled form but no reviewable rim jets. The v3 method replaces small rim details with one large rear-wall outlet that remains visible at product-view resolution.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "0d270aad9a0d16373325c9dabda070f267d179f0dbfc9654f110f18280301c36"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "b63d753daed10c23383eaed2b45fdcea15c74b8716dbb94d2226a3f269341c2c"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_sources_method_retry_20260826_r3/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_visual_review_under_owner_instruction_20260826",
+  "instances": [
+   {
+    "instance_id": "plumbing_fixture_toilet_floor_close_coupled_product_view_0d270aad9a0d",
+    "request_sha256": "0d270aad9a0d16373325c9dabda070f267d179f0dbfc9654f110f18280301c36",
+    "candidate_sha256": "b63d753daed10c23383eaed2b45fdcea15c74b8716dbb94d2226a3f269341c2c",
+    "sampled_attributes": {
+     "body_color": "white"
+    }
+   }
+  ]
+ }
+}

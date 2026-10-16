@@ -1,0 +1,43 @@
+{
+  "schema": "avengine_m4_runtime_lock_v1",
+  "lock_id": "m4_native_audio_runtime_20260717_v1",
+  "scope": "Only the native audio code, loaded binaries, and explicit HRTF dependency needed to reproduce the M4 canary are pinned here.",
+  "habitat_runtime": {
+    "repository": "git@github.com:Eastforward/habitat-sim-AVEngine.git",
+    "branch": "feature/m4-multisource-rlr",
+    "commit": "5641931245a76439cc1493d87d79dc518c6f453a",
+    "upstream_commit": "57ee4941dc4765240f0f91f70b2c97a919bf9038"
+  },
+  "rlr": {
+    "repository": "https://github.com/facebookresearch/rlr-audio-propagation",
+    "commit": "4fd446b4abb5c71fb7a232a083bbddd65f25fc6f",
+    "license": "CC-BY-NC-4.0"
+  },
+  "native_binaries": {
+    "habitat_sim_bindings": {
+      "byte_size": 455367920,
+      "sha256": "395cb0e6789d2664d5d8b6abac1aa48217851cac008875718cb55cf461ed5cc7"
+    },
+    "rlr_audio_propagation": {
+      "byte_size": 7327344,
+      "sha256": "31e948eef4908d8cbb403b5f445d9d0eab59fc81b05a658538f8795984f9bfb4"
+    }
+  },
+  "hrtf": {
+    "asset_id": "mit_kemar_normal_pinna_sofa_v1",
+    "sha256": "2768ac841213a7ae11d1ea7fd0f25a69b39216102dc5dd913ea6ba0f0dc57e28",
+    "sample_rate_hz": 44100,
+    "license_id": "MIT-KEMAR unrestricted-with-citation",
+    "citation": "Bill Gardner, Keith Martin, MIT Media Lab Machine Listening Group (1994)",
+    "license_text_sha256": "f8fc1df6758230ba10c507b595ae6953a78024dbbe6ca494ee83fcd3c76ae441",
+    "sample_rate_policy": "rlr_native_internal_bound_to_binary"
+  },
+  "output_contracts": {
+    "foa": "rlr_foa_acn_n3d_world_v1",
+    "binaural": "rlr_binaural_lr_v1",
+    "render_sample_rate_hz": 16000,
+    "avengine_resampling_performed": false,
+    "normalization": "none",
+    "limiter": "none"
+  }
+}

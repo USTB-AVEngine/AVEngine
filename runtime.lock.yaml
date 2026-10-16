@@ -1,0 +1,28 @@
+schema_version: 2
+role: runtime_profile_index
+current_release_authority: release/avengine_release_manifest_v1.json
+
+# This tracked file is a lightweight compatibility index. Git identifies these
+# checked-in profiles; their content hashes are not repeated here.
+profiles:
+  m1:
+    lock_id: m1_visual_room_canary_20260716_v1
+    path: locks/m1_runtime_v1.yaml
+    scope: historical_m1_visual_canary
+  m2:
+    lock_id: m2_articulated_dog_canary_20260717_v1
+    path: locks/m2_runtime_v1.yaml
+    scope: historical_m2_articulated_canary
+  m3:
+    lock_id: m3_acoustic_material_canary_20260717_v1
+    path: locks/m3_runtime_v1.yaml
+    scope: historical_m3_acoustic_canary
+  m4:
+    lock_id: m4_native_audio_runtime_20260717_v1
+    path: locks/m4_runtime_v1.json
+    scope: historical_m4_named_audio_canary
+
+identity_policy:
+  checked_in_files: git_commit
+  environment: explicit_versions
+  external_result_changing_bytes: one_authoritative_bundle_manifest

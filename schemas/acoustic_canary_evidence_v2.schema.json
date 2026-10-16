@@ -1,0 +1,1511 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m3_acoustic_canary_evidence_v2.schema.json",
+  "title": "AVEngine M3 Current Installed Acoustic Canary Evidence v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "overall_status",
+    "failure_reasons",
+    "request",
+    "inputs",
+    "execution",
+    "runtime",
+    "checks",
+    "conditions",
+    "comparisons",
+    "evidence_content_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avengine_m3_acoustic_canary_evidence_v2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "overall_status": {
+      "enum": [
+        "pass",
+        "fail",
+        "blocked"
+      ]
+    },
+    "failure_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "canonical_content_sha256",
+        "snapshot"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/external_file"
+        },
+        "canonical_content_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "snapshot": {
+          "type": "object"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_manifest",
+        "material_mapping",
+        "low_absorption_database",
+        "high_absorption_database",
+        "compile_evidence",
+        "low_absorption_package",
+        "high_absorption_package"
+      ],
+      "properties": {
+        "room_manifest": {
+          "$ref": "#/$defs/external_file"
+        },
+        "material_mapping": {
+          "$ref": "#/$defs/external_file"
+        },
+        "low_absorption_database": {
+          "$ref": "#/$defs/external_file"
+        },
+        "high_absorption_database": {
+          "$ref": "#/$defs/external_file"
+        },
+        "compile_evidence": {
+          "$ref": "#/$defs/external_file"
+        },
+        "low_absorption_package": {
+          "$ref": "#/$defs/package_input"
+        },
+        "high_absorption_package": {
+          "$ref": "#/$defs/package_input"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repeat_count",
+        "condition_order",
+        "fresh_context_per_run",
+        "temporal_coherence",
+        "runtime_import_workaround",
+        "runtime_mode"
+      ],
+      "properties": {
+        "repeat_count": {
+          "const": 3
+        },
+        "condition_order": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "low_absorption",
+              "high_absorption"
+            ]
+          }
+        },
+        "fresh_context_per_run": {
+          "const": true
+        },
+        "temporal_coherence": {
+          "const": false
+        },
+        "runtime_import_workaround": {
+          "$ref": "#/$defs/import_workaround"
+        },
+        "runtime_mode": {
+          "const": "current-installed"
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "low_absorption",
+        "high_absorption"
+      ],
+      "properties": {
+        "low_absorption": {
+          "$ref": "#/$defs/condition"
+        },
+        "high_absorption": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
+    "comparisons": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "edt_seconds": {
+          "$ref": "#/$defs/comparison"
+        },
+        "drr_db": {
+          "$ref": "#/$defs/comparison"
+        },
+        "late_energy_ratio": {
+          "$ref": "#/$defs/comparison"
+        }
+      }
+    },
+    "evidence_content_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_mode",
+        "current_installed_identity"
+      ],
+      "properties": {
+        "runtime_mode": {
+          "const": "current-installed"
+        },
+        "current_installed_identity": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "overall_status": {
+            "const": "pass"
+          }
+        },
+        "required": [
+          "overall_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_reasons": {
+            "maxItems": 0
+          },
+          "checks": {
+            "items": {
+              "properties": {
+                "status": {
+                  "const": "pass"
+                }
+              }
+            }
+          },
+          "conditions": {
+            "properties": {
+              "low_absorption": {
+                "$ref": "#/$defs/pass_condition"
+              },
+              "high_absorption": {
+                "$ref": "#/$defs/pass_condition"
+              }
+            }
+          },
+          "comparisons": {
+            "required": [
+              "edt_seconds",
+              "drr_db",
+              "late_energy_ratio"
+            ],
+            "properties": {
+              "edt_seconds": {
+                "$ref": "#/$defs/pass_comparison"
+              },
+              "drr_db": {
+                "$ref": "#/$defs/pass_comparison"
+              },
+              "late_energy_ratio": {
+                "$ref": "#/$defs/pass_comparison"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sha1": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "external_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byte_size",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "package_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byte_size",
+        "sha256",
+        "package_content_sha256",
+        "package_id"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "package_content_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "package_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byte_size",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "required",
+        "status",
+        "measured",
+        "threshold"
+      ],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "const": true
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "blocked"
+          ]
+        },
+        "measured": {},
+        "threshold": {},
+        "failure_reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "failure_reason"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "failure_reason"
+            ]
+          }
+        }
+      ]
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempted_run_count",
+        "completed_run_count",
+        "runs"
+      ],
+      "properties": {
+        "attempted_run_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_run_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/run"
+          }
+        }
+      }
+    },
+    "pass_condition": {
+      "type": "object",
+      "properties": {
+        "attempted_run_count": {
+          "const": 3
+        },
+        "completed_run_count": {
+          "const": 3
+        },
+        "runs": {
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "properties": {
+              "direct_arrival": {
+                "properties": {
+                  "passed": {
+                    "const": true
+                  }
+                }
+              },
+              "ray_checks": {
+                "minItems": 1,
+                "items": {
+                  "properties": {
+                    "cpu_rlr_hit_consistent": {
+                      "const": true
+                    },
+                    "cpu_rlr_distance_consistent": {
+                      "const": true
+                    },
+                    "passed": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "condition",
+        "repeat_index",
+        "execution_index",
+        "runtime_result_identity",
+        "ir_artifact",
+        "ir_array",
+        "metrics",
+        "direct_arrival",
+        "runtime",
+        "upload_report",
+        "indirect_ray_efficiency",
+        "ray_checks"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "condition": {
+          "enum": [
+            "low_absorption",
+            "high_absorption"
+          ]
+        },
+        "repeat_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "execution_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runtime_result_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "listener_id",
+            "source_id",
+            "sample_rate_hz",
+            "package_manifest_sha256",
+            "package_content_sha256"
+          ],
+          "properties": {
+            "listener_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sample_rate_hz": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "package_manifest_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "package_content_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "ir_artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "ir_array": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dtype",
+            "shape",
+            "raw_array_sha256"
+          ],
+          "properties": {
+            "dtype": {
+              "const": "<f4"
+            },
+            "shape": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "integer",
+                  "minimum": 2
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "raw_array_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "direct_arrival": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "distance_m",
+            "speed_of_sound_m_s",
+            "expected_sample",
+            "detected_sample",
+            "absolute_error_samples",
+            "maximum_absolute_error_samples",
+            "passed"
+          ],
+          "properties": {
+            "distance_m": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "speed_of_sound_m_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "expected_sample": {
+              "type": "number",
+              "minimum": 0
+            },
+            "detected_sample": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "absolute_error_samples": {
+              "type": "number",
+              "minimum": 0
+            },
+            "maximum_absolute_error_samples": {
+              "type": "number",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "runtime": {
+          "$ref": "#/$defs/runtime"
+        },
+        "upload_report": {
+          "$ref": "#/$defs/upload_report"
+        },
+        "indirect_ray_efficiency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "ray_checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ray_check"
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_workaround",
+        "quaternion_module",
+        "habitat_sim_module",
+        "binding_api",
+        "configuration_readback",
+        "scene_mesh_readback",
+        "runtime_mode",
+        "runtime_identity"
+      ],
+      "properties": {
+        "import_workaround": {
+          "$ref": "#/$defs/import_workaround"
+        },
+        "quaternion_module": {
+          "$ref": "#/$defs/module_record"
+        },
+        "habitat_sim_module": {
+          "$ref": "#/$defs/module_record"
+        },
+        "binding_api": {
+          "const": "habitat_sim.RLRAcousticContext_v1"
+        },
+        "configuration_readback": {
+          "$ref": "#/$defs/configuration_readback"
+        },
+        "scene_mesh_readback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact",
+            "byte_size",
+            "sha256",
+            "native_report",
+            "vertex_count",
+            "triangle_count",
+            "material_block_count",
+            "material_assignment_count",
+            "material_block_layout_sha256",
+            "material_coefficient_sha256",
+            "coordinate_quantization_decimal_places",
+            "vertex_coordinate_multiset_sha256",
+            "triangle_coordinate_multiset_sha256"
+          ],
+          "properties": {
+            "artifact": {
+              "$ref": "#/$defs/artifact"
+            },
+            "byte_size": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "native_report": {
+              "$ref": "#/$defs/native_readback_report"
+            },
+            "vertex_count": {
+              "type": "integer",
+              "minimum": 3
+            },
+            "triangle_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "material_block_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "material_assignment_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "material_block_layout_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "material_coefficient_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "coordinate_quantization_decimal_places": {
+              "const": 6
+            },
+            "vertex_coordinate_multiset_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "triangle_coordinate_multiset_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "runtime_mode": {
+          "const": "current-installed"
+        },
+        "runtime_identity": {
+          "$ref": "#/$defs/current_installed_runtime_identity"
+        }
+      }
+    },
+    "module_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "version"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "native_readback_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vertex_count",
+        "triangle_count",
+        "material_block_count",
+        "material_assignment_count",
+        "expected_vertex_count",
+        "expected_triangle_count",
+        "expected_material_block_count",
+        "canonical_byte_count",
+        "expected_canonical_byte_count",
+        "world_geometry_sha1",
+        "expected_world_geometry_sha1",
+        "material_coefficient_byte_count",
+        "expected_material_coefficient_byte_count",
+        "material_coefficient_sha1",
+        "expected_material_coefficient_sha1",
+        "world_geometry_matches",
+        "material_coefficients_match",
+        "material_evidence_matches",
+        "verification_passed",
+        "per_face_material_ids_available",
+        "material_evidence_mode"
+      ],
+      "properties": {
+        "vertex_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "triangle_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "material_block_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "material_assignment_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_vertex_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "expected_triangle_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_material_block_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "canonical_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_canonical_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "world_geometry_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "expected_world_geometry_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "material_coefficient_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_material_coefficient_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "material_coefficient_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "expected_material_coefficient_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "world_geometry_matches": {
+          "const": true
+        },
+        "material_coefficients_match": {
+          "const": true
+        },
+        "material_evidence_matches": {
+          "const": true
+        },
+        "verification_passed": {
+          "const": true
+        },
+        "per_face_material_ids_available": {
+          "const": false
+        },
+        "material_evidence_mode": {
+          "const": "exact_upload_receipt_plus_resolved_coefficient_blocks"
+        }
+      }
+    },
+    "import_workaround": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workaround_id",
+        "required_import_order",
+        "reason"
+      ],
+      "properties": {
+        "workaround_id": {
+          "const": "habitat_import_quaternion_first_v1"
+        },
+        "required_import_order": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "quaternion"
+            },
+            {
+              "const": "habitat_sim"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "configuration_readback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frequency_bands",
+        "direct_sh_order",
+        "indirect_sh_order",
+        "direct_ray_count",
+        "indirect_ray_count",
+        "indirect_ray_depth",
+        "source_ray_count",
+        "source_ray_depth",
+        "max_diffraction_order",
+        "thread_count",
+        "sample_rate_hz",
+        "max_ir_seconds",
+        "unit_scale",
+        "global_volume",
+        "direct",
+        "indirect",
+        "diffraction",
+        "transmission",
+        "mesh_simplification",
+        "temporal_coherence"
+      ],
+      "properties": {
+        "frequency_bands": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "direct_sh_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "indirect_sh_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "direct_ray_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "indirect_ray_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "indirect_ray_depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_ray_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_ray_depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_diffraction_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "thread_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sample_rate_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max_ir_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit_scale": {
+          "const": 1.0
+        },
+        "global_volume": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "direct": {
+          "const": true
+        },
+        "indirect": {
+          "const": true
+        },
+        "diffraction": {
+          "type": "boolean"
+        },
+        "transmission": {
+          "type": "boolean"
+        },
+        "mesh_simplification": {
+          "const": false
+        },
+        "temporal_coherence": {
+          "const": false
+        }
+      }
+    },
+    "upload_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_count",
+        "vertex_count",
+        "triangle_count",
+        "material_category_count",
+        "object_ids",
+        "triangle_count_by_material",
+        "material_upload_call_count",
+        "resolved_material_name_by_category",
+        "resolved_material_index_by_category",
+        "material_upload_receipts",
+        "expected_material_block_count",
+        "material_database_sha1",
+        "expected_world_geometry_sha1",
+        "expected_canonical_byte_count",
+        "expected_material_coefficient_sha1",
+        "expected_material_coefficient_byte_count"
+      ],
+      "properties": {
+        "object_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "vertex_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "triangle_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "material_category_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "triangle_count_by_material": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "material_upload_call_count": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "resolved_material_name_by_category": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "resolved_material_index_by_category": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "material_upload_receipts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/material_upload_receipt"
+          }
+        },
+        "expected_material_block_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "material_database_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "expected_world_geometry_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "expected_canonical_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_material_coefficient_sha1": {
+          "$ref": "#/$defs/sha1"
+        },
+        "expected_material_coefficient_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "material_upload_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_id",
+        "material_category",
+        "triangle_count",
+        "index_count",
+        "canonical_payload_byte_count",
+        "canonical_payload_sha1"
+      ],
+      "properties": {
+        "object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "material_category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "triangle_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "index_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "canonical_payload_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "canonical_payload_sha1": {
+          "$ref": "#/$defs/sha1"
+        }
+      }
+    },
+    "ray_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hit",
+        "has_hit_details",
+        "distance_m",
+        "normal"
+      ],
+      "properties": {
+        "hit": {
+          "type": "boolean"
+        },
+        "has_hit_details": {
+          "type": "boolean"
+        },
+        "distance_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "normal": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "ray_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "expectation",
+        "maximum_distance_m",
+        "cpu_first_hit_distance_m",
+        "rlr_any_hit",
+        "rlr_first_hit",
+        "cpu_rlr_hit_consistent",
+        "cpu_rlr_distance_consistent",
+        "distance_tolerance_m",
+        "passed"
+      ],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectation": {
+          "enum": [
+            "clear_until_m",
+            "hit_within_m"
+          ]
+        },
+        "maximum_distance_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "cpu_first_hit_distance_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rlr_any_hit": {
+          "$ref": "#/$defs/ray_result"
+        },
+        "rlr_first_hit": {
+          "$ref": "#/$defs/ray_result"
+        },
+        "cpu_rlr_hit_consistent": {
+          "type": "boolean"
+        },
+        "cpu_rlr_distance_consistent": {
+          "type": "boolean"
+        },
+        "distance_tolerance_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_rate_hz",
+        "channel_count",
+        "sample_count",
+        "direct_arrival_sample",
+        "direct_arrival_seconds",
+        "direct_window_end_sample",
+        "late_start_sample",
+        "peak_absolute_amplitude",
+        "total_energy",
+        "direct_energy",
+        "reverberant_energy",
+        "late_energy",
+        "drr_db",
+        "late_energy_ratio",
+        "late_energy_db",
+        "edt_seconds",
+        "edt_fit_r2",
+        "edt_fit_sample_count",
+        "edt_decay_span_db",
+        "configuration"
+      ],
+      "properties": {
+        "sample_rate_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "channel_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "direct_arrival_sample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "direct_arrival_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "direct_window_end_sample": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "late_start_sample": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "peak_absolute_amplitude": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "total_energy": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "direct_energy": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "reverberant_energy": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "late_energy": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "drr_db": {
+          "type": "number"
+        },
+        "late_energy_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "late_energy_db": {
+          "type": "number"
+        },
+        "edt_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "edt_fit_r2": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "edt_fit_sample_count": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "edt_decay_span_db": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "direct_arrival_threshold_db",
+            "direct_window_ms",
+            "late_start_ms",
+            "minimum_edt_fit_samples"
+          ],
+          "properties": {
+            "direct_arrival_threshold_db": {
+              "const": -20.0
+            },
+            "direct_window_ms": {
+              "const": 5.0
+            },
+            "late_start_ms": {
+              "const": 80.0
+            },
+            "minimum_edt_fit_samples": {
+              "const": 8
+            }
+          }
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direction",
+        "low_median",
+        "high_median",
+        "oriented_effect",
+        "minimum_absolute_effect",
+        "low_absolute_repeat_spread",
+        "high_absolute_repeat_spread",
+        "maximum_within_condition_spread",
+        "maximum_relative_repeat_spread_measured",
+        "maximum_relative_repeat_spread_threshold",
+        "effect_to_within_spread_ratio",
+        "minimum_effect_to_within_spread_ratio",
+        "checks",
+        "passed"
+      ],
+      "properties": {
+        "direction": {
+          "enum": [
+            "high_lt_low",
+            "high_gt_low"
+          ]
+        },
+        "low_median": {
+          "type": "number"
+        },
+        "high_median": {
+          "type": "number"
+        },
+        "oriented_effect": {
+          "type": "number"
+        },
+        "minimum_absolute_effect": {
+          "type": "number",
+          "minimum": 0
+        },
+        "low_absolute_repeat_spread": {
+          "type": "number",
+          "minimum": 0
+        },
+        "high_absolute_repeat_spread": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_within_condition_spread": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_relative_repeat_spread_measured": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_relative_repeat_spread_threshold": {
+          "type": "number",
+          "minimum": 0
+        },
+        "effect_to_within_spread_ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "minimum_effect_to_within_spread_ratio": {
+          "type": "number",
+          "minimum": 1
+        },
+        "checks": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "minimum_effect_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 1
+        },
+        "measured_effect_ratio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "pass_comparison": {
+      "type": "object",
+      "properties": {
+        "passed": {
+          "const": true
+        },
+        "checks": {
+          "additionalProperties": {
+            "const": true
+          }
+        }
+      }
+    },
+    "current_installed_runtime_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_schema",
+        "mode",
+        "habitat_runtime_prefix",
+        "habitat_sim_module",
+        "habitat_sim_binding",
+        "magnum_python_site",
+        "rlr_sdk_root",
+        "rlr_sdk_header",
+        "rlr_sdk_library",
+        "rlr_adapter_enabled",
+        "binding_api"
+      ],
+      "properties": {
+        "identity_schema": {
+          "const": "avengine_current_installed_rlr_runtime_v1"
+        },
+        "mode": {
+          "const": "current-installed"
+        },
+        "habitat_runtime_prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "habitat_sim_module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "habitat_sim_binding": {
+          "type": "string",
+          "minLength": 1
+        },
+        "magnum_python_site": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rlr_sdk_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rlr_sdk_header": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rlr_sdk_library": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rlr_adapter_enabled": {
+          "const": true
+        },
+        "binding_api": {
+          "const": "habitat_sim.RLRAcousticContext_v1"
+        }
+      }
+    }
+  }
+}
