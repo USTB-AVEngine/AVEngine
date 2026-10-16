@@ -281,3 +281,38 @@ def test_pipeline_preserves_adaptive_keys_all_raw_gates_and_final_samples(tmp_pa
         assert results[0][1][name]==results[1][1][name]
     assert results[0][1]['refinements']  # exercise actual refinement, not only straight-through work
     assert calls[0]==calls[1]  # no extra primary/role/trial measurements
+
+
+def test_actual_request_inputs_cannot_hit_a_stale_declared_identity(tmp_path):
+    import copy
+    r=request(tmp_path);original=identity_key(r)[0]
+    for name,value in [('simulation',{'thread_count':1,'indirect_ray_count':99}),
+                       ('source_radius_m',.1),('listener_radius_m',.2)]:
+        other=copy.deepcopy(r);other['inputs'][name]=value
+        assert identity_key(other)[0]!=original
+    other=copy.deepcopy(r);other['house']={'acoustic_package_manifest':'/different/manifest.json'}
+    assert identity_key(other)[0]!=original
+    other=copy.deepcopy(r);other['house']={'room':{'placement':{'camera_m':[0.,0.,1.]}}}
+    assert identity_key(other)[0]!=original
+
+
+def test_runtime_file_replacement_invalidates_exact_cache(tmp_path):
+    r=request(tmp_path);runtime=tmp_path/'native.so';runtime.write_bytes(b'one')
+    r['expected_native_identity']['runtime_identity']={'binding_path':str(runtime)}
+    original=identity_key(r)[0]
+    runtime.write_bytes(b'different-installed-library')
+    assert identity_key(r)[0]!=original
+
+
+def test_producer_cli_registers_and_pins_before_launching(policy,tmp_path):
+    root,value=policy;cpu=value['cpu_ids'][0]
+    code="import os;from avengine.timeline.v7_rir_work_pool import RIRWorkPool;print(sorted(os.sched_getaffinity(0)));print(RIRWorkPool.configured().try_acquire() is None)"
+    value['cpu_ids']=[cpu];value['max_concurrent']=1
+    (root/'policy.json').write_text(json.dumps(value))
+    result=subprocess.run([sys.executable,'-m','avengine.timeline.v7_rir_work_pool',
+        '--root',str(root),'run','--cpus',str(cpu),'--owner','unit','--',sys.executable,'-c',code],
+        check=True,capture_output=True,text=True)
+    assert result.stdout.splitlines()==[str([cpu]),'True']
+    lease=pool.RIRWorkPool(root).try_acquire()
+    assert lease is not None
+    lease.close()

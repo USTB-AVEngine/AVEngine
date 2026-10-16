@@ -52,6 +52,11 @@ def exact_identity(request):
     return {'native_identity': native, 'source_position_m': request['source_position_m'],
             'evidence_role': request['evidence_role'], 'reference_trial': request['reference_trial'],
             'runtime_inputs': request['inputs']['runtime'],
+            'simulation_inputs': request['inputs'].get('simulation'),
+            'source_radius_input': request['inputs'].get('source_radius_m'),
+            'listener_radius_input': request['inputs'].get('listener_radius_m'),
+            'house_inputs': {'acoustic_package_manifest': request.get('house',{}).get('acoustic_package_manifest'),
+                             'placement': request.get('house',{}).get('room',{}).get('placement')},
             'runtime_files': _runtime_files(native), 'adapter_code': code}
 
 
