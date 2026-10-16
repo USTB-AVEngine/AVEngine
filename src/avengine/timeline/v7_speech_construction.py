@@ -34,7 +34,7 @@ def schedule_epochs(epochs, asset_ids):
         if any(t > 100 for t in lengths) or base + 100 > 300:
             raise ValueError('complete authored file has no 10s scene window')
         total = sum(lengths)
-        cell = 50 if total <= 50 else 100
+        cell = 50 if total < 50 else 100
         offset = base + (100 - cell)
         overlap = total > cell
         slack = max(0, cell-total)

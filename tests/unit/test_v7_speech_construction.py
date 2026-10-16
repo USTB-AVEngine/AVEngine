@@ -156,3 +156,12 @@ def test_body_derived_camera_height_solves_two_cropped_direction_roles():
     solved = CameraPose((0, height, 0), 0)
     assert all(framing(solved, p, bodies[aid])[0] == 'inside' for aid, p in points.items())
     assert {direction(solved, p)[0] for p in points.values()} == {'front-left', 'front-right'}
+
+
+def test_exact_half_window_pack_uses_available_slack_in_full_window():
+    # Rounding 2.49s twice needs exactly 5s: packing at [5,10] ends on
+    # a crop edge. The full window has spare time and is a direct solution.
+    events = schedule_epochs([[sound('s_a', 2.49), sound('s_b', 2.49)]], ['a', 'b'])
+    assert set(events[0]['complete_window_starts_s']) & set(events[1]['complete_window_starts_s'])
+    assert all(e['end_tick'] != 100 for e in events)
+    assert events[0]['start_tick'] > 0
