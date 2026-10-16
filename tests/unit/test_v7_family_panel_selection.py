@@ -7,7 +7,7 @@ pytestmark=pytest.mark.fast_unit
 def test_legacy_audio_classifier_does_not_fill_appearance_bound_qa21_target(tmp_path,monkeypatch):
     entries=[]
     for i,panel in enumerate(['STARSS23_v0.2','v6','v6']):
-        r={'question_id':str(i),'window_id':'p__w00','window_start_s':0.,'independent_parent_scene_id':'p','house':'h','qa_id':'QA-21','protocol_panel':panel,'modality':'audiovisual','canonical_answer':'cat'}
+        r={'question_id':str(i),'window_id':'p__w00','window_start_s':0.,'independent_parent_scene_id':'p','house':'h','qa_id':'QA-21','protocol_panel':panel,'question_en':'Which sound category best describes the sound?','modality':'audiovisual','canonical_answer':'cat'}
         entries.append({'row':r,'key':['p','QA-21',i,'cat']})
     monkeypatch.setattr(selection,'parent_entries',lambda *args,**kwargs:{'entries':entries,'new_visual_candidate_rows':0,'source_seal':'original','proofs':[]})
     receipt={'scene_id':'p','slot':0,'independent_questions':3}
