@@ -69,14 +69,21 @@ def select_people(catalog,room,contract,seed,*,moving=False,attempt=0,speaker_ge
     return deepcopy([first,second,quiet])
 
 
-def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,excluded_voices=()):
+def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,excluded_voices=(),whole_window_s=None):
     """Whole roles, fixed distinct real voices; rotate over the admitted directory."""
     groups=defaultdict(list)
     from avengine.qa.v7_question_wording import contains_internal_wording
     for sound in manifest['sounds']:
         if contains_internal_wording(sound.get('transcript','')):continue
-        if .65<=sound['synthesis_readback']['duration_s']<=2.8:
+        duration=float(sound['synthesis_readback']['duration_s'])
+        if ((0.<duration<=whole_window_s) if whole_window_s is not None else .65<=duration<=2.8):
             groups[sound['scenario_id']].append(sound)
+    role_capabilities={}
+    if whole_window_s is not None:
+        from avengine.timeline.v7_production_inputs import bind_semantic_registry
+        enriched=bind_semantic_registry(manifest,people)
+        role_capabilities={(s['id'],r['role_id']):r.get('required_asset_capability','standing_human')
+            for s in enriched['dialogues']['scenarios']for r in s['roles']}
     usage=state.get('authored_voice_counts',{});combinations=defaultdict(dict)
     for scenario,rows in sorted(groups.items()):
         roles=sorted({s['role_id']for s in rows})
@@ -86,12 +93,14 @@ def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,exclude
                 gender=person['visual_gender']
                 pools.append([r for r in rows if r['role_id']==role
                     and r['voice_reference']['gender'].lower()in {gender,gender[:1]}
-                    and r['voice_reference']['speaker_id']not in excluded_voices])
+                    and r['voice_reference']['speaker_id']not in excluded_voices
+                    and (whole_window_s is None or role_capabilities.get((scenario,role),'standing_human')
+                        in {'standing_human',person.get('capability',{}).get('asset_kind','standing_human')} )])
             for current in itertools.product(*pools):
                 voices=tuple(r['voice_reference']['speaker_id']for r in current)
                 if len(set(voices))!=len(people):continue
                 combinations[voices].setdefault(scenario,current)
-    compatible=[(voices,choices)for voices,choices in combinations.items()if len(choices)>=epoch_count]
+    compatible=[(voices,choices)for voices,choices in combinations.items()if len(choices)>=(1 if whole_window_s is not None else epoch_count)]
     if not compatible:raise ConstructionUnavailable('not enough distinct complete authored scenarios for fixed physical voices')
     voices,choices=min(compatible,key=lambda item:(sum(usage.get(v,0)for v in item[0]),
         max(usage.get(v,0)for v in item[0]),stable_seed(seed,'voice',*item[0],attempt)))
