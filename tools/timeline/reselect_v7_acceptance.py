@@ -3,6 +3,7 @@
 import argparse,json
 from pathlib import Path
 from avengine.timeline.v7_admitted_pool_reselection import balanced_batch
+from avengine.timeline.v7_post_dedup_selection import manifest_house_minimums
 def main():
     p=argparse.ArgumentParser();p.add_argument('--output-root',type=Path,required=True);p.add_argument('--workers',type=int,default=1);a=p.parse_args()
     m=json.loads((a.output_root/'inputs/ACCEPTANCE_PLAN.json').read_text())
@@ -18,7 +19,7 @@ def main():
      if any(row.get('source_classes',{}).get(aid)!=['footsteps']for aid in row.get('phase2_include_footsteps_asset_ids',[])):continue
      if row.get('acceptance_allow_partial_families')is True:continue
      receipts.append(r)
-    rows,report=balanced_batch(receipts,a.output_root,read_only_source_roots=m.get('peer_output_roots',[]),workers=a.workers,minimum_houses_per_family=int(m.get('minimum_family_distinct_houses',0)),family_minimums={f:m['motion_quartet_final_targets']['minimum_independent_questions_per_family']for f in m.get('motion_quartet_final_targets',{}).get('qa_ids',[])})
+    rows,report=balanced_batch(receipts,a.output_root,read_only_source_roots=m.get('peer_output_roots',[]),workers=a.workers,minimum_houses_per_family=manifest_house_minimums(m),family_minimums={f:m['motion_quartet_final_targets']['minimum_independent_questions_per_family']for f in m.get('motion_quartet_final_targets',{}).get('qa_ids',[])})
     print(json.dumps({k:v for k,v in report.items()if k!='parents'},ensure_ascii=False))
 
 if __name__=='__main__':main()

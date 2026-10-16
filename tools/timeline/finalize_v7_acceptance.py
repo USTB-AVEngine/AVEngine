@@ -77,9 +77,9 @@ def finalize(manifest_path):
                 'excluded_historical_parents':excluded,'new_native_renders':0}
             print(json.dumps(result,ensure_ascii=False),flush=True)
             return result
-        from avengine.timeline.v7_post_dedup_selection import manifest_family_minimums
+        from avengine.timeline.v7_post_dedup_selection import manifest_family_minimums,manifest_house_minimums
         minimums=manifest_family_minimums(manifest)
-        rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums,minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)),family_protocol_panels=manifest.get('family_protocol_panels',{}))
+        rows,selection=balanced_batch(receipts,root,read_only_source_roots=manifest.get('peer_output_roots',[]),family_minimums=minimums,minimum_houses_per_family=manifest_house_minimums(manifest),family_protocol_panels=manifest.get('family_protocol_panels',{}))
         for row in rows:validate_english_model_text(row)
         if len({r['question_id']for r in rows})!=len(rows):raise ValueError('duplicate final question IDs')
         index=root/'export/train.jsonl';temporary=index.with_name(index.name+f'.{os.getpid()}.tmp')

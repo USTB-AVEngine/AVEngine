@@ -130,3 +130,34 @@ def test_configured_special_family_floor_survives_final_modality_sampling():
     assert Counter(r['qa_id']for r in rows)['QA-10']==30
     assert Counter(r['modality']for r in rows)=={'vision':30,'audio':25,'audiovisual':46}
     assert report['source_candidates_and_answers_changed']is False
+
+
+def test_per_family_house_targets_do_not_add_global_sampling_requirements():
+    from avengine.timeline.v7_post_dedup_selection import manifest_house_minimums
+    entries=candidates();av=0
+    for e in entries:
+        r=e['row'];r['house']='common_house'
+        if r['modality']=='audiovisual':
+            if av<40:
+                r['qa_id']='QA-27'
+                house=0 if av<31 else av-30
+                r['house']='target_house_'+str(house)
+                r['independent_parent_scene_id']='target_parent_'+str(house)
+                e['key'][0]=r['independent_parent_scene_id']
+            else:r['qa_id']='other_AV'
+            av+=1
+    m={'minimum_family_distinct_houses':1,'family_distinct_house_minimums':{'QA-27':10}}
+    rows,report=select_independent_rows(entries,family_minimums={'QA-27':30},minimum_houses_per_family=manifest_house_minimums(m))
+    target=[r for r in rows if r['qa_id']=='QA-27']
+    assert len(target)>=30 and len({r['house']for r in target})==10
+    assert report['available_family_house_floors']['QA-27']==10
+    assert report['available_family_house_floors']['vision']==1
+    assert report['available_family_house_floors']['audio']==1
+    assert Counter(r['modality']for r in rows)=={'vision':30,'audio':25,'audiovisual':46}
+    assert report['source_candidates_and_answers_changed']is False
+
+
+def test_house_target_manifest_preserves_original_scalar_default():
+    from avengine.timeline.v7_post_dedup_selection import manifest_house_minimums
+    assert manifest_house_minimums({'minimum_family_distinct_houses':2})==2
+    assert manifest_house_minimums({'minimum_family_distinct_houses':2,'family_distinct_house_minimums':{'QA-27':10}})=={'*':2,'QA-27':10}

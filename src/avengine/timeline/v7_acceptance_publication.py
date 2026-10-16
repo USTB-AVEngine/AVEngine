@@ -1,3 +1,4 @@
+from avengine.timeline.v7_post_dedup_selection import manifest_house_minimums
 """Publish each newly admitted parent's English rows without waiting for a batch."""
 from pathlib import Path
 from collections import Counter
@@ -45,7 +46,7 @@ def publish_current_parents(root):
             from avengine.timeline.v7_admitted_pool_reselection import balanced_batch
             try:
                 rows,_=balanced_batch(parents,root,read_only_source_roots=manifest.get('peer_output_roots',[]),
-                    minimum_houses_per_family=int(manifest.get('minimum_family_distinct_houses',0)),
+                    minimum_houses_per_family=manifest_house_minimums(manifest),
                     family_protocol_panels=manifest.get('family_protocol_panels',{}),
                     family_minimums=__import__('avengine.timeline.v7_post_dedup_selection',fromlist=['manifest_family_minimums']).manifest_family_minimums(manifest))
             except ValueError as error:

@@ -20,6 +20,19 @@ def manifest_family_minimums(manifest):
     return floors
 
 
+def manifest_house_minimums(manifest):
+    """Use the owner's house goals for requested families; keep scalar compatibility."""
+    default=int(manifest.get('minimum_family_distinct_houses',0))
+    configured={f:int(n)for f,n in manifest.get('family_distinct_house_minimums',{}).items()}
+    if default<0 or any(n<0 for n in configured.values()):
+        raise ValueError('family house minimum must be nonnegative')
+    return {'*':default,**configured}if configured else default
+
+
+def _house_minimum(request,family):
+    return int(request.get(family,request.get('*',0)))if isinstance(request,dict)else int(request)
+
+
 def rounded_modality_quotas(capacity,minimums=None):
     """Largest feasible row count with Hamilton rounding of 30/25/45.
 
@@ -64,7 +77,7 @@ def _select_independent_rows_balanced(entries, *, minimum_family=3, family_minim
     available_houses=defaultdict(set)
     for e in pool:
         if e['row'].get('house')is not None:available_houses[e['row']['qa_id']].add(e['row']['house'])
-    house_floors={f:min(int(minimum_houses_per_family),len(houses))for f,houses in available_houses.items()}
+    house_floors={f:min(_house_minimum(minimum_houses_per_family,f),len(houses))for f,houses in available_houses.items()}
     floors={f:max(n,house_floors.get(f,0))for f,n in floors.items()}
     family_modalities=defaultdict(set)
     for e in pool:family_modalities[e['row']['qa_id']].add(e['row']['modality'])
