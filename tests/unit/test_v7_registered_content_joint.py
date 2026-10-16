@@ -34,6 +34,15 @@ def test_whole_window_selection_accepts_long_admitted_roles_without_changing_def
     assert len({tuple(s['voice_reference']['speaker_id']for s in e)for e in chosen})==1
     assert {s['sound_asset_id']for e in chosen for s in e}=={s['sound_asset_id']for s in manifest['sounds']}
 
+def test_complete_multi_scenario_voice_group_is_preferred_before_single_scenario_fallback(monkeypatch):
+    bind_roles(monkeypatch);manifest=bank();rare=deepcopy(manifest['sounds'][:3])
+    for i,s in enumerate(rare):s.update(scenario_id='rare_scenario',sound_asset_id=f'rare_{i}');s['voice_reference']['speaker_id']=f'rare_voice{i}'
+    manifest['sounds'].extend(rare)
+    state={'authored_voice_counts':{f'fixed_voice{i}':10 for i in range(3)}}
+    chosen=choose_authored(manifest,people()[:3],state,17,epoch_count=3,whole_window_s=10.)
+    assert len(chosen)==3 and len({e[0]['scenario_id']for e in chosen})==3
+
+
 def test_whole_window_selection_preserves_real_role_capabilities(monkeypatch):
     bind_roles(monkeypatch,'phone_user')
     with pytest.raises(ConstructionUnavailable):choose_authored(bank(),people()[:3],{},17,whole_window_s=10.)

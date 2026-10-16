@@ -102,7 +102,8 @@ def choose_authored(manifest,people,state,seed,*,epoch_count=1,attempt=0,exclude
                 combinations[voices].setdefault(scenario,current)
     compatible=[(voices,choices)for voices,choices in combinations.items()if len(choices)>=(1 if whole_window_s is not None else epoch_count)]
     if not compatible:raise ConstructionUnavailable('not enough distinct complete authored scenarios for fixed physical voices')
-    voices,choices=min(compatible,key=lambda item:(sum(usage.get(v,0)for v in item[0]),
+    voices,choices=min(compatible,key=lambda item:(-min(epoch_count,len(item[1])) if whole_window_s is not None else -epoch_count,
+        sum(usage.get(v,0)for v in item[0]),
         max(usage.get(v,0)for v in item[0]),stable_seed(seed,'voice',*item[0],attempt)))
     actual_use=state.get('source_record_usage_counts',state.get('recording_use_counts',{}))
     ordered=sorted(choices.values(),key=lambda pair:(sum(actual_use.get(r['sound_asset_id'],0)for r in pair),
