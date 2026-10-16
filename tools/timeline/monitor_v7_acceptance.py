@@ -136,11 +136,30 @@ def append_progress(o,m,now,active):
 
 
 
-def construction_priority(task,observed,gaps,visual_gap,active_families,focus_families):
+def new_family_house_gaps(manifest,root):
+ targets=manifest.get('new_family_house_targets',{})
+ if not targets:return {}
+ epoch=manifest.get('new_family_house_epoch');seen={f:set()for f in targets}
+ for task in manifest['parents']:
+  if epoch is not None and task.get('generation_phase')!=epoch:continue
+  families=set(task.get('target_families',[]))|{task.get('target_family')}
+  families&=set(targets)
+  if not families:continue
+  path=Path(root)/'evidence/jobs'/f"{task['slot']:03d}.json"
+  if not path.is_file():continue
+  receipt=load(path)
+  if receipt.get('status')!='passed'or receipt.get('reader',{}).get('status')!='pass':continue
+  for family in families:
+   if receipt.get('export',{}).get('question_family_counts',{}).get(family,0)>0:
+    seen[family].add(receipt.get('house',task['row']['house']))
+ return {f:max(0,int(n)-len(seen[f]))for f,n in targets.items()}
+
+
+def construction_priority(task,observed,gaps,visual_gap,active_families,focus_families,*,new_house_gaps=None):
  from avengine.timeline.v7_demand import VISUAL_CONSTRUCTION_FAMILIES
  explicit=task.get('target_family')
  targets=[explicit]if explicit else focus_families.get(task.get('focus'),['QA-06','QA-15','QA-16','QA-17'])
- floor=max((max(0,3-observed.get(f,0))for f in targets),default=0)
+ floor=max((max(0,3-observed.get(f,0),int((new_house_gaps or {}).get(f,0))-active_families.get(f,0))for f in targets),default=0)
  in_flight=sum(active_families.get(f,0)for f in targets)/len(targets)
  visual_priority=visual_gap if any(f in VISUAL_CONSTRUCTION_FAMILIES for f in targets)else 0.
  return (-floor,in_flight,-visual_priority,-sum(max(0.,gaps.get(f,0.))for f in targets)/len(targets),task['slot'])
@@ -244,9 +263,10 @@ def main():
     active_task=task_by_slot(m,active_slot);target=active_task.get('target_family')
     if target:active_families[target]+=1
     elif active_task.get('constructor')=='motion_quartet_template':active_families.update(['QA-06','QA-15','QA-16','QA-17'])
+   fresh_house_gaps=new_family_house_gaps(m,o)
    def demand_order(slot):
     return construction_priority(task_by_slot(m,slot),state.get('family_counts',{}),gaps,
-        demand.get('modality_deficits',{}).get('vision',0.),active_families,families)
+        demand.get('modality_deficits',{}).get('vision',0.),active_families,families,new_house_gaps=fresh_house_gaps)
    for slot in sorted(pending,key=demand_order):
     task=task_by_slot(m,slot)
     if task.get('launch_disabled'):continue
