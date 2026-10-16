@@ -507,3 +507,33 @@ def test_appearance_ranking_cannot_promote_an_original_colour_rejection():
     assert ranked[0]["asset_id"] == "green"
     assert "1" not in review["actors"]
     assert reports[0]["original_colour_review_eligible"] is False
+
+def test_stage_projection_precheck_does_not_inflate_the_certified_layout_count():
+    from types import SimpleNamespace
+    from avengine.construction.joint import BodySpec, FamilyRequest, ScenePlan
+    from avengine.construction.joint.geometry import DepthBuffer, predict_visibility
+    from avengine.construction.joint.families.qa07 import QA07Plugin, endpoint_route
+    context = endpoint_test_context(); camera=context.cameras[0]; body=BodySpec("human",.35,1.9,.05)
+    actor=endpoint_route(context,camera,[-6.,0.,-5.],[0.,0.,-5.],body,"target")
+    depth=DepthBuffer(camera,np.full((360,640),np.inf))
+    proxy=SimpleNamespace(predict=lambda c,r,b,**kw:predict_visibility(c,r,b,depth=depth,**kw))
+    plugin=QA07Plugin({"target":body})
+    plan=ScenePlan(camera,{"target":actor},metadata={"entry_projection_probe_only":True})
+    assert all(x.status=="pass"for x in plugin.verify(proxy,FamilyRequest("QA-07","left",("target",)),plan))
+    assert plugin.seed_diagnostics.get("owner_and_family_certified_pairs",0)==0
+
+def test_failed_native_camera_route_is_not_repeated_after_the_preferred_plan():
+    from avengine.construction.joint import BodySpec, FamilyRequest
+    from avengine.construction.joint.families.qa07 import QA07Plugin, entry_route_key
+    context=endpoint_test_context();context.cameras=()
+    body=BodySpec("human",.35,1.9,.05);request=FamilyRequest("QA-07","left",("target",))
+    first_stream=QA07Plugin({"target":body}).candidates(context,request)
+    preferred=next(first_stream);first_stream.close()
+    plugin=QA07Plugin({"target":body});plugin.preferred_plan=preferred
+    stream=plugin.candidates(context,request)
+    assert next(stream) is preferred
+    key=entry_route_key(preferred.camera,preferred.actors["target"])
+    plugin.rejected_route_keys.add(key)
+    different=next(stream)
+    assert entry_route_key(different.camera,different.actors["target"]) != key
+    stream.close()

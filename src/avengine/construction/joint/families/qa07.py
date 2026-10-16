@@ -174,10 +174,10 @@ def native_entry_route_proposals(video, entry, scene, distance, local_forward, r
     if not video.pathfinder.find_path(native_path):
         raise ValueError("QA-07 final gait endpoints are not natively connected")
     if float(native_path.geodesic_distance) > length + .05:
-        raise ValueError("QA-07 straight route crosses a native navigation obstruction")
+        raise ValueError("QA-07 planned path crosses a native navigation obstruction")
     yield SimpleNamespace(
         positions=positions, yaws=yaws,
-        receipt={"route_kind": "joint QA-07 analytic side entry", "branch": route["branch"],
+        receipt={"route_kind": "joint QA-07 solved endpoint path", "branch": route["branch"],
                  "root_samples": len(positions), "planning_length_m": expected,
                  "executed_complete_gait_length_m": length,
                  "gait_extension_m": length-expected,
@@ -612,6 +612,13 @@ def joint_entry_camera_paths(context, body, side, diagnostics, *, budget_s=300.)
     diagnostics["endpoint_search_exhaustion"]="finite_floor_grid_pairs_exhausted"
 
 
+def entry_route_key(camera, actor):
+    """Ordinary in-memory identity for one attempted camera/actor/trajectory."""
+    return (tuple(camera.position_m),float(camera.yaw_deg),actor.entity_id,
+            np.asarray(actor.positions_m,float).tobytes(),
+            np.asarray(actor.headings_rad,float).tobytes())
+
+
 class QA07Plugin:
     """Family-specific side-plane construction using the shared room/route core."""
 
@@ -623,12 +630,12 @@ class QA07Plugin:
         self.seed = int(seed)
         self.clock_evaluator = clock_evaluator
         self._static_meshes = {}
+        self.rejected_route_keys = set()
         self.silent_target = bool(silent_target)
         self.seed_diagnostics = {"stage_previews": 0, "stage_preview_rejected": 0}
 
     def candidates(self, context, request):
         from collections import Counter
-        import heapq
         from avengine.construction.joint import ScenePlan
         from avengine.construction.joint.routes import ConstructionError, minimum_track_distance, static_actor
         from avengine.construction.joint.grounding import floor_contact_variants
@@ -669,13 +676,25 @@ class QA07Plugin:
                 rejected[reason] += 1
                 self.seed_diagnostics["constructed_route_rejections"] = dict(rejected)
                 continue
+            route_key = entry_route_key(camera,mover)
+            if route_key in self.rejected_route_keys:
+                continue
             self.seed_diagnostics["routes_constructed"] += 1
             self.seed_diagnostics["stage_previews"] += 1
             stage_clear = entry_stage_seed_preview(context, camera, mover)
             if not stage_clear:
                 self.seed_diagnostics["stage_preview_rejected"] += 1
-            # A coarse preview is a ranking observation, not another QA gate.
-            # The complete original temporal predicate is evaluated by verify().
+            # Run the SAME existing answer predicate before enumerating the
+            # companion. Adding a stationary occluder cannot create an
+            # out_of_view->visible witness missing from a fully known stage.
+            # Unknown stage evidence is retained for the full-scene check.
+            stage_plan = ScenePlan(camera,{target:mover},
+                metadata={"entry_projection_probe_only":True})
+            stage_checks = tuple(self.verify(context,request,stage_plan))
+            stage_unknown = stage_checks[-1].evidence.get("unresolved_prediction_samples",0)
+            if not stage_unknown and any(check.status != "pass" for check in stage_checks):
+                self.seed_diagnostics["stage_answer_rejections"] = self.seed_diagnostics.get("stage_answer_rejections",0)+1
+                continue
             delta = mover.positions_m[-1]-np.asarray(camera.position_m)
             anchors = {"branch": request.branch, "listener_m": list(camera.position_m),
                 "camera_yaw_deg": camera.yaw_deg, "camera_forward": camera.forward.tolist(),
@@ -749,6 +768,11 @@ class QA07Plugin:
                     "planning_prediction_is_not_pixel_truth": True})
                 if getattr(self, "appearance_rejected", False):
                     return
+                if route_key in self.rejected_route_keys:
+                    # A native attempt has already rejected this exact target
+                    # trajectory/camera. Advance the joint domain, not the same
+                    # route with hundreds of irrelevant companion positions.
+                    break
 
     def verify(self, context, request, plan):
         from avengine.construction.joint import CheckResult
@@ -812,13 +836,15 @@ class QA07Plugin:
         # It is a construction preference, followed by actual native masks.
         proxy_pixels = int(end.evidence.get("inner_proxy_visible_pixels", 0))
         ready = states == ["outside", "inside"] and bool(windows)
-        if ready:
+        if ready and not plan.metadata.get("entry_projection_probe_only"):
             self.seed_diagnostics["owner_and_family_certified_pairs"] = self.seed_diagnostics.get("owner_and_family_certified_pairs", 0)+1
         yield CheckResult("entry_geometry_with_pixel_margin", "pass" if ready else "fail",
                           evidence={"initial_outside_samples": outside,
                                     "final_state": end.state,
                                     "final_inner_proxy_pixels": proxy_pixels,
                                     "unknown_prediction_samples": sum(p.state == "unknown" for p in predictions),
+                                    "unresolved_prediction_samples": sum(p.state == "unknown" and
+                                        p.evidence.get("target_proxy_pixels") != 0 for p in predictions),
                                     "native_preflight_required": True,
                                     "lower_pixels_are_inner_proxy_only": True})
 
@@ -1132,7 +1158,10 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
             yield from native_entry_counterfactual_checks(video, scene)
 
     def oracle(context, requested, plan):
-        initial_visible = {aid: 100 for aid, role in plan.metadata["roles"].items() if role == "inside"}
+        # QA-07 requires only the entering target to become visible. Static
+        # TTS bodies retain registration/spacing/rest framing, with no extra
+        # initial 100-pixel quota on optional companion appearances.
+        initial_visible = {}
         plugin.seed_diagnostics["native_preparations"] += 1
         prepared = prepare_native(context, requested, plan, row_factory=make_row, house=house,
             catalog=catalog, records=records, semantic=semantic, runtime=runtime,
@@ -1140,6 +1169,9 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
             minimum_visible_pixels=initial_visible)
         if prepared.payload is not None and all(check.status == "pass" for check in prepared.checks):
             plugin.seed_diagnostics["native_certified"] += 1
+        else:
+            plugin.rejected_route_keys.add(entry_route_key(plan.camera,plan.actors[target]))
+            plugin.seed_diagnostics["native_rejected_distinct_routes"] = len(plugin.rejected_route_keys)
         return prepared
 
     with build_room_context(actual_room, house=house, runtime=runtime,
