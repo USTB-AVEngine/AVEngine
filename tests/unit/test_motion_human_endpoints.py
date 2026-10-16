@@ -262,7 +262,8 @@ def test_native_family_failure_drops_only_its_own_obligations(monkeypatch,keep_o
     assert len(calls)==2 and all(len(one)==1 for one in calls)
     if keep_one:
         assert all(c.status=="pass"for c in checks)
-        assert sweeps==[True]
+        assert sweeps==[]
+        assert video.receipt["motion_human_body_collision_policy"]["policy"]=="observation_only"
         for ref in [row,*refs,scene["production_scenario"]]:
             assert [p["config"]["query"]["qa_id"]for p in ref["motion_during_condition_plan"]["plans"]]==["QA-06"]
             assert ref["scene_demand"]["required_actual_candidate_families"]==["QA-06"]

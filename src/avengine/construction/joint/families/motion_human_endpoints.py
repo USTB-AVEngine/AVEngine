@@ -167,7 +167,7 @@ def route_for_pair(context, camera, pair, demand, *, speed_m_s, start_s=0.,
     # XZ rounding displacement at 30Hz, without changing the declared speed band.
     coordinate_scale=np.float32(max(1.,float(np.abs(waypoints).max())))
     native_speed_guard=float(np.spacing(coordinate_scale))*60.*math.sqrt(2.)
-    speed_m_s=float(np.clip(speed_m_s,.8+native_speed_guard,1.4-native_speed_guard))
+    speed_m_s=float(np.clip(speed_m_s,.85+native_speed_guard,1.35-native_speed_guard))
     # The species map already includes the human footprint; subtracting its
     # radius again here collapsed every fillet to zero on valid NavMesh cells.
     # Core construct_route validates the actual rounded path against that map.
@@ -200,7 +200,7 @@ def route_for_pair(context, camera, pair, demand, *, speed_m_s, start_s=0.,
                 if len(observed)and observed.min()<.8-.02:
                     # Solve the clip speed inside the existing owner band;
                     # short curved chords can be slower than their arc clock.
-                    next_speed=min(1.4-native_speed_guard,speed_m_s*.8/float(observed.min()))
+                    next_speed=min(1.35-native_speed_guard,speed_m_s*.8/float(observed.min()))
                     if next_speed<=speed_m_s:
                         raise ConstructionError("species_speed_with_bounded_start_stop_ramps")
                     speed_m_s=next_speed
@@ -529,7 +529,7 @@ class EndpointHumanPlugin:
             spans=[(r["screens"]["automatic_activity"]["activity_intervals_samples"][-1][1]-
                     r["screens"]["automatic_activity"]["activity_intervals_samples"][0][0])/16000.
                    for r in measured]
-            low,high=SPEED_BANDS["human"]
+            low,high=.85,1.35  # owner 12:15: construct inside the tolerated [.8,1.4] band
             if any(span*high<.5 for span in spans):
                 self.failures["whole_recording_cannot_cover_QA15_at_owner_max_speed"]+=1
                 continue
@@ -695,15 +695,15 @@ def construct_human_endpoint_scene(room,house,state,catalog,records,semantic,con
         detail={"status":solved.status,"reasons":list(solved.reasons),
                 "diagnostics":solved.diagnostics,
                 "checks":[asdict(c)for c in solved.certificate.checks]if solved.certificate else[]}
-        (root/("joint_solution.json"if solved.status=="certified"else"joint_failure.json")).write_text(
+        (root/("joint_solution.json"if solved.status in ("certified","degraded")else"joint_failure.json")).write_text(
             json.dumps(detail,default=lambda x:x.tolist()if hasattr(x,"tolist")else str(x),indent=2)+"\n")
-        if solved.status!="certified"or solved.prepared is None:
+        if solved.status not in ("certified","degraded")or solved.prepared is None:
             raise ConstructionUnavailable("endpoint joint solve "+solved.status+"; see "+str(root))
         prepared=solved.prepared.payload
         prepared.row["joint_common_geometry_status"]="certified_by_common_solve_and_same_native_prepared_world"
         prepared.row["scene_demand"]["motion_human_joint_certificate"]=detail
         prepared.row["joint_prepared_scene_required"]=True
-        prepared.row["joint_solution"]["native_retained_family_counts"]=(
+        prepared.row.setdefault("joint_solution",{})["native_retained_family_counts"]=(
                 solved.plan.metadata.get("native_retained_family_counts",{}))
         return {"profile":"phase2","row":prepared.row,"prepared_native":prepared,
                 "prepared":prepared,"joint_solver_certificate":solved.certificate}

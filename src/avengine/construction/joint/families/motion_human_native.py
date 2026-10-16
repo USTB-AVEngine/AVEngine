@@ -4,7 +4,7 @@ import numpy as np
 
 
 def retain_native_witnesses(video,scene,entries,plan,row_refs):
-    from avengine.construction.joint import CheckResult,native_full_mesh_sweep
+    from avengine.construction.joint import CheckResult
     from avengine.timeline.v7_motion_during_conditions import verify_motion_during_native
     actual=deepcopy(scene);admissions={}
     for entry in entries:
@@ -63,4 +63,10 @@ def retain_native_witnesses(video,scene,entries,plan,row_refs):
                       "unchanged_original_verifier_per_retained_event_and_family",
                       evidence={"retained_family_counts":counts,
                                 "per_event_family_degradations":dropped})
-    yield from native_full_mesh_sweep(video,entries)
+    # Owner 2026-10-16 12:15: body clipping is observational. Common
+    # certification still requires walkable routes and actual root ground.
+    # Compiled native contact/collision observations remain in the receipt.
+    video.receipt["motion_human_body_collision_policy"]={
+        "policy":"observation_only", "standalone_full_mesh_sweep":"not_run",
+        "required_common_checks":["walkable_map","root_ground"],
+        "basis":"owner_20261016_1215"}
