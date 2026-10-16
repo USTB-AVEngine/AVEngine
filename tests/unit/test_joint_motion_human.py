@@ -124,5 +124,6 @@ def test_single_walker_can_use_a_core_precomputed_camera_when_old_view_is_too_cl
          'motion_quartet_construction':{}}
     assert reframe_single_geometry(SimpleNamespace(room={},cameras=[farther]),row,plan)
     assert plan.camera.position_m==farther.position_m and row['listener_m']==list(farther.position_m)
+    assert row['motion_requests']['a']['motion_quartet_route']['listener_m']==row['listener_m']
     assert all(np.array_equal(a.positions_m,original[key])for key,a in actors.items())
     assert all(framing(plan.camera,actors[key].positions_m[0],actors[key].body)[0]=='inside'for key in ['a','b'])

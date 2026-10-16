@@ -210,11 +210,15 @@ def reframe_single_geometry(context, row, plan):
                                  {'time_s':30.,'yaw_deg':float(selected.yaw_deg)}]
         for request in row['motion_requests'].values():
             request['motion_quartet_route']['camera_yaw_deg']=float(selected.yaw_deg)
+            request['motion_quartet_route']['listener_m']=list(selected.position_m)
         if control:
             actor=plan.actors[control['asset_id']]
             control['frame_state']=framing(selected,actor.positions_m[0],actor.body)[0]
             if tracks:control['minimum_planned_wrong_angle_deg']=angle
         if witness is not None:row['joint_motion_witness_certificate']=certificate_record(witness)
+        construction=row['motion_quartet_construction']
+        for route in [construction.get('route'),*construction.get('routes',{}).values()]:
+            if route is not None:route.update(listener_m=list(selected.position_m),camera_yaw_deg=float(selected.yaw_deg))
         row['motion_quartet_construction']['single_walker_core_view']={
             **evidence,'camera_domain':'core precomputed legal camera positions',
             'old_listener_m':list(original.position_m),'selected_listener_m':list(selected.position_m),
