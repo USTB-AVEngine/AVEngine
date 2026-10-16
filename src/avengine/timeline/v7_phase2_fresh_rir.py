@@ -13,6 +13,12 @@ REVISION='fresh-native-process-per-rir-independent-midpoints-v1'
 
 
 def _launch_native_child(command,log,inputs):
+    from avengine.timeline.v7_rir_work_pool import RIRWorkPool
+    shared_pool=RIRWorkPool.configured()
+    if shared_pool is not None:
+        try:return shared_pool.launch(command,log)
+        except OSError:
+            log.write(b'RIR pool unavailable; falling back to local worker\n');log.flush()
     # Shared lock is opened read-only: helpers never write another task's files.
     configured=inputs.get('shared_rir_policy')
     if configured is None and inputs.get('production_input_contract'):
@@ -67,8 +73,11 @@ class FreshNativeContextRenderer:
         self.inputs=inputs;self.house=house;self.identity=identity
         self.root=pathlib.Path(root);check_write(self.root,expected_bytes=4_000_000)
         self.root.mkdir(parents=True,exist_ok=False)
-        self.parallel_workers=min(16,max(1,int(inputs.get('fresh_rir_workers',1))))
+        from avengine.timeline.v7_rir_work_pool import scheduler_workers
+        self.parallel_workers=scheduler_workers(inputs)
         cpu_ids=inputs.get('fresh_rir_cpu_ids',[])
+        self.cpu_pool=queue.Queue() if cpu_ids else None
+        cpu_ids=[int(cpu)for cpu in cpu_ids if int(cpu)in os.sched_getaffinity(0)]
         self.cpu_pool=queue.Queue() if cpu_ids else None
         for cpu in cpu_ids:self.cpu_pool.put(int(cpu))
         self.setup_report={**setup_report,'phase2_context_policy':REVISION,
@@ -88,35 +97,46 @@ class FreshNativeContextRenderer:
             'source_position_m':point.tolist(),'evidence_role':evidence_role,
             'reference_trial':reference_trial,'request_id':token,
             'expected_native_identity':self.identity,'output':str(output),'report':str(report)},allow_nan=False))
-        selected_cpu=self.cpu_pool.get() if self.cpu_pool is not None else None
-        try:
-            command=[sys.executable,'-B','-m','avengine.timeline.v7_phase2_fresh_rir','--request',str(request)]
-            if selected_cpu is not None:command=['taskset','--cpu-list',str(selected_cpu),*command]
-            with(directory/'native.log').open('xb')as log:
-                child=_launch_native_child(['nice','-n','10',*command],log,self.inputs)
-                exit_code=child.wait()
-            if exit_code:raise ValueError('fresh native process failed: '+str(directory/'native.log'))
-            result=json.loads(report.read_text());wave=np.load(output,allow_pickle=False)
-            if result['pid']!=child.pid or result['ppid']!=os.getpid() or result['pid']==os.getpid():
-                raise ValueError('fresh RIR process lineage missing')
-            if result['request_id']!=token or result['source_position_m']!=point.tolist() or result['native_identity']!=self.identity:
-                raise ValueError('fresh RIR native scene/pose/configuration identity mismatch')
-            if result['evidence_role']!=evidence_role or result['reference_trial']!=reference_trial:
-                raise ValueError('fresh RIR primary/reference role changed')
-            if result['output_sha256']!=hashlib.sha256(output.read_bytes()).hexdigest():
-                raise ValueError('fresh native RIR bytes changed')
-            if wave.ndim!=2 or wave.shape[0]!=4 or not np.isfinite(wave).all() or not np.any(wave):
-                raise ValueError('fresh native RIR invalid')
-            return wave,str(report),result['process_cpu_seconds_total']
-        finally:
-            if selected_cpu is not None:self.cpu_pool.put(selected_cpu)
+        from avengine.timeline.v7_rir_exact_reuse import exact_entry
+        request_value=json.loads(request.read_text())
+        with exact_entry(request_value)as reuse:
+            if reuse is not None:
+                hit=reuse.hit(request_value)
+                if hit is not None:return hit
+            from avengine.timeline.v7_rir_work_pool import RIRWorkPool
+            shared_pool=RIRWorkPool.configured()
+            selected_cpu=self.cpu_pool.get() if self.cpu_pool is not None and shared_pool is None else None
+            try:
+                command=[sys.executable,'-B','-m','avengine.timeline.v7_phase2_fresh_rir','--request',str(request)]
+                if selected_cpu is not None:command=['taskset','--cpu-list',str(selected_cpu),*command]
+                with(directory/'native.log').open('xb')as log:
+                    child=_launch_native_child(['nice','-n','10',*command],log,self.inputs)
+                    exit_code=child.wait()
+                if exit_code:raise ValueError('fresh native process failed: '+str(directory/'native.log'))
+                result=json.loads(report.read_text());wave=np.load(output,allow_pickle=False)
+                if result['pid']!=child.pid or result['ppid']!=os.getpid() or result['pid']==os.getpid():
+                    raise ValueError('fresh RIR process lineage missing')
+                if result['request_id']!=token or result['source_position_m']!=point.tolist() or result['native_identity']!=self.identity:
+                    raise ValueError('fresh RIR native scene/pose/configuration identity mismatch')
+                if result['evidence_role']!=evidence_role or result['reference_trial']!=reference_trial:
+                    raise ValueError('fresh RIR primary/reference role changed')
+                if result['output_sha256']!=hashlib.sha256(output.read_bytes()).hexdigest():
+                    raise ValueError('fresh native RIR bytes changed')
+                if wave.ndim!=2 or wave.shape[0]!=4 or not np.isfinite(wave).all() or not np.any(wave):
+                    raise ValueError('fresh native RIR invalid')
+                if reuse is not None:reuse.publish(request_value,str(report))
+                return wave,str(report),result['process_cpu_seconds_total']
+            finally:
+                if selected_cpu is not None:self.cpu_pool.put(selected_cpu)
 
     def render(self,positions,*,evidence_role='primary',reference_trial=None):
         started=time.perf_counter();positions=list(positions)
+        submission=getattr(self,'submission_queue',None)
+        execute=submission.get if submission is not None else self._render_one
         if self.parallel_workers>1 and len(positions)>1:
             with ThreadPoolExecutor(max_workers=self.parallel_workers)as pool:
-                values=list(pool.map(lambda p:self._render_one(p,evidence_role,reference_trial),positions))
-        else:values=[self._render_one(p,evidence_role,reference_trial)for p in positions]
+                values=list(pool.map(lambda p:execute(p,evidence_role,reference_trial),positions))
+        else:values=[execute(p,evidence_role,reference_trial)for p in positions]
         waves,reports,cpu=zip(*values);self.process_evidence.extend(reports)
         # Native SDK tails have measured, position-dependent lengths. Keep
         # each complete raw buffer; scalar callers retain their prior shape.
@@ -136,7 +156,9 @@ def _worker(request_path):
     if output.parent!=path.parent or report.parent!=path.parent:raise ValueError('fresh process output escaped its own request directory')
     if request['evidence_role']not in{'primary','independent_midpoint_reference'}:raise ValueError('invalid native RIR evidence role')
     from avengine.timeline.v7_native_resource_slots import acquire_native_resource
-    resource_lease=acquire_native_resource('rir')
+    from avengine.timeline.v7_rir_work_pool import inherited_lease
+    pool_lease=inherited_lease()
+    resource_lease=None if pool_lease is not None else acquire_native_resource('rir')
     started=time.perf_counter();cpu=time.process_time()
     from avengine.acoustics.runtime import load_habitat_runtime
     load_habitat_runtime(runtime_mode='current-installed',**request['inputs']['runtime'])
@@ -158,6 +180,7 @@ def _worker(request_path):
         'output_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),
         'process_cpu_seconds_total':time.process_time()-cpu,'wall_seconds_total':time.perf_counter()-started}
     if resource_lease is not None:value['task_resource_lease']=resource_lease.receipt
+    if pool_lease is not None:value['shared_pool_lease']=pool_lease
     # Optional scheduling runs in a separate coordinator. In particular, an
     # independent measuring process never reads any primary kernel or estimate.
     try:
