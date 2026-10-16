@@ -167,7 +167,10 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                 contact_limit=HUMAN_QUALITY['foot_contact_limit_m']if inputs.get('phase2')else .008
                 from avengine.construction.contact_policy import contact_quality_observation
                 ev['ik_reach_deficit_so_far_m']=float(solver.max_reach)
-                ev['contact_quality_observation']=contact_quality_observation([ev])
+                ev['contact_quality_observation']=contact_quality_observation([ev],
+                    ground_support=contact_quality_observation(root_support_verified=True,
+                        root_support_point_m=list(hits[0].point),
+                        authority='actual native seated floor ray and solved FootPlant support'))
                 clearance=TriangleClearance(video,house,ground,entry)
                 # Existing support is not stripped from the exact stage model.
                 # If it cannot satisfy the conservative new-house collision

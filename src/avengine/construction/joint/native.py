@@ -138,7 +138,7 @@ def native_static_checks(video, scene, plan, *, roles=None, minimum_visible_pixe
         observed_yaw=math.atan2(transform[0,2],transform[0,0])
         yaw_error=abs((observed_yaw-wanted_yaw+math.pi)%(2*math.pi)-math.pi)
         add("native:"+key+":exact_pose", error <= root_tolerance_m+1e-7 and yaw_error <= 1e-5,
-            "execution_must_not_replan", root_error_m=error, yaw_error_rad=yaw_error,
+            "execution_must_not_replan", root_error_m=error, root_error_axes="xz"if constructed else"xyz", yaw_error_rad=yaw_error,
             actual_root_m=transform[:3,3].tolist(), expected_root_m=np.asarray(actor.positions_m[0]).tolist(),
             contact_quality_observation=contact, measured_grounding_y_difference_m=float(delta[1]))
         framing=native_rest_framing(video,entry);wanted=roles.get(key,"any")
@@ -388,7 +388,7 @@ def native_plan_checks(video, scene, plan, **kwargs):
                   and contact.get("ground_support",{}).get("root_support_verified"))
         error=float(np.max(np.linalg.norm(delta[:,[0,2]] if grounded else delta,axis=1)))
         checks.append(CheckResult("native:"+key+":all_root_samples","pass"if error<=.002+1e-7 else"fail",
-            "native_execution_must_not_replan",evidence={"frames":len(p),"maximum_root_error_m":error,"contact_quality_observation":contact,"maximum_grounding_y_difference_m":float(np.max(np.abs(delta[:,1]))),"authority":"native_30Hz_body_to_world_readbacks"}))
+            "native_execution_must_not_replan",evidence={"frames":len(p),"maximum_root_error_m":error,"root_error_axes":"xz"if grounded else"xyz","contact_quality_observation":contact,"maximum_grounding_y_difference_m":float(np.max(np.abs(delta[:,1]))),"authority":"native_30Hz_body_to_world_readbacks"}))
         if actor.headings_rad is not None:
             first_native=native_yaw(actor,entry["declaration"])
             if actor.metadata.get("native_yaw_rad_per_frame") is not None:

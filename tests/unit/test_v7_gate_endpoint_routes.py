@@ -63,3 +63,55 @@ def test_multiple_authored_bouts_reuse_endpoint_path_without_a_long_corridor():
     np.testing.assert_allclose(route.positions[450],route.positions[60],atol=1e-6)
     assert route.distance[-1]>8.
     assert np.linalg.norm(route.positions[-1]-route.positions[0])<4.
+
+
+@pytest.mark.parametrize('separation,rejected',[(.9,True),(1.1,False)])
+def test_endpoint_relocation_keeps_original_one_metre_person_spacing(separation,rejected):
+    from types import SimpleNamespace
+    from avengine.assets.roster_motion.episode import endpoint_scene_rejection
+    mover={'declaration':{'kind':'human'},'endpoint_id':'mover'}
+    bystander={'declaration':{'kind':'human'},'endpoint_id':'bystander',
+               'resolved_root_m':[separation,0.,-4.],'resolved_yaw_rad':0.}
+    video=SimpleNamespace(actors=[mover,bystander])
+    roots=np.repeat([[0.,0.,-4.]],901,axis=0)
+    result=endpoint_scene_rejection(video,mover,{'listener_m':[0.,1.25,0.]},roots,
+                                   np.zeros(901),{})
+    assert (result is not None) is rejected
+    if rejected:assert result['required_distance_m']==1.
+
+
+def test_endpoint_relocation_keeps_original_noncollinear_standing_rule():
+    from types import SimpleNamespace
+    from avengine.assets.roster_motion.episode import endpoint_scene_rejection
+    mover={'declaration':{'kind':'human'},'endpoint_id':'mover'}
+    others=[{'declaration':{'kind':'human'},'endpoint_id':str(x),
+             'resolved_root_m':[x,0.,-4.],'resolved_yaw_rad':0.}for x in (-1.1,1.1)]
+    roots=np.repeat([[0.,0.,-4.]],901,axis=0)
+    result=endpoint_scene_rejection(SimpleNamespace(actors=[mover,*others]),mover,
+        {'listener_m':[0.,1.25,0.]},roots,np.zeros(901),{})
+    assert result['reason']=='people_arranged_in_one_row'
+
+
+def test_endpoint_execution_uses_existing_human_distance_clock_exactly():
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_distance_clock
+    t=np.arange(901)/30
+    positions=np.column_stack((np.clip(t-2.,0.,3.),np.zeros(901),np.full(901,-4.)))
+    route=endpoint_route_from_plan({'positions_m':positions,'headings_rad':np.zeros(901)},
+                                  source_phase_s=.2)
+    distance,velocity,clock=reflected_distance_clock({'positions_xz_m':positions[:,[0,2]]},1.2,.2)
+    np.testing.assert_array_equal(route.distance,distance)
+    np.testing.assert_array_equal(route.velocity,velocity)
+    np.testing.assert_array_equal(route.clock,clock)
+
+
+@pytest.mark.parametrize('translated,kept',[(True,False),(False,True)])
+def test_dynamic_endpoint_actor_does_not_leave_a_static_initial_shadow(translated,kept):
+    from types import SimpleNamespace
+    from avengine.assets.roster_motion.episode import endpoint_static_bystanders
+    mover={'endpoint_id':'a','declaration':{'asset_id':'a'}}
+    other={'endpoint_id':'b','declaration':{'asset_id':'b'},'phase2_layout_qualified':True}
+    positions=np.zeros((901,3))
+    if translated:positions[:,0]=np.linspace(0,2,901)
+    scene={'production_scenario':{'motion_requests':{'b':{'joint_endpoint_route':{'positions_m':positions.tolist()}}}}}
+    result=endpoint_static_bystanders(SimpleNamespace(actors=[mover,other]),mover,scene)
+    assert (other in result) is kept

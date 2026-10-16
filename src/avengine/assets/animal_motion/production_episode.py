@@ -313,6 +313,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     if request.get('joint_animal_prepared_geometry'):
         from .joint_execution import load_prepared_geometry
         record = load_prepared_geometry(entry, scene, house, request)
+        from avengine.construction.contact_policy import contact_quality_observation
+        record.setdefault('contact_quality_observation',contact_quality_observation(record.get('source_frames',[]),
+            support_authority='retained prepared geometry certificate; no new support measurement claimed'))
         # The capture hook writes actual readbacks beside this execution receipt.
         # Retain the original prepared pose paths instead of recompiling them.
         directory = Path(directory)

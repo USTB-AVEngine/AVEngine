@@ -148,15 +148,18 @@ def test_registered_native_qualification_continues_after_route_exhaustion(tmp_pa
 
 
 @pytest.mark.parametrize('offset,yaw,observed,passed',[
-    ((0.,.03,0.),0.,False,False),((0.,.03,0.),0.,True,True),
+    ((0.,.03,0.),0.,False,False),((0.,.03,0.),0.,'unverified',False),((0.,.03,0.),0.,True,True),
     ((.003,.03,0.),0.,True,False),((0.,.03,0.),.1,True,False)])
 def test_core_grounding_observation_relaxes_only_y(offset,yaw,observed,passed):
     from test_joint_core import fake_native_world
     from avengine.construction.joint import ScenePlan,CameraPose,static_actor,native_static_checks
     plan=ScenePlan(CameraPose((0.,1.25,0.),0.),{'a':static_actor('a',[0,0,-4])})
     video,entry=fake_native_world(plan,offset=offset,yaw=yaw)
-    if observed:entry['contact_quality_observation']={**POLICY,'root_support_verified':True}
-    assert native_static_checks(video,{},plan).passed is passed
+    if observed:entry['contact_quality_observation']={**POLICY,'root_support_verified':observed is True}
+    certificate=native_static_checks(video,{},plan)
+    assert certificate.passed is passed
+    exact=next(c for c in certificate.checks if c.name.endswith(':exact_pose'))
+    assert exact.evidence['root_error_axes']==('xz'if observed is True else'xyz')
 
 
 def test_floor_root_over_furniture_or_void_is_not_a_cosmetic_residual():
@@ -170,3 +173,22 @@ def test_floor_root_over_furniture_or_void_is_not_a_cosmetic_residual():
     floor.original_ray=SimpleNamespace(many=absent)
     with pytest.raises(ValueError,match='no vertical support'):
         floor.ground_roots([[0.,0.,0.]])
+
+
+def test_only_walker_degradation_names_its_declared_family_without_muting_speech():
+    request={'action':'walk','camera_path_condition':{'kind':'cross_view'}}
+    entry={'endpoint_id':'v1','declaration':{'asset_id':'target'}}
+    scene={'scene_demand':{'target_family':'QA-11'},
+           'production_scenario':{'motion_requests':{'v1':request}},
+           'sources':{'v1':{'sound':'speech'}}}
+    record=degrade_motion_to_standing(scene,entry,request,'no endpoint path')
+    assert record['dropped_families']==['QA-11']
+    assert scene['sources']['v1']['sound']=='speech'
+
+
+def test_ground_only_between_feet_does_not_admit_a_body_over_a_void(monkeypatch):
+    from avengine.capture import v7_visible_attachment as attachment
+    monkeypatch.setattr(attachment,'ray',lambda sim,r,p,*args:
+                        np.array([0.,0.,0.]) if p[0]==0 else None)
+    meta,proposal=support()
+    assert construct_body_floor_support(None,None,meta,proposal) is None

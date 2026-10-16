@@ -87,6 +87,10 @@ def construct_body_floor_support(sim, runtime, meta, support, *, floor_y=None):
             return None
         deltas.append(float(point[1]-hit[1]))
         hits.append(np.asarray(hit, float).tolist())
+    if not hits:
+        # Partial sampling is cosmetic; no ground beneath any actual support
+        # point is still an illegal standing position.
+        return None
     # Fit the original lowest support surface before retaining per-foot residuals.
     shift = float(root_hit[1]-min(p[1] for p in points))
     grounded = root + [0., shift, 0.]
@@ -115,7 +119,8 @@ class MotionRouteUnavailable(ValueError):
 def element_degradation(scene, entry, original, replacement, reason, families=()):
     row = {'asset_id': entry['declaration']['asset_id'], 'endpoint_id': entry['endpoint_id'],
            'original_plan': deepcopy(original), 'replacement': replacement, 'reason': str(reason),
-           'dropped_families': sorted(set(families)), **POLICY}
+           'dropped_families': sorted(set(families)),
+           'family_effect':'only this element plan; unchanged native QA still decides all remaining candidates', **POLICY}
     scene.setdefault('element_degradation', []).append(row)
     return row
 
@@ -129,6 +134,12 @@ def degrade_motion_to_standing(scene, entry, request, reason):
         raise MotionRouteUnavailable('stationary fallback needs footstep program reconstruction',
                                      {'asset_id': aid, 'route_failure': str(reason)})
     families = set()
+    demand=scene.get('scene_demand',{})
+    family=demand.get('target_family') or scene.get('automatic_construction',{}).get('family')
+    original_movers=scene.get('production_scenario',{}).get('motion_requests',{})
+    target=demand.get('conditioned_post_motion',{}).get('target_asset_id')
+    if family and (target==aid or (len(original_movers)==1 and ep in original_movers)):
+        families.add(family)
     for container in (scene, scene.get('production_scenario', {})):
         for item in container.get('motion_during_condition_requests', []):
             if item.get('target_asset_id') == aid:

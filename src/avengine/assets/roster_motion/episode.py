@@ -292,11 +292,12 @@ def endpoint_route_from_plan(plan, *, source_phase_s=0., nominal_speed_m_s=1.2):
     headings=np.asarray(plan['headings_rad'],float)
     if headings.shape!=(901,) or not np.isfinite(headings).all():
         raise ValueError('endpoint plan requires 901 finite headings')
-    distance=np.r_[0.,np.cumsum(np.linalg.norm(np.diff(positions[:,[0,2]],axis=0),axis=1))]
-    velocity=np.r_[np.diff(distance)*30.,0.]
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_distance_clock
+    distance,velocity,clock=reflected_distance_clock(
+        {'positions_xz_m':positions[:,[0,2]]},nominal_speed_m_s,source_phase_s)
     return SimpleNamespace(positions=positions.copy(),yaws=np.unwrap(-headings-math.pi/2),
         distance=distance,velocity=velocity,moving=velocity>1e-8,
-        clock=source_phase_s+distance/nominal_speed_m_s,
+        clock=clock,
         receipt={'route_kind':'core_endpoint_plan','exact_core_track_consumed':True,
                  'source':plan.get('metadata',{}),'root_samples':901,
                  'native_full_pose_checks_still_required':True})
@@ -433,6 +434,41 @@ def endpoint_route_proposals(context, camera, body, request, *, distance=None,
             reject('moving_root_speed' if 'speed' in str(error) else 'moving_root_clock')
 
 
+
+
+def endpoint_static_bystanders(video,entry,scene):
+    """An independently solved mover's first pose is not a permanent obstacle."""
+    requests=scene.get('production_scenario',{}).get('motion_requests',{})
+    static=[]
+    for actor in video.actors:
+        if actor is entry or actor.get('phase2_layout_qualified') is False:continue
+        request=requests.get(actor['endpoint_id'],requests.get(actor['declaration'].get('asset_id'),{}))
+        planned=np.asarray(request.get('joint_endpoint_route',{}).get('positions_m',[]),float)
+        dynamic=(planned.shape==(901,3) and np.isfinite(planned).all()
+                 and bool(np.any(np.diff(planned[:,[0,2]],axis=0))))
+        if not dynamic:static.append(actor)
+    return static
+
+def endpoint_scene_rejection(video,entry,scene,positions,yaws,request):
+    """Reapply existing placement rules after selecting a different route start."""
+    from avengine.timeline.v7_spatial_layout import spacing_rejection,noncollinear_rejection,is_person,entry_roots
+    from avengine.timeline.v7_natural_orientation import all_people_face_camera
+    from avengine.assets.roster_motion.navmesh_execution import motion_yaw
+    others=[a for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
+    rejected=spacing_rejection(entry['declaration'],positions,others,camera_position=scene['listener_m'],
+        camera_minimum_m=float(request.get('minimum_listener_horizontal_distance_m',1.5)))
+    if rejected:return rejected
+    if noncollinear_rejection(entry['declaration'],positions[0],others):
+        return {'reason':'people_arranged_in_one_row'}
+    if is_person(entry['declaration']):
+        people=[{'position_m':entry_roots(a)[0].tolist(),
+                 'yaw_rad':motion_yaw(a['motion_episode'],0) if a.get('motion_episode') else float(a.get('resolved_yaw_rad',0.))}
+                for a in others if is_person(a['declaration'])]
+        people.append({'position_m':np.asarray(positions[0]).tolist(),'yaw_rad':float(yaws[0])})
+        if len(people)==sum(is_person(a['declaration'])for a in video.actors) and all_people_face_camera(people,scene['listener_m']):
+            return {'reason':'all_people_face_camera'}
+    return None
+
 def native_endpoint_context(video, scene, house, inputs, directory):
     """Borrow the existing pathfinder and same visual stage; own only local caches."""
     from avengine.construction.joint import build_room_context,MeshRaycaster
@@ -518,7 +554,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
         times,moving,velocity,distance,clock,scene_clock=human_distance_driven_clock(
             ts,double,speed,request.get('intervals_s',[[2.,6.],[16.,20.]]),nominal,request.get('scene_speed_range_m_s',(.8,1.4)),timed_route=request.get('motion_quartet_route'))
-    static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
+    static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in endpoint_static_bystanders(video,entry,scene)]
     accepted=None;prepared_solver=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     search_floor=shape(scene['production_scenario']['motion_floor_polygon'])
     # Close floating-point seams (1 um) before the 2 cm erosion; eroding first widens a nanometre seam to 4 cm
@@ -578,6 +614,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             # because 3.2e-9 m of it fell into a floating-point seam of the floor polygon (0 frames outside).
             if not poly.buffer(1e-6).covers(LineString(positions[:,[0,2]])):
                 prefilter['polygon_rejected']+=1;continue
+            if (endpoint_search or endpoint_plan) and endpoint_scene_rejection(video,entry,scene,positions,frame_yaws,request):
+                prefilter['bystander_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
             prefilter['full_gate_attempted']+=1
             probe_frame_index=-1
