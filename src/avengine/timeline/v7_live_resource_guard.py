@@ -25,7 +25,7 @@ def decide(snapshot,policy):
         'reasons':reasons+(['disk_floor_for_new_parents']if disk_pause else[]),
         'critical_below_20GB':snapshot['MemAvailable_bytes']<20_000_000_000,
         'blocked_owned_scene_ids':[r['scene_id']for r in own_over],
-        'maximum_native_processes':0 if reasons else min(16,int(policy.get('fresh_rir_workers',16))),
+        'maximum_native_processes':0 if reasons else int(policy.get('maximum_native_processes',min(16,int(policy.get('fresh_rir_workers',16))))),
         'active_processes_signalled':False}
 
 

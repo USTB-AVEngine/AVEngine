@@ -30,3 +30,10 @@ def test_disk_policy_only_pauses_new_work_and_retains_all_running_processes():
     s=sample();s['data_free_bytes']=80_000_000_000;r=decide(s,{})
     assert r['pause_new_parents']and 'disk_floor_for_new_parents'in r['reasons']
     assert not r['active_processes_signalled']
+
+
+def test_explicit_aggregate_RIR_budget_does_not_become_one_parents_worker_count():
+    r=decide(sample(),{'maximum_native_processes':21,'fresh_rir_workers':7})
+    assert r['maximum_native_processes']==21 and not r['pause_new_native_operations']
+    low=sample();low['MemAvailable_bytes']=19_000_000_000
+    assert decide(low,{'maximum_native_processes':21,'fresh_rir_workers':7})['maximum_native_processes']==0
