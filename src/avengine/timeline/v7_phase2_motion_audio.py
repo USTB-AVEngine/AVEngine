@@ -88,6 +88,12 @@ def wrong_registered_pose(scene,position,sample_time_s,*,current_endpoint=None):
 
 
 def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bindings=None):
+    from avengine.timeline.v7_rir_submission import submission_window
+    with submission_window(cache.renderer):
+        return _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,event_bindings=event_bindings)
+
+
+def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bindings=None):
     attempt=Path(attempt);refs_dir=attempt/(endpoint+'_independent_native_references');refs_dir.mkdir()
     n=len(dry);sr=16000;trajectory=spec['trajectory'];listener=np.asarray(scene['listener_m']);forward=np.asarray(scene['camera_forward'])
     bands=emitted_intervals(dry)
@@ -117,7 +123,25 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
             directions.append({'endpoint_id':endpoint,'emission_time_s':sample/sr,'native_mouth_m':p.tolist(),'distance_m':float(np.linalg.norm(p-listener)),'foa_readback':direction,'angular_error_deg':error,'passed_5deg':True,'position_source':'actual 30Hz registered attached emitter trajectory'})
             filters[sample]=wave
         return filters[sample]
-    workers=min(16,max(1,int(inputs.get('fresh_rir_workers',1))))
+    from avengine.timeline.v7_rir_work_pool import scheduler_workers
+    workers=scheduler_workers(inputs)
+    submission=getattr(cache.renderer,'submission_queue',None)
+    # A resumed exact-pose memo may consume a checkpoint at a different sample.
+    # Preserve demand-driven reference consumption rather than speculating a
+    # duplicate trial group that the existing checkpoint will already satisfy.
+    if(attempt.parent/'independent_native_reference_checkpoint'/endpoint).exists():submission=None
+    def submit_references(keys):
+        if submission is None:return
+        midpoints=sorted({sample for lo,hi in zip(keys[:-1],keys[1:])
+            if any(np.any(dry[max(lo,a):min(hi+1,b+1)]!=0)
+                   for a,b in bands if lo<=b and hi>=a)
+            for sample in ((lo,hi)if hi==lo+1 else((lo+hi)//2,))})
+        submission.references([position_at(trajectory,k/sr)for k in midpoints
+            if not(attempt.parent/'independent_native_reference_checkpoint'/endpoint/(str(k).zfill(8)+'.json')).is_file()])
+    from avengine.timeline.v7_rir_submission import submit_missing_primary
+    if submission is not None:
+        submit_missing_primary(submission,cache,[position_at(trajectory,k/sr)for k in real_keys])
+        submit_references(real_keys)
     if workers>1:cache.prefetch([position_at(trajectory,k/sr)for k in real_keys])
     for k in real_keys:native(k)
     if failing:
@@ -195,7 +219,8 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         waves=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
         timeline=CorrelatedRIRTimeline(waves,timeline_keys)
         accepted=[];new=[]
-        if workers>1:
+        if submission is not None:submit_references(keys)
+        elif workers>1:
             # Complete all fresh references before evaluating this pass. Each
             # midpoint still has three separate native uploads and raw gates.
             midpoints=sorted({sample for lo,hi in zip(keys[:-1],keys[1:])
@@ -233,6 +258,8 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
                 write_json(attempt/(endpoint+'_moving_energy_rejection.json'),{'status':'blocked','revision':REVISION,'refinements':refinements,'thresholds_changed':False,'reference_statistics':ref_stats})
                 raise ValueError('moving native interval fails unchanged absolute energy/decay/direction gates after dense refinement')
             new.append(mid)
+            if submission is not None and refinement_pass+1<refinement_passes:
+                submit_missing_primary(submission,cache,[position_at(trajectory,mid/sr)])
         if not new:break
         if workers>1 and new:cache.prefetch([position_at(trajectory,k/sr)for k in new])
         keys=sorted(set(keys+new))
