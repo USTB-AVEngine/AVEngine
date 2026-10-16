@@ -165,3 +165,28 @@ def test_exact_half_window_pack_uses_available_slack_in_full_window():
     assert set(events[0]['complete_window_starts_s']) & set(events[1]['complete_window_starts_s'])
     assert all(e['end_tick'] != 100 for e in events)
     assert events[0]['start_tick'] > 0
+
+
+def test_one_visible_speaker_keeps_content_and_direction_when_reverse_is_unavailable():
+    from test_joint_core import context
+    c = context()
+    c.points_m = np.array([[0., 0., -3.], [.1, 0., -3.], [-3., 0., .5], [3., 0., .5]])
+    assets = [{'asset_id': aid, 'kind': 'human', 'emitter_local_m': [0, 1.5, 0]} for aid in ('a', 'b')]
+    schedule = schedule_epochs([[sound('s_0', 1), sound('s_1', 1)]], ['a', 'b'])
+    plugin = SpeechPlugin(assets, {aid: BodySpec() for aid in ('a', 'b')}, schedule, ())
+    request = FamilyRequest('QA-28', 'distinct_complete_speech', ('a', 'b'))
+    p = next(plugin.candidates(c, request))
+    assert list(p.metadata['roles'].values()).count('inside') == 1
+    assert {d['family'] for d in p.metadata['speech_family_degradations']} == {'QA-27'}
+    assert all(check.status == 'pass' for check in plugin.verify(c, request, p))
+
+
+def test_explicit_question_view_roles_are_preserved_without_degradation():
+    from test_joint_core import context
+    c = context()
+    c.points_m = np.array([[0., 0., -3.], [.1, 0., -3.], [-3., 0., .5], [3., 0., .5]])
+    assets = [{'asset_id': aid, 'kind': 'human', 'emitter_local_m': [0, 1.5, 0]} for aid in ('a', 'b')]
+    plugin = SpeechPlugin(assets, {aid: BodySpec() for aid in ('a', 'b')}, [], ())
+    request = FamilyRequest('QA-27', 'two_visible_speakers', ('a', 'b'),
+                            {'roles': {'a': 'inside', 'b': 'inside'}})
+    assert next(plugin.candidates(c, request), None) is None

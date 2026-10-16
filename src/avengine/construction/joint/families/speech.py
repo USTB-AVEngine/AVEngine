@@ -37,11 +37,29 @@ class SpeechPlugin:
         self.max_candidates = max_candidates
 
     def candidates(self, context, request):
+        ids = tuple(self.assets)
+        specified = request.options.get('roles')
+        profiles = [specified] if specified is not None else [
+            dict.fromkeys(ids, 'inside'),
+            {ids[0]: 'inside', ids[1]: 'outside'},
+            {ids[0]: 'outside', ids[1]: 'inside'},
+            dict.fromkeys(ids, 'outside')]
+        for roles in profiles:
+            for plan in self._role_candidates(context, request, roles):
+                inside = sum(value == 'inside' for value in roles.values())
+                plan.metadata['speech_family_degradations'] = [
+                    {'family': family, 'reason': reason}
+                    for family, needed, reason in (
+                        ('QA-26', 1, 'no visible appearance referent in this solved view'),
+                        ('QA-27', 2, 'fewer than two visible speakers in this solved view'))
+                    if inside < needed]
+                yield plan
+
+    def _role_candidates(self, context, request, roles):
         from avengine.construction.joint import enumerate_static_layouts, static_actor
         from avengine.construction.joint.geometry import framing
         from avengine.qa.unified_catalog import _DIRECTION_SECTORS
         ids = tuple(self.assets)
-        roles = dict(request.options.get('roles', {aid: 'inside' for aid in ids}))
         # Every legal camera participates. Domains intersect the original sector
         # rules before the core's finite layout beam, rather than filtering luck.
         streams = []
@@ -123,15 +141,18 @@ def build_speech_row(room, house, state, catalog, semantic, contract, plan,
         'semantic_start_offsets_s': [e['start_tick']/10 for e in schedule[:len(ids)]],
         'speech_schedule': deepcopy(schedule),
         'speech_epoch_sound_ids': [[s['sound_asset_id'] for s in group] for group in epochs],
-        'native_view_roles': {aid: {'view': 'inside', 'static': True,
-            'required_visible_sometime': True} for aid in ids},
+        'native_view_roles': {aid: ({'view': view, 'static': True,
+            'required_visible_sometime': True} if view == 'inside' else
+            {'view': view, 'static': True, 'minimum_abs_azimuth_deg': 0.})
+            for aid, view in plan.metadata['roles'].items()},
         'owner_social_layout': {'minimum_human_center_distance_m': 1.,
             'minimum_human_camera_distance_m': 1.5,
             'human_orientation': 'varied registered initial headings'},
         'automatic_construction': {'revision': REVISION, 'family': family,
             'room_key': room['key'], 'candidate_index': 0, 'required_role_count': len(ids),
             'scene_template_files_read': [], 'requested_branch': 'distinct_complete_speech',
-            'speech_sectors': plan.metadata['requested_speech_sectors']}}
+            'speech_sectors': plan.metadata['requested_speech_sectors'],
+            'family_degradations': plan.metadata.get('speech_family_degradations', [])}}
     _request(row, state, family)
     row['scene_demand']['required_independent_family_counts'] = {f: 1 for f in FAMILIES}
     row['scene_demand']['speech_target_families'] = list(FAMILIES)
@@ -202,13 +223,15 @@ def construct_speech_scene(room, house, state, catalog, records, semantic, contr
                                       'speech_playback', start, end, min(30., end+.5)))
     roles = {aid: 'inside' for aid in ids}
     request = FamilyRequest(family, 'distinct_complete_speech', tuple(ids),
-                            {'require_native_preflight': True, 'roles': roles})
+                            {'require_native_preflight': True})
     cache = runtime.get('joint_cache_directory')
     if not cache:
         raise ConstructionUnavailable('speech needs a caller-owned joint_cache_directory')
     cache = Path(cache)/'speech'
     actual = next(r for r in house['checked_rooms'] if r['room_label'] == room['room_id'])
     def prepare(context, request, plan):
+        roles = plan.metadata['roles']
+        visible = tuple(aid for aid in ids if roles[aid] == 'inside')
         row = build_speech_row(room, house, state, catalog, semantic, contract, plan,
             people, epochs, schedule, scene_id=scene_id, seed=seed, family=family)
         def family_check(video, scene, entries):
@@ -231,8 +254,8 @@ def construct_speech_scene(room, house, state, catalog, records, semantic, contr
         return prepare_static_native(context, request, plan, row_factory=lambda _: row,
             house=house, catalog=catalog, records=records, semantic=semantic, runtime=runtime,
             output_dir=cache/'native_preflight'/scene_id, family_check=family_check,
-            roles=roles, minimum_visible_pixels={aid: 100 for aid in ids},
-            appearance_ids=tuple(ids), scene_factory=build_speech_scene)
+            roles=roles, minimum_visible_pixels={aid: 100 for aid in visible},
+            appearance_ids=visible, scene_factory=build_speech_scene)
     height_candidates = speech_camera_heights(actual, bodies)
     with build_room_context(actual, house=house, runtime=runtime, cache_dir=cache/'geometry',
             camera_heights_m=height_candidates,
