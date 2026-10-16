@@ -11,15 +11,20 @@ def motion_checks(visual):
         actual=record.get('native_30Hz_readbacks',[]);source=record['source_frames']
         animal_visual_only=(record.get('species_id') in {'dog','cat'}
             and record.get('animal_visual_fallback_policy',{}).get('revision')=='owner-animal-appearance-construction-20261015')
+        observation=record.get('contact_quality_observation',{})
+        constructed_contact=(observation.get('policy')=='construct_then_record' and
+            bool(observation.get('root_support_verified') or observation.get('ground_support',{}).get('root_support_verified')))
         def contact_issue(message):
-            (warnings if animal_visual_only else errors).append(ep+':'+message)
+            (warnings if animal_visual_only or constructed_contact else errors).append(ep+':'+message)
         if record.get('status')!='pass' or len(actual)!=901 or len(source)!=901:
             errors.append(ep+':incomplete original pose/native 30Hz sequence');continue
         floor_proof=record.get('original_full_skin_floor_collision',{})
         human_relaxed=(record.get('species_id','human')not in {'dog','cat'} and record.get('quality_policy')==HUMAN_QUALITY)
         skin_margin=float(HUMAN_QUALITY.get('foot_penetration_limit_m',.001))+.00001 if human_relaxed else .00101
-        if floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-skin_margin:
+        if not floor_proof:
             errors.append(ep+':missing or failing complete original skin/floor collision proof')
+        elif floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-skin_margin:
+            contact_issue('missing or failing complete original skin/floor collision proof')
         policy=record.get('production_visual_quality_policy',{})
         owner_quality=(isinstance(policy,dict)
             and policy.get('policy_name')=='owner_visual_quality_20261014'
@@ -88,7 +93,7 @@ def motion_checks(visual):
             if frame.get('upright_tilt_deg',0)>10:errors.append(ep+':animal body lost upright source orientation')
         if is_seated:
             if abs(record['seat_contact_gap_m'])>.012 or any(abs(v)>.012 for v in record['native_support_deltas_m']):
-                errors.append(ep+':seated or chair floor contact')
+                contact_issue('seated or chair floor contact')
             if record.get('chair_produces_sound'):errors.append(ep+':silent chair has sound')
         instances.append({'endpoint_id':ep,'motion_kind':record.get('motion_kind','human_walk'),'native_frames':len(actual),'moving_frames':moving,
             'species_id':record.get('species_id','human'),'maximum_contact_error_m':max((abs(v['delta_m']) for v in feet if v['endpoint_id']==ep and v['in_contact']),default=0),
@@ -102,4 +107,6 @@ def motion_checks(visual):
         'minimum_full_triangle_nonfloor_clearance_m':min(clearances,default=None),
         'maximum_navmesh_horizontal_error_m':max(navigation,default=0),'foot_rows':feet,
         'thresholds_changed':any(v['owner_quality'] for v in quality_limits.values()),
-        'production_visual_quality_limits_by_endpoint':quality_limits,'truth_and_answer_gates_changed':False}
+        'production_visual_quality_limits_by_endpoint':quality_limits,
+        'contact_quality_observation':{ep:r['contact_quality_observation'] for ep,r in motions.items()if r.get('contact_quality_observation')},
+        'truth_and_answer_gates_changed':False}

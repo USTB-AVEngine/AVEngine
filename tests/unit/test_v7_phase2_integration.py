@@ -93,6 +93,27 @@ class Phase2FullSequenceTests(unittest.TestCase):
   v=self.valid_visual()
   for f in v['native_motion_admissions']['voice1']['source_frames'][450]['feet'].values():f['in_contact']=False
   self.assertEqual(motion_checks(v)['status'],'fail')
+ def test_constructed_ground_contact_residuals_are_observations(self):
+  from avengine.timeline.v7_phase2_checks import motion_checks
+  v=self.valid_visual();r=v['native_motion_admissions']['voice1']
+  r['contact_quality_observation']={'policy':'construct_then_record','ground_support':{'root_support_verified':True}}
+  r['original_full_skin_floor_collision'].update(status='fail',worst_original_skin_floor_delta_m=-.03)
+  for f in r['source_frames'][450]['feet'].values():f.update(in_contact=False,floor_delta_m=-.03,support_lock_error_m=.08)
+  result=motion_checks(v)
+  self.assertEqual(result['status'],'pass');self.assertTrue(result['appearance_warnings'])
+  self.assertEqual(result['contact_quality_observation']['voice1'],r['contact_quality_observation'])
+ def test_contact_recording_requires_real_root_support_evidence(self):
+  from avengine.timeline.v7_phase2_checks import motion_checks
+  v=self.valid_visual();r=v['native_motion_admissions']['voice1']
+  r['contact_quality_observation']={'policy':'construct_then_record','ground_support':{'root_support_verified':False}}
+  for f in r['source_frames'][450]['feet'].values():f['in_contact']=False
+  self.assertEqual(motion_checks(v)['status'],'fail')
+ def test_contact_observations_never_suppress_actual_emitter_drift(self):
+  from avengine.timeline.v7_phase2_checks import motion_checks
+  v=self.valid_visual();r=v['native_motion_admissions']['voice1']
+  r['contact_quality_observation']={'policy':'construct_then_record','root_support_verified':True}
+  r['native_30Hz_readbacks'][450]['native_emitter_readback_error_m']=.0002
+  self.assertEqual(motion_checks(v)['status'],'fail')
  def test_one_bad_head_readback_blocks_whole_sequence(self):
   from avengine.timeline.v7_phase2_checks import motion_checks
   v=self.valid_visual();v['native_motion_admissions']['voice1']['native_30Hz_readbacks'][450]['native_emitter_readback_error_m']=.0002

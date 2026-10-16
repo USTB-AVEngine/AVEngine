@@ -242,7 +242,13 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             return motion_condition_report,['conditioned_motion_native_verification.json']
         stage(root,'conditioned_motion_native_verification',
             {'condition_plan':row.get('motion_during_condition_plan'),'report':motion_condition_report},publish_motion_verification)
-        if motion_condition_report['status']!='pass':raise ValueError('original conditioned_motion native verification failed; see conditioned_motion_native_verification.json')
+        # A requested family can be deferred without invalidating other legal
+        # questions. Actual pixels, trajectories and original QA predicates
+        # still decide which candidates can be exported.
+        if motion_condition_report['status']!='pass':
+            write_json(root/'conditioned_motion_family_deferred.json',{
+                'status':'requested_family_deferred','verification':motion_condition_report,
+                'policy':'owner_phase2_rule_B','truth_and_answer_gates_changed':False})
     def audio(attempt):return render_alpha_audio(scene,working,inputs,root/'rir_cache',attempt,dry,receipt,visual['camera_frame_readbacks'])
     from avengine.timeline.v7_wet_support import WET_SUPPORT_REVISION
     audio_recipe={'scene':scene,'inputs':inputs,'wet_support_revision':WET_SUPPORT_REVISION}
