@@ -444,7 +444,7 @@ def repeat_bouts(actor, offsets_s=(0.,10.), *, fps=30., duration_s=30., source_w
         path_heading=np.unwrap(declared[index])
     n=round(duration_s*fps)+1;times=np.arange(n)/fps
     positions=np.repeat(segment[:1],n,axis=0);headings=np.full(n,path_heading[0])
-    intervals=[];turns=[];bouts=[];previous_end=None;previous_heading=path_heading[0]
+    intervals=[];turns=[];bouts=[];previous_end=None;previous_end_tick=None;previous_heading=path_heading[0]
     for k,offset in enumerate(offsets):
         reverse=bool(k%2)
         progress=length[-1]-length if reverse else length
@@ -457,8 +457,14 @@ def repeat_bouts(actor, offsets_s=(0.,10.), *, fps=30., duration_s=30., source_w
         headings[start:finish]=heading;headings[finish:]=heading[-1]
         move_begin=offset+begin/fps;move_end=offset+end/fps
         if previous_end is not None:
-            if move_begin-previous_end < turn_duration_s+1/fps:
-                raise ConstructionError("insufficient_stationary_turn_time")
+            # These roots are written at integer source-clock ticks. Avoid
+            # subtracting rounded seconds (31/30 can otherwise become one ULP
+            # smaller than 1+1/30). The requested turn plus one held frame stays.
+            gap_ticks = start+begin-previous_end_tick
+            required_ticks = turn_duration_s*fps+1.
+            if gap_ticks < math.nextafter(required_ticks, -math.inf):
+                raise ConstructionError("insufficient_stationary_turn_time",
+                    {"stationary_ticks": gap_ticks, "required_ticks": required_ticks, "fps": fps})
             t0,t1=move_begin-turn_duration_s-1/fps,move_begin-1/fps
             difference=(heading[0]-previous_heading+math.pi)%(2*math.pi)-math.pi
             # Use the nearest equivalent yaw to avoid a numeric 2*pi jump.
@@ -471,7 +477,7 @@ def repeat_bouts(actor, offsets_s=(0.,10.), *, fps=30., duration_s=30., source_w
         active=np.diff(length)>1e-8;edges=np.diff(np.r_[False,active,False].astype(int))
         intervals.extend([[offset+x/fps,offset+y/fps]for x,y in zip(np.flatnonzero(edges==1),np.flatnonzero(edges==-1))])
         bouts.append({"offset_s":offset,"reverse":reverse,"movement_s":[move_begin,move_end]})
-        previous_end=move_end;previous_heading=float(headings[min(n-1,round(move_end*fps))])
+        previous_end=move_end;previous_end_tick=start+end;previous_heading=float(headings[min(n-1,round(move_end*fps))])
     metadata=deepcopy(actor.metadata)
     metadata.update(walk_intervals_s=intervals,stationary_turn_intervals_s=turns,bouts=bouts,
                     route_length_m=float(length[-1]*len(offsets)),

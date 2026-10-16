@@ -1041,3 +1041,20 @@ def test_native_bundle_cleanup_continues_reverse_order_after_member_error():
     with pytest.raises(RuntimeError, match="native_bundle_close_failed"):
         _close_candidates(candidates)
     assert order == ["dependent", "owner"]
+
+
+@pytest.mark.parametrize("end_tick,accepted", [(293, True), (294, False)])
+def test_repeat_turn_gap_uses_exact_sample_ticks(end_tick, accepted):
+    t = np.arange(901)/30.
+    distance = np.clip(t-.8, 0., (end_tick-24)/30.)
+    positions = np.column_stack((np.zeros(901), np.zeros(901), -distance))
+    actor = ActorPlan("sample_clock", positions, BodySpec())
+    if not accepted:
+        with pytest.raises(ConstructionError, match="insufficient_stationary_turn_time"):
+            repeat_bouts(actor, (0., 10.), turn_duration_s=1.)
+        return
+    repeated = repeat_bouts(actor, (0., 10.), turn_duration_s=1.)
+    np.testing.assert_array_equal(repeated.positions_m[:301], positions[:301])
+    assert len(repeated.metadata["bouts"]) == 2
+    assert repeated.metadata["bouts"][1]["movement_s"][0] == pytest.approx(10.8)
+    np.testing.assert_allclose(repeated.positions_m[-1], positions[0])
