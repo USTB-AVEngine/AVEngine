@@ -167,6 +167,29 @@ def single_walker_geometry_proposal(base_row, saved_row):
     return proposal
 
 
+def reframe_single_geometry(context, row, plan):
+    """Use core's fixed-view solver on the real remaining bodies before native."""
+    from avengine.construction.joint.paired import _joint_rest_camera
+    from avengine.construction.joint.geometry import framing
+    roles={aid:('inside'if aid in row['semantic_human_asset_ids']else'any')for aid in plan.actors}
+    solved=_joint_rest_camera(context,plan.camera,tuple(plan.actors.values()),roles,30.)
+    if solved is None:
+        return False
+    selected,evidence=solved
+    plan.camera=selected
+    row['camera_yaw_deg']=float(selected.yaw_deg)
+    row['camera_yaw_knots']=[{'time_s':0.,'yaw_deg':float(selected.yaw_deg)},
+                             {'time_s':30.,'yaw_deg':float(selected.yaw_deg)}]
+    for request in row['motion_requests'].values():
+        request['motion_quartet_route']['camera_yaw_deg']=float(selected.yaw_deg)
+    control=row.get('motion_wrong_emitter_control')
+    if control:
+        actor=plan.actors[control['asset_id']]
+        control['frame_state']=framing(selected,actor.positions_m[0],actor.body)[0]
+    row['motion_quartet_construction']['single_walker_core_view']=evidence
+    return True
+
+
 class HumanMotionPlugin:
     def __init__(self, base_row, state, catalog, semantic, records, contract, house, attempt=0):
         self.base_row=base_row;self.state=state;self.catalog=catalog
@@ -228,6 +251,8 @@ class HumanMotionPlugin:
                     pass
         # Use the unchanged source compiler's exact ticks/bindings rather than
         # the floating TTS header duration as the declared sound support.
+        if single_geometry is not None:
+            reframe_single_geometry(context,row,plan)
         _,scene,program,assets=build_constructed_scene(row,self.house,self.records,self.catalog,self.semantic)
         bindings={e['event_id']:e for e in program['events']}
         sounds=[]

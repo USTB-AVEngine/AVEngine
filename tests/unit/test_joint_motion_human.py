@@ -82,3 +82,26 @@ def test_cached_single_layout_never_reuses_certificates_or_requires_second_walk(
     saved['motion_requests']['a']['motion_quartet_route']['emission_slot']['branch']='farther'
     with pytest.raises(ValueError,match='branch'):
         single_walker_geometry_proposal(base,saved)
+
+
+def test_cached_single_view_is_resolved_by_core_without_moving_any_body(monkeypatch):
+    from avengine.construction.joint.families.motion_human import reframe_single_geometry
+    from avengine.construction.joint.types import CameraPose,ActorPlan,BodySpec,ScenePlan
+    from avengine.construction.joint.geometry import framing
+    from avengine.construction.joint import paired
+    monkeypatch.setattr(paired,'camera_legal',lambda *args:(True,{}))
+    camera=CameraPose((0.,1.1,0.),35.,width=1280,height=720)
+    actors={key:ActorPlan(key,np.tile(pos,(901,1)),BodySpec.for_species('human'))
+            for key,pos in [('a',[-1.,0.,-4.]),('b',[1.,0.,-4.]),('quiet',[-4.,0.,-4.])]}
+    original={key:a.positions_m.copy()for key,a in actors.items()}
+    assert any(framing(camera,a.positions_m[0],a.body)[0]!='inside'for a in actors.values())
+    plan=ScenePlan(camera,actors)
+    row={'semantic_human_asset_ids':['a','b'],'motion_requests':{'a':{'motion_quartet_route':{}}},
+         'motion_wrong_emitter_control':{'asset_id':'quiet','frame_state':'outside'},
+         'motion_quartet_construction':{}}
+    assert reframe_single_geometry(SimpleNamespace(room={}),row,plan)
+    assert plan.camera.position_m==camera.position_m
+    assert all(np.array_equal(a.positions_m,original[key])for key,a in actors.items())
+    assert all(framing(plan.camera,actors[key].positions_m[0],actors[key].body)[0]=='inside'for key in ['a','b'])
+    assert row['camera_yaw_knots'][0]['yaw_deg']==row['camera_yaw_knots'][1]['yaw_deg']
+    assert row['motion_wrong_emitter_control']['frame_state']!='edge'
