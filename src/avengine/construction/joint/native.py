@@ -154,20 +154,52 @@ def native_static_checks(video, scene, plan, *, roles=None, minimum_visible_pixe
     passed={r.get("asset_id")for r in support if r.get("status")=="pass"}
     add("native:original_support_checks", set(entries)<=passed, passed_asset_ids=sorted(str(v)for v in passed))
     if appearance_ids:
-        obs=video.sim.get_sensor_observations()
-        lengths={name:len(getattr(video,name,[]))for name in ("color_checks","material_checks","phase2_chair_pixel_checks")}
-        try:
-            video._check_source_frame(obs["rgb"][:,:,:3],obs["semantic"],0)
-            observed=video.color_checks[lengths["color_checks"]:]
-            matched={r["asset_id"]for r in observed if r.get("matched")}
-            for key in appearance_ids:
-                add("native:"+key+":appearance", key in matched,
-                    measurements=[r for r in observed if r.get("asset_id")==key])
-        finally:
-            for name,length in lengths.items():
-                if hasattr(video,name):
-                    del getattr(video,name)[length:]
+        checks.extend(native_appearance_checks(video,appearance_ids))
     return Certificate(tuple(checks), "native_static_preflight")
+
+
+
+def native_appearance_checks(video, appearance_ids):
+    """Read original native RGB/material checks for either capture profile."""
+    from avengine.qa.v7_visual_admission import measure_native_color,COLOR_HUE_DEGREES
+    entries={e["declaration"]["asset_id"]:e for e in video.actors}
+    obs=video.sim.get_sensor_observations()
+    lengths={name:len(getattr(video,name,[]))for name in ("color_checks","material_checks","phase2_chair_pixel_checks")}
+    checks=[]
+    try:
+        video._check_source_frame(obs["rgb"][:,:,:3],obs["semantic"],0)
+        if hasattr(video,"color_checks"):
+            observed=video.color_checks[lengths["color_checks"]:]
+        else:
+            # NativeRegisteredVideo retains material_checks, not the phase2
+            # color_checks journal. Use the SAME original hue predicate on
+            # its actual semantic/RGB pixels; material pass is not colour pass.
+            observed=[]
+            for key in appearance_ids:
+                entry=entries.get(key);asset={}if entry is None else entry["declaration"]
+                color=asset.get("label_color",asset.get("color"))
+                human=(asset.get("kind")in {"human","performer"}or asset.get("species_id")=="human"
+                       or asset.get("entity_class")=="articulated_human")
+                if entry is None or not human or color not in COLOR_HUE_DEGREES:
+                    checks.append(CheckResult("native:"+key+":appearance","unknown",
+                        "native_profile_has_no_supported_colour_measurement",
+                        evidence={"asset_id":key,"expected_color":color}))
+                    continue
+                try:result=measure_native_color(obs["rgb"][:,:,:3],obs["semantic"],entry["semantic_id"],color)
+                except IndexError:result={"status":"blocked","reason":"empty_native_shirt_ROI"}
+                observed.append({"asset_id":key,"expected_color":color,"matched":result.get("status")=="pass",
+                    "measurement_authority":"avengine.qa.v7_visual_admission.measure_native_color",**result})
+        unavailable={c.name for c in checks}
+        for key in appearance_ids:
+            name="native:"+key+":appearance"
+            if name in unavailable:continue
+            rows=[r for r in observed if r.get("asset_id")==key]
+            checks.append(CheckResult(name,"pass"if any(r.get("matched")for r in rows)else"fail",
+                "original_native_colour_predicate",evidence={"measurements":rows}))
+    finally:
+        for name,length in lengths.items():
+            if hasattr(video,name):del getattr(video,name)[length:]
+    return tuple(checks)
 
 
 class PreparedStaticScene:
