@@ -481,3 +481,22 @@ def test_endpoint_generator_uses_each_camera_yaw_even_at_the_same_position():
     assert plugin.seed_diagnostics["cameras_with_endpoint_pairs"] == 2
     assert plugin.seed_diagnostics["ranked_endpoint_pairs"] == 1024
     stream.close()
+
+def test_appearance_ranking_cannot_promote_an_original_colour_rejection():
+    from avengine.assets.v7_visible_color import rebuild_appearance_review
+    from avengine.construction.joint.families.qa07 import ranked_entry_appearances
+    assets = [{"asset_id":"blue","kind":"human","native_instance_id":1,
+               "label_color":"blue","registered_label_color":"blue","visual_gender":"male"},
+              {"asset_id":"green","kind":"human","native_instance_id":2,
+               "label_color":"green","registered_label_color":"green","visual_gender":"male"}]
+    checks = [{"asset_id":"blue","matched":False,"roi_pixels":100,"frame_index":15},
+              {"asset_id":"green","matched":True,"roi_pixels":100,"frame_index":15}]
+    review, _ = rebuild_appearance_review(checks,assets)
+    reports = [{"asset_id":a["asset_id"],
+                "original_colour_review_eligible":str(a["native_instance_id"]) in review["actors"],
+                "minimum_contrast_delta_E":100 if a["asset_id"]=="blue" else 5}
+               for a in assets]
+    ranked = ranked_entry_appearances(reports)
+    assert ranked[0]["asset_id"] == "green"
+    assert "1" not in review["actors"]
+    assert reports[0]["original_colour_review_eligible"] is False
