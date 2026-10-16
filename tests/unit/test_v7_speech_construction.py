@@ -140,3 +140,19 @@ def test_room_preferred_listener_height_is_not_discarded_for_old_crop():
     assert heights[0] == pytest.approx(1.25)
     assert heights[1] == pytest.approx(1.656414104004701)
     assert speech_camera_heights({**room, 'placement': {'camera_m': room['preferred_listener_m']}}) == heights[:1]
+
+
+def test_body_derived_camera_height_solves_two_cropped_direction_roles():
+    from avengine.construction.joint.families.speech import speech_camera_heights
+    from avengine.construction.joint.geometry import framing
+    bodies = {'a': BodySpec(radius_m=.40531, height_m=1.80727),
+              'b': BodySpec(radius_m=.33249, height_m=1.74402)}
+    room = {'measured_floor_y_m': 0., 'preferred_listener_m': [0, 1.25, 0],
+            'placement': {'camera_m': [0, 1.6564, 0]}}
+    points = {'a': [-1.55, 0, -2.9], 'b': [1.55, 0, -2.9]}
+    camera = CameraPose((0, 1.25, 0), 0)
+    assert all(framing(camera, p, bodies[aid])[0] == 'edge' for aid, p in points.items())
+    height = speech_camera_heights(room, bodies)[-1]
+    solved = CameraPose((0, height, 0), 0)
+    assert all(framing(solved, p, bodies[aid])[0] == 'inside' for aid, p in points.items())
+    assert {direction(solved, p)[0] for p in points.values()} == {'front-left', 'front-right'}
