@@ -885,6 +885,7 @@ def ranked_entry_appearances(reports):
     """
     return sorted(reports, key=lambda row: (
         not row["original_colour_review_eligible"],
+        not row.get("distinct_companion_colour", True),
         -float(row.get("minimum_contrast_delta_E", 0.)),
         -float(row.get("matched_observation_fraction", 0.)),
         row["asset_id"]))
@@ -911,7 +912,8 @@ def plan_entry_appearance(plan, target, catalog, house, runtime, room, contract,
     original = assets[target]
     pool = [a for a in eligible_humans(catalog, room, contract)
             if a.get("walk_allowed") and a.get("body_identity_id") == original.get("body_identity_id")
-            and a.get("visual_gender") == original.get("visual_gender")]
+            and a.get("visual_gender") == original.get("visual_gender")
+            and (a["asset_id"] == target or a["asset_id"] not in plan.actors)]
     if not pool:
         pool = [original]
     pool = sorted(pool, key=lambda a: a["asset_id"])
@@ -991,6 +993,8 @@ def plan_entry_appearance(plan, target, catalog, house, runtime, room, contract,
             selected_id = str(entry["declaration"]["native_instance_id"])
             reports.append({"asset_id": entry["declaration"]["asset_id"],
                 "registered_colour": entry["declaration"].get("label_color"),
+                "distinct_companion_colour": all(entry["declaration"].get("label_color") !=
+                    other["declaration"].get("label_color") for other in companion_entries),
                 "original_colour_review_eligible": selected_id in review["actors"],
                 "original_colour_review": review["actors"].get(selected_id),
                 "original_colour_exclusions": eligibility["excluded"],
@@ -1119,6 +1123,10 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
                 for key in ("roles","rest_views"):
                     preferred.metadata[key] = {(chosen if aid == target else aid):value
                                                for aid,value in preferred.metadata[key].items()}
+                preferred.sounds = tuple(replace(event, entity_id=chosen) if event.entity_id == target else event
+                                         for event in preferred.sounds)
+                sound_requirements = tuple(replace(event, entity_id=chosen) if event.entity_id == target else event
+                                           for event in sound_requirements)
                 target = chosen
                 assets = {a["asset_id"]:a for a in catalog if a["asset_id"] in row["asset_ids"]}
                 bodies = {aid:actor.body for aid,actor in preferred.actors.items()}
