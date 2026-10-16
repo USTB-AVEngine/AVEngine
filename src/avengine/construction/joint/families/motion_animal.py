@@ -186,6 +186,7 @@ class MotionAnimalPlugin:
         self.geometry_preparations=0
         self.geometry_cache={}
         self.geometry_failure_cache=set()
+        self.funnel={}
 
     def candidates(self, context, request):
         from avengine.construction.joint import CameraPose,ScenePlan
@@ -212,30 +213,68 @@ class MotionAnimalPlugin:
         length=speed*(w1-w0-.3)
         if w1>9.4:return
         bouts=int(request.options.get('movement_bouts',1))
-        if bouts not in (1,2):raise ValueError('animal joint planning supports one or two movement bouts')
-        if bouts==2:
+        if bouts not in (1,2,3):raise ValueError('animal movement bouts must fit the three parent windows')
+        if bouts>1:
             from avengine.construction.joint.routes import repeat_bouts
         offsets=[0.]if bouts==1 else[0.,10.]
         points=context.points_m[context.walkable_map.contains_many(context.points_m[:,[0,2]],species)]
         people=context.points_m[context.walkable_map.contains_many(context.points_m[:,[0,2]],'human')]
-        seen_cameras=set();emitted=0
-        for original_camera in context.cameras:
-            origin=np.asarray(original_camera.position_m);camera_key=tuple(origin)
-            if camera_key in seen_cameras:continue
-            seen_cameras.add(camera_key)
-            radii=np.linalg.norm(points[:,[0,2]]-origin[[0,2]],axis=1)
-            for index in np.argsort(radii,kind='stable'):
-                if not 2.6<=radii[index]<=4.5:continue
-                near=points[index].copy();delta=near[[0,2]]-origin[[0,2]];direction=delta/np.linalg.norm(delta)
-                far=near.copy();far[[0,2]]+=length*direction
-                # Radial family seed: the shared species layer covers the entire
-                # camera-to-emitter corridor, including body-end reserve.
-                reserve=.15
-                extended=far[[0,2]]+reserve*direction
-                if not context.walkable_map.segment_free(origin[[0,2]],extended,species):continue
-                camera=CameraPose(tuple(origin),math.degrees(math.atan2(direction[0],-direction[1])),width=1280,height=720)
-                if not camera_legal(context.room,camera)[0]or any(framing(camera,p,body)[0]!='inside'for p in (near,far)):continue
-                line=LineString([near[[0,2]],far[[0,2]]])
+        def spatial_proposals():
+            if self.runtime.get('motion_animal_endpoint_solver',False):
+                import time
+                from avengine.assets.animal_motion.endpoint_solver import endpoint_routes,joint_camera_endpoint_routes
+                route_solver=joint_camera_endpoint_routes if self.runtime.get('motion_animal_joint_camera_solver',True) else endpoint_routes
+                yield from ((camera,actor) for camera,actor,proof in route_solver(context,body=body,
+                    species=species,branch=request.branch,entity_id=mover,speed_m_s=speed,start_s=w0,
+                    event_end_s=(min(10.+w0-1.-1./30.,30.-.5-duration-20.-.1) if bouts==3 else
+                                 (10.+w0-1.-2./30. if bouts==2 else 10.)),diagnostics=self.funnel,
+                    deadline=time.monotonic()+float(self.runtime.get('joint_budget_s',900.))))
+                return
+            seen_cameras=set()
+            for original_camera in context.cameras:
+                origin=np.asarray(original_camera.position_m);camera_key=tuple(origin)
+                if camera_key in seen_cameras:continue
+                seen_cameras.add(camera_key)
+                radii=np.linalg.norm(points[:,[0,2]]-origin[[0,2]],axis=1)
+                for index in np.argsort(radii,kind='stable'):
+                    if not 2.6<=radii[index]<=4.5:continue
+                    near=points[index].copy();delta=near[[0,2]]-origin[[0,2]];direction=delta/np.linalg.norm(delta)
+                    far=near.copy();far[[0,2]]+=length*direction
+                    # Radial family seed: the shared species layer covers the entire
+                    # camera-to-emitter corridor, including body-end reserve.
+                    reserve=.15
+                    extended=far[[0,2]]+reserve*direction
+                    if not context.walkable_map.segment_free(origin[[0,2]],extended,species):continue
+                    camera=CameraPose(tuple(origin),math.degrees(math.atan2(direction[0],-direction[1])),width=1280,height=720)
+                    if not camera_legal(context.room,camera)[0]or any(framing(camera,p,body)[0]!='inside'for p in (near,far)):continue
+                    try:
+                        actor=construct_route(context,[far,near] if request.branch=='nearer' else [near,far],
+                            species=species,speed_m_s=speed,start_s=w0,camera=camera,entity_id=mover,body=body)
+                    except ConstructionError:
+                        continue
+                    yield camera,actor
+        emitted=0
+        for camera,prototype in spatial_proposals():
+                origin=np.asarray(camera.position_m)
+                speed=float(prototype.metadata['speed_m_s'])
+                w0,w1=map(float,prototype.metadata['walk_intervals_s'][0])
+                tail=w1-.5;length=float(prototype.metadata['route_length_m'])
+                # More events are preferred; unavailable clock/turn space drops
+                # just the extra events, never the existing target route.
+                repeated=None
+                for actual_bouts in range(bouts,0,-1):
+                    actual_offsets=[10.*j for j in range(actual_bouts)]
+                    static_call=21.3 if actual_bouts<=2 else math.ceil(max(26.6,20.+w1+.1)*10-1e-9)/10
+                    if static_call+d['animal_duration_s']+.5>30.:continue
+                    try:
+                        repeated=repeat_bouts(prototype,offsets_s=tuple(actual_offsets),context=context,camera=camera) if actual_bouts>1 else deepcopy(prototype)
+                    except ConstructionError as error:
+                        self.rejections['extra_event:'+str(error)]=self.rejections.get('extra_event:'+str(error),0)+1
+                        continue
+                    break
+                if repeated is None:continue
+                offsets=actual_offsets
+                line=LineString(prototype.positions_m[[0,-1]][:,[0,2]])
                 candidates=[]
                 for p in people:
                     bearing=math.degrees(math.atan2(float((p-origin)@camera.right),float((p-origin)@camera.forward)))
@@ -247,17 +286,14 @@ class MotionAnimalPlugin:
                 failed_animal_geometry=False
                 for standing in [*candidates,None]:
                     if failed_animal_geometry:break
-                    waypoints=[far,near]if request.branch=='nearer'else[near,far]
                     try:
-                        actor=construct_route(context,waypoints,species=species,speed_m_s=speed,start_s=w0,
-                                              camera=camera,entity_id=mover,body=body)
+                        actor=deepcopy(repeated)
                         if actor.metadata['validation']['max_snap_horizontal_m']>.002:continue
-                        if bouts==2:actor=repeat_bouts(actor,offsets_s=(0.,10.),context=context,camera=camera)
                         speaker=static_actor(companion,standing,human) if standing is not None else None
                         if speaker is not None and request.options.get('require_static_negative_comparator'):
                             from avengine.assets.animal_motion.negative_witness import construct_negative_companion
                             speaker=construct_negative_companion(context,camera,standing,human,actor,
-                                entity_id=companion,animal_call_s=21.3,animal_duration_s=duration,admitted_asset=d['companion'])
+                                entity_id=companion,animal_call_s=static_call,animal_duration_s=duration,admitted_asset=d['companion'])
                         actors={mover:actor,**({companion:speaker} if speaker is not None else {})}
                         preliminary=ScenePlan(camera,actors)
                         if not certify_plan(context,preliminary).passed:continue
@@ -272,8 +308,8 @@ class MotionAnimalPlugin:
                         target_starts.append(offset+local)
                         quiet=max(4.2,local+duration+.6)if request.options.get('closer_nearer_call')else 4.2
                         silence.append((offset+quiet,offset+6.6))
-                    target_starts.append(21.3)
-                    silence=tuple(silence)+((24.2,26.6),)
+                    target_starts.append(static_call)
+                    silence=tuple(silence)+(((24.2,26.6),) if len(offsets)<3 else ())
                     if request.options.get('asymmetric_companion_speech'):
                         silence=tuple((a,min(b,6.0))if a<10 else(a,b)for a,b in silence)
                     requirements=[]
@@ -281,7 +317,7 @@ class MotionAnimalPlugin:
                         allowed=(t-.2,t+duration+.3)
                         requirements.append(SoundRequirement(mover,d['record']['sound_asset_id'],d['record']['sound_class'],
                             d['animal_activity_s'],(t,t+.1),(allowed,),exclusive_group='scene_voices'))
-                    for offset in ((0.,10.,20.) if speaker is not None else ()):
+                    for offset in ((0.,10.) if speaker is not None and len(offsets)==3 else ((0.,10.,20.) if speaker is not None else ())):
                         first=6.2 if request.options.get('asymmetric_companion_speech')and offset==0. else 7.
                         latest=min(first+.2,9.45-d['speech_duration_s'])
                         if latest<first:break
@@ -307,7 +343,7 @@ class MotionAnimalPlugin:
                         else:
                             window={'walk_start_s':w0,'walk_end_s':w1,'ramp_s':.3,'speed_m_s':speed,'length_m':length,
                                 'emission_s':[slots[0]['start_s'],slots[0]['end_s']],'silent_query_until_s':tail,
-                                'heading_rad':float(actor.headings_rad[0]),'straight_line':True,'shape':None}
+                                'heading_rad':float(actor.headings_rad[0]),'straight_line':len(prototype.metadata.get('waypoints_m',[]))<=2,'shape':None}
                             route={'reflect_walk':True,'joint_exact_route':True,'positions_xz_m':xz.tolist(),
                                 'travel_yaws_rad':actor.headings_rad.tolist(),'listener_m':list(camera.position_m),'camera_yaw_deg':camera.yaw_deg,
                                 'speed_m_s':speed,'speed_range_m_s':[lo,hi],'species':species,'template':'joint',
@@ -348,7 +384,9 @@ class MotionAnimalPlugin:
                                 'walk_intervals_s':actor.metadata['walk_intervals_s'],'roles':{mover:'inside',**({companion:'outside'} if speaker is not None else {})},
                                 'third_static_call_s':file_starts[mover][-1],'sound_schedule':schedule.diagnostics,
                                 'planned_silent_intervals_s':silence,'closer_nearer_call':bool(request.options.get('closer_nearer_call')),
-                                'asymmetric_companion_speech':bool(request.options.get('asymmetric_companion_speech'))})
+                                'asymmetric_companion_speech':bool(request.options.get('asymmetric_companion_speech')),
+                                'animal_endpoint_solution':prototype.metadata.get('animal_endpoint_solution'),
+                                'requested_movement_bouts':bouts,'retained_movement_bouts':len(offsets)})
                             if speaker is None:
                                 plan.metadata['element_degradations']=[{'entity_id':companion,'action':'remove_optional_companion_and_its_events',
                                     'reason':'target route retained after companion positions exhausted','rule':'PHASE2 B'}]
@@ -361,6 +399,11 @@ class MotionAnimalPlugin:
                             if emitted>=int(request.options.get('candidate_limit',24)):return
 
     def verify(self, context, request, plan):
+        from avengine.assets.animal_motion.partial_witnesses import retain_family_witnesses
+        checks=list(self._verify_all(context,request,plan))
+        yield from retain_family_witnesses(plan,checks,mover=self.data['animal']['asset_id'],families=FAMILIES)
+
+    def _verify_all(self, context, request, plan):
         from avengine.construction.joint import CheckResult
         from avengine.timeline.v7_motion_during_conditions import verify_planned_trajectories
         from avengine.assets.animal_motion.route_solver import delivery_speed_reports
@@ -415,8 +458,9 @@ class MotionAnimalPlugin:
                 'unchanged_catalog_distance_trend_during_window',evidence=measured)
             anchor_time=slot['start_s']+d['animal_duration_s']
             anchor=float(np.interp(anchor_time,clock,radial))
-            upper=min(plan.metadata['walk_intervals_s'][index][1]-.3,
-                (plan.metadata['source_file_starts_s'].get(d['companion']['asset_id'],[offset+10. for offset in plan.metadata['movement_offsets_s']])[index])-.2)
+            companion_starts=plan.metadata['source_file_starts_s'].get(d['companion']['asset_id'],[])
+            next_speech=companion_starts[index] if index<len(companion_starts) else slot['offset_s']+10.
+            upper=min(plan.metadata['walk_intervals_s'][index][1]-.3,next_speech-.2)
             queries=[]
             for second in range(math.ceil(anchor_time+.6),math.floor(upper)+1):
                 delta=float(np.interp(second,clock,radial))-anchor
@@ -488,7 +532,8 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
         'asymmetric_companion_speech':bool(runtime.get('motion_animal_asymmetric_companion_speech',False))})
     plugin=MotionAnimalPlugin(data,base,catalog,records,contract,house,runtime,output/'geometry')
     with build_room_context(room,house=house,runtime=runtime,cache_dir=output/'room_cache',
-            camera_limit=36,grid_step_m=.25,camera_heights_m=(1.1,),width=1280,height=720)as context:
+            camera_limit=int(runtime.get('joint_camera_limit',512 if runtime.get('motion_animal_endpoint_solver') else 36)),
+            grid_step_m=.25,camera_heights_m=tuple(runtime.get('joint_camera_heights_m',(1.1,1.25,1.45))),width=1280,height=720)as context:
         if prepare_and_verify is None:
             from avengine.construction.joint.native import prepare_native
             def oracle(ctx,req,plan):
@@ -509,6 +554,7 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
             'source_type':kind,'requested_branch':branch,'family':family,
             'formal_native_prepared':result.prepared is not None,
             'geometry_preparations':plugin.geometry_preparations,'geometry_conflicts':plugin.rejections,
+            'endpoint_funnel':plugin.funnel,
             'source_asset_id':data['animal']['asset_id'],'sound_asset_id':data['record']['sound_asset_id'],
             'actual_source_activity_s':data['animal_activity_s'],'actual_source_program_duration_s':data['animal_duration_s'],
             'preferred_original_asset_ids':preferred}
