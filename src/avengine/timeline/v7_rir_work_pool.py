@@ -156,8 +156,9 @@ class RIRWorkPool:
             child = subprocess.Popen(['taskset', '--cpu-list', str(lease.cpu), *command],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env,
                 pass_fds=(lease.stream.fileno(),))
-            lease.record.update(child_pid=child.pid,
-                child_start_ticks=Path(f'/proc/{child.pid}/stat').read_text().rsplit(')', 1)[1].split()[19])
+            try:start_ticks=Path(f'/proc/{child.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+            except FileNotFoundError:start_ticks=''  # already-exited short child
+            lease.record.update(child_pid=child.pid,child_start_ticks=start_ticks)
             with (self.root / 'admission.lock').open('a+') as guard:
                 fcntl.flock(guard, fcntl.LOCK_EX)
                 _write(lease.stream, lease.record)
@@ -207,7 +208,7 @@ def reserve_cpus(root, cpu_ids, owner):
                     time.sleep(.1)
             # Release registration serialization while holding the core leases.
             fcntl.flock(registration, fcntl.LOCK_UN)
-            yield
+            yield tuple(stream.fileno() for stream in streams)
         finally:
             for stream in reversed(streams):
                 stream.close()
@@ -231,3 +232,64 @@ def scheduler_workers(inputs):
     if pool is not None and pool.policy.get('enabled', True):
         return int(pool.policy['max_concurrent'])
     return min(16, max(1, int(inputs.get('fresh_rir_workers', 1))))
+
+
+def launch_or_local(command, log, local, request=''):
+    shared = RIRWorkPool.configured()
+    if shared is not None:
+        try:
+            return shared.launch(command, log, request)
+        except OSError:
+            log.write(b'RIR pool unavailable; falling back to bounded local worker\n')
+            log.flush()
+    return local()
+
+
+def _cpu_list(raw):
+    cpus = set()
+    for part in raw.split(','):
+        if '-' in part:
+            lo, hi = map(int, part.split('-', 1))
+            cpus.update(range(lo, hi + 1))
+        else:
+            cpus.add(int(part))
+    return sorted(cpus)
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', required=True)
+    actions = parser.add_subparsers(dest='action', required=True)
+    initialize = actions.add_parser('init', help='create a new explicit CPU grant; never overwrite a policy')
+    initialize.add_argument('--cpus', required=True)
+    initialize.add_argument('--max-concurrent', type=int, required=True)
+    initialize.add_argument('--reserve-bytes-per-rir', type=int, default=2_000_000_000)
+    reserve = actions.add_parser('run', help='register producer cores before launching its process')
+    reserve.add_argument('--cpus', required=True)
+    reserve.add_argument('--owner', required=True)
+    reserve.add_argument('command', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    cpus = _cpu_list(args.cpus)
+    if args.action == 'init':
+        policy = {'enabled': True, 'cpu_ids': cpus, 'max_concurrent': args.max_concurrent,
+                  'minimum_available_bytes': MIN_AVAILABLE_BYTES,
+                  'reserve_bytes_per_rir': args.reserve_bytes_per_rir}
+        RIRWorkPool._validate(policy)
+        root = Path(args.root)
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / 'policy.json').open('x') as stream:
+            json.dump(policy, stream, indent=2)
+        return 0
+    command = args.command[1:] if args.command[:1] == ['--'] else args.command
+    if not command:
+        parser.error('run requires a producer command')
+    with reserve_cpus(args.root, cpus, args.owner) as descriptors:
+        env = {**os.environ, ENV_KEY: str(Path(args.root).resolve())}
+        child = subprocess.Popen(['taskset', '--cpu-list', ','.join(map(str, cpus)), *command],
+                                 stdin=subprocess.DEVNULL, env=env, pass_fds=descriptors)
+        return child.wait()
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

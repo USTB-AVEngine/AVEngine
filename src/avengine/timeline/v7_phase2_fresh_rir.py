@@ -4,7 +4,7 @@ Primary and independent references retain separate native uploads and PIDs.
 Only scheduling changes; every pose, ray budget and engineering check remains.
 """
 from __future__ import annotations
-import json,os,pathlib,subprocess,sys,time,uuid,hashlib,queue,fcntl,shutil
+import json,os,pathlib,subprocess,sys,time,uuid,hashlib,queue,fcntl,shutil,threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 import numpy as np
@@ -13,12 +13,6 @@ REVISION='fresh-native-process-per-rir-independent-midpoints-v1'
 
 
 def _launch_native_child(command,log,inputs):
-    from avengine.timeline.v7_rir_work_pool import RIRWorkPool
-    shared_pool=RIRWorkPool.configured()
-    if shared_pool is not None:
-        try:return shared_pool.launch(command,log)
-        except OSError:
-            log.write(b'RIR pool unavailable; falling back to local worker\n');log.flush()
     # Shared lock is opened read-only: helpers never write another task's files.
     configured=inputs.get('shared_rir_policy')
     if configured is None and inputs.get('production_input_contract'):
@@ -75,6 +69,7 @@ class FreshNativeContextRenderer:
         self.root.mkdir(parents=True,exist_ok=False)
         from avengine.timeline.v7_rir_work_pool import scheduler_workers
         self.parallel_workers=scheduler_workers(inputs)
+        self.local_slots=threading.BoundedSemaphore(min(16,max(1,int(inputs.get('fresh_rir_workers',1)))))
         cpu_ids=inputs.get('fresh_rir_cpu_ids',[])
         self.cpu_pool=queue.Queue() if cpu_ids else None
         cpu_ids=[int(cpu)for cpu in cpu_ids if int(cpu)in os.sched_getaffinity(0)]
@@ -103,14 +98,18 @@ class FreshNativeContextRenderer:
             if reuse is not None:
                 hit=reuse.hit(request_value)
                 if hit is not None:return hit
-            from avengine.timeline.v7_rir_work_pool import RIRWorkPool
-            shared_pool=RIRWorkPool.configured()
-            selected_cpu=self.cpu_pool.get() if self.cpu_pool is not None and shared_pool is None else None
+            from avengine.timeline.v7_rir_work_pool import launch_or_local
+            selected_cpu=None;local_admitted=False
             try:
-                command=[sys.executable,'-B','-m','avengine.timeline.v7_phase2_fresh_rir','--request',str(request)]
-                if selected_cpu is not None:command=['taskset','--cpu-list',str(selected_cpu),*command]
+                command=['nice','-n','10',sys.executable,'-B','-m','avengine.timeline.v7_phase2_fresh_rir','--request',str(request)]
                 with(directory/'native.log').open('xb')as log:
-                    child=_launch_native_child(['nice','-n','10',*command],log,self.inputs)
+                    def local():
+                        nonlocal selected_cpu,local_admitted
+                        self.local_slots.acquire();local_admitted=True
+                        selected_cpu=self.cpu_pool.get() if self.cpu_pool is not None else None
+                        local_command=['taskset','--cpu-list',str(selected_cpu),*command]if selected_cpu is not None else command
+                        return _launch_native_child(local_command,log,self.inputs)
+                    child=launch_or_local(command,log,local,str(request))
                     exit_code=child.wait()
                 if exit_code:raise ValueError('fresh native process failed: '+str(directory/'native.log'))
                 result=json.loads(report.read_text());wave=np.load(output,allow_pickle=False)
@@ -128,6 +127,7 @@ class FreshNativeContextRenderer:
                 return wave,str(report),result['process_cpu_seconds_total']
             finally:
                 if selected_cpu is not None:self.cpu_pool.put(selected_cpu)
+                if local_admitted:self.local_slots.release()
 
     def render(self,positions,*,evidence_role='primary',reference_trial=None):
         started=time.perf_counter();positions=list(positions)

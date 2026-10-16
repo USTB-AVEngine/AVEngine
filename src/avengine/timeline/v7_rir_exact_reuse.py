@@ -78,6 +78,10 @@ class ExactReuseEntry:
         _, source_identity = identity_key(source_request)
         if source_identity != self.identity or origin['request_id'] != source_request['request_id']:
             raise ValueError('exact cache native origin changed')
+        for report_key, request_key in (('native_identity','expected_native_identity'),
+                ('source_position_m','source_position_m'),('evidence_role','evidence_role'),('reference_trial','reference_trial')):
+            if origin[report_key] != source_request[request_key]:
+                raise ValueError('exact cache native role/pose/runtime differs from original request')
         source = self.directory / 'rir.npy'
         sha = hashlib.sha256(source.read_bytes()).hexdigest()
         if sha != entry['output_sha256'] or sha != origin['output_sha256']:
@@ -106,8 +110,15 @@ class ExactReuseEntry:
         with partial.open('xb') as target, output.open('rb') as stream:
             shutil.copyfileobj(stream, target)
         os.replace(partial, self.directory / 'rir.npy')
-        entry = {'identity': self.identity, 'native_request': str(output.parent / 'request.json'),
-                 'native_report': str(report), 'output_sha256': sha}
+        # Keep independent native evidence self-contained if a producing attempt
+        # is later retired. Reports retain their true original PIDs and IDs.
+        native_request = self.directory / 'original_request.json'
+        native_report = self.directory / 'original_result.json'
+        native_request.write_text(json.dumps(request, allow_nan=False))
+        native_report.write_text(json.dumps(origin, allow_nan=False))
+        entry = {'identity': self.identity, 'native_request': str(native_request),
+                 'native_report': str(native_report), 'output_sha256': sha,
+                 'producing_report': str(report)}
         partial = self.directory / (uuid.uuid4().hex + '.partial')
         partial.write_text(json.dumps(entry, allow_nan=False))
         os.replace(partial, self.directory / 'entry.json')

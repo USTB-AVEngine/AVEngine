@@ -158,7 +158,7 @@ def test_exact_reuse_copies_wave_and_retains_original_report(tmp_path, monkeypat
     wave = np.arange(32, dtype=np.float32).reshape(4, 8)
     np.save(r['output'], wave)
     sha = hashlib.sha256(Path(r['output']).read_bytes()).hexdigest()
-    Path(r['report']).write_text(json.dumps({'request_id': r['request_id'], 'output_sha256': sha}))
+    Path(r['report']).write_text(json.dumps({'request_id': r['request_id'], 'output_sha256': sha, 'native_identity':r['expected_native_identity'], 'source_position_m':r['source_position_m'], 'evidence_role':r['evidence_role'], 'reference_trial':r['reference_trial']}))
     with exact_entry(r) as entry:
         assert entry.hit(r) is None
         entry.publish(r, r['report'])
@@ -167,7 +167,8 @@ def test_exact_reuse_copies_wave_and_retains_original_report(tmp_path, monkeypat
     with exact_entry(other) as entry:
         result = entry.hit(other)
         assert np.array_equal(result[0], wave)
-        assert result[1] == r['report'] and result[2] == 0
+        assert Path(result[1]).name == 'original_result.json' and result[2] == 0
+        assert json.loads(Path(result[1]).read_text())['request_id'] == 'origin'
     assert Path(other['output']).read_bytes() == Path(r['output']).read_bytes()
     other['reference_trial'] = 1
     other['evidence_role'] = 'independent_midpoint_reference'
@@ -199,3 +200,84 @@ def test_submission_trials_and_primary_overlap_without_changing_consumption_orde
         assert len(calls) == 4
     finally:
         queue.executor.shutdown()
+
+
+def test_launcher_fallback_when_pool_disappears_is_explicit(policy, monkeypatch, tmp_path):
+    root, value = policy
+    monkeypatch.setenv(pool.ENV_KEY, str(root))
+    monkeypatch.setattr(pool.RIRWorkPool, 'launch', lambda *a: (_ for _ in ()).throw(OSError('removed')))
+    calls=[]
+    with (tmp_path/'fallback.log').open('wb') as log:
+        assert pool.launch_or_local(['native'],log,lambda: calls.append('local') or 'child')=='child'
+    assert calls==['local']
+    assert 'bounded local' in (tmp_path/'fallback.log').read_text()
+
+
+def test_pending_native_memory_is_counted_across_leases(policy, monkeypatch):
+    root,value=policy
+    value['cpu_ids']=[0,1];value['max_concurrent']=2
+    (root/'policy.json').write_text(json.dumps(value))
+    monkeypatch.setattr(pool.os,'cpu_count',lambda:2)
+    monkeypatch.setattr(pool,'_available_bytes',lambda:pool.MIN_AVAILABLE_BYTES+1500)
+    shared=pool.RIRWorkPool(root)
+    first=shared.try_acquire()
+    assert first is not None
+    assert shared.try_acquire() is None  # two pending 1000-byte jobs cannot fit
+    first.close()
+    second=shared.try_acquire()
+    assert second is not None
+    second.close()
+
+
+def test_ready_refinement_runs_before_waiting_reference_batch():
+    from avengine.timeline.v7_rir_submission import _PriorityExecutor
+    entered=threading.Event();release=threading.Event();order=[]
+    executor=_PriorityExecutor(1)
+    def current():
+        entered.set();assert release.wait(5)
+    first=executor.submit(current)
+    assert entered.wait(5)
+    refs=[executor.submit(lambda i=i:order.append(('reference',i)))for i in range(3)]
+    refinement=executor.submit(lambda:order.append(('refinement',0)),priority=0)
+    release.set()
+    executor.shutdown()
+    assert order==[('refinement',0),('reference',0),('reference',1),('reference',2)]
+
+
+def test_pipeline_preserves_adaptive_keys_all_raw_gates_and_final_samples(tmp_path, monkeypatch):
+    from avengine.timeline.v7_phase2_fresh_rir import FreshNativeContextRenderer
+    from avengine.timeline.v7_phase2_motion_audio import moving_stem_phase2
+    from avengine.timeline.continuous_pilot import PositionRIRCache
+    trajectory=[{'time_s':i/30,'position_m':[3+5*i/30,0.,0.]}for i in range(7)]
+    scene={'listener_m':[0.,0.,0.],'camera_forward':[1.,0.,0.], 'sources':{
+        'voice1':{'trajectory':trajectory},
+        'voice2':{'trajectory':[{'time_s':0.,'position_m':[0.,0.,3.]}]}}}
+    inputs={'fresh_rir_workers':4}
+    rng=np.random.default_rng(902);t=np.arange(16000)/16000
+    w=rng.normal(size=len(t))*np.exp(-9*t)*.01;w[:140]=0;w[140]=.08
+    class AnalyticRenderer(FreshNativeContextRenderer):
+        def __init__(self,root):
+            super().__init__(inputs,{}, {},{},root)
+            self.calls=[]
+        def _render_one(self,position,role,trial):
+            point=np.asarray(position,float);direction=point/np.linalg.norm(point)
+            gain=1+6*(point[0]-3)**2 if point[0]>0 else 1.
+            wave=gain*np.stack((w,np.sqrt(3)*w*direction[1],np.sqrt(3)*w*direction[2],np.sqrt(3)*w*direction[0]))
+            self.calls.append((tuple(point),role,trial))
+            return wave,role+str(trial),.001
+    results=[];calls=[]
+    for enabled in ('0','1'):
+        monkeypatch.setenv('AVENGINE_V7_RIR_PIPELINE',enabled)
+        parent=tmp_path/('pipeline_'+enabled);parent.mkdir();attempt=parent/'audio';attempt.mkdir()
+        renderer=AnalyticRenderer(attempt/'native')
+        cache=PositionRIRCache(parent/'cache',renderer,{'scene':'analytic'})
+        try:
+            result=moving_stem_phase2(scene['sources']['voice1'],scene,inputs,cache,np.ones(3200),attempt,'voice1')
+            results.append(result);calls.append(sorted(renderer.calls))
+        finally:cache.db.close()
+    assert np.array_equal(results[0][0],results[1][0])
+    for name in ('key_samples','actual_native_key_samples','refinements','midpoint_checks',
+                 'exact_native_endpoint_checks','energy_qualification','known_bad_controls'):
+        assert results[0][1][name]==results[1][1][name]
+    assert results[0][1]['refinements']  # exercise actual refinement, not only straight-through work
+    assert calls[0]==calls[1]  # no extra primary/role/trial measurements

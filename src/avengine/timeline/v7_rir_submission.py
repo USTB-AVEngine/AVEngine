@@ -1,18 +1,54 @@
 """Submit independent exact RIR requests before their ordered consumption."""
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from contextlib import contextmanager
 import os
 import threading
+import queue
+from itertools import count
 import numpy as np
 
 ENV_KEY = 'AVENGINE_V7_RIR_PIPELINE'
 
 
+class _PriorityExecutor:
+    def __init__(self, workers):
+        self.jobs = queue.PriorityQueue()
+        self.order = count()
+        self.threads = [threading.Thread(target=self._run, name='rir-submit-'+str(i)) for i in range(workers)]
+        for thread in self.threads:
+            thread.start()
+
+    def submit(self, function, *args, priority=1):
+        future = Future()
+        self.jobs.put((priority, next(self.order), future, function, args))
+        return future
+
+    def _run(self):
+        while True:
+            _, _, future, function, args = self.jobs.get()
+            if future is None:
+                return
+            if future.set_running_or_notify_cancel():
+                try:future.set_result(function(*args))
+                except BaseException as error:future.set_exception(error)
+
+    def shutdown(self, wait=True, cancel_futures=False):
+        if cancel_futures:
+            while True:
+                try:item=self.jobs.get_nowait()
+                except queue.Empty:break
+                if item[2] is not None:item[2].cancel()
+        for thread in self.threads:
+            self.jobs.put((float('inf'), next(self.order), None, None, ()))
+        if wait:
+            for thread in self.threads:thread.join()
+
+
 class RIRSubmissionQueue:
     def __init__(self, renderer, workers):
         self.renderer = renderer
-        self.executor = ThreadPoolExecutor(max_workers=workers)
+        self.executor = _PriorityExecutor(workers)
         self.futures = {}
         self.lock = threading.Lock()
 
@@ -24,7 +60,7 @@ class RIRSubmissionQueue:
         key = self.key(position, role, trial)
         with self.lock:
             if key not in self.futures:
-                self.futures[key] = self.executor.submit(self.renderer._render_one, position, role, trial)
+                self.futures[key] = self.executor.submit(self.renderer._render_one, position, role, trial, priority=0 if role=='primary' else 1)
             return self.futures[key]
 
     def get(self, position, role, trial):
