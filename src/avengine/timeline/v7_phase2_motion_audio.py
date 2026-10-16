@@ -14,7 +14,7 @@ from avengine.acoustics.moving_rir_calibration import CorrelatedRIRTimeline,effe
 from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_storage_budget import check_write
-REVISION='actual-30hz-all-raw-reference-gates-native-key-emission-grid-v5'
+REVISION='actual-30hz-all-raw-reference-gates-native-key-emission-grid-v6-exact-endpoints'
 
 def emitted_intervals(dry,block=160):
     x=np.asarray(dry);flags=[bool(np.any(x[i:i+block]!=0)) for i in range(0,len(x),block)]
@@ -41,6 +41,24 @@ def median_reference_check(checks):
     result['reference_rule']='median of absolute metric differences; RIR arrays never averaged or fitted'
     return result
 
+
+
+def exact_native_endpoint_checks(timeline,lo,hi,n,trajectory,independent,*,listener,forward,sample_rate=16000):
+    """Check both exact digital endpoints; never infer an unmeasured interior."""
+    if hi!=lo+1 or not 0<=lo<hi<n:
+        raise ValueError('endpoint-only proof requires adjacent integer emission samples')
+    rows=[]
+    for sample in (lo,hi):
+        estimate=effective_emission_filter(timeline,sample,n)
+        p=position_at(trajectory,sample/sample_rate)
+        references=independent(sample)
+        if len(references)!=3:raise ValueError('exact endpoint requires three independent raw references')
+        raw=[compare_rirs(estimate,r,source=p,listener=listener,forward=forward,sample_rate=sample_rate)for r in references]
+        rows.append({'interval_samples':[lo,hi],'midpoint_sample':None,
+            'exact_native_endpoint_sample':sample,'check':median_reference_check(raw),'raw_checks':raw,
+            'qualification':qualify_energy(raw),
+            'proof':'no interior integer emission sample; exact native convolution endpoint'})
+    return rows
 
 def wrong_registered_pose(scene,position,sample_time_s,*,current_endpoint=None):
     """Choose a real different emitter; coincident endpoint poses are no error."""
@@ -171,7 +189,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
     refinements=[];accepted=[];keys=real_keys
     refinement_passes=max(1,int(inputs.get('moving_rir_refinement_passes',12)))
-    minimum_spacing=max(1,int(inputs.get('moving_rir_minimum_key_spacing_samples',round(sr/1920))))
+    minimum_spacing=max(1,int(inputs.get('moving_rir_minimum_key_spacing_samples',1)))
     for refinement_pass in range(refinement_passes):
         timeline_keys=sorted({0,n-1,*keys})
         waves=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
@@ -180,16 +198,29 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         if workers>1:
             # Complete all fresh references before evaluating this pass. Each
             # midpoint still has three separate native uploads and raw gates.
-            midpoints=sorted({(lo+hi)//2 for lo,hi in zip(keys[:-1],keys[1:])
+            midpoints=sorted({sample for lo,hi in zip(keys[:-1],keys[1:])
                 if any(np.any(dry[max(lo,a):min(hi+1,b+1)]!=0)
-                       for a,b in bands if lo<=b and hi>=a)})
+                       for a,b in bands if lo<=b and hi>=a)
+                for sample in ((lo,hi)if hi==lo+1 else((lo+hi)//2,))})
             with ThreadPoolExecutor(max_workers=workers)as pool:
                 list(pool.map(independent,midpoints))
         for lo,hi in zip(keys[:-1],keys[1:]):
             if not any(np.any(dry[max(lo,a):min(hi+1,b+1)]!=0)for a,b in bands if lo<=b and hi>=a):
                 continue
             mid=(lo+hi)//2
-            if mid<=lo:raise ValueError('moving interval cannot be independently sampled')
+            if mid<=lo:
+                # Adjacent integer source keys have no interior emission sample.
+                # The actual convolution coefficient at each endpoint is its
+                # exact native kernel, still checked against all three refs.
+                rows=exact_native_endpoint_checks(timeline,lo,hi,n,trajectory,independent,
+                    listener=listener,forward=forward,sample_rate=sr)
+                for row in rows:
+                    if row['qualification']['status']!='pass':
+                        write_json(attempt/(endpoint+'_native_endpoint_rejection.json'),
+                            {**row,'thresholds_changed':False})
+                        raise ValueError('exact native endpoint fails unchanged raw reference gates')
+                accepted.extend(rows)
+                continue
             estimate=effective_emission_filter(timeline,mid,n);p=position_at(trajectory,mid/sr)
             raw=[compare_rirs(estimate,r,source=p,listener=listener,forward=forward,sample_rate=sr)for r in independent(mid)]
             measured=median_reference_check(raw);verdict=qualify_energy(raw)
@@ -208,7 +239,9 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
     else:raise ValueError('moving dense refinement budget exhausted')
     checks=[r['check']for r in accepted];qualification=qualify_energy([c for row in accepted for c in row['raw_checks']])
     if qualification['status']!='pass':raise ValueError('moving aggregate absolute energy gate failed')
-    mid=accepted[0]['midpoint_sample'];p=position_at(trajectory,mid/sr);wave=independent(mid)[0]
+    mid=accepted[0]['midpoint_sample']
+    if mid is None:mid=accepted[0]['exact_native_endpoint_sample']
+    p=position_at(trajectory,mid/sr);wave=independent(mid)[0]
     bad_gain=compare_rirs(wave*2,wave,source=p,listener=listener,forward=forward,sample_rate=sr)
     delayed=np.pad(wave,((0,0),(8,0)))
     bad_delay=compare_rirs(delayed,wave,source=p,listener=listener,forward=forward,sample_rate=sr)
@@ -232,7 +265,12 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
         'minimum_native_key_spacing_samples':minimum_spacing,'maximum_refinement_passes':refinement_passes,
         'active_emission_intervals_samples':bands,'key_samples':timeline_keys,'actual_native_key_samples':keys,'RIR_count':len(keys),
         'silent_timeline_placeholders':{'first':0 if keys[0]>0 else None,'last':n-1 if keys[-1]<n-1 else None,'zero_emissions_required':True},
-        'every_independent_raw_reference_must_pass':True,'independent_midpoints':len(checks),'midpoint_checks':checks,'detailed_midpoint_checks':accepted,'energy_qualification':qualification,
+        'every_independent_raw_reference_must_pass':True,
+        'independent_midpoints':sum(r['midpoint_sample']is not None for r in accepted),
+        'midpoint_checks':[r['check']for r in accepted if r['midpoint_sample']is not None],
+        'detailed_midpoint_checks':[r for r in accepted if r['midpoint_sample']is not None],
+        'exact_native_endpoint_checks':[r for r in accepted if r['midpoint_sample']is None],
+        'energy_qualification':qualification,
         'refinements':refinements,'independent_reference_statistics':ref_stats,'independent_reference_files':reference_paths,'independent_reference_native_process_evidence':reference_processes,
         'known_bad_controls':controls,'known_bad_controls_excluded_from_audio':True,
         'independent_reference_reuse_policy':'exact xyz plus native identity only; retain original three process reports; existing sample checkpoints preferred',
