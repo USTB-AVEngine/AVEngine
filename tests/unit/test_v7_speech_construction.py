@@ -129,3 +129,14 @@ def test_compiler_binds_each_epoch_own_transcript_without_crop(monkeypatch):
     assert all(b['crop_start_sample'] == 0 for b in program['events'])
     bindings = {b['event_id']: b['sound_asset_id'] for b in program['events']}
     assert all(bindings[e['event_id']] == e['sound_asset_id'] for e in schedule)
+
+
+def test_room_preferred_listener_height_is_not_discarded_for_old_crop():
+    from avengine.construction.joint.families.speech import speech_camera_heights
+    room = {'measured_floor_y_m': .04931496332089106,
+            'preferred_listener_m': [1.125, 1.2993149633208911, 2.625],
+            'placement': {'camera_m': [1.125, 1.705729067325592, 2.625]}}
+    heights = speech_camera_heights(room)
+    assert heights[0] == pytest.approx(1.25)
+    assert heights[1] == pytest.approx(1.656414104004701)
+    assert speech_camera_heights({**room, 'placement': {'camera_m': room['preferred_listener_m']}}) == heights[:1]

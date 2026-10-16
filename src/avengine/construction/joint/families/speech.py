@@ -139,6 +139,18 @@ def build_speech_row(room, house, state, catalog, semantic, contract, plan,
     return row
 
 
+def speech_camera_heights(room):
+    """Retain the room's preferred listener height as a joint candidate.
+
+    Legacy placement can have a different height which crops every body.
+    Both supplied heights remain proposals; the original core certifies them.
+    """
+    points = (room.get('preferred_listener_m'), room.get('placement', {}).get('camera_m'))
+    heights = tuple(dict.fromkeys(float(p[1])-float(room['measured_floor_y_m'])
+                                 for p in points if p is not None))
+    return heights or None
+
+
 def construct_speech_scene(room, house, state, catalog, records, semantic, contract, runtime,
                            *, scene_id, seed, family='QA-28', attempt=0):
     from avengine.construction.joint import (
@@ -217,7 +229,7 @@ def construct_speech_scene(room, house, state, catalog, records, semantic, contr
             roles=roles, minimum_visible_pixels={aid: 100 for aid in ids},
             appearance_ids=tuple(ids), scene_factory=build_speech_scene)
     with build_room_context(actual, house=house, runtime=runtime, cache_dir=cache/'geometry',
-            width=1280, height=720) as context:
+            camera_heights_m=speech_camera_heights(actual), width=1280, height=720) as context:
         solved = solve(context, request, SpeechPlugin(people, bodies, schedule, sounds),
             prepare_and_verify=prepare, budget_s=float(runtime.get('speech_planning_budget_s', 180.)),
             max_candidates=int(runtime.get('speech_max_candidates', 512)),
