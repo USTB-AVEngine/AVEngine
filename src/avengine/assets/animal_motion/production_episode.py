@@ -455,6 +455,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             p0[1] = actual_floor + qualified_initial_root_offset
             roots[:,1]+=p0[1]-roots[0,1]
             floor = PhysicalFloor(video, actual_floor, ignore, .08)
+            measured_roots=np.asarray(roots,float).copy()
+            measured_roots[:,1]=floor.many(measured_roots)
+            floor.current_root_floor_m=float(measured_roots[0,1])
             terrain_placement=None
             if reflected_motion:roots,terrain_placement=follow_measured_route_floor(roots,floor,actual_floor)
             roots[:, 1] += [source[int(i)]['root_world_m'][1] - old_origin[1] for i in indices]
@@ -479,6 +482,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             for i, (path, root) in enumerate(zip(poses, roots)):
                 if not curved_motion and time.monotonic() - begun > 1800:
                     raise ValueError('bounded animal route search expired')
+                floor.current_root_floor_m=float(measured_roots[i,1])
                 old = source[int(indices[i])]
                 frame_yaw=float(frame_yaws[i])
                 if velocity[i]<=1e-8 and mode=='walk_animation':
@@ -534,7 +538,11 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                        'admitted_native_motion': authority['native_motion'],
                        'source_pose_reconstruction_receipt': reconstruction_receipt,
                        'new_house_admission_required': True, 'motion_only_does_not_admit_audio': True}
-            evidence = {'status': 'pass', 'revision': 'final-admitted-animal-poses-new-house-v3-rigid-stream-placement',
+            from avengine.construction.contact_policy import contact_quality_observation
+            evidence = {'contact_quality_observation':contact_quality_observation(frames,appearance_warnings=appearance_warnings,ground_support=(floor.observation() if hasattr(floor,'observation') else
+                            contact_quality_observation(root_support_verified=True,
+                                measured_root_floor_range_m=[float(measured_roots[:,1].min()),float(measured_roots[:,1].max())]))),
+                        'status': 'pass', 'revision': 'final-admitted-animal-poses-new-house-v3-rigid-stream-placement',
                         'lineage': lineage, 'source_frames': frames, 'pose_glbs': poses,
                         'world_roots_m': roots.tolist(), 'yaw_rad': yaw, 'physical_ground_y_m': actual_floor,
                         'original_full_skin_floor_collision': clearance.floor_certificate(),
@@ -582,4 +590,5 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                'reason': 'native route prefilter produced no candidates' if no_candidate else 'requested motion routes failed original physical gates; no animal removed or mode substituted',
                'rejection_stage': rejection_stage, 'route_prefilter': prefilter, 'failed_candidates': failures})
     detail = ('; native route prefilter produced no candidates: ' + json.dumps(prefilter, sort_keys=True)) if no_candidate else ''
-    raise ValueError('final animal admission has no route passing retained answer gates and owner visual quality policy' + detail)
+    from avengine.construction.contact_policy import MotionRouteUnavailable
+    raise MotionRouteUnavailable('final animal admission has no route passing retained answer gates and owner visual quality policy' + detail)

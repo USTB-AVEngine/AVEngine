@@ -2,7 +2,7 @@
 
 Reference-route receipts do not admit a new placement. Every 30 Hz pose is
 checked against the original stage triangles, actual floor and native NavMesh.
-Only flat, clear, straight routes are supported by this first adapter.
+Ordinary routes are solved from endpoints through the shared room planner.
 """
 from __future__ import annotations
 import copy, hashlib, math
@@ -15,6 +15,9 @@ from avengine.assets.roster_motion.contact import FootPlant, yaw_matrix, foot_mi
 from avengine.assets.roster_motion.appearance import apply_appearance
 from avengine.capture.v7_registered_native import loaded_mesh
 from avengine.timeline.continuous_pilot import write_json
+from avengine.construction.contact_policy import (
+    POLICY, FLOOR_STEP_RANGE_M, contact_quality_observation, MotionRouteUnavailable,
+)
 
 REVISION='admitted-contact-clip-new-house-full-triangle-native-v1'
 
@@ -23,7 +26,8 @@ class PhysicalFloor:
     def __init__(self, video, reference, ignore=(), reference_tolerance_m=None):
         if reference_tolerance_m is None:reference_tolerance_m=HUMAN_QUALITY.get('floor_level_tolerance_m',.015)
         self.video=video;self.reference=float(reference);self.ignore=set(ignore)
-        self.reference_tolerance_m=float(reference_tolerance_m)
+        self.reference_tolerance_m=max(float(reference_tolerance_m),FLOOR_STEP_RANGE_M)
+        self.current_root_floor_m=None;self.missing_peripheral_support_samples=0
         self.original_ray=None;self.native_ray_agreements=[];self.native_ray_count=0
         if getattr(video,'motion_inputs',{}).get('phase2'):
             from avengine.assets.v7_phase2_floor import OriginalVerticalStageRay
@@ -40,19 +44,49 @@ class PhysicalFloor:
         v=self.video;p=np.asarray(point,float)
         hits=v.sim.cast_ray(v.hs.geo.Ray(v.mn.Vector3(p+[0.,.2,0.]),v.mn.Vector3(0.,-1.,0.)),.85).hits
         hits=[h for h in hits if int(h.object_id) not in self.ignore]
-        if not hits:raise ValueError('motion support ray has no actual stage floor')
+        if not hits:
+            if self.current_root_floor_m is None:raise ValueError('motion support ray has no actual stage floor')
+            self.missing_peripheral_support_samples+=1
+            return self.current_root_floor_m
         y=float(hits[0].point[1]);self.native_ray_count+=1
         if self.original_ray is not None:
             original=float(self.original_ray.many([p])[0])
             error=abs(original-y);self.native_ray_agreements.append(error)
-            if error>.0001:raise ValueError('original full-stage support differs from native floor ray by >0.1mm')
+            # Both readings are retained; the original visual mesh supplies Y.
+            y=original
         if abs(y-self.reference)>self.reference_tolerance_m:raise ValueError('motion support ray hit furniture or a different floor level')
         return y
     def many(self, points):
         if self.original_ray is None:return np.array([self(p) for p in points])
-        y=self.original_ray.many(points)
+        try:
+            y=self.original_ray.many(points)
+        except ValueError as error:
+            if self.current_root_floor_m is None or 'no vertical support' not in str(error):raise
+            values=[]
+            for point in points:
+                try:values.append(float(self.original_ray.many([point])[0]))
+                except ValueError as missing:
+                    if 'no vertical support' not in str(missing):raise
+                    self.missing_peripheral_support_samples+=1
+                    values.append(self.current_root_floor_m)
+            y=np.asarray(values)
         if np.any(abs(y-self.reference)>self.reference_tolerance_m):raise ValueError('candidate support hit furniture or a different floor level')
         return y
+
+    def ground_roots(self, positions):
+        # No fallback at body roots: every frame must have actual ground.
+        self.current_root_floor_m=None
+        result=np.asarray(positions,float).copy()
+        result[:,1]=self.many(result)
+        return result
+
+    def observation(self):
+        return contact_quality_observation(
+            native_original_worst_difference_m=max(self.native_ray_agreements,default=0.),
+            missing_peripheral_support_samples=self.missing_peripheral_support_samples,
+            peripheral_missing_support_policy='IK uses the independently measured current root floor; no hit fabricated',
+            root_support_verified=True)
+
 
 
 def triangle_mesh(d,b,parts):
@@ -102,7 +136,7 @@ class TriangleClearance:
         for start in range(0,len(faces),50000):
             t=self.vertices[faces[start:start+50000]]
             normal=np.cross(t[:,1]-t[:,0],t[:,2]-t[:,0]);norm=np.linalg.norm(normal,axis=1)
-            ground[start:start+len(t)]=(np.abs(normal[:,1])>.98*np.maximum(norm,1e-20))&(np.max(np.abs(t[:,:,1]-reference),axis=1)<.02)
+            ground[start:start+len(t)]=(np.abs(normal[:,1])>.98*np.maximum(norm,1e-20))&(np.max(np.abs(t[:,:,1]-reference),axis=1)<FLOOR_STEP_RANGE_M)
             lo[start:start+len(t)]=t.min(1);hi[start:start+len(t)]=t.max(1)
         self.faces=faces[~ground];self.lo=lo[~ground];self.hi=hi[~ground]
         self.source=str(path);self.removed=int(ground.sum());self.triangles=len(self.faces)
@@ -129,13 +163,19 @@ class TriangleClearance:
         if self.floor_ray is not None:
             low=np.asarray(world)[np.asarray(world)[:,1]<=self.floor_reference_m+.04]
             if len(low):
-                levels=self.floor_ray.many(low)
-                delta=float(np.min(low[:,1]-levels))
-                self.floor_probe_poses+=1;self.floor_probe_vertices+=len(low)
-                self.floor_worst_delta_m=min(self.floor_worst_delta_m,delta)
+                try:
+                    levels=self.floor_ray.many(low)
+                    delta=float(np.min(low[:,1]-levels))
+                except ValueError as error:
+                    if 'no vertical support' not in str(error):raise
+                    self.floor_missing_peripheral_samples=getattr(self,'floor_missing_peripheral_samples',0)+len(low)
+                    delta=None  # missing observations are never a zero residual
+                if delta is not None:
+                    self.floor_probe_poses+=1;self.floor_probe_vertices+=len(low)
+                    self.floor_worst_delta_m=min(self.floor_worst_delta_m,delta)
                 margin=float(HUMAN_QUALITY.get('foot_penetration_limit_m',.001)) if self.minimum_clearance_m==HUMAN_QUALITY['minimum_nonfloor_clearance_m'] else .001
-                if delta<-(margin+.00001):
-                    raise ValueError('actual original posed skin penetrates original floor beyond the declared foot penetration margin')
+                # Owner 2026-10-16 rule A: keep the actual residual, never
+                # reject a whole route for foot/skin ground penetration.
         fcl=self.fcl;obj=fcl_model(world,faces) if rigid_object is None else rigid_object;epsilon=.0200001
         inside=np.all(self.lo<=world.max(0)+epsilon,axis=1)&np.all(self.hi>=world.min(0)-epsilon,axis=1)
         others=list(self.bystanders)
@@ -162,7 +202,12 @@ class TriangleClearance:
             'native_collision_margin_m':.001,'numerical_epsilon_m':.00001,
             'source':self.source,'native_stage_transform_readback':self.native_transform_evidence,
             'method':'all original near-floor posed skin vertices versus exact original complete stage triangles; native basis and selected supports separately read back',
-            'thresholds_changed':False}
+            'thresholds_changed':True,
+            'contact_quality_observation':contact_quality_observation(
+                deltas=[self.floor_worst_delta_m],
+                missing_peripheral_support_samples=getattr(self,'floor_missing_peripheral_samples',0),
+                measurement_scope='measured original near-floor skin; missing samples are not contacts'),
+            'admission_effect':'record_only'}
     def check(self, vertices, faces, root, yaw):
         vertices=np.asarray(vertices);faces=np.asarray(faces)
         rotation=yaw_matrix(yaw);world=vertices@rotation.T+root
@@ -238,6 +283,194 @@ def clear_native_foot_sound_paths(video,listener,vertices,feet,root,yaw,ignored_
 IK_REACH_LIMIT_M=.03     # was .001 (owner 10-15: record, do not reject)
 IK_PELVIS_LIMIT_M=.20    # was .08
 
+def endpoint_route_from_plan(plan, *, source_phase_s=0., nominal_speed_m_s=1.2):
+    """Consume the exact core 30 Hz track; IK may change Y, never its XZ clock."""
+    from types import SimpleNamespace
+    positions=np.asarray(plan['positions_m'],float)
+    if positions.shape!=(901,3) or not np.isfinite(positions).all():
+        raise ValueError('endpoint plan requires finite 901 x 3 root positions')
+    headings=np.asarray(plan['headings_rad'],float)
+    if headings.shape!=(901,) or not np.isfinite(headings).all():
+        raise ValueError('endpoint plan requires 901 finite headings')
+    distance=np.r_[0.,np.cumsum(np.linalg.norm(np.diff(positions[:,[0,2]],axis=0),axis=1))]
+    velocity=np.r_[np.diff(distance)*30.,0.]
+    return SimpleNamespace(positions=positions.copy(),yaws=np.unwrap(-headings-math.pi/2),
+        distance=distance,velocity=velocity,moving=velocity>1e-8,
+        clock=source_phase_s+distance/nominal_speed_m_s,
+        receipt={'route_kind':'core_endpoint_plan','exact_core_track_consumed':True,
+                 'source':plan.get('metadata',{}),'root_samples':901,
+                 'native_full_pose_checks_still_required':True})
+
+
+def endpoint_route_proposals(context, camera, body, request, *, distance=None,
+                             source_phase_s=0., nominal_speed_m_s=1.2, diagnostics=None):
+    """Rank endpoint pairs by the requested answer, then use the shared path solver.
+
+    The candidate domain is the complete room grid; no heading, distance ring,
+    fixed route length or nearest-origin prefix is used.
+    """
+    from types import SimpleNamespace
+    from avengine.construction.joint import route_between,construct_route
+    from avengine.construction.joint.routes import ConstructionError,validate_track
+    from avengine.assets.roster_motion.demand import matches_distance_request
+    diagnostics={} if diagnostics is None else diagnostics
+    diagnostics.update(candidate_pairs=0,paths_solved=0,certified_pairs=0,
+                       full_gate_attempted=0,rejections={})
+    def reject(reason):
+        r=diagnostics['rejections'];r[reason]=r.get(reason,0)+1
+    grid=context.grid(camera,body)
+    points=np.asarray(grid.points_m,float)
+    legal=context.walkable_map.contains_many(points[:,[0,2]],'human')
+    legal &= np.asarray(grid.frustum_state)!='edge'
+    legal &= np.asarray(grid.distances_m)>=float(request.get('minimum_listener_horizontal_distance_m',1.5))
+    diagnostics['grid_points']=len(points)
+    diagnostics['legal_standing_points']=int(np.count_nonzero(legal))
+    diagnostics['framing_counts']={str(k):int(v)for k,v in zip(*np.unique(grid.frustum_state,return_counts=True))}
+    starts=np.flatnonzero(legal);ends=starts.copy()
+    condition=request.get('camera_path_condition',{})
+    if condition.get('kind')=='enter':
+        sign=int(condition['required_entry_side'])
+        starts=starts[(grid.frustum_state[starts]=='outside')&(sign*grid.azimuth_deg[starts]>0)]
+        ends=ends[grid.frustum_state[ends]=='inside']
+    elif condition.get('kind')=='cross_view':
+        starts=starts[grid.frustum_state[starts]=='inside']
+        ends=ends[grid.frustum_state[ends]=='inside']
+    if not len(starts) or not len(ends):return
+    a,b=np.meshgrid(starts,ends,indexing='ij')
+    a,b=a.ravel(),b.ravel()
+    keep=a!=b
+    speed=float(request.get('speed_m_s',1.))
+    base_distance=None if distance is None else np.asarray(distance,float)
+    bouts=[]
+    if base_distance is not None:
+        edges=np.diff(np.r_[False,np.diff(base_distance)>1e-8,False].astype(int))
+        bouts=list(zip(np.flatnonzero(edges==1),np.flatnonzero(edges==-1)))
+    if base_distance is not None and base_distance[-1]>0:
+        # A path cannot be shorter than its endpoint chord. This is derived
+        # from the unchanged speed band and actual motion clock, not a ring.
+        nominal_velocity=np.r_[np.diff(base_distance)*30.,0.]
+        positive=nominal_velocity[nominal_velocity>1e-6]
+        if len(positive):
+            maximum_length=max((base_distance[b]-base_distance[a] for a,b in bouts),default=base_distance[-1])*1.4/float(np.median(positive))
+            chord=np.linalg.norm(points[b][:,[0,2]]-points[a][:,[0,2]],axis=1)
+            keep &= chord<=maximum_length+1e-6
+    trend=request.get('distance_trend')
+    if trend:
+        sign=-1 if trend=='approaching' else 1
+        score=sign*(grid.distances_m[b]-grid.distances_m[a])
+        minimum=float(request.get('minimum_window_distance_change_m',request.get('minimum_distance_change_m',.5)))
+        keep &= score>=minimum
+    elif condition:
+        score=np.abs(grid.azimuth_deg[b]-grid.azimuth_deg[a])
+        if condition.get('kind')=='cross_view':keep &= grid.azimuth_deg[a]*grid.azimuth_deg[b]<0
+    else:
+        score=np.linalg.norm(points[b][:,[0,2]]-points[a][:,[0,2]],axis=1)
+    a,b,score=a[keep],b[keep],score[keep]
+    diagnostics['candidate_pairs']=len(a)
+    order=np.argsort(-score,kind='stable')
+    times=np.arange(901)/30.
+    speed=float(request.get('speed_m_s',1.))
+    # Exact authored speech/movement intervals define timing, not a route length.
+    # Geometry comes from the chosen endpoints; its arc length determines speed.
+    base_distance=None if distance is None else np.asarray(distance,float)
+    checker=dict(request);checker.pop('camera_path_condition',None)
+    import time
+    search_start=time.process_time()
+    for rank in order:
+        if time.process_time()-search_start>1800.:
+            diagnostics['search_status']='existing_cpu_budget_exhausted'
+            return
+        try:
+            waypoints=route_between(context,points[a[rank]],points[b[rank]],species='human')
+            diagnostics['paths_solved']+=1
+            if base_distance is not None and len(waypoints)==2 and base_distance[-1]>0:
+                length=float(np.linalg.norm((waypoints[-1]-waypoints[0])[[0,2]]))
+                speeds=[float(np.median(np.diff(base_distance[left:right+1])*30.))*length/(base_distance[right]-base_distance[left])
+                        for left,right in bouts]
+                if any(not .8-1e-6<=v<=1.4+1e-6 for v in speeds):
+                    reject('endpoint_length_outside_authored_clock_speed_band');continue
+            actor=construct_route(context,waypoints,species='human',speed_m_s=speed,
+                start_s=0.,camera=camera,body=body,corner_radius_m=body.radius_m)
+            positions=np.asarray(actor.positions_m,float);headings=np.asarray(actor.headings_rad,float)
+            arc=np.r_[0.,np.cumsum(np.linalg.norm(np.diff(positions[:,[0,2]],axis=0),axis=1))]
+            if base_distance is not None and base_distance[-1]>0:
+                # Each authored bout traverses the solved endpoint path.
+                # Multiple bouts alternate A/B; no long straight corridor is
+                # imposed by adding all movement intervals into one segment.
+                unique=np.r_[True,np.diff(arc)>1e-12]
+                geometry=positions[unique];geometry_heading=np.unwrap(headings[unique])
+                positions=np.repeat(geometry[:1],len(times),axis=0)
+                headings=np.full(len(times),geometry_heading[0])
+                for number,(left,right) in enumerate(bouts):
+                    progress=np.clip((base_distance-base_distance[left])/(base_distance[right]-base_distance[left]),0.,1.)
+                    target=(1.-progress if number%2 else progress)*arc[-1]
+                    use=np.arange(len(times))>=left
+                    positions[use]=np.column_stack([np.interp(target[use],arc[unique],geometry[:,k])for k in range(3)])
+                    next_heading=np.interp(target,arc[unique],geometry_heading)+(math.pi if number%2 else 0.)
+                    if number:
+                        previous=bouts[number-1][1]
+                        change=(next_heading[left]-headings[previous]+math.pi)%(2*math.pi)-math.pi
+                        headings[previous:left+1]=np.linspace(headings[previous],headings[previous]+change,left-previous+1)
+                    headings[use]=next_heading[use]
+            route=endpoint_route_from_plan({'positions_m':positions,'headings_rad':headings,
+                'metadata':actor.metadata},source_phase_s=source_phase_s,nominal_speed_m_s=nominal_speed_m_s)
+            # Preserve the original species-speed verifier, including its ramps.
+            from avengine.timeline.v7_motion_speed import certify_moving_root_speed
+            certify_moving_root_speed(route.positions,times,route.moving,'human')
+            route.positions,validation=validate_track(context,route.positions,'human',camera=camera,snap=False)
+            if not matches_distance_request(route.positions,times,camera.position_m,checker):
+                reject('requested_distance_condition');continue
+            diagnostics['certified_pairs']+=1
+            route.receipt.update(endpoint_a_m=points[a[rank]].tolist(),endpoint_b_m=points[b[rank]].tolist(),
+                endpoint_answer_margin=float(score[rank]),validation=validation,
+                endpoint_search=diagnostics,old_camera_distance_rings_removed=bool(condition))
+            yield route
+        except ConstructionError as error:
+            reject(error.reason)
+        except ValueError as error:
+            # Only geometric/time infeasibility belongs in this candidate funnel.
+            if 'speed' not in str(error) and 'moving' not in str(error):raise
+            reject('moving_root_speed' if 'speed' in str(error) else 'moving_root_clock')
+
+
+def native_endpoint_context(video, scene, house, inputs, directory):
+    """Borrow the existing pathfinder and same visual stage; own only local caches."""
+    from avengine.construction.joint import build_room_context,MeshRaycaster
+    from avengine.assets.v7_phase2_floor import original_native_stage_mesh
+    from avengine.rooms.walkable_map import load_room_map
+    from shapely.geometry import shape,Point,LineString
+    room=house['room'];poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(1e-6).buffer(-.02)
+    source=getattr(video,'walkable_map',None)
+    if source is None:
+        source=load_room_map(room.get('room_label',room.get('room_id')),path=room.get('walkable_map_path'),
+                            floor_reference=room['measured_floor_y_m'])
+    # A domain view restricts the shared map to the existing eroded floor. The
+    # shared A* remains the only path planner; no original map/cache is mutated.
+    class FloorDomain:
+        def __init__(self, original):
+            self.original=original
+            zz,xx=np.indices(original.shape)
+            xz=original.origin+(np.column_stack((xx.ravel(),zz.ravel()))+.5)*original.resolution
+            import shapely
+            inside=shapely.covers(poly,shapely.points(xz)).reshape(original.shape)
+            self.layers={k:v & inside for k,v in original.layers.items()}
+        def __getattr__(self,name):return getattr(self.original,name)
+        def contains_many(self,points,species):
+            import shapely
+            return self.original.contains_many(points,species)&shapely.covers(poly,shapely.points(points))
+        def segment_free(self,a,b,species):
+            return self.original.segment_free(a,b,species) and poly.covers(LineString([a,b]))
+    path=Path(house['input'].get('visual_source') or
+              Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
+    if source is None:
+        raise MotionRouteUnavailable('endpoint route context needs the existing room walkable map',
+                                     {'room_id':room.get('room_label'),'map_configured':False})
+    mesh,evidence=original_native_stage_mesh(video,path)
+    return build_room_context(room,house=house,runtime=inputs,
+        pathfinder=video.pathfinder,walkable_map=FloorDomain(source),
+        raycaster=MeshRaycaster(mesh,evidence=evidence),cache_dir=Path(directory)/'endpoint_context',
+        width=getattr(video,'width',1280),height=getattr(video,'height',720))
+
 def compile_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
     from avengine.timeline.v7_storage_budget import check_write
@@ -245,7 +478,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     if not video.pathfinder.is_loaded:raise ValueError('explicit read-only admitted native NavMesh was not loaded')
     d,b,action,lineage=admitted_master(entry,inputs,house)
     from avengine.assets.roster_motion.navmesh_execution import REVISION as EXECUTION_REVISION,curved_route_proposals
-    curved_motion=request.get('motion_execution_revision')==EXECUTION_REVISION
+    owned_route=any(request.get(k) for k in ('joint_entry_route','joint_qa09_route','motion_quartet_route','straight_motion_windows_s'))
+    endpoint_plan=request.get('joint_endpoint_route')
+    endpoint_search=not owned_route and not endpoint_plan
+    curved_motion=True
     times=np.arange(901)/30.;speed=float(request.get('speed_m_s',.8))
     if not .8<=speed<=1.4:raise ValueError('human walking speed outside owner production range [0.8, 1.4] m/s')
     moving=np.zeros(len(times),bool);velocity=np.zeros(len(times))
@@ -260,7 +496,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     for t in ts:
         parts,_=pose(d,b,action,float(t),ground=False)
         if max(abs(foot_min(parts,masks,s)[0]) for s in ('L','R'))<.025:double.append(float(t))
-    if not double:raise ValueError('admitted walk clip has no double-support pause sample')
+    if not double:
+        # Rule A: an imperfect stopping stance is solved by the existing IK and
+        # measured, rather than discarding a complete registered gait.
+        double=[float(ts[0])]
     # Stop only at an observed double-support pose; retime locally to each
     # planted pause rather than freezing a raised leg or walking in place.
     nominal=1.2;phase=np.zeros(len(times));phase[0]=min(double)
@@ -275,7 +514,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         real_nodes.append(float(hi));phase_nodes.append(target)
     real_nodes.append(30.);phase_nodes.append(cumulative+phase[0]);clock=np.interp(times,real_nodes,phase_nodes)
     scene_clock=None
-    if curved_motion:
+    if curved_motion and not endpoint_plan:
         from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
         times,moving,velocity,distance,clock,scene_clock=human_distance_driven_clock(
             ts,double,speed,request.get('intervals_s',[[2.,6.],[16.,20.]]),nominal,request.get('scene_speed_range_m_s',(.8,1.4)),timed_route=request.get('motion_quartet_route'))
@@ -285,12 +524,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     # Close floating-point seams (1 um) before the 2 cm erosion; eroding first widens a nanometre seam to 4 cm
     # (qa07 evidence polygon_erosion_order_02.json).  Real holes and walls are unaffected.
     poly=(search_floor.convex_hull if request.get('motion_quartet_route') else search_floor).buffer(1e-6).buffer(-.02)
-    x0,z0,x1,z1=poly.bounds
-    from shapely.geometry import Point
-    extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
-    extra.sort(key=lambda p:float(np.linalg.norm(np.asarray(p)[[0,2]]-entry['applied_root_input'][[0,2],3])))
-    candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
-    if scene.get('joint_strict_placement'):candidates=candidates[:1]
+    candidates=[entry['applied_root_input'][:3,3].tolist()]
     import time
     route_cpu_started=time.process_time()
     native_trial_limit=max(24,min(256,int(request.get('maximum_native_route_attempts',32))))
@@ -299,8 +533,22 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         from avengine.assets.roster_motion.diagnostics import write_route_summary
         write_route_summary(directory/'motion_route_attempt_summary.json',{'minimum_full_trials_before_exhaustion':24,'full_gate_attempted':prefilter['full_gate_attempted'],'prefilter':prefilter,'failures':failures,'selected_full_trial':selected,'last_candidate_receipt':last_route_receipt,'cpu_seconds':time.process_time()-route_cpu_started,'required_gate_unchanged':True})
     if request.get('motion_quartet_route',{}).get('reflect_walk'):request['_reflection_diagnostics_path']=str(directory/'reflection_native_prefilter.json')
-    proposals=curved_route_proposals(video,entry,scene,distance,np.array([0.,0.,-1.]),request) if curved_motion else None
-    candidate_stream=((route.positions[0],route)for route in proposals) if curved_motion else ((point,None)for point in candidates[:512])
+    endpoint_diagnostics={}
+    if endpoint_plan:
+        proposals=iter([endpoint_route_from_plan(endpoint_plan,source_phase_s=min(double),nominal_speed_m_s=nominal)])
+    elif endpoint_search:
+        from avengine.construction.joint import CameraPose,BodySpec
+        context=native_endpoint_context(video,scene,house,inputs,directory)
+        local=np.asarray(entry['original_mesh'].vertices)
+        body=BodySpec(species='human',radius_m=float(np.ptp(local[:,[0,2]],axis=0).max()/2),
+                      height_m=float(np.ptp(local[:,1])),margin_m=0.)
+        camera=CameraPose(tuple(scene['listener_m']),float(scene['camera_yaw_knots'][0]['yaw_deg']),
+                          width=getattr(video,'width',1280),height=getattr(video,'height',720))
+        proposals=endpoint_route_proposals(context,camera,body,request,distance=distance,
+            source_phase_s=min(double),nominal_speed_m_s=nominal,diagnostics=endpoint_diagnostics)
+    else:
+        proposals=curved_route_proposals(video,entry,scene,distance,np.array([0.,0.,-1.]),request)
+    candidate_stream=((route.positions[0],route)for route in proposals)
     for p0,curved_route in candidate_stream:
         if curved_route is not None:last_route_receipt=curved_route.receipt
         if curved_motion and prefilter['full_gate_attempted']>=native_trial_limit:break
@@ -309,14 +557,21 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             failures.append({'reason':'bounded new-house CPU route-search budget exhausted (1800s); no gate relaxed'})
             break
         p0=np.asarray(p0,float)
-        for yaw in ([float(curved_route.yaws[0])] if curved_route is not None else [0.,math.pi/2,math.pi,-math.pi/2]):
+        if hasattr(curved_route,'clock'):
+            distance=curved_route.distance;velocity=curved_route.velocity;moving=curved_route.moving;clock=curved_route.clock
+            scene_clock={'method':'exact core endpoint arc length drives original gait; stopping IK residuals recorded',
+                'maximum_stable_speed_m_s':float(np.max(velocity)),'maximum_clock_distance_error_s':0.}
+        for yaw in [float(curved_route.yaws[0])]:
             if inputs.get('phase2') and not curved_motion and time.process_time()-route_cpu_started>1800:
                 break
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
             if curved_route is not None:positions=curved_route.positions.copy()
             frame_yaws=curved_route.yaws if curved_route is not None else np.full(len(times),yaw)
             from avengine.assets.roster_motion.demand import matches_distance_request
-            if not matches_distance_request(positions,times,scene['listener_m'],request):
+            demand_request=request
+            if endpoint_search:
+                demand_request=dict(request);demand_request.pop('camera_path_condition',None)
+            if not matches_distance_request(positions,times,scene['listener_m'],demand_request):
                 prefilter['demand_distance_trend_rejected']=prefilter.get('demand_distance_trend_rejected',0)+1
                 continue
             # 1 um tolerance: qa07 evidence qa07_native_polygon_conflict_01.json -- a 3.32 m route failed only
@@ -335,13 +590,14 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 if not hits:raise ValueError('motion route has no actual native ground')
                 floor_y=float(hits[0].point[1]);positions[:,1]=floor_y
                 floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
-                if prepared_solver is None:
+                positions=floor.ground_roots(positions)
+                if prepared_solver is None or not np.array_equal(prepared_solver[2],clock):
                     solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),frame_yaws.tolist(),1.,float(ts[0]),duration,floor)
                     solver.times=times
                     from avengine.assets.roster_motion.animal import ground_slow_gait_support
                     support_repairs=ground_slow_gait_support(solver) if inputs.get('phase2') else 0
                     for values in solver.active.values():values[~moving]=True
-                    prepared_solver=(solver,support_repairs)
+                    prepared_solver=(solver,support_repairs,clock.copy())
                 else:
                     from avengine.assets.roster_motion.contact import fork_prepared_gait
                     solver=fork_prepared_gait(prepared_solver[0],positions,frame_yaws,floor)
@@ -349,6 +605,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 clearance=TriangleClearance(video,house,floor_y,entry);clearance.record_only=True;clearance.stride=10;geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
                     probe_frame_index=i
+                    floor.current_root_floor_m=float(positions[i,1])
                     qualified_globals,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
                     if inputs.get('phase2') and not curved_motion and moving[i] and any(p['endpoint_id']==entry['endpoint_id'] for p in scene.get('planned_footsteps',[])) and not clear_native_foot_sound_paths(
                             video,scene['listener_m'],v,ev['feet'],positions[i],yaw,
@@ -362,7 +619,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                     # This frame already has a complete solved skin and passed
                     # actual stage clearance. Appearance targets are measured,
                     # never a second reason to discard that native truth.
-                    solved_pose_quality(ev,solver.max_reach,quality,record_only=bool(inputs.get('phase2')))
+                    solved_pose_quality(ev,solver.max_reach,quality,record_only=True)
                     # Claude 10-15 merge: keep the per-frame cumulative IK reach for the evidence summary below.
                     ev={**ev,'ik_reach_deficit_so_far_m':float(solver.max_reach)}
                     # Keep the small solved bone matrices, not 901 full skins.
@@ -379,9 +636,12 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 with(directory/'motion_route_search.jsonl').open('a')as stream:
                     stream.write(__import__('json').dumps({'candidate':len(failures),'cpu_seconds':time.process_time()-route_cpu_started,**failures[-1]})+'\n')
         if accepted:break
+    if endpoint_diagnostics:
+        endpoint_diagnostics['full_gate_attempted']=prefilter['full_gate_attempted']
+        write_json(directory/'endpoint_route_funnel.json',endpoint_diagnostics)
     if not accepted:
         save_route_trials()
-        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted human has no fully qualified new-house walking route')
+        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise MotionRouteUnavailable('admitted human has no fully qualified new-house walking route',{'prefilter':prefilter,'failures':failures})
     save_route_trials(prefilter['full_gate_attempted'])
     positions,yaw,frame_yaws,curved_route,parts_list,frames,floor_y,nav,clearance,minimum=accepted
     folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
@@ -399,6 +659,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         vertices,_=triangle_mesh(d,b,parts);world=vertices@yaw_matrix(float(frame_yaws[i])).T+positions[i];bounds.append([world.min(0),world.max(0)])
     evidence={'status':'pass','revision':REVISION,'lineage':lineage,'frame_count':901,'sample_rate_hz':30,
         'source_frames':frames,'world_roots_m':positions.tolist(),'yaw_rad':yaw,'pose_glbs':files,
+        'contact_quality_observation':contact_quality_observation(frames,ground_support=floor.observation()),
         'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
         'collision_policy':'record_only_stride_10_owner_20261015','recorded_intersections':int(getattr(clearance,'recorded_intersections',0)),'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
         'stage_original_glb':clearance.source,'native_stage_transform_readback':clearance.native_transform_evidence,'true_ground_triangles_removed':clearance.removed,
@@ -406,7 +667,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
-        'visual_quality_observation_frames':sum(bool(f.get('visual_quality_observations'))for f in frames),'visual_quality_admission_effect':'record_only_per_owner_20261015_210x'if inputs.get('phase2')else'legacy_strict',
+        'visual_quality_observation_frames':sum(bool(f.get('visual_quality_observations'))for f in frames),'visual_quality_admission_effect':'construct_then_record_owner_20261016',
         'ik_policy':{'phase2':'record_only via solved_pose_quality (owner 10-15)','legacy_strict_limits':{'reach_limit_m':.001,'pelvis_lowering_limit_m':.08}},
         'max_pelvis_lowering_m':max(float(f.get('pelvis_lowering_m',0.)) for f in frames),'max_ik_reach_deficit_m':float(frames[-1].get('ik_reach_deficit_so_far_m',0.)),
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False}

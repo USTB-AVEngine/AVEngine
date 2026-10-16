@@ -7,9 +7,18 @@ import numpy as np
 from avengine.capture.v7_registered_native import NativeRegisteredVideo
 from avengine.capture.v7_visible_attachment import survey,rotation,check_support,support_points,body_mask_from_native_depth
 from avengine.timeline.continuous_pilot import write_json
+from avengine.construction.contact_policy import (
+    is_body, construct_body_floor_support, native_contact_row, nonfloor_contacts_clear,
+    contact_quality_observation, MotionRouteUnavailable, degrade_motion_to_standing,
+    optional_bystander, optional_placement_failure,
+)
 
 VISUAL_REVISION='v7-visible-native-v16-measured-emitter-5mm'
 EMITTER_READBACK_TOLERANCE_M=.005
+
+
+def requests_for_entry(scene,entry):
+    return scene.get('production_scenario',{}).get('motion_requests',{}).get(entry['endpoint_id'],{})
 
 
 def attached_emitter_readback_error(actual,expected):
@@ -165,13 +174,15 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 self.sim.perform_discrete_collision_detection();rows=[]
                 for c in self.sim.get_physics_contact_points():
                     pair={int(c.object_id_a),int(c.object_id_b)}
-                    if int(obj.object_id) in pair and not pair.intersection(ids):rows.append({'object_id_a':int(c.object_id_a),'object_id_b':int(c.object_id_b),'contact_distance_m':float(c.contact_distance)})
+                    if int(obj.object_id) in pair and not pair.intersection(ids):rows.append(native_contact_row(c,obj.object_id))
                 return rows
             finally:rm.remove_object_by_id(obj.object_id)
         policy=contact_control_policy(local,entry['declaration']['attachment_surface'],entry['declaration']['kind']);burial=policy['burial_m']
         actual=contacts(np.zeros(3));bad=contacts(-normal*burial);raised=contacts(normal*.06)
         vertices=local@native[:3,:3].T+native[:3,3]
+        floor_y=float(self.motion_house['room']['measured_floor_y_m'])
         return {'contacts':actual,'known_bad_contacts':bad,'raised_contacts':raised,
+                'nonfloor_skin_pass':nonfloor_contacts_clear(actual,floor_y,.00101),
                 'known_bad_detected':any(c['contact_distance_m']<policy['negative_distance_threshold_m'] for c in bad),
                 'skin_pass':all(c['contact_distance_m']>=-.00101 for c in actual),'penetration_beyond_1mm_native_margin_m':max((max(0.,-c['contact_distance_m']-.001) for c in actual),default=0.),'penetration_numeric_epsilon_m':.00001,
                 'off_support_clear':not any(c['contact_distance_m']<-.015 for c in raised),
@@ -256,7 +267,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
             from copy import deepcopy
             supports['_native_geometric_candidates']={k:deepcopy(supports[k])for k in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall')}
-            semantic_candidate_surfaces=('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall') if self.motion_inputs.get('candidate_floor_semantic_prefilter') else ('table','wall','ceiling','doorbell_wall','high_wall','window_wall')
+            # Floor labels are observed per body after geometric support. Objects
+            # still run their original semantic qualification below.
+            semantic_candidate_surfaces=('table','wall','ceiling','doorbell_wall','high_wall','window_wall')
             # Sampling budget only: query a deterministic spread of the
             # original surface proposals, then retain all original qualifiers.
             survey_limit=self.motion_inputs.get('candidate_semantic_survey_max_points_per_surface')
@@ -395,11 +408,13 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if not 1<=contact_budget<=1280:raise ValueError('invalid native placement search budget')
             ordinary=[p for p in candidates if pinned is None or p!=dict(pinned,point=pinned['original_surface_point_m'])]
             proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned.get('_outward_clearance_m',0.))] if pinned is not None else [])
-            support_budget=int(self.motion_inputs.get('visible_placement_max_support_candidates_per_asset',320))
+            support_budget=(320 if entry.get('_optional_reposition_after_pin') else
+                int(self.motion_inputs.get('visible_placement_max_support_candidates_per_asset',320)))
             if not 1<=support_budget<=320:raise ValueError('invalid support candidate sampling budget')
             proposals.extend(dict(p,_outward_clearance_m=offset,_body_yaw_retry=retry) for p in ordinary[:support_budget] for retry in (range(3) if is_person(a) else range(1)) for offset in (0.,.002,.005,.010,.014))
             if strict_joint_pin:proposals=solved_support_proposals(pinned)
-            proposal_budget=self.motion_inputs.get('visible_placement_max_proposals_per_asset')
+            proposal_budget=(None if entry.get('_optional_reposition_after_pin') else
+                self.motion_inputs.get('visible_placement_max_proposals_per_asset'))
             if proposal_budget is not None and not 1<=int(proposal_budget)<=4801:
                 raise ValueError('invalid support proposal search budget')
             for proposal_index,support in enumerate(proposals):
@@ -429,10 +444,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     scene.get('native_view_roles',{}).pop(a['asset_id'],None);dynamic_offscreen[0]=False
                 if not proposal_view_ok(scene,a['asset_id'],proposed_rep-listener,scene['camera_forward'],visible_from_path(proposed_rep-listener),required=required_view):
                     reject('outside_observed_camera_path');continue
-                placement=check_support(self.sim,r,meta,support)
-                if placement is None and key=='floor' and a['kind']=='animal'and not strict_joint_pin:
-                    from avengine.assets.animal_motion.production_grounding import construct_animal_floor_support
-                    placement=construct_animal_floor_support(self.sim,r,meta,support)
+                placement=(construct_body_floor_support(self.sim,r,meta,support,floor_y=floor)
+                    if key=='floor' and is_body(a) else check_support(self.sim,r,meta,support))
                 if placement is None:
                     reject("attachment_rays");continue
                 # An optional recipe-side filter can request tighter quadruped
@@ -458,10 +471,14 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 kind='wall' if key.endswith('wall') else key
                 typed=semantic_support.qualify_points(kind,[{'point':p} for p in placement['support_raycast_points_m']])
                 if len(typed)!=len(placement['support_raycast_points_m']):
-                    if a['asset_id']not in scene.get('native_physical_support_fallback_asset_ids',[]):
+                    if not (key=='floor' and is_body(a)) and a['asset_id']not in scene.get('native_physical_support_fallback_asset_ids',[]):
                         reject('original_semantic_type_of_attachment_probes');continue
                     placement['semantic_label_observation']={'status':'unverified','reason':'actual native support accepted; scan labels incomplete or different','qualified_probes':len(typed),'total_probes':len(placement['support_raycast_points_m'])}
                 placement['typed_support_probe_readbacks']=typed
+                if key=='floor' and is_body(a):
+                    placement['contact_quality_observation']['foot_semantic_labels']=typed
+                    placement['contact_quality_observation']['semantic_label_observation']=placement.get('semantic_label_observation',{'status':'pass'})
+                    entry['contact_quality_observation']=placement['contact_quality_observation']
 
                 root=np.asarray(placement['root_m']);yaw=placement['yaw_rad']
                 representative=(root+rotation(yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else root+rotation(yaw)@silent_probe
@@ -510,7 +527,13 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 attempt={'asset_id':a['asset_id'],'endpoint_id':a['endpoint_id'],'placement':placement,
                          'skin_pass':native_contacts['skin_pass'],'known_bad_detected':native_contacts['known_bad_detected'],
                          'off_support_clear':native_contacts['off_support_clear'],'real_native_layout_pixels':native_pixels,'observed_pixel_views':pixel_views,'minimum_actual_contact_m':min((c['contact_distance_m'] for c in native_contacts['contacts']),default=None),'minimum_raised_contact_m':min((c['contact_distance_m'] for c in native_contacts['raised_contacts']),default=None)};attempts.append(attempt)
-                if not native_contacts['skin_pass'] or not native_contacts['known_bad_detected'] or not native_contacts['off_support_clear']:
+                if key=='floor' and is_body(a):
+                    observation=placement['contact_quality_observation']
+                    observation['native_contact_controls']={k:native_contacts[k] for k in
+                        ('skin_pass','known_bad_detected','off_support_clear','contacts','raised_contacts')}
+                    if not native_contacts['nonfloor_skin_pass']:
+                        reject('nonfloor_body_collision');continue
+                elif not native_contacts['skin_pass'] or not native_contacts['known_bad_detected'] or not native_contacts['off_support_clear']:
                     reject('native_contact_controls');continue
                 emitter=self._apply_entry(entry,scene)['emitter_position_m'];admit=getattr(self,'acoustic_position_admission',None)
                 acoustic={'status':'not_applicable_silent_decor_no_emitter'} if a['silent_decor'] else admit(a['endpoint_id'],np.asarray(emitter)) if admit else {'status':'not_requested'};attempt['acoustic']=acoustic
@@ -524,13 +547,16 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 entry['initial_orientation_policy']=support.get('_natural_orientation')
                 accepted={'status':'pass','asset_id':a['asset_id'],'endpoint_id':a['endpoint_id'],'initial_orientation_policy':entry['initial_orientation_policy'],
                           'attachment_surface':a['attachment_surface'],'support_type':support['surface'],
-                          'attachment_worst_error_m':max(abs(v) for v in placement['contact_deltas_m']),
+                          'attachment_worst_error_m':max((abs(v) for v in placement['contact_deltas_m']),default=0.),
                           'contact_tolerance_m':.015,'placement':placement,**native_contacts,
                           'resolved_body_root_world_m':entry['applied_root_input'][:3,3].tolist(),
                           'floor_type_authority':'native navmesh + all native support rays within 80mm of measured room floor/free polygon; actual contact <=15mm; scan semantic labels recorded separately',
                           'table_type_authority':'actual native horizontal support patch; scan semantic labels recorded separately',
                           'scan_support_label_status':placement.get('semantic_label_observation',{}).get('status','pass'),
                           'motion_admission':'original static complete mesh; no new walking/sitting motion'}
+                if placement.get('contact_quality_observation'):
+                    accepted['contact_quality_observation']=placement['contact_quality_observation']
+                    accepted['floor_type_authority']='measured native root ground, existing floor/free-polygon constraints; peripheral contact residuals recorded'
                 if scene.get('native_view_roles',{}).get(a['asset_id'],{}).get('view')=='unconstrained_motion':
                     accepted['moving_drawable_view_proof']={'native_object_id':int(entry['object'].object_id),'actual_per_frame_visibility_required':True,'frame_zero_native_pixels':int(native_pixels.get(a['asset_id'],0))}
                 if placement.get('animal_floor_support'):
@@ -541,7 +567,14 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if scene.get('phase2_profile'):
                     entry['phase2_layout_qualified']=True
                     hook=getattr(self,'_on_phase2_placement_accepted',None)
-                    if hook:hook(entry,scene,directory,supports,accepted)
+                    if hook:
+                        try:
+                            hook(entry,scene,directory,supports,accepted)
+                        except MotionRouteUnavailable as error:
+                            record=degrade_motion_to_standing(scene,entry,requests_for_entry(scene,entry),error)
+                            accepted['element_degradation']=record
+                            self._apply_entry(entry,scene)
+                            write_json(directory/('element_degradation_'+a['endpoint_id']+'.json'),record)
                     if entry.get('motion_episode'):
                         motion_bounds=np.asarray(entry['motion_episode']['full_skin_bounds_m'])
                         lo,hi=motion_bounds[0]-.02,motion_bounds[1]+.02
@@ -556,6 +589,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 from avengine.capture.v7_placement_diagnostics import record_placement_rejection
                 record_placement_rejection(directory,a['endpoint_id'],search_pass,rejection)
                 if strict_joint_pin:
+                    if optional_bystander(scene,entry):
+                        scene.get('native_attachment_supports',{}).pop(a['asset_id'],None)
+                        entry['_optional_reposition_after_pin']=True
+                        placement_queue.insert(0,entry);continue
                     write_json(directory/'joint_solved_pose_execution_conflict.json',{**rejection,'status':'fail','native_search_after_solve':False})
                     raise ValueError('joint solved pose execution conflict for '+a['asset_id']+': '+str(rejections))
                 from avengine.capture.v7_support_construction import retry_same_surface
@@ -568,6 +605,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if stage is not None:
                     write_json(directory/('attachment_rejection_before_'+stage+'_'+a['asset_id']+'.json'),{'status':'retry_with_construction_fallback','stage':stage,'failed_asset_id':a['asset_id'],'surface':key,'rejection_counts':rejections,'rejection_samples':rejection_samples})
                     placement_queue.insert(0,entry);continue
+                failure=optional_placement_failure(scene,entry,str(rejections))
+                if failure is not None:
+                    write_json(directory/('element_degradation_'+a['endpoint_id']+'.json'),failure.element_degradation)
+                    raise failure
                 write_json(directory/'attachment_rejection.json',{**rejection,'status':'fail'})
                 raise ValueError('no strict native '+key+' placement for '+a['asset_id']+' [placement_cause='+max(rejections,key=rejections.get,default='no_candidates')+']')
         if require_pair:
@@ -577,7 +618,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         actual_people=[{'position_m':entry_roots(e)[0].tolist(),'yaw_rad':float(e['resolved_yaw_rad'])}for e in self.actors if is_person(e['declaration'])]
         if all_people_face_camera(actual_people,scene['listener_m']):raise ValueError('all people face camera after native pose admission; reconstruct placement or route')
         self.standing_checks=checks;self.attachment_checks=checks;self.camera_frame_readbacks=[];self.environment_frame_readbacks=[]
-        write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts})
+        write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts,'element_degradation':scene.get('element_degradation',[])})
         return checks
 
     def _check_source_frame(self,rgb,semantic,frame_index):
@@ -629,6 +670,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             (self.animal_color_thresholds or {}).get('min_pixels',200))
         reviews=review['actors'];result['visible_color_eligibility']=eligibility
         result['native_appearance_review']={'actors':reviews};result['visible_color_checks']=self.color_checks
+        result['element_degradation']=scene.get('element_degradation',[])
         result['visible_attachment_checks']=self.attachment_checks;result['visible_visual_revision']=VISUAL_REVISION
         write_json(Path(path).parent/'native_color_checks.json',{'checks':self.color_checks,'review':result['native_appearance_review'],'thresholds':self.color_thresholds})
         write_json(Path(path).parent/'native_visible_visual_evidence.json',result)

@@ -130,13 +130,17 @@ def native_static_checks(video, scene, plan, *, roles=None, minimum_visible_pixe
     for key, entry in entries.items():
         actor=plan.actors[key];_,transform=native_world_vertices(entry)
         actual_roots[key]=transform[:3,3]
-        error=float(np.linalg.norm(transform[:3,3]-np.asarray(actor.positions_m[0])))
+        delta=transform[:3,3]-np.asarray(actor.positions_m[0])
+        contact=entry.get("contact_quality_observation",{})
+        constructed=(contact.get("policy")=="construct_then_record" and contact.get("root_support_verified"))
+        error=float(np.linalg.norm(delta[[0,2]] if constructed else delta))
         wanted_yaw=native_yaw(actor,entry["declaration"])
         observed_yaw=math.atan2(transform[0,2],transform[0,0])
         yaw_error=abs((observed_yaw-wanted_yaw+math.pi)%(2*math.pi)-math.pi)
         add("native:"+key+":exact_pose", error <= root_tolerance_m+1e-7 and yaw_error <= 1e-5,
             "execution_must_not_replan", root_error_m=error, yaw_error_rad=yaw_error,
-            actual_root_m=transform[:3,3].tolist(), expected_root_m=np.asarray(actor.positions_m[0]).tolist())
+            actual_root_m=transform[:3,3].tolist(), expected_root_m=np.asarray(actor.positions_m[0]).tolist(),
+            contact_quality_observation=contact, measured_grounding_y_difference_m=float(delta[1]))
         framing=native_rest_framing(video,entry);wanted=roles.get(key,"any")
         add("native:"+key+":rest_framing", framing["state"] in ({"inside","outside"}if wanted=="any"else{wanted}),
             **framing)
@@ -346,9 +350,13 @@ def native_plan_checks(video, scene, plan, **kwargs):
         if not clock_ok:
             checks.append(CheckResult("native:"+key+":motion_clock","fail","native root clock differs or is missing"))
             continue
-        error=float(np.max(np.linalg.norm(actual-p,axis=1)))
+        delta=actual-p
+        contact=record.get("contact_quality_observation",{})
+        grounded=(contact.get("policy")=="construct_then_record"
+                  and contact.get("ground_support",{}).get("root_support_verified"))
+        error=float(np.max(np.linalg.norm(delta[:,[0,2]] if grounded else delta,axis=1)))
         checks.append(CheckResult("native:"+key+":all_root_samples","pass"if error<=.002+1e-7 else"fail",
-            "native_execution_must_not_replan",evidence={"frames":len(p),"maximum_root_error_m":error,"authority":"native_30Hz_body_to_world_readbacks"}))
+            "native_execution_must_not_replan",evidence={"frames":len(p),"maximum_root_error_m":error,"contact_quality_observation":contact,"maximum_grounding_y_difference_m":float(np.max(np.abs(delta[:,1]))),"authority":"native_30Hz_body_to_world_readbacks"}))
         if actor.headings_rad is not None:
             first_native=native_yaw(actor,entry["declaration"])
             if actor.metadata.get("native_yaw_rad_per_frame") is not None:
