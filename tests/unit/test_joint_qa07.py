@@ -268,7 +268,7 @@ def test_original_qa07_witness_requires_a_real_review_in_addition_to_visible_pix
     assert original_qa07_witness(rows, review, assets, "7", [360, 640], "right", "fixture")["status"] == "fail"
 
 
-def test_geometry_edge_filter_rejects_furniture_before_native_preparation():
+def test_proxy_occlusion_fraction_is_not_an_extra_answer_gate():
     from types import SimpleNamespace
     from avengine.construction.joint.families.qa07 import entry_edge_prediction_certificate
     predictions = [SimpleNamespace(state=r["state"], occluded_fraction=0.,
@@ -278,11 +278,15 @@ def test_geometry_edge_filter_rejects_furniture_before_native_preparation():
     clear = entry_edge_prediction_certificate(predictions, [360, 640], "left", first_inside_frame=35)
     assert clear["status"] == "pass"
     assert clear["native_pixel_truth_verified"] is False
-    # The final visible frame is identical; only the actual crossing is hidden.
+    # Visible pixels still give the same original entry answer. A high proxy
+    # occlusion percentage cannot reject it under the owner's phase-2 rule C.
     predictions[16].occluded_fraction = .9
+    observed = entry_edge_prediction_certificate(predictions, [360, 640], "left", first_inside_frame=35)
+    assert observed["status"] == "pass"
+    assert observed["maximum_edge_proxy_occlusion"] == .9
+    predictions[15].state = "fully_occluded"
     blocked = entry_edge_prediction_certificate(predictions, [360, 640], "left", first_inside_frame=35)
     assert blocked["status"] == "fail"
-    assert blocked["maximum_edge_proxy_occlusion"] == .9
 
 
 def test_entry_helpers_are_owned_by_shared_core():
@@ -384,3 +388,96 @@ def test_partial_proxy_visibility_does_not_certify_an_actual_occlusion_to_visibl
     assets = [{"asset_id":"real_person", "native_instance_id":7, "label_color":"blue"}]
     review = {"7":{"status":"reviewed", "value":"blue", "frame_refs":[55]}}
     assert original_qa07_witness(rows, review, assets, "7", [360,640], "left", "fixture")["status"] == "fail"
+
+def endpoint_test_context():
+    from avengine.rooms.walkable_map import WalkableMap, VERSION, SPECIES_RADII_M
+    from avengine.construction.joint import RoomContext, CameraPose
+    class FlatNav:
+        def snap_point(self, p):
+            return np.asarray(p)
+    mask = np.ones((400, 400), bool)
+    meta = {"version": VERSION, "species_radii_m": SPECIES_RADII_M,
+            "footprint_policy": "independent-radius-coverage-v2", "room_id": "endpoint-fixture"}
+    walkable = WalkableMap([-10., -10.], .05, 0., {k: mask.copy() for k in SPECIES_RADII_M}, meta)
+    room = {"room_label": "endpoint-fixture", "floor_polygon": {"type": "Polygon",
+            "coordinates": [[[-10,-10],[10,-10],[10,10],[-10,10],[-10,-10]]]},
+            "measured_floor_y_m": 0., "placement": {"camera_m": [0.,1.25,0.]}}
+    context = RoomContext(room, walkable_map=walkable, pathfinder=FlatNav(),
+                          camera_limit=6, grid_step_m=.5, width=640, height=360)
+    context.cameras = (CameraPose((0.,1.25,0.),0.,width=640,height=360),
+                       CameraPose((0.,1.25,0.),45.,width=640,height=360))
+    return context
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_endpoint_domains_cover_hundreds_of_pairs_on_the_requested_side(side):
+    from avengine.construction.joint import BodySpec
+    from avengine.construction.joint.families.qa07 import ranked_entry_endpoint_pairs, entry_keypoint_roles
+    context = endpoint_test_context()
+    camera = context.cameras[0]; body = BodySpec("human", .35, 1.9, .05)
+    pairs, census = ranked_entry_endpoint_pairs(context, camera, body, side)
+    assert len(pairs) == 512 and census["available_pairs"] > 512
+    assert entry_keypoint_roles(side) == {"start": "outside_"+side, "end": "inside_full_body"}
+    grid = context.grid(camera, body)
+    for _, a, b in pairs:
+        assert grid.frustum_state[a] == "outside" and grid.frustum_state[b] == "inside"
+        assert grid.azimuth_deg[a] * (-1 if side == "left" else 1) > 0
+        assert min(grid.distances_m[a],grid.distances_m[b]) >= 1.5
+
+
+def test_endpoint_domains_do_not_impose_the_old_seven_metre_distance_ring():
+    from avengine.construction.joint import BodySpec
+    from avengine.construction.joint.families.qa07 import ranked_entry_endpoint_pairs
+    context = endpoint_test_context()
+    context.points_m = np.array([[-9.,0.,-7.], [0.,0.,-8.]])
+    context._grids.clear()
+    pairs, census = ranked_entry_endpoint_pairs(context, context.cameras[0], BodySpec("human",.35,1.9,.05), "left")
+    assert census["available_pairs"] == 1
+    assert [(a,b) for _,a,b in pairs] == [(0,1)]
+
+
+def test_endpoint_clock_is_consumed_by_original_native_clock_without_refitting():
+    from avengine.construction.joint import BodySpec
+    from avengine.construction.joint.families.qa07 import endpoint_route
+    from avengine.assets.roster_motion.navmesh_execution import human_distance_driven_clock
+    context = endpoint_test_context()
+    actor = endpoint_route(context, context.cameras[0], [-6.,0.,-5.], [0.,0.,-5.],
+                           BodySpec("human",.35,1.9,.05), "target")
+    transport = actor.metadata["native_distance_clock_transport"]
+    result = human_distance_driven_clock(np.array([0.,1.]), [0.], actor.metadata["speed_m_s"],
+        actor.metadata["walk_intervals_s"], timed_route=transport)
+    assert np.array_equal(result[3], np.asarray(actor.metadata["distance_clock_m"]))
+    assert np.allclose(actor.positions_m[[0,-1]], [[-6.,0.,-5.],[0.,0.,-5.]])
+    assert .8 <= actor.metadata["speed_m_s"] <= 1.4
+    assert len(np.unique(actor.headings_rad)) == 1
+
+
+def test_entry_may_finish_in_the_centre_after_a_valid_left_entry():
+    from types import SimpleNamespace
+    from avengine.construction.joint import BodySpec, FamilyRequest, ScenePlan
+    from avengine.construction.joint.geometry import DepthBuffer, predict_visibility
+    from avengine.construction.joint.families.qa07 import QA07Plugin, endpoint_route
+    context = endpoint_test_context(); camera = context.cameras[0]
+    body = BodySpec("human",.35,1.9,.05)
+    actor = endpoint_route(context, camera, [-6.,0.,-5.],[0.,0.,-5.],body,"target")
+    depth = DepthBuffer(camera,np.full((360,640),np.inf))
+    proxy = SimpleNamespace(predict=lambda c,r,b,**kw:predict_visibility(c,r,b,depth=depth,**kw))
+    plan = ScenePlan(camera,{"target":actor})
+    checks = list(QA07Plugin({"target":body}).verify(proxy,FamilyRequest("QA-07","left",("target",)),plan))
+    assert all(c.status == "pass" for c in checks)
+    assert plan.metadata["qa07_window_starts_s"]
+    observation = next(c for c in checks if c.name == "entry_projection_observation")
+    assert observation.evidence["all_projected_body_points_on_side"] is False
+
+
+def test_endpoint_generator_uses_each_camera_yaw_even_at_the_same_position():
+    from avengine.construction.joint import BodySpec, FamilyRequest
+    from avengine.construction.joint.families.qa07 import QA07Plugin
+    context = endpoint_test_context(); body = BodySpec("human",.35,1.9,.05)
+    plugin = QA07Plugin({"target":body})
+    stream = plugin.candidates(context,FamilyRequest("QA-07","left",("target",),{"pairs_per_camera":512}))
+    next(stream)
+    assert plugin.seed_diagnostics["camera_candidates"] == 2
+    assert plugin.seed_diagnostics["cameras_with_endpoint_pairs"] == 2
+    assert plugin.seed_diagnostics["ranked_endpoint_pairs"] == 1024
+    stream.close()

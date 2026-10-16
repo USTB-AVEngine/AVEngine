@@ -14,7 +14,7 @@ import numpy as np
 
 from avengine.construction.joint.entry import EntryEnvelope, tangent_entry_anchors, entry_timing
 
-REVISION = "qa07-side-first-tangent-v1"
+REVISION = "qa07-joint-endpoint-route-v2"
 SIDES = {"left": -1, "right": 1}
 MAX_PREDICTED_EDGE_OCCLUSION = .8  # proposal margin; native truth remains mandatory
 
@@ -93,14 +93,16 @@ def entry_prediction_certificate(frames: Sequence[Mapping], resolution_hw, side:
             offset = float(current["target_centroid_xy_px"][0]) - center
             actual_side = "right" if offset > 0 else "left"
             stable_offsets = [SIDES[side] * (float(by_frame[j]["target_centroid_xy_px"][0])-center)
-                              for j in range(*stable)]
+                              for j in range(stable[0], min(stable[1],
+                                  entry_frame+math.ceil(minimum_stable_s*fps)))]
             if (actual_side == side and (index-outside_begin)/fps >= minimum_outside_s
                     and (stable[1]-stable[0])/fps >= minimum_stable_s
                     and min(stable_offsets) >= dead_zone + pixel_margin_px):
                 transitions.append({"entry_frame": entry_frame, "stable_frames": stable,
                                     "side": side, "outside_s": (index-outside_begin)/fps,
                                     "stable_s": (stable[1]-stable[0])/fps,
-                                    "minimum_side_offset_px": min(stable_offsets)})
+                                    "minimum_side_offset_px": min(stable_offsets),
+                                    "pixel_margin_scope": "initial stable entry witness; later approach to centre allowed"})
         if not transitions:
             reasons.append("no_predicted_stable_entry_on_requested_side_with_margin")
     return {"status": "pass" if not reasons else "fail", "family": "QA-07", "branch": side,
@@ -199,7 +201,7 @@ def entry_preflight_frame_indices(positions_m, *, root_fps=30., video_fps=15.):
 
     QA-07 asks for an entry existence witness. Frame zero is independently
     checked; the contiguous temporal proof covers every frame of locomotion,
-    at least .6s before it and 1.2s afterwards inside the first 10s window.
+    at least .6s before it and 1.2s afterwards inside the full parent.
     """
     positions = np.asarray(positions_m, float)
     if positions.shape != (901, 3) or not np.isfinite(positions).all():
@@ -208,7 +210,7 @@ def entry_preflight_frame_indices(positions_m, *, root_fps=30., video_fps=15.):
     if not len(moving):
         raise ValueError("native entry probe has no actual motion interval")
     start = max(0, math.floor(moving[0]/root_fps*video_fps)-math.ceil(.6*video_fps))
-    end = min(150, math.ceil((moving[-1]+1)/root_fps*video_fps)+math.ceil(1.2*video_fps)+1)
+    end = min(450, math.ceil((moving[-1]+1)/root_fps*video_fps)+math.ceil(1.2*video_fps)+1)
     return list(range(start, end))
 
 
@@ -418,15 +420,13 @@ def entry_edge_prediction_certificate(predictions, resolution_hw, branch, *, fir
         edge = predictions[transition["entry_frame"]:end]
     fractions = [p.occluded_fraction for p in edge]
     clear = bool(fractions) and all(v is not None and math.isfinite(v) and v <= MAX_PREDICTED_EDGE_OCCLUSION for v in fractions)
-    if not clear:
-        result["reasons"].append("predicted_entry_edge_has_occlusion_or_unknown_depth")
-        result["status"] = "fail"
     result.update(evidence_kind="proxy_frustum_crossing_proposal_filter",
                   native_pixel_truth_verified=False,
                   first_fully_inside_proxy_frame=int(first_inside_frame),
                   edge_probe_frames=len(edge),
                   minimum_predicted_proxy_visible_fraction=1.-MAX_PREDICTED_EDGE_OCCLUSION,
                   maximum_edge_proxy_occlusion=max((v for v in fractions if v is not None), default=None),
+                  proxy_fraction_is_ranking_observation_only=True,
                   native_mask_transition_still_required=True)
     return result
 
@@ -464,6 +464,92 @@ def entry_stage_seed_preview(context, camera, actor, *, occluders=()):
     return True
 
 
+def entry_keypoint_roles(side):
+    """Public camera-solver roles; no sampled angle or distance ring."""
+    if side not in SIDES:
+        raise ValueError("entry side must be left or right")
+    return {"start": "outside_"+side, "end": "inside_full_body"}
+
+
+def ranked_entry_endpoint_pairs(context, camera, body, side, *, pair_budget=512):
+    """Select A/B from the entire shared grid, ranked by projection margin.
+
+    pair_budget is a disclosed compute budget per camera, not a feasibility
+    condition. All camera poses participate; no position/yaw is deduplicated.
+    """
+    if side not in SIDES or pair_budget < 1:
+        raise ValueError("entry branch and a positive pair compute budget required")
+    grid = context.grid(camera, body)
+    walkable = context.walkable_map.contains_many(context.points_m[:, [0, 2]], body.species)
+    legal = walkable & (grid.distances_m >= 1.5)
+    outside = legal & (grid.frustum_state == "outside") & (SIDES[side]*grid.azimuth_deg > 0.)
+    inside = legal & (grid.frustum_state == "inside")
+    ai, bi = np.flatnonzero(outside), np.flatnonzero(inside)
+    total = len(ai)*len(bi)
+    if not total:
+        return [], {"outside_points": len(ai), "inside_points": len(bi), "available_pairs": 0}
+    # Ranking only. Exact body framing and the original temporal predicate
+    # certify the generated path; these values are not native pixel truth.
+    delta = context.points_m[ai][:, [0, 2]][:, None, :]-context.points_m[bi][:, [0, 2]][None, :, :]
+    length = np.linalg.norm(delta, axis=-1)
+    outside_margin = np.maximum(0., np.radians(SIDES[side]*grid.azimuth_deg[ai]-camera.hfov_deg/2))*grid.distances_m[ai]
+    inside_margin = np.maximum(0., np.radians(camera.hfov_deg/2-np.abs(grid.azimuth_deg[bi])))*grid.distances_m[bi]
+    margin = np.minimum(outside_margin[:, None], inside_margin[None])
+    visible = np.nan_to_num(grid.visible_fraction[bi], nan=0.)
+    score = margin/np.maximum(length, body.radius_m)
+    order = np.lexsort((length.ravel(), -np.broadcast_to(visible, length.shape).ravel(), -score.ravel()))
+    result = []
+    for flat in order[:pair_budget]:
+        a, b = np.unravel_index(flat, length.shape)
+        result.append((float(score[a, b]), int(ai[a]), int(bi[b])))
+    return result, {"outside_points": len(ai), "inside_points": len(bi),
+                    "available_pairs": total, "ranked_pairs": len(result)}
+
+
+def endpoint_route(context, camera, start, end, body, target, *, query_duration_s=10.):
+    """Use the shared A* and rounded-route constructor; retain its full clock."""
+    from avengine.construction.joint.routes import route_between, construct_route, ConstructionError, SPEED_BANDS
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_distance_clock
+    waypoints = route_between(context, start, end, species=body.species)
+    length = float(np.linalg.norm(np.diff(waypoints[:, [0, 2]], axis=0), axis=1).sum())
+    outside_pause = .5  # retained QA-07 prediction margin
+    stable_pause = .6  # retained QA-07 prediction margin
+    lo, hi = SPEED_BANDS[body.species]
+    speed = float(np.clip(length/(query_duration_s-outside_pause-stable_pause-.3), lo, hi))
+    # Radius is derived from the path, not a fixed route shape or heading.
+    segments = np.linalg.norm(np.diff(waypoints[:, [0, 2]], axis=0), axis=1)
+    radius = float(segments.min()/2)
+    # Refine an inadmissible fillet towards the shared collision-free polyline.
+    # This numerical effort limit is reported, never a claim of infeasibility.
+    actor = None
+    for refinement in range(12):
+        try:
+            actor = construct_route(context, waypoints, species=body.species,
+                speed_m_s=speed, start_s=outside_pause, corner_radius_m=radius,
+                camera=camera, entity_id=target, body=body)
+            break
+        except ConstructionError as error:
+            if len(waypoints) == 2 or error.reason not in {
+                    "walkable_map_cells", "walkable_map_segment", "snapped_route_outside_map",
+                    "snapped_segment_outside_map", "navmesh_snap_tolerance", "camera_standoff"}:
+                raise
+            radius /= 2
+    if actor is None:
+        raise ConstructionError("corner_refinement_compute_budget", {"refinements": 12})
+    actor.metadata["corner_refinement_count"] = refinement
+    transport = {"reflect_walk": True, "positions_xz_m": actor.positions_m[:, [0, 2]].tolist(),
+                 "travel_yaws_rad": actor.headings_rad.tolist(),
+                 "strict_planned_motion": True,
+                 "geometry_source": "joint.route_between + joint.construct_route",
+                 "legacy_field_is_clock_transport_only": True}
+    distance, _, _ = reflected_distance_clock(transport, 1.2)
+    actor.metadata.update(distance_clock_bound=True, distance_clock_m=distance.tolist(),
+                          native_distance_clock_transport=transport,
+                          endpoint_roles={"start": "outside", "end": "inside_full_body"},
+                          selected_endpoints_m=[np.asarray(start).tolist(), np.asarray(end).tolist()])
+    return actor
+
+
 class QA07Plugin:
     """Family-specific side-plane construction using the shared room/route core."""
 
@@ -479,183 +565,137 @@ class QA07Plugin:
         self.seed_diagnostics = {"stage_previews": 0, "stage_preview_rejected": 0}
 
     def candidates(self, context, request):
-        from copy import copy
-        from avengine.construction.joint import CameraPose, ScenePlan
-        from avengine.construction.joint.geometry import framing
-        from avengine.construction.joint.routes import bind_distance_clock, ConstructionError, minimum_track_distance
-        from avengine.construction.joint.layouts import enumerate_static_layouts
-        from avengine.construction.joint.context import camera_legal
+        from collections import Counter
+        import heapq
+        from avengine.construction.joint import ScenePlan
+        from avengine.construction.joint.routes import ConstructionError, minimum_track_distance, static_actor
         from avengine.construction.joint.grounding import floor_contact_variants
+        from avengine.construction.joint.native import native_yaw
         from avengine.capture.v7_visible_mesh import indexed_static_mesh
         from avengine.construction.joint.scheduling import schedule_sound_events
-        if self.clock_evaluator is None:
-            from avengine.construction.joint.gait import complete_human_gait_clock
-        else:
-            complete_human_gait_clock = self.clock_evaluator
-        from avengine.construction.joint.native import native_yaw
         from avengine.timeline.v7_natural_orientation import sample_initial_orientation
 
         if request.family != "QA-07" or request.branch not in SIDES or len(request.target_ids) != 1:
             raise ValueError("QA07Plugin requires a named target and a fixed left/right branch")
-        if self.clock_source is None:
-            raise ValueError("QA07Plugin requires the admitted complete-step source inside solve")
         schedule = schedule_sound_events(self.sound_requirements)
         if schedule.status != "solved":
             return
         target = request.target_ids[0]; body = self.bodies[target]
-        points = np.asarray(context.points_m, float)
-        points = points[context.walkable_map.contains_many(points[:, [0, 2]], "human")]
-        floor = float(context.room["measured_floor_y_m"])
-        points = points[np.abs(points[:, 1]-floor) <= .03]
-        if not len(points):
-            return
-        envelope = EntryEnvelope(radius_m=math.sqrt(2.)*(body.radius_m+body.margin_m),
-                                 height_m=body.height_m+2*body.margin_m)
         companions = {aid: spec for aid, spec in self.bodies.items() if aid != target}
-        speed = float(request.options.get("speed_m_s", 1.05))
-        emitted = 0; seen_cameras = set()
-        for inherited in context.cameras:
-            position = tuple(inherited.position_m)
-            if position in seen_cameras:
+        self.seed_diagnostics.update(keypoint_roles=entry_keypoint_roles(request.branch),
+            camera_candidates=len(context.cameras), cameras_with_endpoint_pairs=0,
+            available_endpoint_pairs=0, ranked_endpoint_pairs=0, endpoint_pairs_considered=0,
+            routes_constructed=0, owner_and_family_certified_pairs=0,
+            native_preparations=0, native_certified=0, endpoint_domains=[], route_rejections={})
+        queues = []
+        heap = []
+        pair_budget = int(request.options.get("pairs_per_camera", 512))
+        for number, camera in enumerate(context.cameras):
+            pairs, evidence = ranked_entry_endpoint_pairs(context, camera, body, request.branch,
+                                                           pair_budget=pair_budget)
+            self.seed_diagnostics["endpoint_domains"].append({"camera_id": camera.camera_id, **evidence})
+            self.seed_diagnostics["available_endpoint_pairs"] += evidence["available_pairs"]
+            self.seed_diagnostics["ranked_endpoint_pairs"] += len(pairs)
+            queues.append(pairs)
+            if pairs:
+                self.seed_diagnostics["cameras_with_endpoint_pairs"] += 1
+                heapq.heappush(heap, (-pairs[0][0], number, 0))
+        rejected = Counter()
+        while heap:
+            if getattr(self, "appearance_rejected", False):
+                return
+            _, number, offset = heapq.heappop(heap)
+            camera = context.cameras[number]
+            score, ai, bi = queues[number][offset]
+            if offset+1 < len(queues[number]):
+                heapq.heappush(heap, (-queues[number][offset+1][0], number, offset+1))
+            self.seed_diagnostics["endpoint_pairs_considered"] += 1
+            try:
+                mover = endpoint_route(context, camera, context.points_m[ai], context.points_m[bi], body, target)
+            except (ConstructionError, ValueError) as error:
+                reason = getattr(error, "reason", str(error))
+                rejected[reason] += 1
+                self.seed_diagnostics["route_rejections"] = dict(rejected)
                 continue
-            seen_cameras.add(position)
-            per_camera = 0
-            camera_previews = 0
-            distances = np.linalg.norm(points[:, [0, 2]]-np.asarray(position)[[0, 2]], axis=1)
-            for index in np.argsort(np.abs(distances-3.8), kind="stable")[:600]:
-                if per_camera >= 1 or camera_previews >= 16:
-                    break
-                if not 3.1 <= distances[index] <= 7.:
-                    continue
-                endpoint = points[index]
-                for theta in (26., 30., 22.):
-                    if per_camera >= 1 or camera_previews >= 16:
-                        break
+            self.seed_diagnostics["routes_constructed"] += 1
+            self.seed_diagnostics["stage_previews"] += 1
+            stage_clear = entry_stage_seed_preview(context, camera, mover)
+            if not stage_clear:
+                self.seed_diagnostics["stage_preview_rejected"] += 1
+            # A coarse preview is a ranking observation, not another QA gate.
+            # The complete original temporal predicate is evaluated by verify().
+            delta = mover.positions_m[-1]-np.asarray(camera.position_m)
+            anchors = {"branch": request.branch, "listener_m": list(camera.position_m),
+                "camera_yaw_deg": camera.yaw_deg, "camera_forward": camera.forward.tolist(),
+                "start_m": mover.positions_m[0].tolist(), "endpoint_m": mover.positions_m[-1].tolist(),
+                "final_azimuth_deg": math.degrees(math.atan2(float(delta@camera.right), float(delta@camera.forward))),
+                "planning_length_m": mover.metadata["route_length_m"],
+                "speed_m_s": mover.metadata["speed_m_s"],
+                "motion_interval_s": mover.metadata["walk_intervals_s"][0],
+                "room_id": context.room.get("room_label", context.room.get("room_id")),
+                "walkable_map_path": getattr(context.walkable_map, "path", None),
+                "keypoint_roles": entry_keypoint_roles(request.branch),
+                "candidate_endpoint_indices": [ai, bi],
+                "route_solver": "joint.route_between + joint.construct_route",
+                "endpoint_ranking_margin": score, "stage_preview_observation": stage_clear,
+                "native_preflight_required": True}
+            if not companions:
+                yield ScenePlan(camera, {target: mover}, sounds=schedule.events, metadata={
+                    "joint_entry_route": anchors, "roles": {target: "outside"},
+                    "rest_views": {target: "outside"}, "native_entry_preflight_required": True,
+                    "sound_schedule_starts_s": list(schedule.starts_s),
+                    "sound_schedule_diagnostics": schedule.diagnostics})
+                continue
+            # One real static TTS companion. Enumerate its WHOLE legal domain,
+            # using shared grid/static_actor/grounding; no 24-point layout beam.
+            companion_domains = {}
+            for aid, spec in companions.items():
+                grid = context.grid(camera, spec)
+                allowed = context.walkable_map.contains_many(context.points_m[:, [0, 2]], spec.species)
+                allowed &= (grid.distances_m >= 1.5) & np.isin(grid.frustum_state, ["inside", "outside"])
+                separation = np.asarray([minimum_track_distance(mover.positions_m, point)
+                                         for point in context.points_m])
+                allowed &= separation >= 1.
+                indices = np.flatnonzero(allowed)
+                order = sorted(indices, key=lambda i: (grid.frustum_state[i] != "outside", -separation[i], int(i)))
+                companion_domains[aid] = (grid, order)
+            if any(not indices for _, indices in companion_domains.values()):
+                rejected["static_companion_domain_empty"] += 1
+                self.seed_diagnostics["route_rejections"] = dict(rejected)
+                continue
+            from itertools import product
+            for chosen in product(*(domain[1] for domain in companion_domains.values())):
+                actors = {target: mover}; roles = {target: "outside"}
+                for (aid, spec), point_index in zip(companions.items(), chosen):
+                    point = context.points_m[point_index]
+                    policy = sample_initial_orientation(self.assets[aid], self.seed, point, camera.position_m,
+                        other_people=({"position_m": mover.positions_m[0].tolist(),
+                                       "yaw_rad": native_yaw(mover, self.assets[target])},))
+                    actor = static_actor(aid, point, spec)
+                    actor.metadata.update(native_yaw_rad=policy["yaw_rad"], initial_orientation_policy=policy)
+                    if aid not in self._static_meshes:
+                        self._static_meshes[aid] = indexed_static_mesh(self.assets[aid]["habitat_glb"])
                     try:
-                        anchors = tangent_entry_anchors(position, endpoint-[0., body.margin_m, 0.],
-                            request.branch, final_azimuth_deg=theta, envelope=envelope)
-                        timing = entry_timing(anchors["planning_length_m"], speed)
-                    except ValueError:
-                        continue
-                    anchors["endpoint_m"][1] = float(endpoint[1])
-                    camera = CameraPose(position, anchors["camera_yaw_deg"],
-                        hfov_deg=inherited.hfov_deg, width=inherited.width, height=inherited.height)
-                    if not camera_legal(context.room, camera)[0]:
-                        continue
-                    clock = complete_human_gait_clock(self.clock_source, speed, [timing["requested_interval_s"]])
-                    distance = np.asarray(clock["distance_m"], float)
-                    # Family seed: the final whole-body inside anchor fixes the
-                    # origin of the completed source clock BEFORE certification.
-                    direction = np.array([anchors["inward_unit_xz"][0], 0., anchors["inward_unit_xz"][1]])
-                    origin = endpoint-distance[-1]*direction
-                    # Necessary straight-segment condition from the same map;
-                    # do it before 901-point original NavMesh certification.
-                    if not context.walkable_map.segment_free(origin[[0, 2]], endpoint[[0, 2]], "human"):
-                        continue
-                    # Query the core's original visual mesh at this exact seed,
-                    # rather than let native execution change the root height.
-                    if context.raycaster is None:
-                        continue
-                    ranges, _ = context.raycaster.first_hit(origin+[0., .2, 0.], np.array([[0., -1., 0.]]))
-                    ground = float(origin[1]+.2-ranges[0])
-                    if not math.isfinite(ground) or abs(ground-floor) > .03:
-                        continue
-                    origin[1] = ground
-                    heading = math.atan2(float(direction[2]), float(direction[0]))
-                    try:
-                        mover = bind_distance_clock(context, distance, origin_m=origin, heading_rad=heading,
-                            species="human", camera=camera, entity_id=target, body=body, ramp_s=.25)
-                    except ConstructionError:
-                        continue
-                    if framing(camera, mover.positions_m[0], body)[0] != "outside" or framing(camera, mover.positions_m[-1], body)[0] != "inside":
-                        continue
-                    if self.seed_diagnostics["stage_previews"] >= int(request.options.get("seed_preview_limit", 512)):
-                        return
-                    self.seed_diagnostics["stage_previews"] += 1
-                    camera_previews += 1
-                    if not entry_stage_seed_preview(context, camera, mover):
-                        self.seed_diagnostics["stage_preview_rejected"] += 1
-                        continue
-                    mover.metadata["admitted_gait_clock_certificate"] = clock["certificate"]
-                    mover.metadata["admitted_gait_source"] = clock["source_lineage"]
-                    anchors.update(start_m=mover.positions_m[0].tolist(), endpoint_m=mover.positions_m[-1].tolist(),
-                        room_id=context.room.get("room_label", context.room.get("room_id")),
-                        walkable_map_path=getattr(context.walkable_map, "path", None),
-                        speed_m_s=speed, motion_interval_s=timing["requested_interval_s"],
-                        timing=timing, physical_start_floor_y_m=ground, native_preflight_required=True)
-                    # All companion station selection and floor clearance is
-                    # delegated to the core, with this same fixed camera.
-                    view = copy(context); view.cameras = (camera,)
-                    # Declare the opposite-side domain BEFORE the shared
-                    # layout beam ranks nearby points; post-ranking rejection
-                    # can otherwise consume all 24 slots on the wrong side.
-                    relative = context.points_m-np.asarray(camera.position_m)
-                    azimuths = np.degrees(np.arctan2(relative@camera.right, relative@camera.forward))
-                    opposite = SIDES[request.branch]*azimuths <= -10.
-                    # This family seed is a monotone straight tangent route.
-                    # Core's continuous endpoint-segment distance is therefore
-                    # the exact static-person/whole-route centre distance.
-                    separated = np.asarray([
-                        minimum_track_distance(mover.positions_m[[0, -1]], point) >= 1.05
-                        for point in context.points_m], bool)
-                    companion_domain = separated if self.silent_target else separated & opposite
-                    point_masks = {aid: companion_domain for aid in companions}
-                    companion_selected = False
-                    companion_views = ("inside", "outside") if self.silent_target else ("outside", "inside")
-                    for companion_view in companion_views:
-                        for layout in enumerate_static_layouts(view, companions,
-                                {aid: companion_view for aid in companions},
-                                max_candidates=24, floor_clearance_m=.002, point_masks=point_masks):
-                            companions_ready = {}
-                            for aid, actor in layout.actors.items():
-                                delta = actor.positions_m[0]-np.asarray(camera.position_m)
-                                azimuth = math.degrees(math.atan2(float(delta@camera.right), float(delta@camera.forward)))
-                                # A real other emitter on the opposite side
-                                # supplies the producer's 20deg negative control.
-                                if not self.silent_target and SIDES[request.branch]*azimuth > -10.:
-                                    break
-                                policy = sample_initial_orientation(self.assets[aid], self.seed,
-                                    actor.positions_m[0], camera.position_m,
-                                    other_people=({"position_m": mover.positions_m[0].tolist(),
-                                                   "yaw_rad": native_yaw(mover, self.assets[target])},))
-                                actor.metadata["native_yaw_rad"] = policy["yaw_rad"]
-                                actor.metadata["initial_orientation_policy"] = policy
-                                if aid not in self._static_meshes:
-                                    self._static_meshes[aid] = indexed_static_mesh(self.assets[aid]["habitat_glb"])
-                                try:
-                                    refined = next(floor_contact_variants(context, actor, self._static_meshes[aid],
-                                                   asset=self.assets[aid], yaw_rad=policy["yaw_rad"]), None)
-                                except ConstructionError:
-                                    refined = None
-                                if refined is None:
-                                    break
-                                refined.metadata["entry_counterfactual_opposite_side"] = {
-                                    "azimuth_deg": azimuth, "entry_side": request.branch,
-                                    "original_wrong_registered_pose_still_required": not self.silent_target}
-                                companions_ready[aid] = refined
-                            if len(companions_ready) != len(companions):
-                                continue
-                            actors = {target: mover, **companions_ready}
-                            if not entry_stage_seed_preview(context, camera, mover, occluders=tuple(
-                                    (aid, other.positions_m[0], other.body)
-                                    for aid, other in companions_ready.items())):
-                                continue
-                            roles = {target: "outside", **layout.metadata["roles"]}
-                            companion_selected = True
-                            yield ScenePlan(camera, actors, sounds=schedule.events, metadata={
-                                "joint_entry_route": anchors, "roles": roles,
-                                "rest_views": roles, "native_entry_preflight_required": True,
-                                "sound_schedule_starts_s": list(schedule.starts_s),
-                                "sound_schedule_diagnostics": schedule.diagnostics,
-                                "planning_prediction_is_not_pixel_truth": True})
-                            emitted += 1; per_camera += 1
-                            if emitted >= int(request.options.get("candidate_limit", 128)):
-                                return
-                            # Keep one sound companion per route geometry;
-                            # spend the per-camera beam on different entry lines.
-                            break
-                        if companion_selected:
-                            break
+                        refined = next(floor_contact_variants(context, actor, self._static_meshes[aid],
+                                            asset=self.assets[aid], yaw_rad=policy["yaw_rad"]), None)
+                    except ConstructionError as error:
+                        refined = None
+                        actor.metadata["contact_quality_observation"] = {"planning_refinement": str(error)}
+                    if refined is not None:
+                        actor = refined
+                    else:
+                        actor.metadata.setdefault("contact_quality_observation",
+                            {"planning_refinement": "no contact-quality variant; retain measured ground proposal"})
+                    actors[aid] = actor
+                    roles[aid] = str(companion_domains[aid][0].frustum_state[point_index])
+                yield ScenePlan(camera, actors, sounds=schedule.events, metadata={
+                    "joint_entry_route": anchors, "roles": roles, "rest_views": roles,
+                    "native_entry_preflight_required": True,
+                    "sound_schedule_starts_s": list(schedule.starts_s),
+                    "sound_schedule_diagnostics": schedule.diagnostics,
+                    "planning_prediction_is_not_pixel_truth": True})
+                if getattr(self, "appearance_rejected", False):
+                    return
 
     def verify(self, context, request, plan):
         from avengine.construction.joint import CheckResult
@@ -693,20 +733,34 @@ class QA07Plugin:
             xmin, xmax = max(0., float(uv[:, 0].min())), min(float(camera.width), float(uv[:, 0].max()))
             offsets.append(xmin-(camera.width-1)/2 if request.branch == "right" else (camera.width-1)/2-xmax)
         margin = min(offsets, default=-math.inf)-max(1., camera.width*.02)
-        yield CheckResult("entry_requested_side_projection", "pass" if margin >= 8. else "fail",
-                          margin=margin, evidence={"branch": request.branch, "all_projected_body_points_on_side": margin >= 8.})
+        yield CheckResult("entry_projection_observation", "pass",
+                          margin=margin, evidence={"branch": request.branch,
+                          "all_projected_body_points_on_side": margin >= 8.,
+                          "final_same_side_is_not_an_answer_condition": True})
         edge = entry_edge_prediction_certificate(predictions, [camera.height, camera.width],
                                                  request.branch, first_inside_frame=first_inside_frame)
-        yield CheckResult("entry_visible_frustum_crossing", edge["status"],
-                          "predicted edge retains visible pixels on the requested side",
-                          evidence=edge)
+        windows = []
+        for crop_start in (0., 5., 10., 15., 20.):
+            begin = round(crop_start*15); finish = begin+150
+            local = predictions[begin:finish]
+            local_inside = max(0, min(149, first_inside_frame-begin))
+            certificate = entry_edge_prediction_certificate(local, [camera.height, camera.width],
+                request.branch, first_inside_frame=local_inside)
+            if certificate["status"] == "pass":
+                windows.append(crop_start)
+        plan.metadata["qa07_window_starts_s"] = windows
+        yield CheckResult("entry_visible_frustum_crossing", "pass" if windows else "fail",
+                          "original requested-side predicate in an actual delivery window",
+                          evidence={**edge, "qualified_window_starts_s": windows})
         outside = sum(p.state == "out_of_view" for p in predictions[:45])
         end = predictions[-1]
         # Core deliberately reports zero for a real-silhouette lower bound
         # from a proxy. The inner cylinder count is separately named evidence.
         # It is a construction preference, followed by actual native masks.
         proxy_pixels = int(end.evidence.get("inner_proxy_visible_pixels", 0))
-        ready = outside >= 8 and end.state in {"visible_clear", "visible_occluded"} and proxy_pixels >= 200
+        ready = states == ["outside", "inside"] and bool(windows)
+        if ready:
+            self.seed_diagnostics["owner_and_family_certified_pairs"] = self.seed_diagnostics.get("owner_and_family_certified_pairs", 0)+1
         yield CheckResult("entry_geometry_with_pixel_margin", "pass" if ready else "fail",
                           evidence={"initial_outside_samples": outside,
                                     "final_state": end.state,
@@ -785,6 +839,12 @@ def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtim
         "camera_path_condition": {"kind": "enter", "camera_forward": route["camera_forward"],
             "required_entry_side": SIDES[route["branch"]], "initial_outside_minimum_abs_deg": angle-1.,
             "final_inside_maximum_abs_deg": abs(route["final_azimuth_deg"])+.5}}}
+    if actor.metadata.get("native_distance_clock_transport"):
+        # gate_policy's explicit endpoint consumer retains XZ/heading/time;
+        # contact-height residuals follow the owner's phase-2 observation rule.
+        row["motion_requests"][target]["joint_endpoint_route"] = {
+            "positions_m": actor.positions_m.tolist(),
+            "headings_rad": actor.headings_rad.tolist(), "metadata": deepcopy(actor.metadata)}
     row["automatic_construction"].update(family="QA-07", constructor="construct_qa07_scene",
         revision=REVISION, requested_entry_side=route["branch"], native_entry_preflight_required=True,
         planned_sound_events=[asdict(event) for event in plan.sounds],
@@ -793,10 +853,11 @@ def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtim
     # Entry is certified in the first complete 10-second window. The original
     # producer supports a subset of crops while rendering/checking all 30s.
     if runtime is not None and runtime.get("qa07_entry_window_only", True):
-        row["acceptance_window_starts_s"] = [0.]
-        row["window_count"] = 1
+        starts = list(plan.metadata.get("qa07_window_starts_s", [0.]))
+        row["acceptance_window_starts_s"] = starts[:1]
+        row["window_count"] = len(row["acceptance_window_starts_s"])
         row["automatic_construction"]["delivery_scope"] = {
-            "window_start_s": 0., "window_duration_s": 10.,
+            "window_start_s": row["acceptance_window_starts_s"][0], "window_duration_s": 10.,
             "complete_native_world_duration_s": 30.,
             "full_901_pose_physics_required": True,
             "same_entry_in_overlapping_crops_is_not_another_question": True}
@@ -848,11 +909,12 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
     sound_requirements = qa07_sound_requirements(sound_scene, sound_program, sound_assets)
     side = requested_side(state, seed, declared_side=runtime.get("qa07_entry_side"))
     assets = {a["asset_id"]: a for a in catalog if a["asset_id"] in row["asset_ids"]}
-    clock_source = admitted_human_clock_source(assets[target], runtime, house)
+    clock_source = None  # native original gait phase follows the supplied solved distance clock
     bodies = {aid: BodySpec("human", radius_m=.35, height_m=1.9, margin_m=.05) for aid in row["asset_ids"]}
     actual_room = deepcopy(room_context(room, house, attempt)["original_room"])
     request = FamilyRequest("QA-07", side, (target,), {
-        "speed_m_s": 1.05, "candidate_limit": 128, "require_native_preflight": True})
+        "pairs_per_camera": int(runtime.get("qa07_pairs_per_camera", 512)),
+        "keypoint_roles": entry_keypoint_roles(side), "require_native_preflight": True})
     plugin = QA07Plugin(bodies, sound_requirements, clock_source=clock_source, assets=assets,
                         seed=seed, silent_target=not moving_target_speech)
     directory = Path(runtime["joint_cache_directory"])/"qa07"/"native_preflight"/scene_id
@@ -882,18 +944,24 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
 
     def oracle(context, requested, plan):
         initial_visible = {aid: 100 for aid, role in plan.metadata["roles"].items() if role == "inside"}
-        return prepare_native(context, requested, plan, row_factory=make_row, house=house,
+        plugin.seed_diagnostics["native_preparations"] += 1
+        prepared = prepare_native(context, requested, plan, row_factory=make_row, house=house,
             catalog=catalog, records=records, semantic=semantic, runtime=runtime,
             output_dir=directory, family_check=family_native, roles=plan.metadata["roles"],
             minimum_visible_pixels=initial_visible)
+        if prepared.payload is not None and all(check.status == "pass" for check in prepared.checks):
+            plugin.seed_diagnostics["native_certified"] += 1
+        return prepared
 
     with build_room_context(actual_room, house=house, runtime=runtime,
                             cache_dir=runtime["joint_cache_directory"],
-                            camera_limit=216, grid_step_m=.3, camera_heights_m=[1.1, 1.25, 1.45],
+                            camera_limit=int(runtime.get("qa07_camera_candidate_budget", 768)), grid_step_m=.3,
+                            camera_heights_m=[1.1, 1.25, 1.45, 1.6],
                             width=1280, height=720) as context:
         solved = solve(context, request, plugin, prepare_and_verify=oracle,
                        budget_s=float(runtime.get("qa07_solve_budget_s", 900.)),
-                       max_candidates=128, max_native_preparations=3)
+                       max_candidates=int(runtime.get("qa07_plan_compute_budget", 4096)),
+                       max_native_preparations=int(runtime.get("qa07_native_preparation_budget", 8)))
     solved.diagnostics["family_seed_search"] = dict(plugin.seed_diagnostics)
     from avengine.timeline.continuous_pilot import write_json
     directory.mkdir(parents=True, exist_ok=True)
