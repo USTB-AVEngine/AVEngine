@@ -305,6 +305,17 @@ def advance_independent_feedback(parent_id,chosen,answers,counts,seen):
     return dict(added)
 
 
+def available_binding_reservation(public,private,allocations,requested):
+    """A quota reserves existing measured keys; it is not an answer gate."""
+    from avengine.qa.v7_group_selection import eligible_binding_keys
+    eligible,_=eligible_binding_keys(public,private)
+    capacity=min((a.get('audiovisual',0)for a in allocations.values()),default=0)
+    reserved=min(int(requested),len(eligible),capacity)
+    return reserved,{'requested':int(requested),'eligible_original_binding_keys':len(eligible),
+        'audiovisual_capacity':capacity,'reserved':reserved,'unfilled_reservation':int(requested)-reserved,
+        'policy':'owner_phase2_B_existing_candidates_only','original_group_answer_and_media_checks_unchanged':True}
+
+
 def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5,family_counts=None):
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
@@ -341,8 +352,10 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
             quartet_allocation={}
             for name in names:
                 allocations[name],quartet_allocation[name]=available_single_parent_allocation(ordinary[name],private[name],allocations[name])
+            actual_binding,reservation=available_binding_reservation(ordinary,private,allocations,binding_items_per_window)
             chosen,gold,audit=select_counterfactual_group(ordinary,private,allocations,
-                binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index,family_counts=family_counts)
+                binding_items_per_window=actual_binding,quota_index=row['question_quota_base']+index,family_counts=family_counts)
+            audit['binding_reservation_availability']=reservation
             audit['observed_nuisance_preselection']=pair_audit
             audit['owner_quartet_available_candidate_allocation']=quartet_allocation
             audit['post_dedup_modality_target']={'vision':.30,'audio':.25,'audiovisual':.45}

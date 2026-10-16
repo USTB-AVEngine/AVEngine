@@ -51,10 +51,10 @@ def readable_training_answer(question,gold,authority):
         label=gold.get('authority_truth',{}).get('label',gold['canonical_answer'])
         options=[_answer_text(label),_answer_text(gold['canonical_answer'])]
         if question.get('qa_id')in {'QA-21','V7-CLASS34'}and isinstance(gold['canonical_answer'],str):
-            from avengine.qa.unified_catalog import _sound_class_phrases
+            from avengine.qa.v7_english_surface import natural_sound_class_alias
             from avengine.qa.v7_english_surface import reissue_item_english
             item=reissue_item_english(item,{})
-            options.insert(0,_sound_class_phrases(gold['canonical_answer'])[0])
+            options.insert(0,natural_sound_class_alias(gold['canonical_answer']))
         if question['form']=='mcq':
             form=item['forms']['mcq'];index=form['gold']['correct_index'];choice=form['options'][index]
             options.insert(0,_answer_text(choice.get('label_en',choice.get('label_zh',''))))
