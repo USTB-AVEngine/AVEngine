@@ -131,7 +131,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
             hits=[h for h in video.sim.cast_ray(ray,.85).hits if int(h.object_id)not in {int(a['object'].object_id)for a in video.actors}]
             if not hits:raise ValueError('motion route has no actual native ground')
             floor_y=float(hits[0].point[1]);positions[:,1]=floor_y
-            floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
+            floor=PhysicalFloor(video,float(house.get('room',{}).get('measured_floor_y_m',floor_y)),{int(a['object'].object_id)for a in video.actors})
             positions=floor.ground_roots(positions)
             solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),[yaw]*len(times),1.,float(ts[0]),duration,floor,basis=np.eye(4),chains=chains,masks=masks,emitter_bone='Xtra Mouth',canonical_flip=False,backward_threshold=.08)
             solver.times=times
