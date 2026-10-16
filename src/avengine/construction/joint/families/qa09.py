@@ -824,6 +824,25 @@ class QA09Plugin:
             yield CheckResult(**dict(value,name="QA09:temporal:"+str(i)))
 
 
+def solved_occlusion_relation(demand, plan, states):
+    """Populate legacy ranking fields from the solved world, without moving it."""
+    from avengine.capture.v7_occlusion_demand import foreground_geometry
+    query=[demand.window_start_s+i/demand.frame_rate_hz for i,state in enumerate(states)
+           if state=="fully_occluded"]
+    if not query:
+        raise ValueError("QA09 relation requires the original full-occlusion witness")
+    when=query[len(query)//2]
+    index=round(when*plan.frame_rate_hz)
+    target=plan.actors[demand.target_asset_id].positions_m[index]
+    foreground=plan.actors[demand.occluder_asset_id].positions_m[index]
+    actual=foreground_geometry(plan.camera.position_m,target,foreground)
+    relation=demand.relation(query)
+    relation.update(foreground_depth_fraction=actual["depth_fraction"],
+                    preferred_lateral_m=actual["lateral_m"],
+                    proposal_geometry_source="joint_solved_roots_at_native_query_time")
+    return relation
+
+
 def build_qa09_row(room,house,state,catalog,contract,plan,certificate,roles,authored,
                    walkable_map_path,*,scene_id,seed,native_sweep_pending=False):
     from copy import deepcopy
@@ -850,8 +869,7 @@ def build_qa09_row(room,house,state,catalog,contract,plan,certificate,roles,auth
             # prepare_scene_motion adapter. gate_policy consumes endpoint first.
             "joint_qa09_route":{"execution_api":"joint_endpoint_route"}}
         states=plan.metadata["qa09_prediction_states"][demand.target_asset_id]
-        query=[demand.window_start_s+i/demand.frame_rate_hz for i,v in enumerate(states) if v=="fully_occluded"]
-        relations.append(demand.relation(query))
+        relations.append(solved_occlusion_relation(demand,plan,states))
     row={"schema":"v7-visible-registered-pilot-phase2-v1","scene_id":scene_id,
         "independent_parent_scene_id":scene_id,"scene_seed":seed,"house":room["house"],
         "room_id":room["room_id"],"split":"train","family":room["family"],

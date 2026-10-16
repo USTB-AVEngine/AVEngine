@@ -370,3 +370,25 @@ def test_second_event_budget_failure_preserves_certified_first_event():
     assert calls==[("a","yes",0.,False),("b","no",20.,True)]
     assert "second event" in first.metadata["multi_event_downgrade"]
     stream.close()
+
+
+@pytest.mark.parametrize("fraction",[.43,.88])
+def test_native_ranking_compatibility_uses_solved_geometry_without_fixed_ratio(fraction):
+    import numpy as np
+    from avengine.construction.joint import CameraPose,ScenePlan,static_actor
+    from avengine.construction.joint.families.qa09 import solved_occlusion_relation
+    from avengine.capture.v7_dynamic_occlusion_proposals import dynamic_proposal_score
+    target=static_actor("target",[0.,0.,-10.])
+    fore=static_actor("fore",[0.,0.,-10.*fraction])
+    plan=ScenePlan(CameraPose((0.,1.25,0.),0.),{"target":target,"fore":fore})
+    states=["visible_clear"]*150;states[60]="fully_occluded"
+    demand=ReappearanceDemand("target","fore","yes",window_start_s=20.)
+    relation=solved_occlusion_relation(demand,plan,states)
+    assert relation["query_times_s"]==[24.]
+    assert relation["foreground_depth_fraction"]==pytest.approx(fraction)
+    assert relation["preferred_lateral_m"]==0.
+    native_target={"declaration":{"asset_id":"target"},
+                   "motion_episode":{"world_roots_m":target.positions_m.tolist()}}
+    scene={"listener_m":plan.camera.position_m,"native_dynamic_occlusion_relations":[relation]}
+    result=dynamic_proposal_score(scene,{"declaration":{"asset_id":"fore"}},fore.positions_m[0],[native_target])
+    assert result[1:]==pytest.approx((0.,0.))
