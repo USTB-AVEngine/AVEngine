@@ -587,6 +587,12 @@ class QA07Plugin:
             available_endpoint_pairs=0, ranked_endpoint_pairs=0, endpoint_pairs_considered=0,
             routes_constructed=0, owner_and_family_certified_pairs=0,
             native_preparations=0, native_certified=0, endpoint_domains=[], route_rejections={})
+        preferred = getattr(self, "preferred_plan", None)
+        if preferred is not None:
+            self.preferred_plan = None
+            yield preferred
+            if getattr(self, "appearance_rejected", False):
+                return
         queues = []
         heap = []
         pair_budget = int(request.options.get("pairs_per_camera", 512))
@@ -871,6 +877,138 @@ def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtim
     return row
 
 
+def ranked_entry_appearances(reports):
+    """Original review eligibility first, then measured background/person contrast.
+
+    Contrast only ranks registered choices. It adds no threshold and never
+    manufactures a review if the original colour aggregator rejects a variant.
+    """
+    return sorted(reports, key=lambda row: (
+        not row["original_colour_review_eligible"],
+        -float(row.get("minimum_contrast_delta_E", 0.)),
+        -float(row.get("matched_observation_fraction", 0.)),
+        row["asset_id"]))
+
+
+def plan_entry_appearance(plan, target, catalog, house, runtime, room, contract, directory):
+    """Measure registered colour variants against the real room before production.
+
+    A disposable native static-body preview follows the solved positions/yaws.
+    It is a colour-selection proposal, not an admitted moving scene. The final
+    same-prepared-world actual gait/colour/mask tests remain mandatory.
+    """
+    from copy import deepcopy
+    from pathlib import Path
+    from avengine.timeline.v7_family_constructors import eligible_humans
+    from avengine.capture.v7_visible_native import NativeVisibleVideo
+    from avengine.capture.v7_visible_attachment import rotation
+    from avengine.assets.habitat_capture import _apply_root_with_habitat
+    from avengine.assets.v7_visible_color import rebuild_appearance_review, lab
+    from avengine.construction.joint.native import native_yaw
+    from avengine.timeline.continuous_pilot import write_json
+    directory = Path(directory); directory.mkdir(parents=True, exist_ok=True)
+    assets = {a["asset_id"]: a for a in catalog}
+    original = assets[target]
+    pool = [a for a in eligible_humans(catalog, room, contract)
+            if a.get("walk_allowed") and a.get("body_identity_id") == original.get("body_identity_id")
+            and a.get("visual_gender") == original.get("visual_gender")]
+    if not pool:
+        pool = [original]
+    pool = sorted(pool, key=lambda a: a["asset_id"])
+    companions = [aid for aid in plan.actors if aid != target]
+    declarations = []
+    for index, asset in enumerate([*pool, *(assets[aid] for aid in companions)]):
+        value = deepcopy(asset)
+        value.update(native_instance_id=index+1, endpoint_id="appearance_"+str(index+1))
+        declarations.append(value)
+    scene = {"scene_id": "qa07_appearance_planning", "duration_s": 30.,
+        "listener_m": list(plan.camera.position_m), "camera_forward": plan.camera.forward.tolist(),
+        "sources": {}, "events": []}
+    video = NativeVisibleVideo(house, scene, runtime, declarations,
+        width=plan.camera.width, height=plan.camera.height,
+        source_material_cache_directory=directory/"materials")
+    reports = []
+    try:
+        entries = list(video.actors)
+        def put(entry, root_m, yaw):
+            transform = np.eye(4); transform[:3,:3] = rotation(yaw); transform[:3,3] = root_m
+            _apply_root_with_habitat(entry["object"], transform, qt=video.qt, mn=video.mn)
+            entry["applied_root_input"] = np.asarray(entry["object"].root_scene_node.absolute_transformation(), float)
+            entry["resolved_yaw_rad"] = yaw
+            entry["resolved_root_m"] = np.asarray(root_m).tolist()
+        for entry in entries:
+            put(entry, [0., -10000., 0.], 0.)
+        companion_entries = entries[len(pool):]
+        for aid, entry in zip(companions, companion_entries):
+            actor = plan.actors[aid]
+            put(entry, actor.positions_m[0], native_yaw(actor, assets[aid]))
+        mover = plan.actors[target]
+        frame_indices = list(range(0,450,15))+[449]
+        for entry in entries[:len(pool)]:
+            video.actors = [entry, *companion_entries]
+            video.color_checks = []; video.material_checks = []
+            contrasts = []; samples = []; seen = set()
+            for frame in frame_indices:
+                index = frame*2
+                yaw = -float(mover.headings_rad[index])-math.pi/2
+                root = mover.positions_m[index]
+                key = (tuple(root), yaw)
+                if key in seen:
+                    continue
+                seen.add(key)
+                put(entry, root, yaw)
+                observation = video.sim.get_sensor_observations()
+                rgb = np.asarray(observation["rgb"])[:,:,:3]
+                semantic = np.asarray(observation["semantic"])
+                video._check_source_frame(rgb, semantic, frame)
+                mask = semantic == entry["semantic_id"]
+                ys, xs = np.nonzero(mask)
+                if len(xs):
+                    # Use the adjacent real room pixels. This score has no
+                    # pass/fail threshold; the original reviewer is unchanged.
+                    width = int(xs.max()-xs.min()+1)
+                    x0,x1=max(0,int(xs.min())-width),min(video.width,int(xs.max())+width+1)
+                    y0,y1=int(ys.min()),int(ys.max())+1
+                    other_mask = np.zeros_like(mask)
+                    for other in companion_entries:
+                        other_mask |= semantic == other["semantic_id"]
+                    background_mask = np.zeros_like(mask)
+                    background_mask[y0:y1,x0:x1] = True
+                    background_mask &= ~mask & ~other_mask
+                    foreground_lab = np.median(lab(rgb[mask]),axis=0)
+                    values = []
+                    if background_mask.any():
+                        values.append(float(np.linalg.norm(foreground_lab-np.median(lab(rgb[background_mask]),axis=0))))
+                    if other_mask.any():
+                        values.append(float(np.linalg.norm(foreground_lab-np.median(lab(rgb[other_mask]),axis=0))))
+                    if values:
+                        contrasts.append(min(values))
+                samples.append(frame)
+            review, eligibility = rebuild_appearance_review(video.color_checks,
+                [e["declaration"] for e in video.actors])
+            checks = [x for x in video.color_checks if x["asset_id"] == entry["declaration"]["asset_id"]]
+            measurable = [x for x in checks if x.get("roi_pixels",x.get("body_pixels",0)) >= 80]
+            selected_id = str(entry["declaration"]["native_instance_id"])
+            reports.append({"asset_id": entry["declaration"]["asset_id"],
+                "registered_colour": entry["declaration"].get("label_color"),
+                "original_colour_review_eligible": selected_id in review["actors"],
+                "original_colour_review": review["actors"].get(selected_id),
+                "original_colour_exclusions": eligibility["excluded"],
+                "native_colour_checks": checks, "sampled_frames": samples,
+                "minimum_contrast_delta_E": min(contrasts,default=0.),
+                "matched_observation_fraction": sum(bool(x["matched"]) for x in measurable)/max(1,len(measurable))})
+            put(entry,[0.,-10000.,0.],0.)
+    finally:
+        video.sim.close()
+    ranked = ranked_entry_appearances(reports)
+    result = {"status":"measured","selected_asset_id":ranked[0]["asset_id"],
+        "ranked":ranked, "scope":"native registered static-body colour proposal on solved route poses",
+        "no_contrast_threshold_added":True,"source_assets_modified":False,
+        "actual_gait_colour_certified":False,"final_original_colour_aggregation_required":True}
+    write_json(directory/"appearance_plan.json",result)
+    return result
+
+
 def construct_qa07_scene(room, house, state, catalog, records, semantic, contract, runtime,
                          *, scene_id, seed, family="QA-07", attempt=0):
     """One joint solve prepares, certifies, and returns the exact live native world."""
@@ -958,10 +1096,46 @@ def construct_qa07_scene(room, house, state, catalog, records, semantic, contrac
                             camera_limit=int(runtime.get("qa07_camera_candidate_budget", 768)), grid_step_m=.3,
                             camera_heights_m=[1.1, 1.25, 1.45, 1.6],
                             width=1280, height=720) as context:
-        solved = solve(context, request, plugin, prepare_and_verify=oracle,
-                       budget_s=float(runtime.get("qa07_solve_budget_s", 900.)),
-                       max_candidates=int(runtime.get("qa07_plan_compute_budget", 4096)),
-                       max_native_preparations=int(runtime.get("qa07_native_preparation_budget", 8)))
+        # First obtain an endpoint solution, then choose registered clothes
+        # against this actual room/background. No full media/audio is produced.
+        from dataclasses import replace
+        from avengine.timeline.v7_visibility_construction import _replace_id
+        geometry_request = replace(request, options={**request.options, "require_native_preflight":False})
+        geometry = solve(context, geometry_request, plugin,
+            budget_s=float(runtime.get("qa07_geometry_budget_s",300.)),
+            max_candidates=int(runtime.get("qa07_plan_compute_budget",4096)))
+        preliminary_funnel = dict(plugin.seed_diagnostics)
+        if geometry.plan is not None:
+            colour = plan_entry_appearance(geometry.plan, target, catalog, house, runtime,
+                                           room, contract, directory/"appearance_planning")
+            chosen = colour["selected_asset_id"]
+            preferred = deepcopy(geometry.plan)
+            preferred.metadata.pop("joint_solution",None)
+            if chosen != target:
+                row = _replace_id(row,target,chosen)
+                preferred.actors = {(chosen if aid == target else aid):
+                    (replace(actor,entity_id=chosen) if aid == target else actor)
+                    for aid,actor in preferred.actors.items()}
+                for key in ("roles","rest_views"):
+                    preferred.metadata[key] = {(chosen if aid == target else aid):value
+                                               for aid,value in preferred.metadata[key].items()}
+                target = chosen
+                assets = {a["asset_id"]:a for a in catalog if a["asset_id"] in row["asset_ids"]}
+                bodies = {aid:actor.body for aid,actor in preferred.actors.items()}
+                request = replace(request,target_ids=(target,))
+            row["automatic_construction"]["appearance_planning"] = {
+                "selected_asset_id":chosen,"evidence_path":str(directory/"appearance_planning/appearance_plan.json"),
+                "actual_gait_colour_certified":False}
+            plugin = QA07Plugin(bodies,sound_requirements,assets=assets,seed=seed,
+                                silent_target=not moving_target_speech)
+            plugin.preferred_plan = preferred
+            plugin.seed_diagnostics["preliminary_endpoint_search"] = preliminary_funnel
+            solved = solve(context, request, plugin, prepare_and_verify=oracle,
+                           budget_s=float(runtime.get("qa07_solve_budget_s", 900.)),
+                           max_candidates=int(runtime.get("qa07_plan_compute_budget", 4096)),
+                           max_native_preparations=int(runtime.get("qa07_native_preparation_budget", 8)))
+        else:
+            solved = geometry
     solved.diagnostics["family_seed_search"] = dict(plugin.seed_diagnostics)
     from avengine.timeline.continuous_pilot import write_json
     directory.mkdir(parents=True, exist_ok=True)
