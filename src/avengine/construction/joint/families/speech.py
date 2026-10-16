@@ -133,7 +133,7 @@ def build_speech_row(room, house, state, catalog, semantic, contract, plan,
             'scene_template_files_read': [], 'requested_branch': 'distinct_complete_speech',
             'speech_sectors': plan.metadata['requested_speech_sectors']}}
     _request(row, state, family)
-    row['scene_demand']['required_independent_family_counts'] = {family: 1}
+    row['scene_demand']['required_independent_family_counts'] = {f: 1 for f in FAMILIES}
     row['scene_demand']['speech_target_families'] = list(FAMILIES)
     validate_recipe(row, catalog, contract)
     return row
@@ -223,6 +223,7 @@ def construct_speech_scene(room, house, state, catalog, records, semantic, contr
             max_candidates=int(runtime.get('speech_max_candidates', 512)),
             max_native_preparations=int(runtime.get('speech_max_native_preparations', 8)))
     from avengine.timeline.continuous_pilot import write_json
+    (cache/'planning_results').mkdir(parents=True, exist_ok=True)
     write_json(cache/'planning_results'/(scene_id+'.json'), {
         'status': solved.status, 'reasons': list(solved.reasons), 'diagnostics': solved.diagnostics,
         'certificate': asdict(solved.certificate) if solved.certificate else None})
