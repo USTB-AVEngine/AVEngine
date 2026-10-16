@@ -316,3 +316,36 @@ def test_producer_cli_registers_and_pins_before_launching(policy,tmp_path):
     lease=pool.RIRWorkPool(root).try_acquire()
     assert lease is not None
     lease.close()
+
+
+def test_pool_metadata_failure_does_not_duplicate_a_started_child(policy,monkeypatch,tmp_path):
+    root,value=policy;monkeypatch.setenv(pool.ENV_KEY,str(root))
+    original_write=pool._write
+    def fail_child_metadata(stream,record):
+        if 'child_pid'in record:raise OSError('injected metadata failure after Popen')
+        original_write(stream,record)
+    monkeypatch.setattr(pool,'_write',fail_child_metadata)
+    local_calls=[]
+    with(tmp_path/'log').open('wb')as log:
+        child=pool.launch_or_local([sys.executable,'-c',"print('one native child')"],log,lambda:local_calls.append(1))
+        assert child.wait()==0
+    assert local_calls==[]
+    assert(tmp_path/'log').read_text().count('one native child')==1
+
+
+def test_incomplete_live_metadata_reserves_memory_instead_of_reusing_core(policy,monkeypatch):
+    root,value=policy
+    monkeypatch.setattr(pool,'_available_bytes',lambda:100_000_000_000)
+    shared=pool.RIRWorkPool(root);lease=shared.try_acquire()
+    lease.stream.seek(0);lease.stream.truncate();lease.stream.write('{');lease.stream.flush()
+    value['max_concurrent']=1;(root/'policy.json').write_text(json.dumps(value))
+    assert shared.try_acquire()is None
+    lease.close()
+    next_lease=shared.try_acquire();assert next_lease is not None;next_lease.close()
+
+
+def test_pool_policy_failure_can_fall_back_before_any_native_launch(policy,monkeypatch,tmp_path):
+    root,value=policy;monkeypatch.setenv(pool.ENV_KEY,str(root))
+    monkeypatch.setattr(pool.RIRWorkPool,'launch',lambda *a:(_ for _ in ()).throw(ValueError('bad policy')))
+    with(tmp_path/'log').open('wb')as log:
+        assert pool.launch_or_local(['native'],log,lambda:'bounded-local')=='bounded-local'

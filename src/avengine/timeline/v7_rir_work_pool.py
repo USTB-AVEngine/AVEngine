@@ -119,7 +119,11 @@ class RIRWorkPool:
                     if probe is not None:
                         probe.close()
                         continue
-                    record = json.loads(path.read_text())
+                    try:record = json.loads(path.read_text())
+                    except (OSError, ValueError):
+                        # A coordinator may die mid-metadata-write while its
+                        # child retains the kernel lock. Reserve conservatively.
+                        record = {'kind':'rir','reserved_bytes':int(policy.get('reserve_bytes_per_rir',2_000_000_000))}
                     if record.get('kind') == 'rir':
                         active += 1
                         pending += max(0, int(record['reserved_bytes']) - _pss(record.get('child_pid', 0), record.get('child_start_ticks', '')))
@@ -156,12 +160,21 @@ class RIRWorkPool:
             child = subprocess.Popen(['taskset', '--cpu-list', str(lease.cpu), *command],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env,
                 pass_fds=(lease.stream.fileno(),))
-            try:start_ticks=Path(f'/proc/{child.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
-            except FileNotFoundError:start_ticks=''  # already-exited short child
-            lease.record.update(child_pid=child.pid,child_start_ticks=start_ticks)
-            with (self.root / 'admission.lock').open('a+') as guard:
-                fcntl.flock(guard, fcntl.LOCK_EX)
-                _write(lease.stream, lease.record)
+            try:
+                try:start_ticks=Path(f'/proc/{child.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+                except FileNotFoundError:start_ticks=''  # already-exited short child
+                lease.record.update(child_pid=child.pid,child_start_ticks=start_ticks)
+                with (self.root / 'admission.lock').open('a+') as guard:
+                    fcntl.flock(guard, fcntl.LOCK_EX)
+                    _write(lease.stream, lease.record)
+            except (OSError, ValueError):
+                # A launched native child must never be duplicated by fallback.
+                # The held kernel lease still excludes its core; missing/broken
+                # metadata conservatively reserves a full native allocation.
+                try:
+                    log.write(b'RIR metadata unavailable; retaining launched child and CPU lease\n')
+                    log.flush()
+                except OSError:pass
             return PooledChild(child, lease)
         except BaseException:
             lease.close()
@@ -219,7 +232,11 @@ def inherited_lease():
     try:
         fd = int(os.environ['AVENGINE_V7_RIR_POOL_LEASE_FD'])
         cpu = int(os.environ['AVENGINE_V7_RIR_POOL_CPU'])
-        os.fstat(fd)
+        stat = os.fstat(fd)
+        expected = Path(os.environ[ENV_KEY]) / 'cores' / f'{cpu:04d}.lock'
+        actual = expected.stat()
+        if (stat.st_dev,stat.st_ino)!=(actual.st_dev,actual.st_ino):
+            raise ValueError('inherited descriptor is not the declared core lease')
         if os.sched_getaffinity(0) != {cpu}:
             raise ValueError('native process differs from leased CPU')
         return {'cpu_id': cpu, 'inherited_lease_fd': fd, 'pool': os.environ[ENV_KEY]}
@@ -239,7 +256,7 @@ def launch_or_local(command, log, local, request=''):
     if shared is not None:
         try:
             return shared.launch(command, log, request)
-        except OSError:
+        except (OSError, ValueError, KeyError, TypeError):
             log.write(b'RIR pool unavailable; falling back to bounded local worker\n')
             log.flush()
     return local()
