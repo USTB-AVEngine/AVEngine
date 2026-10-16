@@ -92,22 +92,23 @@ def test_out_of_view_is_never_full_occlusion():
     assert "no_fully_occluded_frame" in result["errors"]
 
 
-def test_exactly_one_second_passes_but_fourteen_frames_do_not():
+def test_optional_construction_duration_is_explicit_and_default_matches_existence():
     f, o = sequence()
     for r in f[60:75]:
         r.update(state="visible_clear", visible_pixels=1000)
-    assert certify(f, o)["status"] == "pass"
+    assert certify(f, o, minimum_hidden_s=1.)["status"] == "pass"
     f[59].update(state="visible_clear", visible_pixels=1000)
-    assert "no_stable_registered_full_occlusion" in certify(f, o)["errors"]
+    assert "no_stable_registered_full_occlusion" in certify(f, o, minimum_hidden_s=1.)["errors"]
+    assert certify(f, o)["status"] == "pass"
 
 
-def test_visibility_requires_a_stable_visible_interval_not_one_reappearance_pixel():
+def test_one_actual_visible_pixel_satisfies_original_reappearance_predicate():
     f, o = sequence()
     for r in f[75:]:
         r.update(state="visible_occluded", visible_pixels=1)
     result = certify(f, o)
     assert result["observed_answer"] == "yes"
-    assert "no_stable_visible_reappearance" in result["errors"]
+    assert result["status"] == "pass"
 
 
 def test_no_branch_must_have_been_seen_before_becoming_hidden():
@@ -117,12 +118,12 @@ def test_no_branch_must_have_been_seen_before_becoming_hidden():
     assert "no_stable_visibility_before_first_occlusion" in certify(f, o, "no")["errors"]
 
 
-def test_no_branch_stays_in_the_registered_shadow_through_clip_end():
+def test_no_branch_can_leave_view_after_registered_full_occlusion():
     f, o = sequence("no")
     f[149].update(state="out_of_view", visible_pixels=0, target_pixels=0)
     result = certify(f, o, "no")
     assert result["observed_answer"] == "no"
-    assert "negative_branch_not_hidden_through_window_end" in result["errors"]
+    assert result["status"] == "pass"
 
 
 def test_requests_balance_actual_counts_and_keep_negative_branch_available():
@@ -288,3 +289,76 @@ def test_opposite_arc_has_separate_pose_cache_and_preserves_the_admitted_clock(m
     np.testing.assert_allclose(captures[1][1][:, 0], captures[0][1][:, 0])
     np.testing.assert_allclose(captures[1][1][:, 2], -captures[0][1][:, 2])
     np.testing.assert_allclose(captures[1][2] + captures[0][2], -np.pi)
+
+
+def test_query_times_are_derived_from_the_solved_event_not_a_fixed_stop():
+    demand=ReappearanceDemand("a","b","yes",window_start_s=20.)
+    assert demand.relation([22.2,22.4])["query_times_s"]==[22.2,22.4]
+    assert "foreground_depth_fraction" not in demand.relation()
+
+
+def test_independent_late_window_keeps_local_mask_indices():
+    f,o=sequence()
+    result=certify(f,o,window_start_s=20.)
+    assert result["status"]=="pass"
+    assert result["demand"]["window_start_s"]==20.
+
+
+@pytest.mark.parametrize("answer,offset",[("yes",0.),("no",20.)])
+def test_endpoint_clock_reaches_requested_shadow_and_preserves_owner_speed(answer,offset):
+    import numpy as np
+    from types import SimpleNamespace
+    from avengine.construction.joint import BodySpec
+    from avengine.construction.joint.families.qa09 import endpoint_event_route
+    class Floor:
+        floor_reference=0.
+        def contains_many(self,points,species):return np.ones(len(points),bool)
+        def segment_free(self,a,b,species):return True
+    class Nav:
+        def snap_point(self,p):return np.asarray(p)
+    ctx=SimpleNamespace(walkable_map=Floor(),pathfinder=Nav(),allow_native_map_fallback=False)
+    a=np.array([0.,0.,0.]);h=np.array([1.7,0.,.2]);b=np.array([3.3,0.,-.2]) if answer=="yes" else h
+    actor=endpoint_event_route(ctx,a,h,b,entity_id="target",body=BodySpec(),answer=answer,window_start_s=offset)
+    np.testing.assert_allclose(actor.positions_m[0],a)
+    np.testing.assert_allclose(actor.positions_m[-1],b)
+    lo,hi=actor.metadata["qa09_hidden_interval_s"]
+    assert offset<lo<hi<=offset+10.
+    np.testing.assert_allclose(actor.positions_m[round((lo+hi)/2*30)],h)
+    velocity=np.linalg.norm(np.diff(actor.positions_m[:,[0,2]],axis=0),axis=1)*30
+    assert velocity.max()<=1.4+1e-6
+    if offset:np.testing.assert_allclose(actor.positions_m[:int(offset*30)],np.tile(a,(int(offset*30),1)))
+
+
+def test_geometry_budget_never_certifies_an_incomplete_prediction(monkeypatch):
+    from types import SimpleNamespace
+    import time
+    from avengine.construction.joint.families.qa09 import QA09Plugin
+    monkeypatch.setattr(time,"monotonic",lambda:2.)
+    plugin=object.__new__(QA09Plugin)
+    context=SimpleNamespace(depth=lambda camera:None)
+    assert plugin._predict(context,SimpleNamespace(camera=None),ReappearanceDemand("a","b","yes"),{},deadline=1.) is None
+
+
+def test_second_event_budget_failure_preserves_certified_first_event():
+    import numpy as np
+    from types import SimpleNamespace
+    from avengine.construction.joint import BodySpec,CameraPose
+    from avengine.construction.joint.families.qa09 import QA09Plugin
+    plugin=object.__new__(QA09Plugin)
+    plugin.foreground={"asset_id":"fore"};plugin.target={"asset_id":"a"};plugin.second={"asset_id":"b"}
+    plugin.bodies={"fore":BodySpec()};plugin.geometry_budget_s=30.;plugin.seed=1
+    plugin.diagnostics={"multi_event_attempts":0}
+    first=SimpleNamespace(camera=CameraPose((0.,1.25,0.),0.),metadata={})
+    calls=[]
+    def events(*args,existing=None,**kwargs):
+        calls.append((args[3]["asset_id"],args[4],args[5],existing is not None))
+        if existing is None:yield first
+    plugin._events=events
+    context=SimpleNamespace(points_m=np.array([[0.,0.,-3.]]),
+        walkable_map=SimpleNamespace(contains_many=lambda *a:np.array([True])),
+        solve_cameras=lambda roles:SimpleNamespace(solutions=[SimpleNamespace(camera=first.camera)],diagnostics={}))
+    stream=plugin.candidates(context,SimpleNamespace(branch="yes"))
+    assert next(stream) is first
+    assert calls==[("a","yes",0.,False),("b","no",20.,True)]
+    assert "second event" in first.metadata["multi_event_downgrade"]
+    stream.close()
