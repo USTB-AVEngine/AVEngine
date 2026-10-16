@@ -13,7 +13,10 @@ from .solver import _awaits_only_native_sweep, _resolve_native_sweep_pending
 
 def _close_candidates(candidates):
     seen=set();errors=[]
-    for candidate in candidates:
+    # Habitat simulators created later can borrow the first simulator's GL
+    # context. Release in reverse acquisition order so that owner outlives
+    # every dependent world, including failure/exception cleanup.
+    for candidate in reversed(list(candidates)):
         token=id(candidate.payload)if candidate.payload is not None else id(candidate)
         if token in seen:
             continue

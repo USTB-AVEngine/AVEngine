@@ -864,7 +864,7 @@ def test_registered_bundle_retains_two_worlds_and_original_baseline_row(tmp_path
     bundle.bind_solution({"solver_entry":"avengine.construction.joint.solve","native_preflight_status":"pass"})
     assert bundle.row["joint_solution"]["prepared_visual_count"]==2
     bundle.close();bundle.close()
-    assert closed==["v0","v1"]
+    assert closed==["v1","v0"]
 
 
 def test_registered_bundle_closes_first_world_when_second_fails_or_throws(tmp_path):
@@ -894,7 +894,7 @@ def test_registered_bundle_cannot_reuse_one_world_or_omit_native_group_check(tmp
     closed.clear()
     result=prepare_native_bundle(c,request,plans,
         lambda key,*a:_bundle_member(tmp_path,key,(CheckResult("native:test","pass"),),closed))
-    assert result.payload is None and closed==["v0","v1"]
+    assert result.payload is None and closed==["v1","v0"]
     assert any(c.reason=="group_native_family_checks_not_supplied"and c.status=="unknown"for c in result.checks)
 
 
@@ -911,7 +911,7 @@ def test_bundle_fallback_proof_cannot_be_borrowed_from_other_visual(tmp_path):
         return _bundle_member(tmp_path,key,checks,closed)
     result=prepare_native_bundle(c,FamilyRequest("V7-CONTENT-BIND","swap"),plans,prepare,
         group_check=lambda b:[CheckResult("group","pass")])
-    assert result.payload is None and closed==["v0","v1"]
+    assert result.payload is None and closed==["v1","v0"]
     assert any(c.name=="v1:b:route"and c.status=="unknown"for c in result.checks)
 
 
@@ -959,7 +959,7 @@ def test_registered_factory_compiles_original_program_once_and_swaps_real_endpoi
             return original(path,data)
         monkeypatch.setattr(pilot,"write_json",write)
         with pytest.raises(OSError,match="disk write fault"):operation()
-        assert closed==["v0","v1"]
+        assert closed==["v1","v0"]
         return
     result=operation()
     assert compiled==[True]and result.payload is not None
@@ -967,7 +967,7 @@ def test_registered_factory_compiles_original_program_once_and_swaps_real_endpoi
     np.testing.assert_allclose(observed["v1"][1]["sources"]["voice1"]["trajectory"][0]["position_m"],[-1.1,1.5,-3.95])
     assert result.payload.visuals["v0"].program is result.payload.visuals["v1"].program is program
     assert original_scene["sources"]["voice1"]=={}
-    result.close();assert closed==["v0","v1"]
+    result.close();assert closed==["v1","v0"]
 
 
 def test_registered_bundle_rejects_recompiled_audio_and_closes_members_without_wrapper_callback(tmp_path):
@@ -979,7 +979,7 @@ def test_registered_bundle_rejects_recompiled_audio_and_closes_members_without_w
         return candidate
     result=prepare_native_bundle(c,FamilyRequest("V7-CONTENT-BIND","swap"),plans,prepare,
         group_check=lambda b:[CheckResult("group","pass")])
-    assert result.payload is None and closed==["v0","v1"]
+    assert result.payload is None and closed==["v1","v0"]
     assert any(c.name=="native:registered_parent_contract"and c.status=="fail"for c in result.checks)
 
 
@@ -1008,3 +1008,30 @@ def test_registered_material_journal_is_not_mistaken_for_colour_admission(monkey
     assert calls==[(1,"green")]
     assert checks[0].status==("pass"if colour_status=="pass"else"fail")
     assert video.material_checks==[{"old":True}]and not hasattr(video,"color_checks")
+
+
+def test_native_bundle_cleanup_keeps_context_owner_alive_until_dependents_close():
+    from avengine.construction.joint.registered import _close_candidates
+    state = {"owner_alive": True, "order": []}
+    def close_owner():
+        state["order"].append("owner")
+        state["owner_alive"] = False
+    def close_dependent():
+        assert state["owner_alive"], "borrowed GL context was destroyed first"
+        state["order"].append("dependent")
+    _close_candidates([PreparedCandidate(object(), (), close_owner),
+                       PreparedCandidate(object(), (), close_dependent)])
+    assert state["order"] == ["dependent", "owner"]
+
+
+def test_native_bundle_cleanup_continues_reverse_order_after_member_error():
+    from avengine.construction.joint.registered import _close_candidates
+    order = []
+    def fail():
+        order.append("dependent")
+        raise ValueError("release error")
+    candidates = [PreparedCandidate(object(), (), lambda: order.append("owner")),
+                  PreparedCandidate(object(), (), fail)]
+    with pytest.raises(RuntimeError, match="native_bundle_close_failed"):
+        _close_candidates(candidates)
+    assert order == ["dependent", "owner"]
