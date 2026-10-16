@@ -177,11 +177,30 @@ def route_for_pair(context, camera, pair, demand, *, speed_m_s, start_s=0.,
         actor=deepcopy(actor_cache[key])
         counts["core_route_clock_reused"]+=1
     else:
+        import time
         while True:
+            if time.monotonic()>getattr(context,"_human_endpoint_search_deadline",math.inf):
+                raise ConstructionError("geometry_search_compute_budget")
             try:
                 actor=construct_route(strict,waypoints,species="human",
                     speed_m_s=speed_m_s,start_s=start_s,duration_s=duration_s,
                     corner_radius_m=radius,camera=None,entity_id=demand.entity_id,body=body)
+                speed=np.linalg.norm(np.diff(actor.positions_m[:,[0,2]],axis=0),axis=1)*30.
+                mid=(np.arange(len(speed))+.5)/30.
+                ramp=float(actor.metadata["ramp_s"]);steady=np.ones(len(speed),bool)
+                for lo_s,hi_s in actor.metadata["walk_intervals_s"]:
+                    steady&=~(((mid>=lo_s-1/30.)&(mid<=lo_s+ramp+1/30.))|
+                              ((mid>=hi_s-ramp-1/30.)&(mid<=hi_s+1/30.)))
+                observed=speed[steady&(speed>=.02)]
+                if len(observed)and observed.min()<.8-.02:
+                    # Solve the clip speed inside the existing owner band;
+                    # short curved chords can be slower than their arc clock.
+                    next_speed=min(1.4,speed_m_s*.8/float(observed.min()))
+                    if next_speed<=speed_m_s:
+                        raise ConstructionError("species_speed_with_bounded_start_stop_ramps")
+                    speed_m_s=next_speed
+                    counts["owner_speed_domain_refinements"]+=1
+                    continue
                 break
             except ConstructionError as exc:
                 if exc.reason=="route_exceeds_parent_duration"and start_s>0:
@@ -191,7 +210,7 @@ def route_for_pair(context, camera, pair, demand, *, speed_m_s, start_s=0.,
                                   "snapped_route_outside_map","snapped_segment_outside_map"}:
                     previous=radius;radius/=2.
                     counts["rounded_radius_domain_refinements"]+=1
-                    if radius>0 and radius<previous:continue
+                    if radius>np.spacing(max(1.,float(np.abs(waypoints).max()))) and radius<previous:continue
                 raise
         actor.metadata["rounded_core_radius_m"]=radius
         actor_cache[key]=deepcopy(actor)
@@ -409,7 +428,7 @@ class EndpointHumanPlugin:
             return None
         row=combine_obligations(row,plan,original_plans,answers)
         row.update(strict_native_bindings(plan,assets))
-        row["native_view_roles"]={a["asset_id"]:{"view":"any","static":a["asset_id"]not in row["motion_requests"],
+        row["native_view_roles"]={a["asset_id"]:{"view":"unconstrained_motion","static":a["asset_id"]not in row["motion_requests"],
                                                 "required_visible_sometime":False}for a in assets}
         row["human_endpoint_family_failures"]=failures
         row["joint_prepared_scene_required"]=True
@@ -457,6 +476,7 @@ class EndpointHumanPlugin:
         start=time.monotonic()
         budget=float(self.runtime.get("human_endpoint_geometry_budget_s",
                      float(self.runtime.get("human_endpoint_solve_budget_s",900.))/2.))
+        context._human_endpoint_search_deadline=start+budget
         all_pairs=complete_pairs(self.semantic)
         for voice_pair in all_pairs:
             if time.monotonic()-start>budget:
@@ -572,6 +592,7 @@ class EndpointHumanPlugin:
                                         paused=time.monotonic()
                                         yield candidate
                                         start+=time.monotonic()-paused
+                                        context._human_endpoint_search_deadline=start+budget
                                     if sum(sum(v.values())for v in values.values())==4*len(values):
                                         stop_slots=True
                                         break
