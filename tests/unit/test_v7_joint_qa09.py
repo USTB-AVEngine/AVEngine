@@ -326,6 +326,14 @@ def test_endpoint_clock_reaches_requested_shadow_and_preserves_owner_speed(answe
     np.testing.assert_allclose(actor.positions_m[round((lo+hi)/2*30)],h)
     velocity=np.linalg.norm(np.diff(actor.positions_m[:,[0,2]],axis=0),axis=1)*30
     assert velocity.max()<=1.4+1e-6
+    # Native roots are float32; the original strict speed certifier must still
+    # accept their measured clock, including the lower-bound regression.
+    from avengine.timeline.v7_motion_speed import certify_moving_root_speed
+    native=(actor.positions_m+np.array([3.225,4.239589,-5.775])).astype(np.float32).astype(float)
+    moving=np.r_[velocity>1e-8,False]
+    report=certify_moving_root_speed(native,np.arange(901)/30,moving,"human")
+    assert report["status"]=="pass"
+    assert .8<actor.metadata["speed_m_s"]<1.4
     if offset:np.testing.assert_allclose(actor.positions_m[:int(offset*30)],np.tile(a,(int(offset*30),1)))
 
 

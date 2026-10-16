@@ -568,7 +568,13 @@ def endpoint_event_route(context, start, hidden, end, *, entity_id, body, answer
     available = window_duration_s - legs*.3 - (legs+1)*frame
     if available <= 0 or total > 1.4*available:
         raise ConstructionError("qa09_route_exceeds_answer_window")
-    speed = float(np.clip(total/max(available, frame), .8, 1.4))
+    from avengine.timeline.v7_motion_speed import SPEED_RANGES
+    lower, upper = SPEED_RANGES[body.species]
+    feasible_lower = max(lower, total/max(available, frame))
+    # Maximise clearance to the existing speed limits. Choosing the lower
+    # boundary made float32 native readback fall below .8 by 16 micrometres/s.
+    # This constructs an interior solution; no admission threshold is changed.
+    speed = float((feasible_lower + upper)/2)
     spare = window_duration_s-total/speed-legs*.3
     dwell = np.zeros(len(points))
     initial = spare/(legs+1)
