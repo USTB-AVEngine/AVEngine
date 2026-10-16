@@ -270,16 +270,19 @@ class MotionAnimalPlugin:
                         silence.append((offset+quiet,offset+6.6))
                     target_starts.append(21.3)
                     silence=tuple(silence)+((24.2,26.6),)
+                    if request.options.get('asymmetric_companion_speech'):
+                        silence=tuple((a,min(b,6.0))if a<10 else(a,b)for a,b in silence)
                     requirements=[]
                     for i,t in enumerate(target_starts):
                         allowed=(t-.2,t+duration+.3)
                         requirements.append(SoundRequirement(mover,d['record']['sound_asset_id'],d['record']['sound_class'],
                             d['animal_activity_s'],(t,t+.1),(allowed,),exclusive_group='scene_voices'))
                     for offset in (0.,10.,20.):
-                        latest=min(7.2,9.45-d['speech_duration_s'])
-                        if latest<7.:break
+                        first=6.2 if request.options.get('asymmetric_companion_speech')and offset==0. else 7.
+                        latest=min(first+.2,9.45-d['speech_duration_s'])
+                        if latest<first:break
                         requirements.append(SoundRequirement(companion,d['speech']['sound_asset_id'],'speech_playback',
-                            d['speech_activity_s'],(offset+7.,offset+latest),((offset+7.,offset+9.6),),exclusive_group='scene_voices'))
+                            d['speech_activity_s'],(offset+first,offset+latest),((offset+first,offset+9.6),),exclusive_group='scene_voices'))
                     else:
                         schedule=schedule_sound_events(requirements,silent_intervals_s=silence,start_grid_hz=10,minimum_gap_s=.1)
                         if schedule.status!='solved':continue
@@ -337,7 +340,8 @@ class MotionAnimalPlugin:
                                 'animal_route':route,'source_file_starts_s':file_starts,'movement_offsets_s':offsets,
                                 'walk_intervals_s':actor.metadata['walk_intervals_s'],'roles':{mover:'inside',companion:'outside'},
                                 'third_static_call_s':file_starts[mover][-1],'sound_schedule':schedule.diagnostics,
-                                'planned_silent_intervals_s':silence,'closer_nearer_call':bool(request.options.get('closer_nearer_call'))})
+                                'planned_silent_intervals_s':silence,'closer_nearer_call':bool(request.options.get('closer_nearer_call')),
+                                'asymmetric_companion_speech':bool(request.options.get('asymmetric_companion_speech'))})
                             if request.options.get('require_static_negative_comparator'):
                                 from avengine.assets.animal_motion.negative_witness import companion_motion_request
                                 plan.metadata['negative_companion_motion_request']=companion_motion_request(
@@ -470,7 +474,8 @@ def construct_motion_animal_scene(room, house, state, catalog, records, semantic
         'candidate_limit':int(runtime.get('joint_candidate_limit',24)),
         'families':FAMILIES,'later_static_call':True,
         'require_static_negative_comparator':bool(runtime.get('motion_animal_static_negative_comparator',False)),
-        'closer_nearer_call':bool(runtime.get('motion_animal_closer_nearer_call',False))})
+        'closer_nearer_call':bool(runtime.get('motion_animal_closer_nearer_call',False)),
+        'asymmetric_companion_speech':bool(runtime.get('motion_animal_asymmetric_companion_speech',False))})
     plugin=MotionAnimalPlugin(data,base,catalog,records,contract,house,runtime,output/'geometry')
     with build_room_context(room,house=house,runtime=runtime,cache_dir=output/'room_cache',
             camera_limit=36,grid_step_m=.25,camera_heights_m=(1.1,),width=1280,height=720)as context:
