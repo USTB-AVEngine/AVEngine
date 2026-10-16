@@ -278,6 +278,10 @@ def main():
    for slot in sorted(pending,key=demand_order):
     task=task_by_slot(m,slot)
     if task.get('launch_disabled'):continue
+    allowed=m.get('dispatch_allowed_families')
+    if allowed is not None and task.get('target_family')not in allowed:continue
+    family_cap=m.get('family_concurrency_limits',{}).get(task.get('target_family'))
+    if family_cap is not None and active_families[task.get('target_family')]>=int(family_cap):continue
     w=Path(task.get('snapshot_worktree',m['worktree']))
     moving=task.get('focus')in {'human_motion','animal_motion','motion_quartet_template'}or task.get('target_family')in {'QA-06','QA-07','QA-09','QA-11','QA-13','QA-15','QA-16','QA-17','QA-22'};ue=task['device']=='ue'
     if not smoke and m.get('require_single_parent_smoke',True) and (slot!=0 or active or completed):continue
