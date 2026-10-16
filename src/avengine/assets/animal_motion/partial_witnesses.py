@@ -52,3 +52,31 @@ def retain_family_witnesses(plan, checks, *, mover, families):
         if index in mapped and mapped[index] in withdraw:continue
         if check.name.startswith('animal:nearer_call_range:'):continue
         yield check
+
+
+def prepare_available_conditions(row, catalog, records):
+    """An unavailable original condition withdraws only that family/event.
+
+    The unchanged shared compiler builds the retained set. Unexpected errors
+    propagate, rather than being mislabeled as unavailable geometry.
+    """
+    from avengine.timeline.v7_motion_during_conditions import prepare_motion_during_row
+    try:return prepare_motion_during_row(row,catalog,records)
+    except ValueError as error:
+        if not str(error).startswith('conditioned_motion rejected:'):raise
+    retained=[];observed=[]
+    for item in row['motion_during_condition_requests']:
+        one=deepcopy(row);one['motion_during_condition_requests']=[deepcopy(item)]
+        try:prepare_motion_during_row(one,catalog,records)
+        except ValueError as error:
+            if not str(error).startswith('conditioned_motion rejected:'):raise
+            observed.append({'family':item['qa_id'],'offsets_s':item['offsets_s'],
+                'original_compiler_failure':str(error),'action':'withdraw_only_this_family_event','rule':'PHASE2 B'})
+        else:retained.append(deepcopy(item))
+    base=deepcopy(row);base['motion_during_condition_requests']=retained
+    result=prepare_motion_during_row(base,catalog,records)
+    if not retained:
+        result['motion_during_condition_plan']={'status':'degraded_no_requested_motion_witness',
+            'plans':[],'qa_predicates_changed':False,'native_admission_still_required':True}
+    result['motion_condition_compilation_observations']=observed
+    return result

@@ -159,7 +159,8 @@ def row_from_plan(plan, data, base_row, catalog, records, contract):
                 'minimum_motion_s':1.5,'end_hold_s':10.-end_local,'offsets_s':[offset],
                 'reserve_tail_s':.5,'wet_tail_planning_bound_s':None,'minimum_distance_change_m':.5})
     row['motion_during_condition_requests']=conditions
-    row=prepare_motion_during_row(row,catalog,list(records)+[data['record'],data['speech']])
+    from avengine.assets.animal_motion.partial_witnesses import prepare_available_conditions
+    row=prepare_available_conditions(row,catalog,list(records)+[data['record'],data['speech']])
     request=row['motion_requests'][mover]
     request['motion_during_condition_plan_for_fit']=deepcopy(row['motion_during_condition_plan'])
     request['intervals_s']=[[0.,30.]]
@@ -223,11 +224,15 @@ class MotionAnimalPlugin:
             if self.runtime.get('motion_animal_endpoint_solver',False):
                 import time
                 from avengine.assets.animal_motion.endpoint_solver import endpoint_routes,joint_camera_endpoint_routes
-                route_solver=joint_camera_endpoint_routes if self.runtime.get('motion_animal_joint_camera_solver',True) else endpoint_routes
+                from functools import partial
+                route_solver=partial(joint_camera_endpoint_routes,
+                    sound_window={'activity_span_s':(d['animal_activity_s'][0][0],d['animal_activity_s'][-1][1]),
+                        'file_duration_s':d['animal_duration_s']},movement_bouts=bouts,
+                    mouth_height_m=float(d['animal'].get('mouth_local_glb_m',d['animal'].get('emitter_local_m',[0.,.3,0.]))[1])) if self.runtime.get('motion_animal_joint_camera_solver',True) else endpoint_routes
                 yield from ((camera,actor) for camera,actor,proof in route_solver(context,body=body,
-                    species=species,branch=request.branch,entity_id=mover,speed_m_s=speed,start_s=w0,
-                    event_end_s=(min(10.+w0-1.-1./30.,30.-.5-duration-20.-.1) if bouts==3 else
-                                 (10.+w0-1.-2./30. if bouts==2 else 10.)),diagnostics=self.funnel,
+                    species=species,branch=request.branch,entity_id=mover,speed_m_s=speed,start_s=(0. if self.runtime.get('motion_animal_joint_camera_solver',True) else w0),
+                    event_end_s=(min(10.+(0. if self.runtime.get('motion_animal_joint_camera_solver',True) else w0)-1.-2./30.,30.-.5-duration-20.-.1) if bouts==3 else
+                                 (10.+(0. if self.runtime.get('motion_animal_joint_camera_solver',True) else w0)-1.-2./30. if bouts==2 else 10.)),diagnostics=self.funnel,
                     deadline=time.monotonic()+float(self.runtime.get('joint_budget_s',900.))))
                 return
             seen_cameras=set()
@@ -304,7 +309,7 @@ class MotionAnimalPlugin:
                     target_starts=[];silence=[]
                     for j,offset in enumerate(offsets):
                         branch=request.branch if j%2==0 else('farther'if request.branch=='nearer'else'nearer')
-                        local=round(max(1.3,3.3-duration),1)if request.options.get('closer_nearer_call')and branch=='nearer'else 1.3
+                        local=prototype.metadata.get('animal_file_start_local_s',round(max(1.3,3.3-duration),1)if request.options.get('closer_nearer_call')and branch=='nearer'else 1.3)
                         target_starts.append(offset+local)
                         quiet=max(4.2,local+duration+.6)if request.options.get('closer_nearer_call')else 4.2
                         silence.append((offset+quiet,offset+6.6))

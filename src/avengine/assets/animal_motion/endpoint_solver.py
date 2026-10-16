@@ -152,7 +152,8 @@ def physical_endpoint_pairs(context, *, species, maximum_path_length_m, diagnost
 
 
 def joint_camera_endpoint_routes(context, *, body, species, branch, entity_id, speed_m_s,
-                                  start_s, event_end_s, diagnostics=None, deadline=None):
+                                  start_s, event_end_s, diagnostics=None, deadline=None,
+                                  sound_window=None, movement_bouts=1, mouth_height_m=0.):
     """Choose physical endpoints, route them, jointly solve camera x/y/z/yaw.
 
     No context.cameras seed or fixed heading is required. Each solved camera
@@ -180,23 +181,78 @@ def joint_camera_endpoint_routes(context, *, body, species, branch, entity_id, s
         except ConstructionError as error:
             failures=d.setdefault('route_conflicts',{});failures[error.reason]=failures.get(error.reason,0)+1
             continue
-        roles=roles_for_endpoints('approach' if branch=='nearer' else 'recede',a,b,body=body,
+        base_roles=roles_for_endpoints('approach' if branch=='nearer' else 'recede',a,b,body=body,
             min_distance_change_m=.5,waypoints_m=path,name=entity_id)
-        solved=context.solve_cameras(roles,limit=None)
-        d['camera_role_solves']=d.get('camera_role_solves',0)+1
-        d['role_camera_solutions']=d.get('role_camera_solutions',0)+len(solved.solutions)
-        if not solved.solutions:continue
-        for solution in solved.solutions:
-            if deadline is not None and time.monotonic()>=deadline:
-                d['compute_budget_exhausted']=True;return
-            from copy import deepcopy
-            selected=deepcopy(actor)
-            evidence={**endpoint,'answer':branch,'start_role':'inside_full_body','end_role':'inside_full_body',
-                'path_waypoints_m':np.asarray(path).tolist(),'speed_m_s':speed,
-                'camera_position_m':list(solution.camera.position_m),'camera_yaw_deg':solution.camera.yaw_deg,
-                'camera_yaw_margin_deg':solution.yaw_margin_deg,'role_margins':solution.role_margins,
-                'camera_solve_diagnostics':solved.diagnostics,'native_truth_verified':False,
-                'solver':'physical endpoints -> route_between -> construct_route -> camera_solve'}
-            selected.metadata['animal_endpoint_solution']=evidence
-            d['constructed_routes']=d.get('constructed_routes',0)+1
-            yield solution.camera,selected,evidence
+        seen_cameras=set()
+        for mode,roles,file_start in sound_window_camera_roles(context,actor,base_roles,body=body,
+                entity_id=entity_id,branch=branch,sound_window=sound_window,
+                movement_bouts=movement_bouts,mouth_height_m=mouth_height_m):
+            solved=context.solve_cameras(roles,limit=None)
+            d['camera_role_solves']=d.get('camera_role_solves',0)+1
+            d['role_camera_solutions']=d.get('role_camera_solutions',0)+len(solved.solutions)
+            if not solved.solutions:continue
+            for solution in solved.solutions:
+                if deadline is not None and time.monotonic()>=deadline:
+                    d['compute_budget_exhausted']=True;return
+                key=tuple(solution.camera.position_m)+(solution.camera.yaw_deg,)
+                if key in seen_cameras:continue
+                seen_cameras.add(key)
+                from copy import deepcopy
+                selected=deepcopy(actor)
+                evidence={**endpoint,'answer':branch,'start_role':'inside_full_body','end_role':'inside_full_body',
+                    'path_waypoints_m':np.asarray(path).tolist(),'speed_m_s':speed,
+                    'camera_position_m':list(solution.camera.position_m),'camera_yaw_deg':solution.camera.yaw_deg,
+                    'camera_yaw_margin_deg':solution.yaw_margin_deg,'role_margins':solution.role_margins,
+                    'camera_solve_diagnostics':solved.diagnostics,'native_truth_verified':False,
+                    'sound_window_role_mode':mode,'source_file_start_local_s':file_start,
+                    'solver':'physical endpoints -> route_between -> construct_route -> camera_solve'}
+                selected.metadata['animal_endpoint_solution']=evidence
+                if file_start is not None:selected.metadata['animal_file_start_local_s']=file_start
+                d['constructed_routes']=d.get('constructed_routes',0)+1
+                yield solution.camera,selected,evidence
+
+
+def sound_window_camera_roles(context, actor, base_roles, *, body, entity_id, branch,
+                               sound_window, movement_bouts, mouth_height_m):
+    """Jointly place the observer for actual sounding and post-sound segments.
+
+    Endpoint distance alone does not prove approach/recession during a call.
+    Prefer the existing .65m construction margin, retain the exact .5m original
+    answer domain as fallback, and finally retain unrelated valid families.
+    All three domains remain available: the preference is not a new gate.
+    The first complete file starts at the earliest stable source activity.
+    """
+    import math
+    from avengine.construction.joint.camera_solve import RouteRole
+    from avengine.construction.joint.routes import repeat_bouts,ConstructionError
+    if sound_window is None:
+        yield 'endpoint_roles',base_roles,None
+        return
+    from copy import deepcopy
+    whole=deepcopy(actor)
+    offsets=[0.]
+    for count in range(movement_bouts,0,-1):
+        try:
+            offsets=[10.*j for j in range(count)]
+            whole=repeat_bouts(actor,offsets_s=tuple(offsets),context=context) if count>1 else deepcopy(actor)
+            break
+        except ConstructionError:continue
+    active_start,active_end=map(float,sound_window['activity_span_s'])
+    file_start=math.ceil(max(0.,actor.metadata['walk_intervals_s'][0][0]+actor.metadata['ramp_s']-active_start)*10.-1e-9)/10.
+    track=whole.positions_m.copy();track[:,1]+=float(mouth_height_m);clock=np.arange(len(track))/30.
+    def at(t):return tuple(float(np.interp(t,clock,track[:,axis])) for axis in range(3))
+    for margin,mode in ((.65,'preferred_existing_call_margin'),(.5,'original_call_margin')):
+        roles=list(base_roles)
+        for j,offset in enumerate(offsets):
+            direction=branch if j%2==0 else ('farther' if branch=='nearer' else 'nearer')
+            a,b=at(offset+file_start+active_start),at(offset+file_start+active_end)
+            roles.append(RouteRole((a,b),start_role='distance_range',end_role='distance_range',body=body,
+                name=entity_id+'.call.'+str(j),distance_change=direction,min_distance_change_m=margin))
+            anchor=offset+file_start+float(sound_window['file_duration_s'])
+            end=min(whole.metadata['walk_intervals_s'][j][1]-.3,offset+float(sound_window.get('quiet_until_local_s',6.6)))
+            query=math.floor(end)
+            if query>=math.ceil(anchor+.6):
+                roles.append(RouteRole((at(anchor),at(query)),start_role='distance_range',end_role='distance_range',body=body,
+                    name=entity_id+'.post.'+str(j),distance_change=direction,min_distance_change_m=.3))
+        yield mode,tuple(roles),file_start
+    yield 'unrelated_families_retained',base_roles,file_start
