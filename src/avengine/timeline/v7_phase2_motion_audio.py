@@ -231,6 +231,12 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
                 if any(np.any(dry[max(lo,a):min(hi+1,b+1)]!=0)
                        for a,b in bands if lo<=b and hi>=a)
                 for sample in ((lo,hi)if hi==lo+1 else((lo+hi)//2,))})
+            # Seed exact-pose memo from real saved measurements before a
+            # missing-checkpoint sample at the same pose can win its lock.
+            # independent() retains the original identity/SHA verification.
+            for sample in midpoints:
+                if(attempt.parent/'independent_native_reference_checkpoint'/endpoint/(str(sample).zfill(8)+'.json')).is_file():
+                    independent(sample)
             with ThreadPoolExecutor(max_workers=workers)as pool:
                 list(pool.map(independent,midpoints))
         for lo,hi in zip(keys[:-1],keys[1:]):
