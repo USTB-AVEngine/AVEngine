@@ -78,9 +78,9 @@ def test_unsolved_route_preserves_standing_person_and_speech():
 def test_footsteps_are_not_silently_played_by_standing_body():
     entry={'endpoint_id':'walker','declaration':{'asset_id':'person'}}
     scene={'planned_footsteps':[{'endpoint_id':'walker'}]}
-    with pytest.raises(MotionRouteUnavailable,match='footstep program'):
-        degrade_motion_to_standing(scene,entry,{'action':'walk'},'no route')
-    assert 'element_degradation' not in scene
+    record=degrade_motion_to_standing(scene,entry,{'action':'walk'},'no route')
+    assert record['footsteps_cancelled'] and not scene['planned_footsteps']
+    assert scene['element_degradation']==[record]
 
 
 def test_unplaceable_optional_bystander_uses_existing_recipe_rebuild(tmp_path,monkeypatch):

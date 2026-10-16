@@ -129,6 +129,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     if prepared_native is None and row.get('phase2_authored_speech_schedule_s') and not row.get('automatic_construction'):
         from avengine.timeline.v7_conditioned_post_motion import apply_authored_post_schedule
         base,program=apply_authored_post_schedule(row,base,program,assets)
+    if prepared_native is None:
+        from avengine.timeline.v7_motion_camera_planning import plan_parent_motion
+        plan_parent_motion(row,working,base,program,assets,inputs,root)
     from avengine.timeline.v7_production_inputs import bind_semantic_registry
     semantic=bind_semantic_registry(semantic,assets)
     # Preserve an already qualified exact native stage for audio-only resume.
@@ -202,6 +205,11 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         del gate,video
         from avengine.capture.v7_native_context_recycling import release_unused_native_memory
         release_unused_native_memory()
+        if native_scene.get('element_degradation'):
+            base['element_degradation']=deepcopy(native_scene['element_degradation'])
+            base['production_scenario']['motion_requests']=deepcopy(native_scene['production_scenario']['motion_requests'])
+            for key in ('events','planned_footsteps','sources','pending_registered_walk_tts'):
+                if key in native_scene:base[key]=deepcopy(native_scene[key])
         visual=qualify_missing_materials(root,assets,visual)
         if visual.get('owner_material_quality_fallbacks'):
             write_json(attempt/'owner_material_quality_references.json',{'references':visual['owner_material_quality_fallbacks'],'actual_original_measurements_retained':True})
@@ -212,6 +220,14 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     visual=read_json(vd/'native_visible_visual_evidence_phase2.json')
     if (vd/'owner_material_quality_references.json').is_file():
         visual['owner_material_quality_fallbacks']=read_json(vd/'owner_material_quality_references.json')['references']
+    if visual.get('element_degradation') and not base.get('element_degradation'):
+        from avengine.construction.contact_policy import degrade_motion_to_standing
+        by_id={a['asset_id']:a for a in assets}
+        for record in visual['element_degradation']:
+            if record.get('replacement')=='stand':
+                asset=by_id[record['asset_id']]
+                degrade_motion_to_standing(base,{'declaration':asset,'endpoint_id':asset['endpoint_id']},
+                                           record['original_plan'],record['reason'])
     from avengine.assets.animal_motion.production_episode import realized_animal_motion
     realized_animal_motion(base,visual)
     if visual.get('realized_phase2_camera'):
@@ -231,6 +247,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     if foot_receipt.exists():
         if read_json(foot_receipt)!=resolved:raise ValueError('actual footstep contact plan changed')
     else:write_json(foot_receipt,resolved)
+    from avengine.construction.contact_policy import reconcile_degraded_program
+    reconcile_degraded_program(base,program)
     dry,receipt=parent_dry(root,base,program)
     for ep,voice in receipt['endpoint_speaker_ids'].items():base['sources'][ep]['voice_identity_id']=voice
     scene=member_scene(base,visual,'v0_a0')

@@ -74,6 +74,24 @@ def solve(context, request, plugin, *, budget_s=120., max_candidates=512, prepar
             if not isinstance(prepared, PreparedCandidate):
                 raise TypeError("native callback must return PreparedCandidate with explicit checks")
             native_checks = tuple(prepared.checks) or (CheckResult("native_preflight", "unknown", "no_native_checks"),)
+            degradation=getattr(prepared.payload,"prepared_degradation",None)
+            if degradation and all(c.status=="pass"for c in native_checks):
+                effective_plan=prepared.payload.plan
+                physical=certify_plan(context,effective_plan)
+                common_checks=_resolve_native_sweep_pending(physical.checks,native_checks)
+                certificate=Certificate(common_checks+native_checks,"planning_and_native_common")
+                if certificate.passed:
+                    record={"schema":"avengine_joint_solution_v1","family":request.family,
+                        "branch":request.branch,"geometry_certificate_status":"pass",
+                        "native_preflight_status":"pass","requested_family_status":"deferred",
+                        "same_prepared_payload_required":True,"native_full_render_and_qa_verified":False,
+                        "prepared_degradation":degradation}
+                    effective_plan.metadata["joint_solution"]=record
+                    if hasattr(prepared.payload,"bind_solution"):prepared.payload.bind_solution(record)
+                    return SolveResult("degraded",effective_plan,certificate,
+                        reasons=("requested_family_deferred",),diagnostics={"candidates":count,
+                        "native_preparations":native_preparations,"prepared_degradation":degradation},
+                        prepared=prepared)
             if all(c.status=="pass"for c in native_checks) and prepared.payload is None:
                 native_checks+=(CheckResult("native:prepared_payload","unknown","no_live_prepared_scene"),)
             last = Certificate(_resolve_native_sweep_pending(last.checks,native_checks)+native_checks, "planning_and_native_preflight")

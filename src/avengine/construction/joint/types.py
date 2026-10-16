@@ -123,7 +123,7 @@ class Certificate:
 
 @dataclass
 class SolveResult:
-    status: str  # certified / unavailable / budget_exhausted
+    status: str  # certified / degraded (common prepared parent) / unavailable / budget_exhausted
     plan: ScenePlan | None = None
     certificate: Certificate | None = None
     reasons: tuple[str, ...] = ()

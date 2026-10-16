@@ -128,17 +128,21 @@ def element_degradation(scene, entry, original, replacement, reason, families=()
 def degrade_motion_to_standing(scene, entry, request, reason):
     """Keep the already qualified static body and its existing non-footstep sound."""
     ep, aid = entry['endpoint_id'], entry['declaration']['asset_id']
-    # Footstep sources cannot play from a stationary shoe. Their source program
-    # needs a producer-owned rebuild, never an invented native readback.
-    if any(p.get('endpoint_id') == ep for p in scene.get('planned_footsteps', [])):
-        raise MotionRouteUnavailable('stationary fallback needs footstep program reconstruction',
-                                     {'asset_id': aid, 'route_failure': str(reason)})
+    # A static shoe cannot emit footsteps. Cancel those element events and
+    # leave explicit event IDs for the producer's source-program reconciliation.
+    cancelled=any(p.get('endpoint_id')==ep for p in scene.get('planned_footsteps',[]))
+    aliases={key for key,spec in scene.get('sources',{}).items()
+             if spec.get('owner_endpoint_id')==ep and spec.get('emitter_part')in {'foot_L','foot_R'}}
+    removed=[e['event_id']for e in scene.get('events',[])if e.get('endpoint_id')in aliases]
+    scene['planned_footsteps']=[p for p in scene.get('planned_footsteps',[])if p.get('endpoint_id')!=ep]
+    scene['events']=[e for e in scene.get('events',[])if e.get('event_id')not in removed]
+    for key in aliases:scene['sources'].pop(key,None)
     families = set()
     demand=scene.get('scene_demand',{})
     family=demand.get('target_family') or scene.get('automatic_construction',{}).get('family')
     original_movers=scene.get('production_scenario',{}).get('motion_requests',{})
     target=demand.get('conditioned_post_motion',{}).get('target_asset_id')
-    if family and (target==aid or (len(original_movers)==1 and ep in original_movers)):
+    if family and (target==aid or (len(original_movers)==1 and (ep in original_movers or aid in original_movers))):
         families.add(family)
     for container in (scene, scene.get('production_scenario', {})):
         for item in container.get('motion_during_condition_requests', []):
@@ -155,7 +159,9 @@ def degrade_motion_to_standing(scene, entry, request, reason):
     scene['pending_registered_walk_tts']=[p for p in scene.get('pending_registered_walk_tts',[]) if p!=ep]
     entry.pop('motion_episode', None)
     entry.pop('phase2_required_foot_emitters', None)
-    return element_degradation(scene, entry, request, 'stand', reason, families)
+    record=element_degradation(scene, entry, request, 'stand', reason, families)
+    record.update(footsteps_cancelled=cancelled,removed_footstep_event_ids=removed)
+    return record
 
 
 def optional_bystander(scene, entry):
@@ -199,3 +205,54 @@ def optional_placement_failure(scene, entry, reason):
     row=element_degradation(scene,entry,{'action':'place_silent_bystander'},
         'remove_on_recipe_reconstruction',reason)
     return OptionalPlacementUnavailable(entry,row)
+
+
+def reconcile_standing_plan(plan, video, scene):
+    """Freeze only explicitly degraded actors at their real qualified readback."""
+    from dataclasses import replace
+    degraded={r['asset_id'] for r in scene.get('element_degradation',[])
+              if r.get('replacement')=='stand'}
+    if not degraded:return plan
+    entries={e['declaration']['asset_id']:e for e in video.actors}
+    actors=dict(plan.actors)
+    for aid in degraded & actors.keys():
+        entry=entries[aid]
+        if entry.get('motion_episode'):
+            raise ValueError('standing degradation still has a moving native episode')
+        transform=np.asarray(entry['object'].root_scene_node.absolute_transformation(),float)
+        if transform.shape!=(4,4) or not np.isfinite(transform).all():
+            raise ValueError('standing degradation requires actual finite native readback')
+        actor=actors[aid];yaw=math.atan2(transform[0,2],transform[0,0])
+        actors[aid]=replace(actor,positions_m=np.repeat(transform[None,:3,3],len(actor.positions_m),axis=0),
+            headings_rad=np.full(len(actor.positions_m),-yaw-math.pi/2),
+            metadata={**actor.metadata,'native_yaw_rad':yaw,'walk_intervals_s':[],
+                      'route_length_m':0.,'element_degradation':'stand'})
+    metadata=deepcopy(plan.metadata)
+    # These are requested family witnesses, not physical parent validity.
+    deferred={key:metadata.pop(key)for key in
+              ('motion_condition_plan','planned_emitter_positions_by_asset','required_motion_witnesses')
+              if key in metadata}
+    metadata.update(element_degradation=deepcopy(scene.get('element_degradation',[])),
+                    deferred_motion_obligations=deferred)
+    sounds=tuple(e for e in plan.sounds if not(e.entity_id in degraded and e.sound_class=='footsteps'))
+    return replace(plan,actors=actors,sounds=sounds,metadata=metadata)
+
+
+def reconcile_degraded_program(scene, program, row=None):
+    """Remove only explicitly cancelled footstep bindings before any audio render."""
+    records=scene.get('element_degradation',[])
+    removed={eid for r in records for eid in r.get('removed_footstep_event_ids',[])}
+    if removed:program['events']=[e for e in program.get('events',[])if e['event_id']not in removed]
+    if row is not None:
+        for record in records:
+            if record.get('replacement')!='stand':continue
+            aid=record['asset_id'];ep=record['endpoint_id']
+            row.get('motion_requests',{}).pop(aid,None)
+            row.get('motion_requests',{}).pop(ep,None)
+            if record.get('footsteps_cancelled'):
+                row.setdefault('source_classes',{})[aid]=[]
+                row['silent_asset_ids']=sorted(set(row.get('silent_asset_ids',[]))|{aid})
+                row['phase2_include_footsteps_asset_ids']=[
+                    key for key in row.get('phase2_include_footsteps_asset_ids',[])if key!=aid]
+        row['element_degradation']=deepcopy(records)
+    return program

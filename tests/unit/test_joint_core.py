@@ -523,8 +523,14 @@ def test_map_fallback_cannot_skip_physical_floor_or_body_clearance():
     with pytest.raises(ConstructionError,match="body_clearance"):
         validate_track(c,[[0,0,-4]])
     c.pathfinder.distance_to_closest_obstacle=lambda p,r:1.
+    q,report=validate_track(c,[[0,.05,-4]])
+    assert q[0,1]==pytest.approx(0.)
+    assert report["native_map_fallback"]["contact_quality_observation"]["max_gap_m"]==pytest.approx(.05)
+    import trimesh
+    furniture=trimesh.creation.box((20.,.1,20.));furniture.apply_translation([0,.07,0])
+    c.floor_raycaster=MeshRaycaster(furniture)
     with pytest.raises(ConstructionError,match="physical_floor"):
-        validate_track(c,[[0,.05,-4]])
+        validate_track(c,[[0,0,-4]])
 
 
 def test_native_fallback_requires_same_pose_physics_proof_and_live_payload():

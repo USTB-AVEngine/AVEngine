@@ -49,6 +49,8 @@ def validate_track(context, positions_m, species="human", *, camera=None, snap=T
         fallback=_native_map_fallback(context,p,species)
         fallback["map_failures"]=misses
     q, max_snap = p.copy(), 0.
+    if fallback is not None:
+        q[:,1]=fallback.pop("constructed_root_y_m")
     nav_y_offset = None
     if context.pathfinder is not None:
         unique, inverse = np.unique(p, axis=0, return_inverse=True)
@@ -115,12 +117,23 @@ def _native_map_fallback(context, positions, species):
     required=SPECIES_RADII_M[species]
     if not np.isfinite(clearance).all() or clearance.min()<required-1e-8:
         raise ConstructionError("map_fallback_body_clearance",{"minimum_m":float(clearance.min()),"required_radius_m":required})
-    distance,_=ray.first_hit(points+[0,.2,0],np.tile([0.,-1.,0.],(len(points),1)))
-    floor_y=points[:,1]+.2-distance
+    from avengine.construction.contact_policy import contact_quality_observation, FLOOR_STEP_RANGE_M
+    reference=float(context.walkable_map.floor_reference)
+    origins=points.copy();origins[:,1]=reference+.2
+    distance,_=ray.first_hit(origins,np.tile([0.,-1.,0.],(len(points),1)))
+    floor_y=origins[:,1]-distance
     error_y=np.abs(points[:,1]-floor_y)
-    if not np.isfinite(distance).all() or np.any(distance>.85) or np.any(error_y>.03+1e-7):
+    if (not np.isfinite(distance).all() or np.any(distance>.85)
+            or np.any(np.abs(floor_y-reference)>FLOOR_STEP_RANGE_M)):
         raise ConstructionError("map_fallback_physical_floor",{"maximum_root_floor_gap_m":float(error_y.max())})
+    root_origins=positions.copy();root_origins[:,1]=reference+.2
+    root_ranges,_=ray.first_hit(root_origins,np.tile([0.,-1.,0.],(len(positions),1)))
+    grounded_y=root_origins[:,1]-root_ranges
+    observation=contact_quality_observation(deltas=points[:,1]-floor_y,
+        root_support_verified=True,construction="root_y_to_original_scan_floor",
+        residuals_stage="before_construction",continuous_samples=len(points))
     return {"status":"pending_native_sweep","continuous_samples":len(points),
+            "constructed_root_y_m":grounded_y.tolist(),"contact_quality_observation":observation,
             "maximum_navmesh_horizontal_error_m":error,"minimum_native_clearance_m":float(clearance.min()),
             "body_radius_m":required,"maximum_original_scan_floor_gap_m":float(error_y.max()),
             "original_walkable_map_modified":False,"full_native_pose_and_final_scene_checks_required":True}

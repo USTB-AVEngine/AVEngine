@@ -213,6 +213,9 @@ class PreparedStaticScene:
         self.house, self.assets, self.program = house, assets, program
         self.directory, self.certificate = directory, certificate
         self.closed = False
+        self.plan = None
+        self.family_certificate = None
+        self.prepared_degradation = None
 
     def bind_solution(self, record):
         from avengine.timeline.continuous_pilot import write_json
@@ -283,10 +286,13 @@ def prepare_native(context, request, plan, *, row_factory, house, catalog, recor
                     source_material_cache_directory=native_runtime["source_material_cache_directory"])
         standing = video.qualify_standing(scene,directory/"standing")
         from .certification import certify_plan
-        pending=certify_plan(context,plan)
+        from avengine.construction.contact_policy import reconcile_standing_plan, reconcile_degraded_program
+        effective_plan=reconcile_standing_plan(plan,video,scene)
+        reconcile_degraded_program(scene,program,row)
+        pending=certify_plan(context,effective_plan)
         sweep_ids={c.evidence.get("entity_id")for c in pending.checks
                    if c.reason=="native_full_pose_required_for_map_fallback"}
-        common = native_plan_checks(video,scene,plan,roles=roles,required_full_sweep_ids=sweep_ids,
+        common = native_plan_checks(video,scene,effective_plan,roles=roles,required_full_sweep_ids=sweep_ids,
                     minimum_visible_pixels=minimum_visible_pixels,appearance_ids=appearance_ids,
                     standing_checks=standing)
         # Coarse-map fallback is conditional on a genuine full native sweep.
@@ -304,17 +310,35 @@ def prepare_native(context, request, plan, *, row_factory, house, catalog, recor
         if common.passed and request.options.get("require_native_preflight") and not extra:
             extra = (CheckResult("native:family_obligations","unknown","family_native_checks_not_supplied"),)
         acoustic=()
-        if common.passed and all(c.status=="pass"for c in extra) and acoustic_preflight:
+        if common.passed and acoustic_preflight:
             from .acoustics import native_acoustic_checks
             acoustic=native_acoustic_checks(video,scene,runtime,directory)
             row["joint_acoustic_preflight"]=deepcopy(scene["joint_acoustic_preflight"])
-        certificate = Certificate(common.checks+extra+acoustic,"native_prepared_preflight")
+        deferred=bool(scene.get("element_degradation")) or any(c.status!="pass"for c in extra)
+        family_certificate=Certificate(extra,"native_requested_family_preflight")
+        # Family failures remain failures in their own receipt. Only physical
+        # common/acoustic checks qualify the reusable standing parent payload.
+        certificate = Certificate(common.checks+acoustic+(extra if not deferred else ()),
+                                  "native_prepared_common"if deferred else"native_prepared_preflight")
+        if deferred:
+            protocol={"schema":"prepared_element_degradation_v1","status":"degraded",
+                "common_native_status":"pass"if certificate.passed else"fail",
+                "requested_family_status":"deferred","deferred_families":[request.family],
+                "element_degradation":deepcopy(scene.get("element_degradation",[])),
+                "family_checks":[asdict(c)for c in extra],"same_live_world_required":True,
+                "original_native_qa_must_decide_remaining_families":True}
+            row["prepared_degradation"]=deepcopy(protocol)
+            scene["prepared_degradation"]=deepcopy(protocol)
+            write_json(directory/"prepared_degradation.json",protocol)
         write_json(directory/"native_certificate.json",asdict(certificate))
         write_json(directory/"strict_row.json",row)
         if not certificate.passed:
             video.close()
             return PreparedCandidate(None,certificate.checks)
         payload = PreparedStaticScene(video,scene,row,working,assets,program,directory,certificate)
+        payload.plan=effective_plan
+        payload.family_certificate=family_certificate
+        payload.prepared_degradation=deepcopy(row.get("prepared_degradation"))
         return PreparedCandidate(payload,certificate.checks,payload.close)
     except (ConstructionError,ValueError) as exc:
         if video is not None:
