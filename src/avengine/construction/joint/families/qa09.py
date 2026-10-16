@@ -396,6 +396,10 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
     arc_radius = float(runtime.get("qa09_arc_radius_m", .8))
     if not math.isfinite(arc_radius) or not .4 <= arc_radius <= 1.2:
         raise ValueError("QA-09 arc radius must be between .4 and 1.2 metres")
+    turn_sign = float(runtime.get("qa09_arc_turn_sign", 1))
+    if turn_sign not in (-1., 1.):
+        raise ValueError("QA-09 arc turn sign must be -1 or 1")
+    turn_sign = int(turn_sign)
     d, b, action, lineage = admitted_master(
         {"declaration": asset, "prepared_glb": asset["habitat_glb"]}, runtime, house)
     key_data = {"revision": "qa09-arc-gait-2" if answer == "yes" else "qa09-flat-gait-1", "asset_id": asset["asset_id"],
@@ -406,6 +410,8 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
                         stationary_turn_interval_s=list(TURNAROUND_INTERVAL_S))
     if answer == "yes" and route_kind == "arc" and arc_radius != .8:
         key_data.update(revision="qa09-arc-gait-3", turn_radius_m=arc_radius)
+    if answer == "yes" and route_kind == "arc" and turn_sign != 1:
+        key_data.update(revision="qa09-arc-gait-4", turn_radius_m=arc_radius, turn_sign=turn_sign)
     key = hashlib.sha256(json.dumps(key_data, sort_keys=True).encode()).hexdigest()[:24]
     directory = runtime.get("joint_cache_directory")
     path = Path(directory) / ("qa09_gait_" + key + ".npz") if directory else None
@@ -427,7 +433,7 @@ def prepare_gait_geometry(asset: Mapping[str, Any], runtime: Mapping[str, Any],
         positions, headings = out_and_back_shape([-anchor, 0., 0.], [1., 0.], distance, anchor,
                                                   turn_interval_s=TURNAROUND_INTERVAL_S)
     else:
-        corner = (anchor, arc_radius, (float(distance[-1])-anchor)/arc_radius) if answer == "yes" else None
+        corner = (anchor, arc_radius, turn_sign*(float(distance[-1])-anchor)/arc_radius) if answer == "yes" else None
         xz, headings = _shape_xy(distance, np.array([-anchor, 0.]), 0., corner)
         positions = np.column_stack((xz[:, 0], np.zeros(901), xz[:, 1]))
     yaws = -math.pi/2-headings
@@ -642,7 +648,8 @@ class QA09Plugin:
                 right = np.array([-f[1], f[0]])
                 yaw = math.degrees(math.atan2(f[0], -f[1]))
                 camera = CameraPose(pos, yaw, width=original.width, height=original.height)
-                for side in ((1.,) if request.branch == "yes" else (1., -1.)):
+                turn_sign = int(self.gait["metadata"].get("turn_sign", 1))
+                for side in ((float(turn_sign),) if request.branch == "yes" else (1., -1.)):
                     # Diagonal passage makes the final planted gait narrower in
                     # projection than a broadside walk, without changing its mesh.
                     direction = .5 * side * right + math.sqrt(.75) * f
@@ -670,7 +677,7 @@ class QA09Plugin:
                         elif request.branch == "yes":
                             moving_actor = straight_then_arc(context, shadow, direction, distance, anchor,
                                 turn_radius_m=float(self.gait["metadata"].get("turn_radius_m", .8)),
-                                turn_sign=1, camera=camera, entity_id=tids[0],
+                                turn_sign=turn_sign, camera=camera, entity_id=tids[0],
                                 body=self.bodies[tids[0]], ramp_s=.3)
                         else:
                             moving_actor = bind_distance_clock(context, distance, origin_m=origin,
@@ -685,7 +692,9 @@ class QA09Plugin:
                         native_yaw_rad_per_frame=native_yaws.tolist())
                     if not all(framing(camera, track[i], self.bodies[tids[0]])[0] == "inside" for i in (0, 135, 299, 900)):
                         rejected("target_rest_framing"); continue
-                    for foredepth in (2.8, 3.0):
+                    # The mirrored planted feet need the nearer registered shadow;
+                    # complete mesh prediction and native checks still certify each layout.
+                    for foredepth in ((2.7, 2.8, 3.0) if turn_sign < 0 else (2.8, 3.0)):
                         foreground = np.array([pos[0]+f[0]*foredepth, shadow[1], pos[2]+f[1]*foredepth])
                         fore_origin = foreground + [0., .2, 0.]
                         fore_hit, _ = context.raycaster.first_hit(fore_origin, np.array([[0., -1., 0.]]))
