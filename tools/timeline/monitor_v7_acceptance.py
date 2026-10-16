@@ -49,6 +49,14 @@ def retained_parent_log(root,slot):
  return Path(load(marker)['log'])if marker.is_file()else Path(root)/'logs'/f'parent_{slot:03d}.log'
 
 
+def registered_parent_command(command, *, pool_root, cpus, owner, python_executable=sys.executable):
+ """Register the producer's real CPU set before its worker can submit RIRs."""
+ if not pool_root:return list(command)
+ return [python_executable,'-B','-m','avengine.timeline.v7_rir_work_pool',
+         '--root',str(pool_root),'run','--cpus',','.join(map(str,cpus)),
+         '--owner',str(owner),'--',*command]
+
+
 def allocated(root):
  return int(subprocess.check_output(['du','-sx','-B1',str(root)],text=True).split()[0])
 
@@ -303,6 +311,8 @@ def main():
       for n in ['nvidiactl','nvidia2','nvidia-uvm','nvidia-uvm-tools']:
        if Path('/dev/'+n).exists():prefix+=['--dev-bind','/dev/'+n,'/dev/'+n]
       cmd=prefix+['--chdir',str(w)]+cmd
+     env.update(current.get('new_pipeline_environment',{}))
+     cmd=registered_parent_command(cmd,pool_root=env.get('AVENGINE_V7_RIR_POOL'),cpus=task.get('cpu_ids',sorted(os.sched_getaffinity(0))),owner='acceptance:'+str(o)+':'+str(slot))
      log_path=next_parent_log(o,slot);stream=log_path.open('x');process=subprocess.Popen(['nice','-n','10',*cmd],env=env,cwd=w,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,stdin=subprocess.DEVNULL)
      active[slot]={'process':process,'stream':stream};forecast_cpu+=4;pending.remove(slot);write(o/'evidence/launches'/f'{slot:03d}.json',{'pid':process.pid,'argv':cmd,'log':str(log_path),'started_utc':now.isoformat()});print('START',slot,process.pid,flush=True)
     target=task.get('target_family')

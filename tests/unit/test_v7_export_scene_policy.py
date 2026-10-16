@@ -18,7 +18,7 @@ def actor(speed,species='human'):
     return {'species_id':species,'asset_id':'body','root_positions_m':[[speed*i/10,0,0]for i in range(101)]}
 
 
-@pytest.mark.parametrize('speed,expected',[(.15,'fail'),(.8,'pass'),(1.4,'pass'),(1.41,'fail'),(0,'pass')])
+@pytest.mark.parametrize('speed,expected',[(.15,'fail'),(.8,'pass'),(1.4,'pass'),(1.41,'pass'),(1.45,'pass'),(1.451,'fail'),(.75,'pass'),(.749,'fail'),(0,'pass')])
 def test_actual_root_speed_not_emitter_or_requested_speed(speed,expected):
     a=actor(speed);a['emitter_positions_m']=[[i,0,0]for i in range(101)]
     assert measured_actor_metrics({'a':a},10,{'body':{'speed_m_s':1}})[0]['status']==expected

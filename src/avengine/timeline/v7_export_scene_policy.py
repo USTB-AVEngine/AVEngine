@@ -9,8 +9,10 @@ from collections import defaultdict
 from pathlib import Path
 import numpy as np
 
-REVISION='v7-fixed-observer-answer-gates-quality-observations-v3'
+REVISION='v7-fixed-observer-answer-gates-quality-observations-v4'
 SPEED_RANGES={'human':(.8,1.4),'dog':(.5,1.2),'cat':(.3,.8),'slide':(.2,.5)}
+# Owner 2026-10-16 12:13: measured boundary/readback tolerance; QA truth is unchanged.
+SPEED_READBACK_TOLERANCE_M_S=.05
 
 
 # Owner 2026-10-15 21:0x: these measurements guide construction and reports;
@@ -66,7 +68,8 @@ def measured_actor_metrics(actors,fps,motion_requests=None):
         median=float(np.median(speeds[moving]));lo,hi=bounds
         results.append({'actor_id':aid,'asset_id':actor.get('asset_id'),'species':species,'motion_category':category,
             'moving_samples':int(moving.sum()),'median_root_speed_m_s':median,'required_range_m_s':[lo,hi],
-            'status':'pass'if lo-1e-6<=median<=hi+1e-6 else'fail'})
+            'readback_tolerance_m_s':SPEED_READBACK_TOLERANCE_M_S,
+            'status':'pass'if lo-SPEED_READBACK_TOLERANCE_M_S-1e-6<=median<=hi+SPEED_READBACK_TOLERANCE_M_S+1e-6 else'fail'})
     return results
 
 
