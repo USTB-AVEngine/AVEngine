@@ -918,6 +918,7 @@ def construct_qa09_scene(room, house, state, catalog, records, semantic, contrac
                             "solver_diagnostics": result.diagnostics}, sort_keys=True))
         if result.prepared is not None:
             payload = result.prepared.payload
+            payload.row["joint_prepared_scene_required"] = True
             payload.row["automatic_construction"]["joint_geometry_certificate"] = asdict(result.certificate)
             return {"profile": "phase2", "row": payload.row, "prepared_native": payload}
         row = make_row(result.plan)
