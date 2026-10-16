@@ -101,8 +101,32 @@ def choose_speech_epochs(manifest, people, state, seed, *, count=3):
         sum(source_use.get(s['sound_asset_id'], 0) for s in pair),
         sum(full_clip_ticks(s) for s in pair) > 50,
         stable_seed(seed, 'speech_scenario', *[s['sound_asset_id'] for s in pair])))
-    # One available scenario is valid; repetition cannot be counted as diversity.
-    return deepcopy([ordered[i % len(ordered)] for i in range(count)])
+    # Rank actual QA-26 query/answer keys, not scenario IDs: two different
+    # scenarios can use the same stem and generic canonical meaning_1 code.
+    from avengine.timeline.v7_question_independence import normalized_wording
+    scenarios_by_id = {s['id']: s for s in enriched['dialogues']['scenarios']}
+    seen_queries = [set() for _ in people]
+    seen_meanings = [set() for _ in people]
+    def signatures(pair):
+        return [(normalized_wording({'question_en': scenarios_by_id[s['scenario_id']].get(
+                    'question_en', s['scenario_id'])}), str(s['semantic_answer']['answer']),
+                 str(s['semantic_answer'].get('label_en', s['semantic_answer']['answer'])))
+                for s in pair]
+    chosen, remaining = [], list(enumerate(ordered))
+    for _ in range(count):
+        candidates = remaining or list(enumerate(ordered))
+        def score(candidate):
+            index, pair = candidate
+            keys = signatures(pair)
+            return (-sum((stem, answer) not in seen_queries[j] for j, (stem, answer, meaning) in enumerate(keys)),
+                    -sum(meaning not in seen_meanings[j] for j, (stem, answer, meaning) in enumerate(keys)), index)
+        index, pair = min(candidates, key=score)
+        chosen.append(pair)
+        remaining = [item for item in remaining if item[0] != index]
+        for j, (stem, answer, meaning) in enumerate(signatures(pair)):
+            seen_queries[j].add((stem, answer)); seen_meanings[j].add(meaning)
+    # Insufficient diversity is observed, never a new source/scene rejection.
+    return deepcopy(chosen)
 
 
 def build_speech_scene(row, house, records, catalog, semantic_manifest):

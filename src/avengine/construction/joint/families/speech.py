@@ -204,9 +204,14 @@ def construct_speech_scene(room, house, state, catalog, records, semantic, contr
     from avengine.timeline.v7_registered_sampling import semantic_record
     from avengine.capture.v7_visible_mesh import indexed_static_mesh
     from avengine.qa.unified_catalog import _appearance_family
+    from avengine.qa.v7_visual_admission import COLOR_HUE_DEGREES
     if family not in FAMILIES:
         raise ConstructionUnavailable('speech plugin only owns QA-26/27/28')
+    # Two measured neutral-white failures in R20 came from shadow/skin mixing
+    # in the original neutral predicate. Prefer the original registered hue
+    # reviewer when available; every legal neutral asset remains in the pool.
     pool = sorted(eligible_humans(catalog, room, contract), key=lambda a: (
+        a.get('color') not in COLOR_HUE_DEGREES,
         state.get('source_entity_usage_counts', {}).get(a['asset_id'], 0),
         stable_seed(seed, 'speech_body', a['asset_id'])))
     if not pool:

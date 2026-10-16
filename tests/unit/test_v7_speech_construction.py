@@ -207,3 +207,23 @@ def test_explicit_question_view_roles_are_preserved_without_degradation():
     request = FamilyRequest('QA-27', 'two_visible_speakers', ('a', 'b'),
                             {'roles': {'a': 'inside', 'b': 'inside'}, 'point_masks': masks})
     assert next(plugin.candidates(c, request), None) is None
+
+
+def test_distinct_scenarios_with_same_QA26_key_are_not_mistaken_for_new_questions():
+    from avengine.timeline.v7_speech_construction import choose_speech_epochs
+    people = [{'asset_id': a, 'visual_gender': 'female', 'kind': 'human'} for a in ('a', 'b')]
+    sounds, scenarios = [], []
+    for i, question in enumerate(('What did this person request?', 'What did this person request?',
+                                  'Where will this person go?', 'Which task will this person do?')):
+        scenario = 'scenario_'+str(i); roles = []
+        for j in range(2):
+            s = sound(str(i)+'_'+str(j), 1.)
+            s.update(scenario_id=scenario, transcript=f'Original statement {i} {j}.',
+                     semantic_answer={'answer': f'meaning_{j}', 'label_en': f'meaning text {i} {j}'},
+                     voice_reference={'speaker_id': f'voice_{j}', 'gender': 'female'})
+            sounds.append(s); roles.append({'role_id': s['role_id'], 'required_asset_capability': 'standing_human'})
+        scenarios.append({'id': scenario, 'question_en': question, 'roles': roles})
+    manifest = {'source_registry': 'fixture', 'dialogues': {'scenarios': scenarios}, 'sounds': sounds}
+    epochs = choose_speech_epochs(manifest, people, {}, 10)
+    lookup = {s['id']: s for s in scenarios}
+    assert len({lookup[group[0]['scenario_id']]['question_en'] for group in epochs}) == 3
