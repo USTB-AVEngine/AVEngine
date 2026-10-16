@@ -163,6 +163,11 @@ def route_for_pair(context, camera, pair, demand, *, speed_m_s, start_s=0.,
     counts["route_between_pass"] += 1
     segments = np.linalg.norm(np.diff(waypoints[:, [0, 2]], axis=0), axis=1)
     radius = float(segments.min() / 2.) if len(segments) else 0.
+    # Native scene-node translations are float32. Reserve the worst two-sample
+    # XZ rounding displacement at 30Hz, without changing the declared speed band.
+    coordinate_scale=np.float32(max(1.,float(np.abs(waypoints).max())))
+    native_speed_guard=float(np.spacing(coordinate_scale))*60.*math.sqrt(2.)
+    speed_m_s=float(np.clip(speed_m_s,.8+native_speed_guard,1.4-native_speed_guard))
     # The species map already includes the human footprint; subtracting its
     # radius again here collapsed every fillet to zero on valid NavMesh cells.
     # Core construct_route validates the actual rounded path against that map.
@@ -195,7 +200,7 @@ def route_for_pair(context, camera, pair, demand, *, speed_m_s, start_s=0.,
                 if len(observed)and observed.min()<.8-.02:
                     # Solve the clip speed inside the existing owner band;
                     # short curved chords can be slower than their arc clock.
-                    next_speed=min(1.4,speed_m_s*.8/float(observed.min()))
+                    next_speed=min(1.4-native_speed_guard,speed_m_s*.8/float(observed.min()))
                     if next_speed<=speed_m_s:
                         raise ConstructionError("species_speed_with_bounded_start_stop_ramps")
                     speed_m_s=next_speed
@@ -213,11 +218,13 @@ def route_for_pair(context, camera, pair, demand, *, speed_m_s, start_s=0.,
                     if radius>np.spacing(max(1.,float(np.abs(waypoints).max()))) and radius<previous:continue
                 raise
         actor.metadata["rounded_core_radius_m"]=radius
+        actor.metadata["native_float32_speed_guard_m_s"]=native_speed_guard
         actor_cache[key]=deepcopy(actor)
     minimum=minimum_track_distance(actor.positions_m,np.asarray(camera.position_m))
     if minimum<1.5-1e-8:
         raise ConstructionError("camera_standoff",{"minimum_m":minimum,"required_m":1.5})
     counts["construct_route_pass"] += 1
+    actor.entity_id=demand.entity_id
     actor.metadata["human_endpoint_demand"] = demand.roles()
     actor.metadata["endpoint_indices"] = [pair.start_index, pair.end_index]
     actor.metadata["endpoint_radial_difference_m"] = pair.radial_difference_m
@@ -286,18 +293,46 @@ def spatial_endpoint_domain(context,demand,*,funnel=None):
             for k in order]
 
 
-def joint_endpoint_groups(first,second):
-    """Best-first product, no tiny per-camera endpoint shortlist."""
+def joint_endpoint_groups(first,second,*,points_m=None):
+    """All independent pairs; prefer separated rest endpoints, never drop any."""
     if not first or not second:return
-    heap=[(-(first[0].radial_difference_m+second[0].radial_difference_m),0,0)]
-    seen={(0,0)}
+    if points_m is None:
+        heap=[(-(first[0].radial_difference_m+second[0].radial_difference_m),0,0)]
+        seen={(0,0)}
+        while heap:
+            _,i,j=heapq.heappop(heap)
+            yield first[i],second[j]
+            for a,b in ((i+1,j),(i,j+1)):
+                if a>=len(first)or b>=len(second)or(a,b)in seen:continue
+                seen.add((a,b))
+                heapq.heappush(heap,(-(first[a].radial_difference_m+second[b].radial_difference_m),a,b))
+        return
+    p=np.asarray(points_m)[:,[0,2]]
+    spatial=np.linalg.norm(p[:,None,:]-p[None,:,:],axis=2)
+    starts=np.asarray([q.start_index for q in second])
+    ends=np.asarray([q.end_index for q in second])
+    orders={};heap=[]
+    def add(i,j):
+        pair=first[i]
+        if i not in orders:
+            clearance=np.minimum.reduce([spatial[pair.start_index,starts],
+                spatial[pair.start_index,ends],spatial[pair.end_index,starts],
+                spatial[pair.end_index,ends]])
+            preferred=clearance>=1.
+            orders[i]=np.r_[np.flatnonzero(preferred),np.flatnonzero(~preferred)]
+        if j>=len(orders[i]):return
+        k=int(orders[i][j]);other=second[k]
+        clearance=min(spatial[a,b]for a in(pair.start_index,pair.end_index)
+                       for b in(other.start_index,other.end_index))
+        heapq.heappush(heap,(int(clearance<1.),
+            -(pair.radial_difference_m+other.radial_difference_m),i,j,k))
+    add(0,0);unseen=1
     while heap:
-        _,i,j=heapq.heappop(heap)
-        yield first[i],second[j]
-        for a,b in ((i+1,j),(i,j+1)):
-            if a>=len(first)or b>=len(second)or(a,b)in seen:continue
-            seen.add((a,b))
-            heapq.heappush(heap,(-(first[a].radial_difference_m+second[b].radial_difference_m),a,b))
+        _,_,i,j,k=heapq.heappop(heap)
+        yield first[i],second[k]
+        add(i,j+1)
+        if unseen<len(first):
+            add(unseen,0);unseen+=1
 
 
 def solve_endpoint_cameras(context,pairs,demands,bodies,*,funnel=None):
@@ -504,7 +539,7 @@ class EndpointHumanPlugin:
             bodies=[BodySpec.for_species("human")for _ in assets]
             first=spatial_endpoint_domain(context,demands[0],funnel=self.funnel)
             second=spatial_endpoint_domain(context,demands[1],funnel=self.funnel)
-            for pa,pb in joint_endpoint_groups(first,second):
+            for pa,pb in joint_endpoint_groups(first,second,points_m=context.points_m):
                 if time.monotonic()-start>budget:
                     self.funnel["geometry_time_budget_exhausted"]+=1
                     if self.best_partial is not None:
@@ -632,11 +667,20 @@ def construct_human_endpoint_scene(room,house,state,catalog,records,semantic,con
              "funnel":dict(plugin.funnel),"rejections":dict(plugin.failures),
              "native_rendered_counts":{}},ensure_ascii=False,indent=2)+"\n")
     def oracle(ctx,req,plan):
+        from avengine.timeline.v7_family_clock import build_constructed_scene
+        from .motion_human_native import retain_native_witnesses
+        rows=[]
+        def scene_factory(row,*args):
+            rows.append(row)
+            result=build_constructed_scene(row,*args)
+            rows.append(result[0])
+            return result
         return prepare_native(ctx,req,plan,row_factory=lambda p:p.metadata["family_row"],
              house=house,catalog=catalog,records=records,semantic=semantic,runtime=runtime,
              output_dir=root,roles=plan.metadata["roles"],minimum_visible_pixels={},
-             family_check=lambda video,scene,entries:native_motion_obligations(
-                   video,scene,entries,plan.metadata["family_row"]["motion_during_condition_plan"]))
+             scene_factory=scene_factory,
+             family_check=lambda video,scene,entries:retain_native_witnesses(
+                   video,scene,entries,plan,rows))
     try:
         if runtime.get("human_endpoint_geometric_only"):
             plan=next(plugin.candidates(context,request),None)
@@ -659,6 +703,8 @@ def construct_human_endpoint_scene(room,house,state,catalog,records,semantic,con
         prepared.row["joint_common_geometry_status"]="certified_by_common_solve_and_same_native_prepared_world"
         prepared.row["scene_demand"]["motion_human_joint_certificate"]=detail
         prepared.row["joint_prepared_scene_required"]=True
+        prepared.row["joint_solution"]["native_retained_family_counts"]=(
+                solved.plan.metadata.get("native_retained_family_counts",{}))
         return {"profile":"phase2","row":prepared.row,"prepared_native":prepared,
                 "prepared":prepared,"joint_solver_certificate":solved.certificate}
     finally:

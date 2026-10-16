@@ -28,16 +28,27 @@ def complete_pairs(manifest):
 
 def human_roles(catalog,pair,seed):
     """Real registered bodies, independent choices; no extra people or color gate."""
-    rng=np.random.default_rng(seed);chosen=[]
+    from avengine.timeline.v7_production_inputs import COLORS
+    rng=np.random.default_rng(seed);pools=[]
     for sound in pair:
         pool=[a for a in catalog if a.get("kind")=="human"
               and a.get("walk_allowed") and a.get("visual_gender")==sound["voice_gender"]
-              and a["asset_id"]not in {x["asset_id"]for x in chosen}
               and "speech_playback"in a.get("allowed_classes",["speech_playback"])]
         pool.sort(key=lambda a:a["asset_id"])
-        if not pool:raise ValueError("no registered human for the actual speech/action binding")
-        chosen.append(pool[int(rng.integers(len(pool)))])
-    return chosen
+        if pool:
+            preferred=int(rng.integers(len(pool)))
+            pools.append(pool[preferred:]+pool[:preferred])
+        else:pools.append([])
+    # Solve the original producer's registered-color compatibility up front,
+    # rather than aborting an already solved room after one random pair.
+    for first in pools[0]:
+        for second in pools[1]:
+            if first["asset_id"]==second["asset_id"]:continue
+            colors=[a.get("color",a.get("registered_label_color"))
+                    for a in(first,second)if a.get("controlled_shirt")]
+            if all(c in COLORS for c in colors)and len(colors)==len(set(colors)):
+                return [first,second]
+    raise ValueError("no registered human pair for the actual voice/action and original producer binding")
 
 
 def measured_record(sound,asset):

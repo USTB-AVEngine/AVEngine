@@ -191,3 +191,93 @@ def test_both_reverse_events_use_the_original_four_family_verifier():
             row,plan,assets,records,"a",branch,choices[0])
         assert all(verdicts.values()),failures
         assert len(accepted)==4
+
+
+def test_registered_body_pair_is_constructed_compatible_before_room_solving():
+    from avengine.timeline.v7_human_endpoint_program import human_roles
+    catalog=[{"asset_id":gender+color,"kind":"human","walk_allowed":True,
+              "visual_gender":gender,"controlled_shirt":True,"color":color}
+              for gender in("female","male")for color in("blue","green")]
+    pair=[{"voice_gender":"female"},{"voice_gender":"male"}]
+    for seed in range(12):
+        actors=human_roles(catalog,pair,seed)
+        assert [a["visual_gender"]for a in actors]==["female","male"]
+        assert len({a["color"]for a in actors})==2
+
+
+def test_native_float32_speed_rounding_has_a_computed_guard():
+    from avengine.construction.joint.families.motion_human_endpoints import EndpointPair
+    camera=CameraPose((0.,1.2,0.),0.,width=1280,height=720)
+    ctx=context(Polygon([[-7,-7],[7,-7],[7,7],[-7,7]]),
+                [[-.73,0,-6.13],[.88,0,-2.56]],[camera])
+    actor=route_for_pair(ctx,camera,EndpointPair(0,1,3.5),
+                        HumanEndpointDemand("a","nearer"),speed_m_s=.8)
+    p=actor.positions_m.astype(np.float32).astype(float)
+    speed=np.linalg.norm(np.diff(p[15:75:2,[0,2]],axis=0),axis=1)*15.
+    assert speed.min()>=.8 and speed.max()<=1.4
+    assert actor.metadata["native_float32_speed_guard_m_s"]>0
+
+
+def test_independent_endpoint_ranking_is_complete_and_prefers_clear_rests():
+    from avengine.construction.joint.families.motion_human_endpoints import (
+        EndpointPair,joint_endpoint_groups)
+    points=np.array([[-2,0,-6],[-2,0,-2],[2,0,-2],[2,0,-6]],float)
+    a=[EndpointPair(0,1,4),EndpointPair(1,0,4)]
+    b=[EndpointPair(1,0,4),EndpointPair(2,3,4)]
+    groups=list(joint_endpoint_groups(a,b,points_m=points))
+    assert len(groups)==len(a)*len(b)
+    assert groups[0][1]==b[1]
+    assert {(x.start_index,x.end_index,y.start_index,y.end_index)for x,y in groups}=={
+        (x.start_index,x.end_index,y.start_index,y.end_index)for x in a for y in b}
+
+
+@pytest.mark.parametrize("keep_one",[True,False])
+def test_native_family_failure_drops_only_its_own_obligations(monkeypatch,keep_one):
+    from copy import deepcopy
+    from avengine.construction.joint import CheckResult
+    from avengine.construction.joint.families.motion_human_native import retain_native_witnesses
+    import avengine.timeline.v7_motion_during_conditions as original
+    import avengine.construction.joint as core
+    items=[{"target_asset_id":"a","offsets_s":[0.],
+            "config":{"query":{"qa_id":qa}}}for qa in("QA-06","QA-15")]
+    row={"motion_during_condition_plan":{"plans":items},
+         "scene_demand":{"required_actual_candidate_families":["QA-06","QA-15"]}}
+    refs=[deepcopy(row),deepcopy(row)]
+    plan=SimpleNamespace(metadata={"family_row":row})
+    calls=[];sweeps=[]
+    def verify(data,actual,admissions):
+        one=data["motion_during_condition_plan"]["plans"]
+        calls.append(one)
+        return {"status":"pass"if keep_one and one[0]["config"]["query"]["qa_id"]=="QA-06"else"fail"}
+    monkeypatch.setattr(original,"verify_motion_during_native",verify)
+    def sweep(video,entries):
+        sweeps.append(True)
+        return [CheckResult("physics","pass","test injected sweep")]
+    monkeypatch.setattr(core,"native_full_mesh_sweep",sweep)
+    frames=[{"emitter_position_m":[0.,1.5,-4.]}for _ in range(901)]
+    entries=[{"endpoint_id":"voice1","motion_episode":{"native_30Hz_readbacks":frames}}]
+    video=SimpleNamespace(receipt={})
+    scene={"sources":{"voice1":{"asset_id":"a"}},"production_scenario":deepcopy(row)}
+    checks=list(retain_native_witnesses(video,scene,entries,plan,refs))
+    assert len(calls)==2 and all(len(one)==1 for one in calls)
+    if keep_one:
+        assert all(c.status=="pass"for c in checks)
+        assert sweeps==[True]
+        for ref in [row,*refs,scene["production_scenario"]]:
+            assert [p["config"]["query"]["qa_id"]for p in ref["motion_during_condition_plan"]["plans"]]==["QA-06"]
+            assert ref["scene_demand"]["required_actual_candidate_families"]==["QA-06"]
+            assert len(ref["native_family_degradations"])==1
+    else:
+        assert checks[0].status=="fail"and not sweeps
+
+
+def test_reused_core_geometry_is_rebound_to_the_current_registered_actor():
+    from avengine.construction.joint.families.motion_human_endpoints import EndpointPair
+    camera=CameraPose((0.,1.2,0.),0.,width=1280,height=720)
+    ctx=context(Polygon([[-7,-7],[7,-7],[7,7],[-7,7]]),
+                [[0,0,-6],[0,0,-3]],[camera])
+    pair=EndpointPair(0,1,3.)
+    first=route_for_pair(ctx,camera,pair,HumanEndpointDemand("first","nearer"),speed_m_s=1.)
+    second=route_for_pair(ctx,camera,pair,HumanEndpointDemand("second","nearer"),speed_m_s=1.)
+    assert first.entity_id=="first"and second.entity_id=="second"
+    assert np.array_equal(first.positions_m,second.positions_m)
