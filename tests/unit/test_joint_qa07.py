@@ -470,17 +470,24 @@ def test_entry_may_finish_in_the_centre_after_a_valid_left_entry():
     assert observation.evidence["all_projected_body_points_on_side"] is False
 
 
-def test_endpoint_generator_uses_each_camera_yaw_even_at_the_same_position():
+def test_endpoint_generator_jointly_solves_cameras_when_the_legacy_pool_is_empty():
     from avengine.construction.joint import BodySpec, FamilyRequest
     from avengine.construction.joint.families.qa07 import QA07Plugin
     context = endpoint_test_context(); body = BodySpec("human",.35,1.9,.05)
+    context.cameras = ()
     plugin = QA07Plugin({"target":body})
-    stream = plugin.candidates(context,FamilyRequest("QA-07","left",("target",),{"pairs_per_camera":512}))
-    next(stream)
-    assert plugin.seed_diagnostics["camera_candidates"] == 2
-    assert plugin.seed_diagnostics["cameras_with_endpoint_pairs"] == 2
-    assert plugin.seed_diagnostics["ranked_endpoint_pairs"] == 1024
+    stream = plugin.candidates(context,FamilyRequest("QA-07","left",("target",),
+                                {"geometry_search_budget_s":30.}))
+    plan = next(stream)
+    assert plugin.seed_diagnostics["legacy_camera_candidates_used"] is False
+    assert plugin.seed_diagnostics["joint_camera_solves"] >= 1
+    assert plugin.seed_diagnostics["joint_camera_solutions"] >= 1
+    assert plan.metadata["joint_entry_route"]["camera_and_endpoints_solved_jointly"] is True
+    from avengine.construction.joint.geometry import framing
+    assert framing(plan.camera,plan.actors["target"].positions_m[0],body)[0] == "outside"
+    assert framing(plan.camera,plan.actors["target"].positions_m[-1],body)[0] == "inside"
     stream.close()
+
 
 def test_appearance_ranking_cannot_promote_an_original_colour_rejection():
     from avengine.assets.v7_visible_color import rebuild_appearance_review
