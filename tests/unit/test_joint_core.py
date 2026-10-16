@@ -981,3 +981,10 @@ def test_registered_bundle_rejects_recompiled_audio_and_closes_members_without_w
         group_check=lambda b:[CheckResult("group","pass")])
     assert result.payload is None and closed==["v0","v1"]
     assert any(c.name=="native:registered_parent_contract"and c.status=="fail"for c in result.checks)
+
+
+def test_four_human_domains_prune_conflicts_before_spending_product_budget():
+    c=context();bodies={key:BodySpec()for key in ("a","b","c","d")}
+    plans=list(enumerate_static_layouts(c,bodies,{key:"inside"for key in bodies},max_candidates=1))
+    assert len(plans)==1
+    assert certify_plan(c,plans[0]).passed

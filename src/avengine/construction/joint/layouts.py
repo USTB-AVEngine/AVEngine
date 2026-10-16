@@ -118,25 +118,24 @@ def enumerate_static_layouts(context, bodies, roles, *, occlusion_pair=None, max
             if not remaining:
                 yield placed
                 return
-            initial = (0,)*len(remaining)
-            heap,seen = [(0,initial)],{initial}
-            expanded = 0
+            # Expand only feasible partial assignments. A Cartesian-product
+            # beam spends its budget on coincident people before reaching any
+            # legal four-person tuple, even in an empty room.
+            heap=[(0,0,0,dict(placed))]
+            serial=1;expanded=0
             while heap and expanded < max(1024,max_candidates*16):
-                _,indices = heapq.heappop(heap);expanded += 1
-                result = dict(placed);valid = True
-                for key,index in zip(remaining,indices):
-                    point = domains[key][index]
-                    if not _separated(point,bodies[key],result,bodies):
-                        valid = False;break
-                    result[key] = point
-                if valid:
+                cost,negative_depth,_,result=heapq.heappop(heap)
+                expanded+=1;depth=-negative_depth
+                if depth==len(remaining):
                     yield result
-                for dimension,key in enumerate(remaining):
-                    if indices[dimension]+1 >= min(24,len(domains[key])):
+                    continue
+                key=remaining[depth]
+                for index,point in enumerate(domains[key][:24]):
+                    if not _separated(point,bodies[key],result,bodies):
                         continue
-                    adjacent = list(indices);adjacent[dimension] += 1;adjacent = tuple(adjacent)
-                    if adjacent not in seen:
-                        seen.add(adjacent);heapq.heappush(heap,(sum(adjacent),adjacent))
+                    adjacent=dict(result);adjacent[key]=point
+                    heapq.heappush(heap,(cost+index,-depth-1,serial,adjacent))
+                    serial+=1
 
         if occlusion_pair is None:
             seeds = ({},)
