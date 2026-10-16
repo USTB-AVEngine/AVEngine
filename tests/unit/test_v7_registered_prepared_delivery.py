@@ -34,7 +34,8 @@ def test_registered_qualification_reuses_exact_original_physics_but_checks_actua
     with pytest.raises(ValueError,match='original world'):consume_registered_qualification(video,{},tmp_path/'bad')
 
 
-def test_registered_generator_encodes_original_prepared_scene_without_constructor_or_qualify(tmp_path,monkeypatch):
+@pytest.mark.parametrize("encode_fails",[False,True])
+def test_registered_generator_borrows_both_live_worlds_until_bundle_owner_cleanup(tmp_path,monkeypatch,encode_fails):
     import avengine.timeline.v7_registered_generation as generation
     row={'scene_id':'p','members':['v0_a0','v0_a1','v1_a0','v1_a1']};house={};program={'records':[],'events':[]};assets=[];seen={}
     class StopAfterFirstEncode(Exception):pass
@@ -42,7 +43,10 @@ def test_registered_generator_encodes_original_prepared_scene_without_constructo
         standing_checks=[{'status':'pass'}]
         def encode(self,scene,path,**kwargs):
             assert scene is worlds['v0'].scene and self._prepared_registered_scene is scene
-            seen['encoded']=True;return {'wall_seconds':0.}
+            seen['encoded']=True
+            assert not any(p.closed for p in worlds.values())
+            if encode_fails:raise StopAfterFirstEncode()
+            return {'wall_seconds':0.}
         def close(self):seen['closed']=True
     class Payload:
         def __init__(self,number):
@@ -62,7 +66,7 @@ def test_registered_generator_encodes_original_prepared_scene_without_constructo
         def __init__(self,scene,working,inputs,*args):
             assert scene is worlds['v0'].scene and inputs['fresh_rir_workers']==8
         def check(self,*args):return {'status':'pass'}
-        def close(self):pass
+        def close(self):seen['position_gate_closed']=True
     monkeypatch.setattr('avengine.timeline.v7_position_admission.PositionAdmission',Gate)
     def stage(root,name,recipe,callback):
         assert name=='visual_v0'and recipe['scene']is worlds['v0'].scene
@@ -70,4 +74,7 @@ def test_registered_generator_encodes_original_prepared_scene_without_constructo
     monkeypatch.setattr(generation,'stage',stage)
     with pytest.raises(StopAfterFirstEncode):
         generation.generate_registered_parent(row,house,{'render_backend':'cpu_llvmpipe','fresh_rir_workers':8},[],{}, {},str(tmp_path/'output'),prepared_visuals=worlds)
-    assert seen['encoded']and seen['closed']and worlds['v0'].closed
+    # Closing v0 while v1 is live can destroy their shared GL context. Even
+    # after an encode failure, ownership stays with the enclosing bundle.
+    assert seen['encoded']and seen['position_gate_closed']
+    assert 'closed'not in seen and not any(p.closed for p in worlds.values())

@@ -176,16 +176,15 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             except Exception as error:
                 if position_gate is not None:position_gate.close();position_gate=None
                 if video is not None:
-                    if prepared is not None:prepared.close()
-                    else:video.close()
+                    # Prepared worlds are borrowed from one live bundle. Its
+                    # owner closes all contexts together, in reverse order.
+                    if prepared is None:video.close()
                     video=None
                 retire_failed_media(attempt,marker,error)
                 raise
             finally:
                 if position_gate is not None:position_gate.close()
-                if video is not None:
-                    if prepared is not None:prepared.close()
-                    else:video.close()
+                if video is not None and prepared is None:video.close()
             appearance=derive_native_appearance_evidence(attempt,visual,variant)
             write_json(attempt/'native_appearance_review.json',appearance)
             required=[
