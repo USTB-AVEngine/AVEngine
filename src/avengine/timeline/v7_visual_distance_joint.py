@@ -58,7 +58,7 @@ def construct_visual_distance_joint(room,house,state,catalog,records,semantic,co
     roles={aid:('outside'if aid==ids[2]else'inside')for aid in ids};diagnostics={}
     class Plugin:
         def candidates(self,context,request):
-            for plan in enumerate_joint_static_layouts(context,bodies,roles,minimum_distance_gaps=[(ids[0],ids[1],.6)],distance_offsets_m=offsets,diagnostics=diagnostics):
+            for plan in enumerate_joint_static_layouts(context,bodies,roles,minimum_distance_gaps=[(ids[0],ids[1],.6)],distance_offsets_m=offsets,budget_s=float(runtime.get('visual_distance_planning_budget_s',600.)),diagnostics=diagnostics):
                 for aid,actor in plan.actors.items():actor.headings_rad[:]=headings[aid]
                 plan.sounds=tuple(SoundEvent(ids[2],s['sound_asset_id'],'speech_playback',s['start_tick']/10,s['end_tick']/10,min(30.,s['end_tick']/10+.5))for s in schedule)
                 yield plan

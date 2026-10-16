@@ -103,7 +103,7 @@ def construct_registered_content_joint(room,house,state,catalog,records,semantic
     roles={aid:('outside'if aid==ids[2]else'inside')for aid in ids};diagnostics={}
     class Plugin:
         def candidates(self,context,request):
-            for plan in enumerate_joint_static_layouts(context,bodies,roles,minimum_distance_gaps=[(ids[0],ids[1],.6)],distance_offsets_m=offsets,diagnostics=diagnostics):
+            for plan in enumerate_joint_static_layouts(context,bodies,roles,minimum_distance_gaps=[(ids[0],ids[1],.6)],distance_offsets_m=offsets,budget_s=float(runtime.get('content_planning_budget_s',600.)),diagnostics=diagnostics):
                 for aid,actor in plan.actors.items():actor.headings_rad[:]=headings[aid]
                 yield plan
         def verify(self,context,request,plan):

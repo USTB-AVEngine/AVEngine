@@ -88,7 +88,7 @@ def peer_processes(m, *, own_pids=None):
  # measured owned descendants so their PSS never appears twice in admission.
  outputs=m.get('peer_output_roots',[])
  if not outputs:return []
- if own_pids is None:own_pids={r['pid']for r in output_processes([m['output_root']])}
+ if own_pids is None:own_pids={r['pid']for r in output_processes([m['output_root']])}if m.get('output_root')else set()
  return [r for r in output_processes(outputs)if r['pid']not in own_pids]
 
 
