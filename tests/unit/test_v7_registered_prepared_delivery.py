@@ -78,3 +78,25 @@ def test_registered_generator_borrows_both_live_worlds_until_bundle_owner_cleanu
     # after an encode failure, ownership stays with the enclosing bundle.
     assert seen['encoded']and seen['position_gate_closed']
     assert 'closed'not in seen and not any(p.closed for p in worlds.values())
+
+
+def test_media_only_resume_loads_exact_recorded_world_without_a_live_payload(tmp_path):
+    from avengine.timeline.v7_registered_generation import recorded_registered_inputs
+    row={'scene_id':'p','joint_prepared_scene_required':True};inputs={'render_backend':'cpu_llvmpipe'}
+    scene={'scene_id':'p','listener_m':[1.,1.25,3.],'camera_yaw_knots':[{'time_s':0.,'yaw_deg':42.},{'time_s':30.,'yaw_deg':42.}]}
+    original={'seed_row':row,'runtime_inputs':inputs,'house':{'house':'actual'},'recorded_program':{'events':[{'event_id':'original'}]},'assets':[{'asset_id':'real'}]}
+    (tmp_path/'input_recipe.json').write_text(json.dumps(original));(tmp_path/'visual_v0_completed.json').write_text(json.dumps({'recipe':{'scene':scene}}))
+    before=(tmp_path/'input_recipe.json').read_bytes()
+    house,observed,program,assets=recorded_registered_inputs(tmp_path,row,inputs)
+    assert observed==scene and program==original['recorded_program']and assets==original['assets']and house==original['house']
+    assert(tmp_path/'input_recipe.json').read_bytes()==before
+    with pytest.raises(ValueError,match='differ'):recorded_registered_inputs(tmp_path,row,{**inputs,'other':True})
+
+
+def test_new_joint_generation_still_requires_live_prepared_worlds(tmp_path,monkeypatch):
+    import avengine.timeline.v7_registered_generation as generation
+    monkeypatch.setattr('avengine.registry.kujiale_room_categories.bind_formal_room_category',lambda row,inputs,*args:(row,inputs,None))
+    monkeypatch.setattr('avengine.timeline.v7_production_inputs.attach_runtime_contract',lambda row,inputs:row)
+    monkeypatch.setattr(generation,'choose_assets',lambda *args:pytest.fail('native production rebuilt solved actors'))
+    with pytest.raises(ValueError,match='live prepared registered worlds required'):
+        generation.generate_registered_parent({'scene_id':'p','members':['v0_a0','v0_a1','v1_a0','v1_a1'],'joint_prepared_scene_required':True},{},{},[],{},{},str(tmp_path/'new'))

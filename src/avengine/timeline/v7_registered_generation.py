@@ -77,6 +77,22 @@ def _verify_window(folder):
     return {'video':info,'FOA':{'sample_rate_hz':sr,'samples':len(data),'channels':4,'format':'ACN_WYZX_SN3D_camera'},'mono_matches_W':True}
 
 
+def recorded_registered_inputs(root,row,inputs):
+    """Read original prepared-world inputs after the media-only resume guard.
+
+    This creates no live payload and cannot authorize a renderer. The caller's
+    resume_only path still raises before every native render operation.
+    """
+    original=read_json(Path(root)/'input_recipe.json')
+    if original['seed_row']!=row or original['runtime_inputs']!=inputs:
+        raise ValueError('recorded registered inputs differ from the requested physical parent')
+    marker=read_json(Path(root)/'visual_v0_completed.json')
+    scene=marker['recipe']['scene']
+    if scene['scene_id']!=row['scene_id']:
+        raise ValueError('recorded registered visual belongs to another physical parent')
+    return original['house'],scene,original['recorded_program'],original['assets']
+
+
 def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output,*,native_only_visual=None,prepare_native_inputs_only=False,resume_only=False,prepared_visuals=None):
     if resume_only:
         from avengine.timeline.v7_native_stage_resume import require_completed_registered_media
@@ -94,12 +110,15 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
     start_wall=time.perf_counter();start_cpu=_cpu()
     from avengine.timeline.v7_storage_budget import check_write
     root=Path(output)/'parents'/row['scene_id']
+    recorded_resume=bool(resume_only and row.get('joint_prepared_scene_required'))
     render_ready=all((root/('visual_'+v+'_completed.json')).is_file() for v in {m.split('_')[0] for m in row['members']})
     check_write(root,expected_bytes=0 if (root/'alpha_seal_completed.json').is_file() else (64_000_000 if render_ready else 1_000_000_000))
     root.mkdir(parents=True,exist_ok=True)
     if prepared_visuals is not None:
         from avengine.timeline.v7_registered_prepared_delivery import registered_scene_inputs
         row,working,base,program,assets=registered_scene_inputs(prepared_visuals,row)
+    elif recorded_resume:
+        working,base,program,assets=recorded_registered_inputs(root,row,inputs)
     else:
         if row.get('joint_prepared_scene_required'):
             raise ValueError('live prepared registered worlds required; solve again rather than rebuild')
@@ -108,7 +127,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
     production_intake=validate_registered_sampling_row(row,assets,inputs)
     licenses=qualify_licenses(assets,human_admission)
     semantic=read_json(inputs['semantic_manifest']) if inputs.get('semantic_manifest') else None
-    if prepared_visuals is None:
+    if prepared_visuals is None and not recorded_resume:
         from avengine.timeline.v7_visible_sources import production_audio_record_views
         working,base,program=build_registered_scene(row,house,production_audio_record_views(source_admission['records']),assets,semantic,camera_evidence_policy=inputs.get('registered_camera_evidence_policy'))
     if production_intake:base['production_sampling_intake']=production_intake
@@ -154,6 +173,9 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
     for v in visual_names:
         if prepared_visuals is not None:
             prepared=prepared_visuals[v];variant=prepared.assets;visual_scene=prepared.scene
+        elif recorded_resume:
+            saved_visual=read_json(root/('visual_'+v+'_completed.json'))['recipe']
+            prepared=None;variant=deepcopy(saved_visual['assets']);visual_scene=deepcopy(saved_visual['scene'])
         else:
             prepared=None;variant=deepcopy(assets);visual_scene=base
             if v=='v1':
@@ -203,7 +225,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         # Reconstruct the producer state also when v0 was resumed. Its actual
         # SDK standing roots originally drove the camera recentering; leaving
         # the prototype here would change the exact v1 stage recipe on restart.
-        if prepared_visuals is None and base.get('camera_evidence_policy'):
+        if prepared_visuals is None and not recorded_resume and base.get('camera_evidence_policy'):
             from avengine.timeline.v7_camera_evidence import recenter_on_actual_roots
             replay_entries=[]
             for admitted in visual['standing_admission']:
