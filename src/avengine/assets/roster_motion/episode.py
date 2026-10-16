@@ -589,7 +589,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 hits=[h for h in video.sim.cast_ray(ray,.85).hits if int(h.object_id)not in {int(a['object'].object_id)for a in video.actors}]
                 if not hits:raise ValueError('motion route has no actual native ground')
                 floor_y=float(hits[0].point[1]);positions[:,1]=floor_y
-                floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
+                floor=PhysicalFloor(video,float(house.get('room',{}).get('measured_floor_y_m',floor_y)),{int(a['object'].object_id)for a in video.actors})
                 positions=floor.ground_roots(positions)
                 if prepared_solver is None or not np.array_equal(prepared_solver[2],clock):
                     solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),frame_yaws.tolist(),1.,float(ts[0]),duration,floor)

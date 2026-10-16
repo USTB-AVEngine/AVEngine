@@ -145,3 +145,28 @@ def test_registered_native_qualification_continues_after_route_exhaustion(tmp_pa
     assert scene['events'][0]['sound']=='speech'
     assert scene['element_degradation'][0]['replacement']=='stand'
     assert (tmp_path/'element_degradation_voice1.json').is_file()
+
+
+@pytest.mark.parametrize('offset,yaw,observed,passed',[
+    ((0.,.03,0.),0.,False,False),((0.,.03,0.),0.,True,True),
+    ((.003,.03,0.),0.,True,False),((0.,.03,0.),.1,True,False)])
+def test_core_grounding_observation_relaxes_only_y(offset,yaw,observed,passed):
+    from test_joint_core import fake_native_world
+    from avengine.construction.joint import ScenePlan,CameraPose,static_actor,native_static_checks
+    plan=ScenePlan(CameraPose((0.,1.25,0.),0.),{'a':static_actor('a',[0,0,-4])})
+    video,entry=fake_native_world(plan,offset=offset,yaw=yaw)
+    if observed:entry['contact_quality_observation']={**POLICY,'root_support_verified':True}
+    assert native_static_checks(video,{},plan).passed is passed
+
+
+def test_floor_root_over_furniture_or_void_is_not_a_cosmetic_residual():
+    from avengine.assets.roster_motion.episode import PhysicalFloor
+    floor=object.__new__(PhysicalFloor)
+    floor.reference=0.;floor.reference_tolerance_m=.08;floor.current_root_floor_m=None
+    floor.original_ray=SimpleNamespace(many=lambda p:np.full(len(p),.3))
+    with pytest.raises(ValueError,match='furniture'):
+        floor.ground_roots([[0.,0.,0.]])
+    def absent(points):raise ValueError('original whole stage has no vertical support for every candidate point')
+    floor.original_ray=SimpleNamespace(many=absent)
+    with pytest.raises(ValueError,match='no vertical support'):
+        floor.ground_roots([[0.,0.,0.]])
