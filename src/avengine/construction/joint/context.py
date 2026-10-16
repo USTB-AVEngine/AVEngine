@@ -132,8 +132,12 @@ class RoomContext:
             raise ValueError("joint planning requires a room walkable map")
         if not math.isfinite(grid_step_m) or grid_step_m < walkable_map.resolution:
             raise ValueError("grid step must be at least the walkable map resolution")
+        old_camera = room.get("placement", {}).get("camera_m")
+        self.camera_heights_m = (tuple(camera_heights_m) if camera_heights_m is not None else
+                                (float(old_camera[1])-float(room["measured_floor_y_m"]) if old_camera else 1.25,))
+        self.camera_width, self.camera_height = width, height
         self.cameras = candidate_cameras(room, walkable_map, pathfinder, limit=camera_limit,
-                                        heights_m=camera_heights_m, width=width, height=height)
+                                        heights_m=self.camera_heights_m, width=width, height=height)
         stride = max(1, round(grid_step_m / walkable_map.resolution))
         union = np.logical_or.reduce(list(walkable_map.layers.values()))
         sampled = np.zeros_like(union)
@@ -156,6 +160,16 @@ class RoomContext:
                          "geometry": getattr(raycaster, "evidence", {}),
                          "geometry_source": getattr(raycaster, "source", "missing")}
         self.cache_hits = self.cache_misses = 0
+
+    def solve_cameras(self, roles, **kwargs):
+        """Opt-in demand-driven positions/heights/continuous yaw; legacy cameras unchanged."""
+        from .camera_solve import solve_cameras
+        return solve_cameras(self, roles, **kwargs)
+
+    def role_points(self, camera, role):
+        """Return grid points satisfying a camera-relative PointRole template."""
+        from .camera_solve import role_points
+        return role_points(self, camera, role)
 
     def close(self):
         if self._owned_video is not None:
