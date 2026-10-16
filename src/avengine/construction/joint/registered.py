@@ -259,3 +259,77 @@ def prepare_registered_bundle(context, request, plan, *, row_factory, house, cat
         if result.close is not None:result.close()
         raise
     return result
+
+
+def registered_row_for_plan(context, row, plan, assets, *,
+        record_only_distance_bands=False, record_only_offscreen_angle=False):
+    """Bind a NEW registered recipe to solved roots, camera and native headings.
+
+    The existing speech program, member set and asset selection are preserved.
+    Optional record-only switches are for explicitly non-answer construction
+    heuristics under PHASE2 C; endpoint distance-difference checks stay intact.
+    This creates proposed inputs, never modifies old native evidence or truth.
+    """
+    from .native import native_yaw
+    from .geometry import framing
+    from avengine.capture.v7_visible_attachment import rotation
+    result = deepcopy(row)
+    ids = [asset["asset_id"] for asset in assets]
+    if len(set(ids)) != len(ids) or set(ids) != set(plan.actors):
+        raise ConstructionError("registered_row_plan_entity_set_mismatch")
+    valid, views = [], {}
+    for asset in assets:
+        key = asset["asset_id"]
+        actor = plan.actors[key]
+        if np.any(np.diff(np.asarray(actor.positions_m), axis=0)):
+            raise ConstructionError("registered_row_requires_static_plan")
+        local = np.asarray(asset["mouth_local_glb_m"], float)
+        if local.shape != (3,) or not np.isfinite(local).all():
+            raise ConstructionError("registered_actual_local_mouth_missing")
+        yaw = native_yaw(actor, asset)
+        mouth = np.asarray(actor.positions_m[0]) + rotation(yaw) @ local
+        state = framing(plan.camera, actor.positions_m[0], actor.body)[0]
+        requested = plan.metadata.get("roles", {}).get(key, "any")
+        if state == "edge" or requested not in {"any", state}:
+            raise ConstructionError("registered_row_framing_differs_from_plan")
+        valid.append({"position_m": mouth.tolist(), "body_yaw_deg": -math.degrees(yaw),
+                      "status": "joint proposal; original native measurements required"})
+        view = deepcopy(result.get("native_view_roles", {}).get(key, {}))
+        view.update(view=state, static=True, real_registered_drawable_required=True)
+        views[key] = view
+    observations = result.setdefault("construction_constraint_observation", {})
+    if record_only_distance_bands:
+        for name in ("native_distance_bands_m", "native_endpoint_distance_bands_m"):
+            if name in result:
+                observations[name] = {"requested": result.pop(name), "admission_effect": "record_only",
+                    "authority": "PHASE2 C; absolute band is not an answer predicate"}
+    if record_only_offscreen_angle:
+        for key, view in views.items():
+            if view["view"] == "outside":
+                observations.setdefault("offscreen_angle", {})[key] = {
+                    "requested_minimum_abs_azimuth_deg": view.get("minimum_abs_azimuth_deg", 60.),
+                    "admission_effect": "record_only",
+                    "retained_requirement": "actual full body outside and native zero target pixels"}
+                view["minimum_abs_azimuth_deg"] = 0.
+    layout = deepcopy(result.get("measured_static_layout", {}))
+    layout.update(listener_m=list(plan.camera.position_m), fixed_camera_yaw_deg=plan.camera.yaw_deg,
+                  valid=valid, preserve_role_positions=True,
+                  room_floor_polygon=deepcopy(context.room["floor_polygon"]),
+                  admission_status="joint geometry proposal pending original native certification")
+    if "furniture_polygon" in context.room:
+        layout["room_furniture_polygon"] = deepcopy(context.room["furniture_polygon"])
+    else:
+        layout.pop("room_furniture_polygon", None)
+    result.update(listener_m=list(plan.camera.position_m), camera_yaw_deg=plan.camera.yaw_deg,
+                  camera_yaw_knots=[{"time_s": t, "yaw_deg": plan.camera.yaw_deg} for t in (0., 30.)],
+                  measured_static_layout=layout, native_view_roles=views)
+    scenario = result.setdefault("production_scenario", {})
+    scenario.update(camera_policy="hold", camera_yaw_deg=plan.camera.yaw_deg,
+                    binding_camera_yaw_offset_deg=0.)
+    result["joint_geometry_proposal"] = {
+        "construction": plan.metadata.get("construction"),
+        "camera_and_all_entities_jointly_solved": True,
+        "native_verified": False,
+        "asset_ids": ids,
+        "original_program_and_member_set_preserved": True}
+    return result

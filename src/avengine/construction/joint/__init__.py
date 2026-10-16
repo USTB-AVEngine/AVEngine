@@ -64,3 +64,7 @@ __all__ += ["track_framing_check"]
 
 from .registered import PreparedNativeBundle, prepare_native_bundle, prepare_registered_bundle, swapped_visual_plan
 __all__ += ["PreparedNativeBundle", "prepare_native_bundle", "prepare_registered_bundle", "swapped_visual_plan"]
+
+from .static_solve import enumerate_joint_static_layouts
+from .registered import registered_row_for_plan
+__all__ += ["enumerate_joint_static_layouts", "registered_row_for_plan"]
