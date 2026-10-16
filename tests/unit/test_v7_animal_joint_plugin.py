@@ -11,11 +11,12 @@ from avengine.construction.joint.families.motion_animal import MotionAnimalPlugi
 pytestmark=pytest.mark.fast_unit
 
 
+@pytest.mark.parametrize('asymmetric',[False,True])
 @pytest.mark.parametrize('closer',[False,True])
 @pytest.mark.parametrize('negative',[False,True])
 @pytest.mark.parametrize('duration',[1.2,2.3])
 @pytest.mark.parametrize('kind,species,mode',[('dog_walk','dog','walk_animation'),('cat_walk','cat','walk_animation'),('animal_slide','cat','slide_no_animation')])
-def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_branch(tmp_path,kind,species,mode,duration,negative,closer):
+def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_branch(tmp_path,kind,species,mode,duration,negative,closer,asymmetric):
     layers={key:np.ones((300,320),bool)for key in SPECIES_RADII_M}
     metadata={'version':'walkable-map-v1','room_id':'fixture','species_radii_m':SPECIES_RADII_M,
               'footprint_policy':'independent-radius-coverage-v2','source_identity':[]}
@@ -51,7 +52,7 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
         actor.metadata['native_yaw_rad']=0.
     plugin=MotionAnimalPlugin(data,{'scene_id':'fixture','scene_seed':1},[animal,human],[record,speech],
         contract,{'house':'fixture'}, {'joint_max_geometry_preparations':1},tmp_path/'geometry',geometry_preparer=pure_geometry_fixture)
-    request=FamilyRequest('motion_animal','nearer',('animal',),{'movement_bouts':1,'require_static_negative_comparator':negative,'closer_nearer_call':closer})
+    request=FamilyRequest('motion_animal','nearer',('animal',),{'movement_bouts':1,'require_static_negative_comparator':negative,'closer_nearer_call':closer,'asymmetric_companion_speech':asymmetric})
     if duration==1.2 and kind=='animal_slide':
         with pytest.raises(StopIteration):next(plugin.candidates(context,request))
         return
@@ -64,6 +65,9 @@ def test_animal_joint_plugin_schedules_real_programs_and_verifies_later_still_br
     row=plan.metadata['row']
     assert row['phase2_whole_source_recordings']['animal']==pytest.approx([round(max(1.3,3.3-duration),1)if closer else 1.3,21.3])
     assert row['joint_solver_only']
+    if asymmetric:
+        assert row['phase2_source_event_schedule_s']['speaker']==[6.2,17.,27.]
+        assert plan.metadata['planned_silent_intervals_s'][0][1]==6.0
     from avengine.timeline.v7_full_question_delivery import current_selection_snapshot
     snapshot=current_selection_snapshot(row['scene_demand'],next_questions=70)
     assert snapshot['observed_logical_questions']==0
