@@ -70,9 +70,9 @@ class RIRSubmissionQueue:
         for point in positions:
             self.submit(point)
 
-    def references(self, positions):
+    def references(self, positions, reference_count=3):
         for point in positions:
-            for trial in range(3):
+            for trial in range(reference_count):
                 self.submit(point, 'independent_midpoint_reference', trial)
 
 

@@ -14,7 +14,9 @@ from avengine.acoustics.moving_rir_calibration import CorrelatedRIRTimeline,effe
 from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_storage_budget import check_write
-REVISION='actual-30hz-all-raw-reference-gates-native-key-emission-grid-v6-exact-endpoints'
+from avengine.timeline.v7_rir_reference_policy import reference_count,policy_revision,checkpoint_references,OWNER_STATEMENT
+BASE_REVISION='actual-30hz-all-raw-reference-gates-native-key-emission-grid-v6-exact-endpoints'
+REVISION=BASE_REVISION+'-'+policy_revision(reference_count())
 
 def emitted_intervals(dry,block=160):
     x=np.asarray(dry);flags=[bool(np.any(x[i:i+block]!=0)) for i in range(0,len(x),block)]
@@ -25,9 +27,9 @@ def emitted_intervals(dry,block=160):
             bands.append((max(0,start*block-block),min(len(x)-1,i*block+block)));start=None
     return bands
 
-def median_reference_check(checks):
-    if len(checks)!=3 or any(c.get('status')!='measured' for c in checks):
-        return {'status':'fail','reason':'three valid independent native references required','raw_checks':checks}
+def median_reference_check(checks,reference_count=3):
+    if len(checks)!=reference_count or any(c.get('status')!='measured' for c in checks):
+        return {'status':'fail','reason':str(reference_count)+' valid independent native references required','raw_checks':checks}
     result={'status':'measured'}
     fields=['foa_error_deg','geometry_error_deg','direct_energy_difference_db','total_energy_difference_db','drr_difference_db',
         'c50_difference_db','direct_delay_difference_ms','rt60_difference_s']
@@ -37,13 +39,13 @@ def median_reference_check(checks):
     result['rt60_reference_s']=float(min(c['rt60_reference_s'] for c in checks))
     result['tail_truncated']=any(c['tail_truncated']for c in checks)
     result['octave_energy']=[{'center_hz':b['center_hz'],'energy_difference_db':float(np.median([abs(c['octave_energy'][i]['energy_difference_db'])for c in checks]))}for i,b in enumerate(checks[0]['octave_energy'])]
-    result['independent_references']=3
-    result['reference_rule']='median of absolute metric differences; RIR arrays never averaged or fitted'
+    result['independent_references']=reference_count
+    result['reference_rule']=('single independent native reference; absolute metric differences; no averaging or fitting'if reference_count==1 else 'median of absolute metric differences; RIR arrays never averaged or fitted')
     return result
 
 
 
-def exact_native_endpoint_checks(timeline,lo,hi,n,trajectory,independent,*,listener,forward,sample_rate=16000):
+def exact_native_endpoint_checks(timeline,lo,hi,n,trajectory,independent,*,listener,forward,sample_rate=16000,reference_count=3):
     """Check both exact digital endpoints; never infer an unmeasured interior."""
     if hi!=lo+1 or not 0<=lo<hi<n:
         raise ValueError('endpoint-only proof requires adjacent integer emission samples')
@@ -52,10 +54,10 @@ def exact_native_endpoint_checks(timeline,lo,hi,n,trajectory,independent,*,liste
         estimate=effective_emission_filter(timeline,sample,n)
         p=position_at(trajectory,sample/sample_rate)
         references=independent(sample)
-        if len(references)!=3:raise ValueError('exact endpoint requires three independent raw references')
+        if len(references)!=reference_count:raise ValueError('exact endpoint requires '+('three'if reference_count==3 else 'one')+' independent raw references')
         raw=[compare_rirs(estimate,r,source=p,listener=listener,forward=forward,sample_rate=sample_rate)for r in references]
         rows.append({'interval_samples':[lo,hi],'midpoint_sample':None,
-            'exact_native_endpoint_sample':sample,'check':median_reference_check(raw),'raw_checks':raw,
+            'exact_native_endpoint_sample':sample,'check':median_reference_check(raw,reference_count),'raw_checks':raw,
             'qualification':qualify_energy(raw),
             'proof':'no interior integer emission sample; exact native convolution endpoint'})
     return rows
@@ -94,6 +96,7 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bind
 
 
 def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bindings=None):
+    count=reference_count();revision=BASE_REVISION+'-'+policy_revision(count)
     attempt=Path(attempt);refs_dir=attempt/(endpoint+'_independent_native_references');refs_dir.mkdir()
     n=len(dry);sr=16000;trajectory=spec['trajectory'];listener=np.asarray(scene['listener_m']);forward=np.asarray(scene['camera_forward'])
     bands=emitted_intervals(dry)
@@ -137,7 +140,7 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
                    for a,b in bands if lo<=b and hi>=a)
             for sample in ((lo,hi)if hi==lo+1 else((lo+hi)//2,))})
         submission.references([position_at(trajectory,k/sr)for k in midpoints
-            if not(attempt.parent/'independent_native_reference_checkpoint'/endpoint/(str(k).zfill(8)+'.json')).is_file()])
+            if not(attempt.parent/'independent_native_reference_checkpoint'/endpoint/(str(k).zfill(8)+'.json')).is_file()],reference_count=count)
     from avengine.timeline.v7_rir_submission import submit_missing_primary
     if submission is not None:
         submit_missing_primary(submission,cache,[position_at(trajectory,k/sr)for k in real_keys])
@@ -168,16 +171,16 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
                 saved=json.loads(checkpoint.read_text())
                 if saved['actual_position_m']!=p.tolist() or saved['native_identity']!=identity:
                     raise ValueError('independent native reference checkpoint pose/configuration changed')
-                for item in saved['references']:
+                for item in checkpoint_references(saved['references'],count):
                     path=Path(item['path'])
                     if hashlib.sha256(path.read_bytes()).hexdigest()!=item['sha256']:raise ValueError('independent reference checkpoint artifact changed')
                     wave=np.load(path,allow_pickle=False)
                     if wave.ndim!=2 or wave.shape[0]!=4 or not np.isfinite(wave).all():raise ValueError('invalid independent reference checkpoint')
                     paths.append(str(path));processes.extend(item.get('native_process_evidence',[]))
-                if len(paths)!=3:raise ValueError('independent checkpoint requires exactly three references')
+                if len(paths)!=count:raise ValueError('independent checkpoint reference count differs')
                 reference_paths[sample]=paths;reference_processes[sample]=processes
                 return [np.load(path,allow_pickle=False)for path in paths]
-            for trial in range(3):
+            for trial in range(count):
                 check_write(refs_dir,expected_bytes=4_000_000)
                 batch=(cache.renderer.render_independent_reference([p.tolist()],trial)
                     if hasattr(cache.renderer,'render_independent_reference')else cache.renderer.render([p.tolist()]))
@@ -193,11 +196,12 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
             write_json(checkpoint,{'actual_position_m':p.tolist(),'native_identity':identity,
                 'references':[{'path':x,'sha256':hashlib.sha256(Path(x).read_bytes()).hexdigest(),
                     'native_process_evidence':processes[i:i+1]}for i,x in enumerate(paths)],
-                'source':'three unmodified independent native renders; resumable only at exact pose/configuration'})
+                'reference_count':count,'reference_policy_revision':policy_revision(count),
+                'source':str(count)+' unmodified independent native render(s); resumable only at exact pose/configuration'})
             reference_paths[sample]=paths;reference_processes[sample]=processes
         return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
     from avengine.timeline.v7_independent_reference_memo import ExactIndependentReferenceMemo
-    reference_memo=ExactIndependentReferenceMemo(json.loads((cache.root/'configuration.json').read_text()))
+    reference_memo=ExactIndependentReferenceMemo(json.loads((cache.root/'configuration.json').read_text()),reference_count=count)
     ref_stats['reused_exact_pose_midpoints']=0
     def independent(sample):
         if sample in reference_paths:return [np.load(path,allow_pickle=False)for path in reference_paths[sample]]
@@ -236,9 +240,9 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
             if mid<=lo:
                 # Adjacent integer source keys have no interior emission sample.
                 # The actual convolution coefficient at each endpoint is its
-                # exact native kernel, still checked against all three refs.
+                # exact native kernel, still checked against the selected independent reference count.
                 rows=exact_native_endpoint_checks(timeline,lo,hi,n,trajectory,independent,
-                    listener=listener,forward=forward,sample_rate=sr)
+                    listener=listener,forward=forward,sample_rate=sr,reference_count=count)
                 for row in rows:
                     if row['qualification']['status']!='pass':
                         write_json(attempt/(endpoint+'_native_endpoint_rejection.json'),
@@ -248,14 +252,14 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
                 continue
             estimate=effective_emission_filter(timeline,mid,n);p=position_at(trajectory,mid/sr)
             raw=[compare_rirs(estimate,r,source=p,listener=listener,forward=forward,sample_rate=sr)for r in independent(mid)]
-            measured=median_reference_check(raw);verdict=qualify_energy(raw)
+            measured=median_reference_check(raw,count);verdict=qualify_energy(raw)
             # Retain the old frozen calibrated result for comparison only.
             if verdict['status']=='pass':
                 accepted.append({'interval_samples':[lo,hi],'midpoint_sample':mid,'check':measured,'raw_checks':raw,'qualification':verdict});continue
             failure={'interval_samples':[lo,hi],'midpoint_sample':mid,'check':measured,'raw_checks':raw,'qualification':verdict}
             refinements.append(failure)
             if min(mid-lo,hi-mid)<minimum_spacing:
-                write_json(attempt/(endpoint+'_moving_energy_rejection.json'),{'status':'blocked','revision':REVISION,'refinements':refinements,'thresholds_changed':False,'reference_statistics':ref_stats})
+                write_json(attempt/(endpoint+'_moving_energy_rejection.json'),{'status':'blocked','revision':revision,'refinements':refinements,'thresholds_changed':False,'reference_statistics':ref_stats})
                 raise ValueError('moving native interval fails unchanged absolute energy/decay/direction gates after dense refinement')
             new.append(mid)
             if submission is not None and refinement_pass+1<refinement_passes:
@@ -287,12 +291,15 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
     timeline_keys=sorted({0,n-1,*keys})
     final_filters=[native(keys[0]) if k<keys[0] else native(keys[-1]) if k>keys[-1] else native(k)for k in timeline_keys]
     wet=correlated_convolve(dry,final_filters,timeline_keys,sample_rate=sr,block_samples=160)
-    receipt={'status':'pass','revision':REVISION,'crossfade_revision':CROSSFADE_REVISION,
+    receipt={'status':'pass','revision':revision,'crossfade_revision':CROSSFADE_REVISION,
         'native_step_policy':'actual 30Hz attached emitter trajectory; initial native RIR segments 100ms; failing intervals receive more exact native keys, never adjusted references',
         'minimum_native_key_spacing_samples':minimum_spacing,'maximum_refinement_passes':refinement_passes,
         'active_emission_intervals_samples':bands,'key_samples':timeline_keys,'actual_native_key_samples':keys,'RIR_count':len(keys),
         'silent_timeline_placeholders':{'first':0 if keys[0]>0 else None,'last':n-1 if keys[-1]<n-1 else None,'zero_emissions_required':True},
         'every_independent_raw_reference_must_pass':True,
+        'independent_references':count,'reference_policy_revision':policy_revision(count),
+        'reference_policy_owner_statement':OWNER_STATEMENT if count==1 else None,
+        'per_scene_triple_reference_audits':False,
         'independent_midpoints':sum(r['midpoint_sample']is not None for r in accepted),
         'midpoint_checks':[r['check']for r in accepted if r['midpoint_sample']is not None],
         'detailed_midpoint_checks':[r for r in accepted if r['midpoint_sample']is not None],
@@ -300,7 +307,7 @@ def _moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bin
         'energy_qualification':qualification,
         'refinements':refinements,'independent_reference_statistics':ref_stats,'independent_reference_files':reference_paths,'independent_reference_native_process_evidence':reference_processes,
         'known_bad_controls':controls,'known_bad_controls_excluded_from_audio':True,
-        'independent_reference_reuse_policy':'exact xyz plus native identity only; retain original three process reports; existing sample checkpoints preferred',
+        'independent_reference_reuse_policy':'exact xyz plus native identity only; retain original '+str(count)+' process report(s); existing sample checkpoints preferred',
         'full_emission_tail':True,'thresholds_changed':False,'gains_or_RIRs_fitted_to_references':False,
         'historical_frozen_budget_source':inputs.get('moving_energy_budget'),'historical_budget_refitted':False}
     from avengine.timeline.v7_wet_support import event_wet_support

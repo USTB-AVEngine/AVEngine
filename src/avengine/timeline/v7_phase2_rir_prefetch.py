@@ -49,10 +49,13 @@ def run_prefetch_plan(request_path, request, setup_report):
     inputs.update(fresh_rir_workers=min(16,max(1,int(plan['workers']))),fresh_rir_cpu_ids=list(plan['cpu_ids']))
     renderer=FreshNativeContextRenderer(inputs,request['house'],request['expected_native_identity'],setup_report,claim/'native')
     cache=PositionRIRCache(cache_root,renderer,identity)
+    from avengine.timeline.v7_rir_reference_policy import reference_count,policy_revision
+    count=reference_count()
     result={'status':'running','plan':str(plan_path),'plan_id':plan_id,'coordinator_pid':os.getpid(),
             'active_request':str(request_path),'current_role':request['evidence_role'],
             'current_position_excluded_from_prefetch':list(current),
-            'primary_and_reference_native_processes_separate':True,'thresholds_changed':False}
+            'primary_and_reference_native_processes_separate':True,'thresholds_changed':False,
+            'independent_references':count,'reference_policy_revision':policy_revision(count)}
     references=[]
     try:
         primary=[p for p in plan['primary_positions_m']if tuple(p)!=current]
@@ -69,7 +72,7 @@ def run_prefetch_plan(request_path, request, setup_report):
             checkpoint=parent/'independent_native_reference_checkpoint'/ep/(str(sample).zfill(8)+'.json')
             if checkpoint.is_file():return str(checkpoint)
             folder=claim/'references'/ep;folder.mkdir(parents=True,exist_ok=True);items=[]
-            for trial in range(3):
+            for trial in range(count):
                 batch=renderer.render_independent_reference([p],trial)
                 path=folder/(str(sample).zfill(8)+'_'+str(trial)+'.npy')
                 with path.open('xb')as stream:np.save(stream,batch.samples[0],allow_pickle=False)
@@ -77,7 +80,8 @@ def run_prefetch_plan(request_path, request, setup_report):
                               'native_process_evidence':batch.native_process_evidence})
             checkpoint.parent.mkdir(parents=True,exist_ok=True)
             write_json(checkpoint,{'actual_position_m':p,'native_identity':identity,'references':items,
-                'source':'three unmodified independent native renders; resumable only at exact pose/configuration'})
+                'reference_count':count,'reference_policy_revision':policy_revision(count),
+                'source':str(count)+' unmodified independent native render(s); resumable only at exact pose/configuration'})
             return str(checkpoint)
         with ThreadPoolExecutor(max_workers=min(16,max(1,int(plan['workers']))))as pool:references=list(pool.map(reference,jobs))
         primary_records=[];native_cpu=0.
