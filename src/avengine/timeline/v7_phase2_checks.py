@@ -24,7 +24,7 @@ def motion_checks(visual):
         if not floor_proof:
             errors.append(ep+':missing or failing complete original skin/floor collision proof')
         elif floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-skin_margin:
-            contact_issue('missing or failing complete original skin/floor collision proof')
+            (warnings if constructed_contact else errors).append(ep+':missing or failing complete original skin/floor collision proof')
         policy=record.get('production_visual_quality_policy',{})
         owner_quality=(isinstance(policy,dict)
             and policy.get('policy_name')=='owner_visual_quality_20261014'
