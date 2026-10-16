@@ -516,7 +516,14 @@ def endpoint_route(context, camera, start, end, body, target, *, query_duration_
     outside_pause = .5  # retained QA-07 prediction margin
     stable_pause = .6  # retained QA-07 prediction margin
     lo, hi = SPEED_BANDS[body.species]
-    speed = float(np.clip(length/(query_duration_s-outside_pause-stable_pause-.3), lo, hi))
+    desired_speed = float(np.clip(length/(query_duration_s-outside_pause-stable_pause-.3), lo, hi))
+    # Native root matrices store float32. Derive the consecutive-frame speed
+    # uncertainty from this path's actual coordinate ULPs instead of relaxing
+    # the owner's original [0.8,1.4] check or introducing an arbitrary .81 band.
+    ulps = np.max(np.abs(np.spacing(np.asarray(waypoints[:, [0,2]],np.float32))),axis=0)
+    speed_roundoff = float(np.linalg.norm(ulps.astype(float))*30.)
+    slack = min(speed_roundoff,(hi-lo)/2)
+    speed = float(np.clip(desired_speed,lo+slack,hi-slack))
     # Radius is derived from the path, not a fixed route shape or heading.
     segments = np.linalg.norm(np.diff(waypoints[:, [0, 2]], axis=0), axis=1)
     radius = float(segments.min()/2)
@@ -538,6 +545,12 @@ def endpoint_route(context, camera, start, end, body, target, *, query_duration_
     if actor is None:
         raise ConstructionError("corner_refinement_compute_budget", {"refinements": 12})
     actor.metadata["corner_refinement_count"] = refinement
+    actor.metadata["native_float32_speed_planning"] = {
+        "coordinate_ulp_xz_m":ulps.astype(float).tolist(),
+        "consecutive_frame_speed_uncertainty_m_s":speed_roundoff,
+        "unrounded_desired_speed_m_s":desired_speed,
+        "selected_speed_m_s":speed,"original_owner_speed_range_m_s":[lo,hi],
+        "native_readback_still_required":True}
     transport = {"reflect_walk": True, "positions_xz_m": actor.positions_m[:, [0, 2]].tolist(),
                  "travel_yaws_rad": actor.headings_rad.tolist(),
                  "strict_planned_motion": True,
@@ -905,7 +918,10 @@ def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtim
         if view == "outside":
             delta = current.positions_m[0]-np.asarray(plan.camera.position_m)
             azimuth = math.degrees(math.atan2(float(delta@plan.camera.right), float(delta@plan.camera.forward)))
-            role.update(minimum_abs_azimuth_deg=max(0., abs(azimuth)-1.),
+            # This legacy proposal helper examines an offset mouth/body
+            # representative, not the full mesh. Whole-body native projection
+            # proves outside; a root-angle +/-1 degree band adds no QA truth.
+            role.update(minimum_abs_azimuth_deg=0.,
                         preferred_azimuth_deg=azimuth, real_registered_drawable_required=True)
         if aid == target:
             role["required_visible_sometime"] = True
@@ -914,10 +930,7 @@ def _entry_row_for_plan(base_row, plan, target, state, catalog, contract, runtim
     angle = abs(math.degrees(math.atan2(float(delta@plan.camera.right), float(delta@plan.camera.forward))))
     row["motion_requests"] = {target: {"action": "walk", "speed_m_s": route["speed_m_s"],
         "intervals_s": [route["motion_interval_s"]], "minimum_listener_horizontal_distance_m": 1.5,
-        "joint_entry_route": route,
-        "camera_path_condition": {"kind": "enter", "camera_forward": route["camera_forward"],
-            "required_entry_side": SIDES[route["branch"]], "initial_outside_minimum_abs_deg": angle-1.,
-            "final_inside_maximum_abs_deg": abs(route["final_azimuth_deg"])+.5}}}
+        "joint_entry_route": route}}
     if actor.metadata.get("native_distance_clock_transport"):
         # gate_policy's explicit endpoint consumer retains XZ/heading/time;
         # contact-height residuals follow the owner's phase-2 observation rule.

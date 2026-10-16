@@ -537,3 +537,29 @@ def test_failed_native_camera_route_is_not_repeated_after_the_preferred_plan():
     different=next(stream)
     assert entry_route_key(different.camera,different.actors["target"]) != key
     stream.close()
+
+def test_speed_construction_passes_original_float32_native_readback_gate():
+    from avengine.construction.joint import BodySpec
+    from avengine.construction.joint.routes import construct_route
+    from avengine.construction.joint.families.qa07 import endpoint_route
+    from avengine.assets.roster_motion.reflect_navmesh import reflected_distance_clock
+    from avengine.timeline.v7_motion_speed import certify_moving_root_speed
+    context=endpoint_test_context();camera=context.cameras[0];body=BodySpec("human",.35,1.9,.05)
+    start,end=[6.,0.,-6.],[8.,0.,-4.]
+    original=construct_route(context,[start,end],species="human",speed_m_s=.8,
+                             start_s=.5,camera=camera,entity_id="target",body=body)
+    def native_check(actor):
+        distance,velocity,_=reflected_distance_clock(
+            {"positions_xz_m":actor.positions_m[:,[0,2]].tolist()},1.2)
+        readbacks=actor.positions_m.astype(np.float32).astype(float)
+        return certify_moving_root_speed(readbacks,np.arange(901)/30.,velocity>1e-8,"human")
+    with pytest.raises(ValueError,match="median speed"):
+        native_check(original)
+    solved=endpoint_route(context,camera,start,end,body,"target")
+    result=native_check(solved)
+    assert result["status"]=="pass"
+    assert result["allowed_range_m_s"]==[.8,1.4]
+    assert .8 <= solved.metadata["speed_m_s"] <= 1.4
+    proof=solved.metadata["native_float32_speed_planning"]
+    assert proof["consecutive_frame_speed_uncertainty_m_s"]>0
+    assert proof["native_readback_still_required"] is True
