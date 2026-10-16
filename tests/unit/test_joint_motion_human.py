@@ -55,3 +55,30 @@ def test_following_approaching_pair_keeps_quiet_bystander_from_facing_camera():
         yaw=bystander_native_yaw({'scene_seed':seed,'human_motion_pair_mode':'following'},root,listener)
         forward=rotation(yaw)@np.array([0.,0.,-1.])
         assert np.dot(forward,toward)<=-.5+1e-12
+
+
+def test_cached_single_layout_never_reuses_certificates_or_requires_second_walk():
+    from avengine.construction.joint.families.motion_human import single_walker_geometry_proposal
+    base={'house':'train','room_id':'room','scene_seed':3,'scene_id':'fresh'}
+    saved={**base,'scene_id':'prototype','semantic_human_asset_ids':['a','b'],
+        'motion_requests':{'a':{'motion_quartet_route':{'emission_slot':{'branch':'nearer'}}},'b':{}},
+        'motion_during_condition_requests':[{'target_asset_id':'a'},{'target_asset_id':'b'}],
+        'motion_during_condition_plan':{'plans':[{'target_asset_id':'a'},{'target_asset_id':'b'}]},
+        'primary_motion_speech_anchors_s':{'a':2.7,'b':17.7},
+        'human_motion_event_planned_verification':[{'asset_id':'a'},{'asset_id':'b'}],
+        'motion_quartet_construction':{'routes':{'a':{},'b':{}},'revision':'old'},
+        'joint_motion_witness_certificate':{'status':'pass'},
+        'joint_prepared_scene_required':True,'joint_solver_certificate':{'status':'pass'},
+        'asset_ids':['a','b','quiet'],'silent_asset_ids':['quiet'],
+        'phase2_source_event_schedule_s':{'a':[2.7,11.,22.],'b':[7.5,17.7,27.5]}}
+    original=deepcopy(saved);row=single_walker_geometry_proposal(base,saved)
+    assert saved==original and row['scene_id']=='fresh'
+    assert set(row['motion_requests'])=={'a'} and row['human_motion_require_two_walkers']is False
+    assert row['asset_ids']==saved['asset_ids'] and row['phase2_source_event_schedule_s']==saved['phase2_source_event_schedule_s']
+    assert not any(k in row for k in ('joint_motion_witness_certificate','joint_prepared_scene_required','joint_solver_certificate'))
+    assert row['human_motion_event_planned_verification']==[]
+    with pytest.raises(ValueError,match='scene_seed'):
+        single_walker_geometry_proposal({**base,'scene_seed':4},saved)
+    saved['motion_requests']['a']['motion_quartet_route']['emission_slot']['branch']='farther'
+    with pytest.raises(ValueError,match='branch'):
+        single_walker_geometry_proposal(base,saved)

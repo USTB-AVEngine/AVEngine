@@ -142,6 +142,31 @@ def single_walker_fallback_row(row):
     return result
 
 
+def single_walker_geometry_proposal(base_row, saved_row):
+    """A pure cached layout is a proposal; solve and native proof remain required."""
+    from copy import deepcopy
+    for key in ('house','room_id','scene_seed'):
+        if saved_row.get(key)!=base_row.get(key):
+            raise ValueError('cached human geometry differs from requested '+key)
+    first,second=saved_row['semantic_human_asset_ids']
+    if set(saved_row.get('motion_requests',{}))!={first,second}:
+        raise ValueError('cached human geometry requires both original registered walkers')
+    route=saved_row['motion_requests'][first]['motion_quartet_route']
+    expected='nearer'if int(base_row['scene_seed'])%2 else'farther'
+    if route['emission_slot']['branch']!=expected:
+        raise ValueError('cached human geometry has the wrong requested branch')
+    proposal=single_walker_fallback_row(saved_row)
+    proposal['scene_id']=base_row['scene_id']
+    proposal['human_motion_require_two_walkers']=False
+    proposal['joint_common_geometry_status']='uncertified cached single-walker proposal; all current gates required'
+    for key in ('joint_motion_witness_certificate','joint_solver_certificate',
+                'joint_prepared_scene_required','motion_quartet_planned_verification'):
+        proposal.pop(key,None)
+    proposal['motion_quartet_construction']['proposal_scope']='cached geometry only; no prior certificate, media, QA or seal is admitted'
+    proposal['human_motion_event_planned_verification']=[]
+    return proposal
+
+
 class HumanMotionPlugin:
     def __init__(self, base_row, state, catalog, semantic, records, contract, house, attempt=0):
         self.base_row=base_row;self.state=state;self.catalog=catalog
@@ -154,6 +179,7 @@ class HumanMotionPlugin:
         from avengine.construction.joint import SoundEvent
         from copy import deepcopy
         from avengine.timeline.v7_two_human_motion import two_human_motion_template
+        single_geometry=None
         if self.base_row.get('human_motion_seed_hint_root'):
             from pathlib import Path
             import json
@@ -163,12 +189,18 @@ class HumanMotionPlugin:
                     key=saved['semantic_human_asset_ids'][0]
                     self.base_row['precomputed_human_radial_seed']=saved['motion_requests'][key]['motion_quartet_route']
                     self.base_row['geometric_seed_provenance']={'path':str(path),'scope':'proposal only; common/family/native checks rerun'}
+                    if self.base_row.get('human_single_walker_fallback'):
+                        single_geometry=single_walker_geometry_proposal(self.base_row,saved)
+                        single_geometry['geometric_seed_provenance']=deepcopy(self.base_row['geometric_seed_provenance'])
                     break
         def shared_constructor(*args,**kwargs):
             return two_human_motion_template(*args,joint_context=context,**kwargs)
-        row=plan_room_motion_quartet(self.base_row,self.state,context.room,self.catalog,
-            self.semantic,self.records,context.pathfinder,attempt=self.attempt,contract=self.contract,constructor=shared_constructor)
-        if self.base_row.get('human_single_walker_fallback'):row=single_walker_fallback_row(row)
+        if single_geometry is not None:
+            row=single_geometry
+        else:
+            row=plan_room_motion_quartet(self.base_row,self.state,context.room,self.catalog,
+                self.semantic,self.records,context.pathfinder,attempt=self.attempt,contract=self.contract,constructor=shared_constructor)
+            if self.base_row.get('human_single_walker_fallback'):row=single_walker_fallback_row(row)
         plan=scene_plan_for_row(row,context.room)
         row['joint_motion_witness_certificate']=certificate_record(motion_certificate(row['motion_during_condition_plan'],plan.metadata['planned_emitter_positions_by_asset'],plan.camera.position_m))
         by_id={a['asset_id']:a for a in self.catalog}
